@@ -292,7 +292,8 @@ namespace Game.Rules.Runtime
                 .RegisterEngineReducer<CommitCombatRuntimeOp, CombatRuntimeOutcome>(
                     new CommitCombatRuntimeReducer(),
                     Source
-                );
+                )
+                .UseMultipleAttackPenaltyRules();
         }
     }
 

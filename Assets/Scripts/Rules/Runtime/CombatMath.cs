@@ -3,30 +3,6 @@ using System;
 namespace Game.Rules.Runtime
 {
     /// <summary>
-    /// Resolves the signed multiple attack penalty for a normal or agile attack.
-    /// </summary>
-    public static class MultipleAttackPenaltyResolver
-    {
-        /// <summary>
-        /// Gets the penalty for the next attack from the number of attacks already made this turn.
-        /// </summary>
-        /// <param name="attackCount">The non-negative number of prior attacks.</param>
-        /// <param name="isAgile">Whether the attack uses the reduced agile penalties.</param>
-        /// <returns>Zero, -5/-10 for normal attacks, or -4/-8 for agile attacks.</returns>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="attackCount"/> is negative.</exception>
-        public static int Resolve(int attackCount, bool isAgile)
-        {
-            if (attackCount < 0)
-                throw new ArgumentOutOfRangeException(nameof(attackCount));
-            if (attackCount == 0)
-                return 0;
-            if (attackCount == 1)
-                return isAgile ? -4 : -5;
-            return isAgile ? -8 : -10;
-        }
-    }
-
-    /// <summary>
     /// Contains one pure damage roll before weakness, resistance, or authoritative HP mutation.
     /// </summary>
     public sealed class DamageRollOutcome

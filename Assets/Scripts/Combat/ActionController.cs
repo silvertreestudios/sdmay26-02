@@ -28,9 +28,13 @@ public abstract class ActionController : MonoBehaviour
     public bool Reacted { get; set; }
 
     /// <summary>
-    /// Gets the rules-owned number of attacks already made this turn for UI and diagnostics.
+    /// Gets the rules-owned number of prior attacks for this controller's current turn.
     /// </summary>
-    public uint StrikePenalty => checked((uint)UnityAttackStateAdapter.GetAttackCount(this));
+    public uint StrikePenalty =>
+        TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
+        && bridge.Snapshot.MultipleAttackPenalty.TryGet(actor, out MultipleAttackPenaltyState state)
+            ? checked((uint)state.AttackCount)
+            : 0;
 
     //Events
     public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();

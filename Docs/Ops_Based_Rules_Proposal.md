@@ -145,7 +145,7 @@ public sealed record StrikeActionOp(
     CreatureId Actor,
     ItemId Weapon,
     CreatureId Target)
-    : ActionOp<StrikeOutcome>(Actor, ActionIds.Strike)
+    : ActionOp<StrikeResolution>(Actor, ActionIds.Strike)
 {
     public override ActionProfile GetBaseProfile(IActionCatalog catalog)
     {
@@ -928,7 +928,7 @@ public interface IActionDefinition<TSelection, TOp, TResult>
 public sealed record StrikeSelection(ItemId Weapon, CreatureId Target);
 
 public sealed class StrikeActionDefinition
-    : IActionDefinition<StrikeSelection, StrikeActionOp, StrikeOutcome>
+    : IActionDefinition<StrikeSelection, StrikeActionOp, StrikeResolution>
 {
     public ActionAvailability GetAvailability(
         RulesSnapshot snapshot,
@@ -1031,7 +1031,7 @@ public sealed record StrikeActionOp(
     CreatureId Actor,
     ItemId Weapon,
     CreatureId Target)
-    : ActionOp<StrikeOutcome>(Actor, ActionIds.Strike)
+    : ActionOp<StrikeResolution>(Actor, ActionIds.Strike)
 {
     public override ActionProfile GetBaseProfile(IActionCatalog catalog)
     {
@@ -1191,9 +1191,9 @@ public sealed class ResolveStrikeHandler
 }
 
 public sealed class StrikeActionHandler
-    : IOpHandler<StrikeActionOp, StrikeOutcome>
+    : IOpHandler<StrikeActionOp, StrikeResolution>
 {
-    public async ValueTask<StrikeOutcome> Handle(
+    public async ValueTask<StrikeResolution> Handle(
         OpFrame<StrikeActionOp> frame,
         OpHandlerContext context)
     {
@@ -1206,19 +1206,17 @@ public sealed class StrikeActionHandler
             StrikePurpose.Normal,
             DamageSource.From(frame.Id)));
 
-        if (strike is InvalidOpResult<StrikeResolution> invalidStrike)
-            return StrikeOutcome.Aborted(invalidStrike.Reason);
         if (strike is not ResolvedOpResult<StrikeResolution> resolvedStrike)
             throw new InvalidOperationException(
-                "Nested strike resolution cannot be interrupted or cancelled.");
+                "Nested strike resolution did not resolve.");
 
         // Every legally resolved normal Strike changes MAP, including a miss.
         var map = await context.Dispatch(
-            new IncrementMultipleAttackPenaltyOp(frame.Op.Actor));
+            new AdvanceMultipleAttackPenaltyOp(frame.Op.Actor));
+        if (map is not ResolvedOpResult<MultipleAttackPenaltyState>)
+            throw new InvalidOperationException("MAP advancement did not resolve.");
 
-        return new StrikeOutcome(
-            resolvedStrike.Value,
-            MapIncremented: map is ResolvedOpResult<MultipleAttackPenaltyOutcome>);
+        return resolvedStrike.Value;
     }
 }
 ```

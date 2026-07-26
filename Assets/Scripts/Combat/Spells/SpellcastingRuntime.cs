@@ -8,6 +8,12 @@ using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
+using AdvanceMultipleAttackPenaltyOp = Game.Rules.Runtime.AdvanceMultipleAttackPenaltyOp;
+using CreatureId = Game.Rules.Runtime.CreatureId;
+using InvalidMapOpResult = Game.Rules.Runtime.InvalidOpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
+using MapOpResult = Game.Rules.Runtime.OpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
+using MultipleAttackPenaltyState = Game.Rules.Runtime.MultipleAttackPenaltyState;
+using ResolvedMapOpResult = Game.Rules.Runtime.ResolvedOpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
 using RuleSource = Game.Rules.Runtime.RuleSource;
 
 namespace Game.Combat.Spells
@@ -144,7 +150,25 @@ namespace Game.Combat.Spells
                 {
                     controller.SpendActions(context.ActionCost);
                     if (context.Definition.AppliesMultipleAttackPenalty(context))
-                        UnityAttackStateAdapter.Advance(controller);
+                    {
+                        if (
+                            controller.TryGetCombatRules(
+                                out UnityCombatRulesBridge bridge,
+                                out CreatureId actor
+                            )
+                        )
+                        {
+                            MapOpResult map = bridge.Dispatch(
+                                new AdvanceMultipleAttackPenaltyOp(actor)
+                            );
+                            if (map is InvalidMapOpResult invalid)
+                                throw new InvalidOperationException(invalid.Reason);
+                            if (map is not ResolvedMapOpResult)
+                                throw new InvalidOperationException(
+                                    "MAP advancement did not resolve."
+                                );
+                        }
+                    }
                 }
                 finally
                 {

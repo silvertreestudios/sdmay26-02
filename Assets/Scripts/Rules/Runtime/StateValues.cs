@@ -198,35 +198,6 @@ namespace Game.Rules.Runtime
             !left.Equals(right);
     }
 
-    public readonly struct MultipleAttackPenaltyState : IEquatable<MultipleAttackPenaltyState>
-    {
-        public int AttackCount { get; }
-
-        public MultipleAttackPenaltyState(int attackCount)
-        {
-            if (attackCount < 0)
-                throw new ArgumentOutOfRangeException(nameof(attackCount));
-            AttackCount = attackCount;
-        }
-
-        public bool Equals(MultipleAttackPenaltyState other) => AttackCount == other.AttackCount;
-
-        public override bool Equals(object obj) =>
-            obj is MultipleAttackPenaltyState other && Equals(other);
-
-        public override int GetHashCode() => AttackCount;
-
-        public static bool operator ==(
-            MultipleAttackPenaltyState left,
-            MultipleAttackPenaltyState right
-        ) => left.Equals(right);
-
-        public static bool operator !=(
-            MultipleAttackPenaltyState left,
-            MultipleAttackPenaltyState right
-        ) => !left.Equals(right);
-    }
-
     public sealed class ConditionState : IEquatable<ConditionState>
     {
         public ConditionId Id { get; }

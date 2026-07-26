@@ -164,9 +164,8 @@ internal sealed class MultipleAttackAndRangePenaltyAdjustment : StrikeAdjustment
 
     public override void Apply(StrikeResolutionContext context)
     {
-        int strikePenaltyCount = UnityAttackStateAdapter.GetAttackCount(
-            context.AttackerObject.GetComponent<ActionController>()
-        );
+        ActionController controller = context.AttackerObject.GetComponent<ActionController>();
+        int strikePenaltyCount = controller == null ? 0 : checked((int)controller.StrikePenalty);
         context.MultipleAttackPenalty = CalculateMultipleAttackPenalty(context, strikePenaltyCount);
         context.RangePenalty = context.TargetingResult?.RangePenalty ?? 0;
 

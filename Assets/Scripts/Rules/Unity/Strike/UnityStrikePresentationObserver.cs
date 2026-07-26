@@ -18,7 +18,7 @@ namespace Game.Rules.Unity.Strike
     /// </remarks>
     public sealed class UnityStrikePresentationObserver
         : IResolvedOpObserver<ResolveStrikeOp, StrikeResolution>,
-            IResolvedOpObserver<StrikeActionOp, StrikeOutcome>
+            IResolvedOpObserver<StrikeActionOp, StrikeResolution>
     {
         private readonly IReadOnlyDictionary<CreatureId, ActionController> controllers;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
@@ -83,7 +83,7 @@ namespace Game.Rules.Unity.Strike
         /// <inheritdoc/>
         public ValueTask OnOperationResolved(
             StrikeActionOp operation,
-            StrikeOutcome result,
+            StrikeResolution result,
             RulesSnapshot currentSnapshot
         )
         {
@@ -97,7 +97,7 @@ namespace Game.Rules.Unity.Strike
             )
                 return default;
 
-            PresentSafely(() => PublishOutcomeEvent(attacker, result.Resolution), attacker);
+            PresentSafely(() => PublishOutcomeEvent(attacker, result), attacker);
             PresentSafely(
                 () =>
                 {
@@ -108,7 +108,7 @@ namespace Game.Rules.Unity.Strike
                                 attacker,
                                 target,
                                 strikeContext.GetStrikeItem(operation.Item),
-                                result.Resolution
+                                result
                             )
                         );
                     }

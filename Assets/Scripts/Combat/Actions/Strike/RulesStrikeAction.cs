@@ -55,9 +55,17 @@ namespace Game.Strikes
                 is AvailableActionAvailability;
         }
 
-        /// <summary>Checks current Unity geometry for AI preview only.</summary>
+        /// <summary>
+        /// Checks the full side-effect-free Strike validation path used by authoritative dispatch.
+        /// </summary>
         public bool CanPreviewTarget(RulesSnapshot snapshot, CreatureId actor, CreatureId target) =>
-            strikeContext.Evaluate(snapshot, actor, item, target) is LegalStrikeTargetingOutcome;
+            new StrikeActionDefinition().Validate(
+                snapshot,
+                new StrikeActionOp(actor, item.Item, target),
+                strikeContext,
+                strikeContext,
+                strikeContext
+            ) is ActionValidationResult.ValidActionValidationResult;
 
         /// <summary>Creates the existing grid selection request used by player and AI presentation.</summary>
         public StrikeTargetRequest GetTargetRequest() =>
@@ -102,14 +110,14 @@ namespace Game.Strikes
                 {
                     CreatureId target = bridge.GetCreatureId(targetCreature);
                     StrikeActionOp operation = new StrikeActionOp(actor, item.Item, target);
-                    OpResult<StrikeOutcome> result = bridge.Dispatch(operation);
-                    if (result is InvalidOpResult<StrikeOutcome> invalid)
+                    OpResult<StrikeResolution> result = bridge.Dispatch(operation);
+                    if (result is InvalidOpResult<StrikeResolution> invalid)
                         Debug.LogWarning($"Strike was rejected: {invalid.Reason}", attacker);
-                    else if (result is InterruptedOpResult<StrikeOutcome>)
+                    else if (result is InterruptedOpResult<StrikeResolution>)
                         Debug.LogWarning("Strike was interrupted.", attacker);
-                    else if (result is CancelledOpResult<StrikeOutcome>)
+                    else if (result is CancelledOpResult<StrikeResolution>)
                         Debug.LogWarning("Strike was cancelled.", attacker);
-                    else if (result is not ResolvedOpResult<StrikeOutcome>)
+                    else if (result is not ResolvedOpResult<StrikeResolution>)
                         Debug.LogWarning("Strike returned an unknown structural result.", attacker);
                 }
                 catch (Exception exception)
@@ -172,15 +180,15 @@ namespace Game.Strikes
                     )
                 )
                     return;
-                OpResult<ReloadOutcome> result = bridge.Dispatch(
+                OpResult<EquipmentState> result = bridge.Dispatch(
                     new ReloadActionOp(actor, item.Item)
                 );
                 if (
-                    result is ResolvedOpResult<ReloadOutcome>
+                    result is ResolvedOpResult<EquipmentState>
                     && CombatLog.TryGetInstance(out CombatLogInterface log)
                 )
                     log.Log($"- {target.name} reloads {item.Label}.");
-                else if (result is InvalidOpResult<ReloadOutcome> invalid)
+                else if (result is InvalidOpResult<EquipmentState> invalid)
                     Debug.LogWarning($"Reload was rejected: {invalid.Reason}", target);
             }
             catch (Exception exception)

@@ -18,13 +18,13 @@ namespace Game.Rules.Runtime.Tests
         {
             TestRuntime runtime = CreateRuntime(new ScriptedRollService(10, 4));
 
-            OpResult<StrikeOutcome> result = await runtime.Dispatcher.Dispatch(
+            OpResult<StrikeResolution> result = await runtime.Dispatcher.Dispatch(
                 new StrikeActionOp(Actor, Weapon, Target)
             );
 
-            ResolvedOpResult<StrikeOutcome> resolved = AssertResolved(result);
-            Assert.That(resolved.Value.Resolution.Degree, Is.EqualTo(DegreeOfSuccess.Success));
-            Assert.That(resolved.Value.Resolution.FinalDamage, Is.EqualTo(6));
+            ResolvedOpResult<StrikeResolution> resolved = AssertResolved(result);
+            Assert.That(resolved.Value.Degree, Is.EqualTo(DegreeOfSuccess.Success));
+            Assert.That(resolved.Value.FinalDamage, Is.EqualTo(6));
             Assert.That(runtime.Dispatcher.Snapshot.Health[Target].Current, Is.EqualTo(14));
             Assert.That(
                 runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
@@ -42,17 +42,20 @@ namespace Game.Rules.Runtime.Tests
         {
             TestRuntime runtime = CreateRuntime(new ScriptedRollService(2));
 
-            ResolvedOpResult<StrikeOutcome> result = AssertResolved(
+            ResolvedOpResult<StrikeResolution> result = AssertResolved(
                 await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
             );
 
-            Assert.That(result.Value.Resolution.Hit, Is.False);
+            Assert.That(result.Value.Hit, Is.False);
             Assert.That(runtime.Dispatcher.Snapshot.Health[Target].Current, Is.EqualTo(20));
             Assert.That(
                 runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
                 Is.EqualTo(2)
             );
-            Assert.That(result.Value.AttackCount, Is.EqualTo(1));
+            Assert.That(
+                runtime.Dispatcher.Snapshot.MultipleAttackPenalty[Actor].AttackCount,
+                Is.EqualTo(1)
+            );
             Assert.That(result.Facts.OfType<DamageAppliedFact>(), Is.Empty);
         }
 
@@ -66,7 +69,7 @@ namespace Game.Rules.Runtime.Tests
 
             StrikeResolution resolution = AssertResolved(
                 await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
-            ).Value.Resolution;
+            ).Value;
 
             Assert.That(resolution.Degree, Is.EqualTo(DegreeOfSuccess.CriticalSuccess));
             Assert.That(resolution.FinalDamage, Is.EqualTo(19));
@@ -85,7 +88,7 @@ namespace Game.Rules.Runtime.Tests
 
             StrikeResolution resolution = AssertResolved(
                 await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
-            ).Value.Resolution;
+            ).Value;
 
             Assert.That(resolution.FinalDamage, Is.EqualTo(21));
             Assert.That(runtime.Rolls.Remaining, Is.Zero);
@@ -110,7 +113,7 @@ namespace Game.Rules.Runtime.Tests
 
             StrikeResolution resolution = AssertResolved(
                 await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
-            ).Value.Resolution;
+            ).Value;
 
             Assert.That(resolution.FinalDamage, Is.EqualTo(8));
             Assert.That(resolution.Damage.Single().Amount, Is.EqualTo(8));
@@ -122,11 +125,11 @@ namespace Game.Rules.Runtime.Tests
             TestRuntime runtime = CreateRuntime(new ScriptedRollService(20));
             runtime.Targeting.Result = StrikeTargetingOutcome.Invalid("blocked");
 
-            OpResult<StrikeOutcome> result = await runtime.Dispatcher.Dispatch(
+            OpResult<StrikeResolution> result = await runtime.Dispatcher.Dispatch(
                 new StrikeActionOp(Actor, Weapon, Target)
             );
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeOutcome>>());
+            Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
             Assert.That(
                 runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
                 Is.EqualTo(3)
@@ -167,13 +170,13 @@ namespace Game.Rules.Runtime.Tests
                 resolutionDataProvider: new InvalidArmorClassResolutionDataProvider()
             );
 
-            OpResult<StrikeOutcome> result = await runtime.Dispatcher.Dispatch(
+            OpResult<StrikeResolution> result = await runtime.Dispatcher.Dispatch(
                 new StrikeActionOp(Actor, Weapon, Target)
             );
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeOutcome>>());
+            Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
             Assert.That(
-                ((InvalidOpResult<StrikeOutcome>)result).Reason,
+                ((InvalidOpResult<StrikeResolution>)result).Reason,
                 Does.Contain("Armor Class")
             );
             Assert.That(
@@ -197,28 +200,28 @@ namespace Game.Rules.Runtime.Tests
             StrikeItemDefinition agile = CreateItem(traits: new[] { Trait.FromSlug("agile") });
             TestRuntime runtime = CreateRuntime(new ScriptedRollService(2, 2, 2, 2), agile);
 
-            StrikeOutcome first = AssertResolved(
+            StrikeResolution first = AssertResolved(
                 await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
             ).Value;
-            StrikeOutcome second = AssertResolved(
+            StrikeResolution second = AssertResolved(
                 await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
             ).Value;
-            StrikeOutcome third = AssertResolved(
+            StrikeResolution third = AssertResolved(
                 await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
             ).Value;
 
-            Assert.That(first.Resolution.MultipleAttackPenalty, Is.Zero);
-            Assert.That(second.Resolution.MultipleAttackPenalty, Is.EqualTo(-4));
-            Assert.That(third.Resolution.MultipleAttackPenalty, Is.EqualTo(-8));
+            Assert.That(first.MultipleAttackPenalty, Is.Zero);
+            Assert.That(second.MultipleAttackPenalty, Is.EqualTo(-4));
+            Assert.That(third.MultipleAttackPenalty, Is.EqualTo(-8));
             AssertResolved(await runtime.Dispatcher.Dispatch(new BeginCombatTurnOp(Actor, 3)));
             Assert.That(
                 runtime.Dispatcher.Snapshot.MultipleAttackPenalty[Actor].AttackCount,
                 Is.Zero
             );
-            StrikeOutcome reset = AssertResolved(
+            StrikeResolution reset = AssertResolved(
                 await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
             ).Value;
-            Assert.That(reset.Resolution.MultipleAttackPenalty, Is.Zero);
+            Assert.That(reset.MultipleAttackPenalty, Is.Zero);
         }
 
         [Test]
@@ -236,17 +239,22 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(runtime.Dispatcher.Snapshot.Ammunition[Ammo].Remaining, Is.EqualTo(1));
             Assert.That(runtime.Dispatcher.Snapshot.Equipment[Weapon].IsLoaded, Is.False);
 
-            OpResult<StrikeOutcome> blocked = await runtime.Dispatcher.Dispatch(
+            OpResult<StrikeResolution> blocked = await runtime.Dispatcher.Dispatch(
                 new StrikeActionOp(Actor, Weapon, Target)
             );
-            Assert.That(blocked, Is.TypeOf<InvalidOpResult<StrikeOutcome>>());
+            Assert.That(blocked, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
             Assert.That(runtime.Dispatcher.Snapshot.Ammunition[Ammo].Remaining, Is.EqualTo(1));
             Assert.That(
                 runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
                 Is.EqualTo(2)
             );
 
-            AssertResolved(await runtime.Dispatcher.Dispatch(new ReloadActionOp(Actor, Weapon)));
+            ResolvedOpResult<EquipmentState> reload = AssertResolved(
+                await runtime.Dispatcher.Dispatch(new ReloadActionOp(Actor, Weapon))
+            );
+            Assert.That(reload.Value, Is.SameAs(runtime.Dispatcher.Snapshot.Equipment[Weapon]));
+            Assert.That(reload.Value.Id, Is.EqualTo(Weapon));
+            Assert.That(reload.Value.IsLoaded, Is.True);
             Assert.That(runtime.Dispatcher.Snapshot.Equipment[Weapon].IsLoaded, Is.True);
             Assert.That(runtime.Dispatcher.Snapshot.Ammunition[Ammo].Remaining, Is.EqualTo(1));
             Assert.That(
@@ -269,11 +277,11 @@ namespace Game.Rules.Runtime.Tests
                 loaded: false
             );
 
-            OpResult<ReloadOutcome> result = await runtime.Dispatcher.Dispatch(
+            OpResult<EquipmentState> result = await runtime.Dispatcher.Dispatch(
                 new ReloadActionOp(Actor, Weapon)
             );
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<ReloadOutcome>>());
+            Assert.That(result, Is.TypeOf<InvalidOpResult<EquipmentState>>());
             Assert.That(
                 runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
                 Is.EqualTo(3)
@@ -302,12 +310,12 @@ namespace Game.Rules.Runtime.Tests
                 actorHp: actorHp
             );
 
-            OpResult<ReloadOutcome> result = await runtime.Dispatcher.Dispatch(
+            OpResult<EquipmentState> result = await runtime.Dispatcher.Dispatch(
                 new ReloadActionOp(Actor, Weapon)
             );
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<ReloadOutcome>>());
-            Assert.That(((InvalidOpResult<ReloadOutcome>)result).Reason, Does.Contain(reason));
+            Assert.That(result, Is.TypeOf<InvalidOpResult<EquipmentState>>());
+            Assert.That(((InvalidOpResult<EquipmentState>)result).Reason, Does.Contain(reason));
             Assert.That(
                 runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
                 Is.EqualTo(3)

@@ -518,24 +518,8 @@ namespace Game.Rules.Runtime
             Degree == DegreeOfSuccess.Success || Degree == DegreeOfSuccess.CriticalSuccess;
     }
 
-    /// <summary>Contains the completed normal Strike and its resulting MAP count.</summary>
-    public sealed class StrikeOutcome
-    {
-        internal StrikeOutcome(StrikeResolution resolution, int attackCount)
-        {
-            Resolution = resolution ?? throw new ArgumentNullException(nameof(resolution));
-            AttackCount = attackCount;
-        }
-
-        /// <summary>Gets deterministic attack and damage details.</summary>
-        public StrikeResolution Resolution { get; }
-
-        /// <summary>Gets the authoritative number of attacks after this Strike.</summary>
-        public int AttackCount { get; }
-    }
-
     /// <summary>Represents one complete normal Strike selected by player or AI.</summary>
-    public sealed class StrikeActionOp : ActionOp<StrikeOutcome>
+    public sealed class StrikeActionOp : ActionOp<StrikeResolution>
     {
         /// <summary>Creates a normal Strike root.</summary>
         public StrikeActionOp(CreatureId actor, ItemId item, CreatureId target)
@@ -727,37 +711,6 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Advances the rules-owned MAP shared by every attack action.</summary>
-    public sealed class AdvanceMultipleAttackPenaltyOp : IRuleOp<MultipleAttackPenaltyState>
-    {
-        /// <summary>Creates a MAP advancement request for a resolved attack.</summary>
-        public AdvanceMultipleAttackPenaltyOp(CreatureId actor)
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("An attack actor is required.", nameof(actor));
-            Actor = actor;
-        }
-
-        /// <summary>Gets the attacking creature.</summary>
-        public CreatureId Actor { get; }
-    }
-
-    /// <summary>Reports a committed shared MAP advancement.</summary>
-    public sealed class MultipleAttackPenaltyAdvancedFact : RuleFact
-    {
-        internal MultipleAttackPenaltyAdvancedFact(CreatureId actor, int attackCount)
-        {
-            Actor = actor;
-            AttackCount = attackCount;
-        }
-
-        /// <summary>Gets the attacking creature.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the committed attack count.</summary>
-        public int AttackCount { get; }
-    }
-
     /// <summary>Reports a committed loaded-state transition.</summary>
     public sealed class StrikeItemLoadedChangedFact : RuleFact
     {
@@ -789,22 +742,6 @@ namespace Game.Rules.Runtime
 
         public CreatureId Actor { get; }
         public ItemId Item { get; }
-        public bool IsLoaded { get; }
-    }
-
-    /// <summary>Contains a completed Reload's authoritative loaded state.</summary>
-    public sealed class ReloadOutcome
-    {
-        internal ReloadOutcome(ItemId item, bool isLoaded)
-        {
-            Item = item;
-            IsLoaded = isLoaded;
-        }
-
-        /// <summary>Gets the reloaded item.</summary>
-        public ItemId Item { get; }
-
-        /// <summary>Gets the committed loaded state.</summary>
         public bool IsLoaded { get; }
     }
 
@@ -875,7 +812,7 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>Represents the minimal feature-owned Reload needed by ranged Strike.</summary>
-    public sealed class ReloadActionOp : ActionOp<ReloadOutcome>
+    public sealed class ReloadActionOp : ActionOp<EquipmentState>
     {
         /// <summary>Creates a Reload root for one selected weapon.</summary>
         public ReloadActionOp(CreatureId actor, ItemId item)
@@ -955,7 +892,7 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Registers normal Strike, shared MAP, and minimal Reload behavior.</summary>
+    /// <summary>Registers normal Strike and minimal Reload behavior.</summary>
     public static class StrikeRuleDispatcherExtensions
     {
         private static readonly RuleSource Source = RuleSource.FromSlug("strike");
@@ -980,7 +917,7 @@ namespace Game.Rules.Runtime
             StrikeActionDefinition strike = new StrikeActionDefinition();
             ReloadActionDefinition reload = new ReloadActionDefinition();
             return builder
-                .RegisterHandler<StrikeActionOp, StrikeOutcome>(new StrikeActionHandler(catalog))
+                .RegisterHandler<StrikeActionOp, StrikeResolution>(new StrikeActionHandler(catalog))
                 .RegisterHandler<ResolveStrikeOp, StrikeResolution>(
                     new ResolveStrikeHandler(catalog, targeting, resolutionData),
                     InvocationPolicy.NestedOnly
@@ -988,21 +925,14 @@ namespace Game.Rules.Runtime
                 .RegisterActionValidator(
                     new StrikeActionValidator(strike, catalog, targeting, resolutionData)
                 )
-                .RegisterHandler<ReloadActionOp, ReloadOutcome>(new ReloadActionHandler(catalog))
+                .RegisterHandler<ReloadActionOp, EquipmentState>(new ReloadActionHandler(catalog))
                 .RegisterActionValidator(new ReloadActionValidator(reload, catalog))
                 .RegisterHandler<RegisterStrikeCombatantOp, bool>(
                     new RegisterStrikeCombatantHandler()
                 )
-                .RegisterHandler<AdvanceMultipleAttackPenaltyOp, MultipleAttackPenaltyState>(
-                    new AdvanceMultipleAttackPenaltyHandler()
-                )
                 .RegisterHandler<SetStrikeItemLoadedOp, EquipmentState>(
                     new SetStrikeItemLoadedHandler(),
                     InvocationPolicy.NestedOnly
-                )
-                .RegisterReducer<CommitMultipleAttackPenaltyAdvanceOp, MultipleAttackPenaltyState>(
-                    new AdvanceMultipleAttackPenaltyReducer(),
-                    Source
                 )
                 .RegisterReducer<CommitStrikeItemLoadedOp, EquipmentState>(
                     new CommitStrikeItemLoadedReducer(),
@@ -1041,7 +971,7 @@ namespace Game.Rules.Runtime
         ) => definition.Validate(snapshot, frame.Op, catalog, targeting, resolutionData);
     }
 
-    internal sealed class StrikeActionHandler : IOpHandler<StrikeActionOp, StrikeOutcome>
+    internal sealed class StrikeActionHandler : IOpHandler<StrikeActionOp, StrikeResolution>
     {
         private readonly IStrikeActionCatalog catalog;
 
@@ -1050,7 +980,7 @@ namespace Game.Rules.Runtime
             this.catalog = catalog;
         }
 
-        public async ValueTask<StrikeOutcome> Handle(
+        public async ValueTask<StrikeResolution> Handle(
             OpFrame<StrikeActionOp> frame,
             OpHandlerContext context
         )
@@ -1089,9 +1019,9 @@ namespace Game.Rules.Runtime
             OpResult<MultipleAttackPenaltyState> advanced = await context.Dispatch(
                 new AdvanceMultipleAttackPenaltyOp(frame.Op.Actor)
             );
-            if (advanced is not ResolvedOpResult<MultipleAttackPenaltyState> resolvedMap)
+            if (advanced is not ResolvedOpResult<MultipleAttackPenaltyState>)
                 throw new InvalidOperationException("Strike MAP advancement did not resolve.");
-            return new StrikeOutcome(resolution, resolvedMap.Value.AttackCount);
+            return resolution;
         }
     }
 
@@ -1354,13 +1284,13 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class ReloadActionHandler : IOpHandler<ReloadActionOp, ReloadOutcome>
+    internal sealed class ReloadActionHandler : IOpHandler<ReloadActionOp, EquipmentState>
     {
         private readonly IStrikeActionCatalog catalog;
 
         public ReloadActionHandler(IStrikeActionCatalog catalog) => this.catalog = catalog;
 
-        public async ValueTask<ReloadOutcome> Handle(
+        public async ValueTask<EquipmentState> Handle(
             OpFrame<ReloadActionOp> frame,
             OpHandlerContext context
         )
@@ -1371,7 +1301,7 @@ namespace Game.Rules.Runtime
             );
             if (loaded is not ResolvedOpResult<EquipmentState> resolved)
                 throw new InvalidOperationException("Reload load state did not resolve.");
-            return new ReloadOutcome(resolved.Value.Id, resolved.Value.IsLoaded);
+            return resolved.Value;
         }
     }
 
@@ -1442,60 +1372,6 @@ namespace Game.Rules.Runtime
             }
             return ReductionResult<EquipmentState>.Accept(changed);
         }
-    }
-
-    internal sealed class AdvanceMultipleAttackPenaltyReducer
-        : IOpReducer<CommitMultipleAttackPenaltyAdvanceOp, MultipleAttackPenaltyState>
-    {
-        public ReductionResult<MultipleAttackPenaltyState> Reduce(
-            ReductionContext<CommitMultipleAttackPenaltyAdvanceOp> context,
-            RulesStateDraft state,
-            FactSink facts
-        )
-        {
-            if (!state.Creatures.Contains(context.Op.Actor))
-                return ReductionResult<MultipleAttackPenaltyState>.Reject(
-                    "The attack actor is not registered."
-                );
-            int previous = state.MultipleAttackPenalty.TryGet(
-                context.Op.Actor,
-                out MultipleAttackPenaltyState current
-            )
-                ? current.AttackCount
-                : 0;
-            MultipleAttackPenaltyState advanced = new MultipleAttackPenaltyState(
-                checked(previous + 1)
-            );
-            state.MultipleAttackPenalty.Set(context.Op.Actor, advanced);
-            facts.Stage(
-                new MultipleAttackPenaltyAdvancedFact(context.Op.Actor, advanced.AttackCount)
-            );
-            return ReductionResult<MultipleAttackPenaltyState>.Accept(advanced);
-        }
-    }
-
-    internal sealed class AdvanceMultipleAttackPenaltyHandler
-        : IOpHandler<AdvanceMultipleAttackPenaltyOp, MultipleAttackPenaltyState>
-    {
-        public async ValueTask<MultipleAttackPenaltyState> Handle(
-            OpFrame<AdvanceMultipleAttackPenaltyOp> frame,
-            OpHandlerContext context
-        )
-        {
-            OpResult<MultipleAttackPenaltyState> result = await context.Dispatch(
-                new CommitMultipleAttackPenaltyAdvanceOp(frame.Op.Actor)
-            );
-            if (result is ResolvedOpResult<MultipleAttackPenaltyState> resolved)
-                return resolved.Value;
-            throw new InvalidOperationException("MAP commitment did not resolve.");
-        }
-    }
-
-    internal sealed class CommitMultipleAttackPenaltyAdvanceOp : IRuleOp<MultipleAttackPenaltyState>
-    {
-        public CommitMultipleAttackPenaltyAdvanceOp(CreatureId actor) => Actor = actor;
-
-        public CreatureId Actor { get; }
     }
 
     internal sealed class RegisterStrikeCombatantHandler

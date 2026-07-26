@@ -117,7 +117,7 @@ namespace Game.Rules.Unity
                 dispatcher.RegisterResolvedOpObserver<ResolveStrikeOp, StrikeResolution>(
                     strikePresentation
                 );
-                dispatcher.RegisterResolvedOpObserver<StrikeActionOp, StrikeOutcome>(
+                dispatcher.RegisterResolvedOpObserver<StrikeActionOp, StrikeResolution>(
                     strikePresentation
                 );
                 RegisterHealthProjection();

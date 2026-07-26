@@ -356,17 +356,17 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         Assert.That(strike.ActionName, Is.EqualTo("Sling"));
         Assert.That(
             bridge.Dispatch(new StrikeActionOp(actor, strike.Item.Item, targetId)),
-            Is.TypeOf<InvalidOpResult<StrikeOutcome>>()
+            Is.TypeOf<InvalidOpResult<StrikeResolution>>()
         );
         Assert.That(ai.ActionPoints, Is.EqualTo(3));
         Assert.That(ai.StrikePenalty, Is.Zero);
         Assert.That(archer.GetAmmoQuantity("sling-bullets"), Is.EqualTo(2));
 
         Move(tiles, target.gameObject, 1001);
-        ResolvedOpResult<StrikeOutcome> result = RequireResolved(
+        ResolvedOpResult<StrikeResolution> result = RequireResolved(
             bridge.Dispatch(new StrikeActionOp(actor, strike.Item.Item, targetId))
         );
-        Assert.That(result.Value.Resolution.Hit, Is.True);
+        Assert.That(result.Value.Hit, Is.True);
         Assert.That(ai.ActionPoints, Is.EqualTo(2));
         Assert.That(ai.StrikePenalty, Is.EqualTo(1));
         Assert.That(archer.GetAmmoQuantity("sling-bullets"), Is.EqualTo(1));
@@ -375,7 +375,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
 
         Assert.That(
             bridge.Dispatch(new ReloadActionOp(actor, strike.Item.Item)),
-            Is.TypeOf<ResolvedOpResult<ReloadOutcome>>()
+            Is.TypeOf<ResolvedOpResult<EquipmentState>>()
         );
         Assert.That(ai.ActionPoints, Is.EqualTo(1));
         Assert.That(archer.IsWeaponLoaded(sling), Is.True);
@@ -435,10 +435,10 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             new[] { target.gameObject }
         );
         Assert.That(spellFirst.Success, Is.True, spellFirst.Message);
-        ResolvedOpResult<StrikeOutcome> strikeSecond = RequireResolved(
+        ResolvedOpResult<StrikeResolution> strikeSecond = RequireResolved(
             bridge.Dispatch(new StrikeActionOp(actor, unarmed.Item.Item, targetId))
         );
-        Assert.That(strikeSecond.Value.Resolution.MultipleAttackPenalty, Is.EqualTo(-4));
+        Assert.That(strikeSecond.Value.MultipleAttackPenalty, Is.EqualTo(-4));
         Assert.That(clericController.StrikePenalty, Is.EqualTo(2));
         UnityEngine.Random.state = randomState;
         yield return null;

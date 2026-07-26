@@ -110,7 +110,7 @@ public sealed class RulesStrikeUnityTests
             .GetActions()
             .OfType<RulesStrikeAction>()
             .First(action => !action.IsRanged && action.ActionName != "Unarmed Strike");
-        ResolvedOpResult<StrikeOutcome> rageStrike = RequireResolved(
+        ResolvedOpResult<StrikeResolution> rageStrike = RequireResolved(
             bridge.Dispatch(new StrikeActionOp(torgrimId, torgrimStrike.Item.Item, targetId))
         );
         bridge.BeginTurn(lenaId, 3);
@@ -118,26 +118,18 @@ public sealed class RulesStrikeUnityTests
             .GetActions()
             .OfType<RulesStrikeAction>()
             .Single(action => action.ActionName == "Dogslicer");
-        ResolvedOpResult<StrikeOutcome> rogueStrike = RequireResolved(
+        ResolvedOpResult<StrikeResolution> rogueStrike = RequireResolved(
             bridge.Dispatch(new StrikeActionOp(lenaId, dogslicer.Item.Item, targetId))
         );
 
         Assert.That(
-            rageStrike.Value.Resolution.Damage.Sum(part => part.Amount),
+            rageStrike.Value.Damage.Sum(part => part.Amount),
             Is.GreaterThan(torgrimStrike.Item.DamageDice[0].Dice + torgrim.strMod)
         );
+        Assert.That(rogueStrike.Value.Damage.Any(part => part.DamageType == "precision"), Is.True);
+        Assert.That(rogueStrike.Value.Damage.Any(part => part.DamageType == "vitality"), Is.True);
         Assert.That(
-            rogueStrike.Value.Resolution.Damage.Any(part => part.DamageType == "precision"),
-            Is.True
-        );
-        Assert.That(
-            rogueStrike.Value.Resolution.Damage.Any(part => part.DamageType == "vitality"),
-            Is.True
-        );
-        Assert.That(
-            rogueStrike
-                .Value.Resolution.Damage.Single(part => part.DamageType == "slashing")
-                .Amount,
+            rogueStrike.Value.Damage.Single(part => part.DamageType == "slashing").Amount,
             Is.EqualTo(4 + lena.dexMod)
         );
     }
@@ -195,7 +187,7 @@ public sealed class RulesStrikeUnityTests
         Assert.That(damageEventCount, Is.EqualTo(1));
         Assert.That(missEventCount, Is.Zero);
 
-        ResolvedOpResult<ReloadOutcome> reload = RequireResolved(
+        ResolvedOpResult<EquipmentState> reload = RequireResolved(
             bridge.Dispatch(new ReloadActionOp(actor, action.Item.Item))
         );
         Assert.That(reload.Value.IsLoaded, Is.True);
@@ -276,17 +268,137 @@ public sealed class RulesStrikeUnityTests
 
         Assert.That(TeamRules.TryGetInstance(out _), Is.False);
 
-        OpResult<StrikeOutcome> result = bridge.Dispatch(
+        OpResult<StrikeResolution> result = bridge.Dispatch(
             new StrikeActionOp(actor, action.Item.Item, targetId)
         );
 
-        Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeOutcome>>());
-        Assert.That(((InvalidOpResult<StrikeOutcome>)result).Reason, Does.Contain("legal enemy"));
+        Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
+        Assert.That(
+            ((InvalidOpResult<StrikeResolution>)result).Reason,
+            Does.Contain("legal enemy")
+        );
         Assert.That(attackerController.ActionPoints, Is.EqualTo(3));
         Assert.That(attackerController.StrikePenalty, Is.Zero);
         Assert.That(target.hp, Is.EqualTo(20));
         Assert.That(rolls.Remaining, Is.EqualTo(1));
         Assert.That(result.Facts, Is.Empty);
+    }
+
+    [TestCase(0, 10, "defeated")]
+    [TestCase(20, 0, "Armor Class")]
+    public void AiStrikePreviewRejectsTargetsThatAuthoritativeDispatchRejects(
+        int targetHitPoints,
+        int targetArmorClass,
+        string reason
+    )
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature(
+            "Target",
+            "enemies",
+            targetHitPoints,
+            targetArmorClass
+        );
+        TestActionController attackerController =
+            attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Place(attacker.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, attacker.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController },
+            tiles,
+            new ScriptedRollService(20)
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        bridge.BeginTurn(actor, 3);
+        RulesStrikeAction action = attackerController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(candidate => candidate.ActionName == "Unarmed Strike");
+
+        bool canPreview = action.CanPreviewTarget(bridge.Snapshot, actor, targetId);
+        OpResult<StrikeResolution> dispatched = bridge.Dispatch(
+            new StrikeActionOp(actor, action.Item.Item, targetId)
+        );
+
+        Assert.That(canPreview, Is.False);
+        Assert.That(dispatched, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
+        Assert.That(((InvalidOpResult<StrikeResolution>)dispatched).Reason, Does.Contain(reason));
+        Assert.That(attackerController.ActionPoints, Is.EqualTo(3));
+        Assert.That(attackerController.StrikePenalty, Is.Zero);
+    }
+
+    [Test]
+    public void StrikePenaltyProjectsAttachedMapAndDefaultsToZeroWithoutRules()
+    {
+        CreatureComponent unattachedCreature = CreateCreature("Unattached", "heroes", 20, 10);
+        TestActionController unattached =
+            unattachedCreature.gameObject.AddComponent<TestActionController>();
+        Assert.That(unattached.StrikePenalty, Is.Zero);
+
+        CreatureComponent healthOnlyCreature = CreateCreature("Health Only", "heroes", 20, 10);
+        TestActionController healthOnly =
+            healthOnlyCreature.gameObject.AddComponent<TestActionController>();
+        UnityCombatRulesBridge healthOnlyBridge =
+            UnityCombatRulesBridge.CreateHealthTestComposition(new[] { healthOnlyCreature });
+        FieldInfo combatRulesField = typeof(ActionController).GetField(
+            "combatRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        FieldInfo rulesCreatureIdField = typeof(ActionController).GetField(
+            "rulesCreatureId",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(combatRulesField, Is.Not.Null);
+        Assert.That(rulesCreatureIdField, Is.Not.Null);
+        combatRulesField.SetValue(healthOnly, healthOnlyBridge);
+        rulesCreatureIdField.SetValue(
+            healthOnly,
+            healthOnlyBridge.GetCreatureId(healthOnlyCreature)
+        );
+        Assert.That(healthOnly.StrikePenalty, Is.Zero);
+
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        TestActionController attached = attacker.gameObject.AddComponent<TestActionController>();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { attached },
+            CreateTiles(1),
+            new ScriptedRollService()
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+
+        Assert.That(attached.StrikePenalty, Is.Zero);
+        RequireResolved(bridge.Dispatch(new AdvanceMultipleAttackPenaltyOp(actor)));
+        Assert.That(attached.StrikePenalty, Is.EqualTo(1));
+        attached.SetDungeonExploration(true);
+        Assert.That(attached.StrikePenalty, Is.Zero);
+        attached.SetDungeonExploration(false);
+        Assert.That(attached.StrikePenalty, Is.EqualTo(1));
+
+        CreatureComponent target = CreateCreature("Legacy Target", "enemies", 20, 10);
+        StrikeResolutionContext legacyContext = StrikeResolutionContext.FromRequest(
+            new StrikeResolutionRequest
+            {
+                Attacker = attacker.gameObject,
+                Target = target.gameObject,
+                Profile = new StrikeProfile(new List<Dice>(), new List<DamageValue>()),
+            }
+        );
+        System.Type adjustmentType = typeof(StrikeResolutionPipeline).Assembly.GetType(
+            "MultipleAttackAndRangePenaltyAdjustment"
+        );
+        Assert.That(adjustmentType, Is.Not.Null);
+        IStrikeAdjustment adjustment = (IStrikeAdjustment)
+            System.Activator.CreateInstance(adjustmentType);
+
+        adjustment.Apply(legacyContext);
+
+        Assert.That(legacyContext.MultipleAttackPenalty, Is.EqualTo(5));
     }
 
     [Test]
@@ -319,11 +431,11 @@ public sealed class RulesStrikeUnityTests
             .OfType<RulesStrikeAction>()
             .Single(candidate => candidate.ActionName == "Unarmed Strike");
 
-        ResolvedOpResult<StrikeOutcome> result = RequireResolved(
+        ResolvedOpResult<StrikeResolution> result = RequireResolved(
             bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId))
         );
 
-        Assert.That(result.Value.Resolution.Hit, Is.False);
+        Assert.That(result.Value.Hit, Is.False);
         Assert.That(missEventCount, Is.EqualTo(1));
         Assert.That(damageEventCount, Is.Zero);
         Assert.That(log.Entries, Has.Count.EqualTo(1));
@@ -373,12 +485,15 @@ public sealed class RulesStrikeUnityTests
             .OfType<RulesStrikeAction>()
             .Single(candidate => candidate.ActionName == "Sling");
 
-        OpResult<StrikeOutcome> result = bridge.Dispatch(
+        OpResult<StrikeResolution> result = bridge.Dispatch(
             new StrikeActionOp(actor, action.Item.Item, targetId)
         );
 
-        Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeOutcome>>());
-        Assert.That(((InvalidOpResult<StrikeOutcome>)result).Reason, Does.Contain("Armor Class"));
+        Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
+        Assert.That(
+            ((InvalidOpResult<StrikeResolution>)result).Reason,
+            Does.Contain("Armor Class")
+        );
         Assert.That(archerController.ActionPoints, Is.EqualTo(3));
         Assert.That(archer.GetAmmoQuantity("sling-bullets"), Is.EqualTo(2));
         Assert.That(archer.IsWeaponLoaded(sling), Is.True);
