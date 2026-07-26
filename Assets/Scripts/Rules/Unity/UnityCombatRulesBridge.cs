@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
+using Game.Rules.Unity.Strike;
+using Game.Strikes;
 using GridPrivate;
 using UnityEngine;
 
@@ -22,6 +24,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<CreatureComponent, CreatureId> creatureIds = new();
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
         private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
+        private readonly Dictionary<CreatureId, ActionController> controllers = new();
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
@@ -29,6 +32,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
+        private readonly UnityStrikeContext strikeContext;
         private readonly RuleDispatcher dispatcher;
         private readonly bool supportsCombatActions;
         private readonly bool projectsActionPoints;
@@ -41,6 +45,7 @@ namespace Game.Rules.Unity
             projectsActionPoints = false;
             topologyProvider = new MutableGridTopologyProvider(CreateHealthTestTopology());
             strideDefinition = new StrideActionDefinition(topologyProvider);
+            strikeContext = null;
             RulesStateSeed seed = new RulesStateSeed();
             foreach (CreatureComponent creature in encounterCreatures)
             {
@@ -59,7 +64,8 @@ namespace Game.Rules.Unity
         private UnityCombatRulesBridge(
             IReadOnlyList<ActionController> encounterControllers,
             Tile[,] tiles,
-            bool attachControllers
+            bool attachControllers,
+            IRollService rollService
         )
         {
             supportsCombatActions = true;
@@ -76,6 +82,7 @@ namespace Game.Rules.Unity
                 AddRegistrationMaps(registration);
                 Seed(seed, registration.State);
             }
+            strikeContext = new UnityStrikeContext(creatures, tiles, seed);
             RageActionDefinition rageDefinition = new RageActionDefinition(
                 new UnityRageActorStateProvider(creatures)
             );
@@ -84,10 +91,14 @@ namespace Game.Rules.Unity
             RuleRegistry registry = registryBuilder.Build();
             CombatActionCatalog actionCatalog = new CombatActionCatalog(
                 strideDefinition,
-                rageDefinition
+                rageDefinition,
+                strikeContext
             );
 
-            dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
+            dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(seed),
+                rollService ?? throw new ArgumentNullException(nameof(rollService))
+            )
                 .UseHealthRules()
                 .UseCombatRuntimeRules()
                 .UseActiveEffectRules(registry)
@@ -95,13 +106,27 @@ namespace Game.Rules.Unity
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
                 .UseRageRules(rageDefinition)
+                .UseStrikeRules(strikeContext, strikeContext, strikeContext)
                 .Build();
+            dispatcher.RegisterFactObserver<AmmunitionSpentFact>(strikeContext);
+            dispatcher.RegisterFactObserver<StrikeItemLoadedChangedFact>(strikeContext);
             if (attachControllers)
             {
+                UnityStrikePresentationObserver strikePresentation =
+                    new UnityStrikePresentationObserver(controllers, creatures, strikeContext);
+                dispatcher.RegisterResolvedOpObserver<ResolveStrikeOp, StrikeResolution>(
+                    strikePresentation
+                );
+                dispatcher.RegisterResolvedOpObserver<StrikeActionOp, StrikeResolution>(
+                    strikePresentation
+                );
                 RegisterHealthProjection();
                 AttachCreatures();
                 foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
+                {
                     entry.Key.AttachCombatRules(this, entry.Value);
+                    UnityStrikeActionInstaller.Install(entry.Key, entry.Value, strikeContext);
+                }
             }
         }
 
@@ -112,6 +137,19 @@ namespace Game.Rules.Unity
         public static UnityCombatRulesBridge Create(
             IEnumerable<ActionController> encounterControllers,
             Tile[,] tiles
+        ) => Create(encounterControllers, tiles, new RandomRollService());
+
+        /// <summary>
+        /// Creates combat rules with an explicit deterministic or production roll source.
+        /// </summary>
+        /// <param name="encounterControllers">The non-empty, unique participant sequence.</param>
+        /// <param name="tiles">The initialized live grid.</param>
+        /// <param name="rollService">The required source for all rules-owned rolls.</param>
+        /// <returns>The initialized encounter rules bridge.</returns>
+        public static UnityCombatRulesBridge Create(
+            IEnumerable<ActionController> encounterControllers,
+            Tile[,] tiles,
+            IRollService rollService
         )
         {
             if (encounterControllers == null)
@@ -119,7 +157,7 @@ namespace Game.Rules.Unity
             ActionController[] copied = encounterControllers.ToArray();
             ValidateControllers(copied, nameof(encounterControllers));
             ValidateTiles(tiles);
-            return new UnityCombatRulesBridge(copied, tiles, true);
+            return new UnityCombatRulesBridge(copied, tiles, true, rollService);
         }
 
         /// <summary>
@@ -144,7 +182,8 @@ namespace Game.Rules.Unity
             UnityCombatRulesBridge bridge = new UnityCombatRulesBridge(
                 FindExplorationControllers(controller, tiles),
                 tiles,
-                false
+                false,
+                new RandomRollService()
             );
             bridge.strideFriendshipProvider.AllowFriendlyTraversal = false;
             bridge.BeginTurn(bridge.GetCreatureId(controller), ActionCost.One.Amount);
@@ -238,19 +277,28 @@ namespace Game.Rules.Unity
         /// <summary>Starts the controller's scheduled turn with its final action count.</summary>
         /// <param name="creature">The registered creature receiving turn authority.</param>
         /// <param name="actions">The action count after Unity-side start-of-turn modifiers.</param>
-        public void BeginTurn(CreatureId creature, int actions) =>
+        public void BeginTurn(CreatureId creature, int actions)
+        {
             RequireSuccess(DispatchNow(new BeginCombatTurnOp(creature, actions)));
+            SyncActionPoints(creature);
+        }
 
         /// <summary>Ends the controller's scheduled turn and clears transient movement state.</summary>
         /// <param name="creature">The registered creature losing turn authority.</param>
-        public void EndTurn(CreatureId creature) =>
+        public void EndTurn(CreatureId creature)
+        {
             RequireSuccess(DispatchNow(new EndCombatTurnOp(creature)));
+            SyncActionPoints(creature);
+        }
 
         /// <summary>Spends actions for a feature still using the legacy Unity action path.</summary>
         /// <param name="creature">The registered creature paying the cost.</param>
         /// <param name="amount">The positive action count to spend.</param>
-        public void SpendLegacyActions(CreatureId creature, int amount) =>
+        public void SpendLegacyActions(CreatureId creature, int amount)
+        {
             RequireSuccess(DispatchNow(new SpendLegacyActionsOp(creature, amount)));
+            SyncActionPoints(creature);
+        }
 
         /// <summary>Dispatches one synchronous typed rules operation.</summary>
         /// <typeparam name="TResult">The operation's structural result type.</typeparam>
@@ -292,8 +340,21 @@ namespace Game.Rules.Unity
             {
                 RequireSuccess(DispatchNow(new RegisterCombatantOp(registration.State)));
                 AddRegistrationMaps(registration);
+                StrikeCombatantRegistration strikeRegistration =
+                    strikeContext.RegisterReinforcement(
+                        registration.State.Creature.Id,
+                        registration.Creature
+                    );
+                RequireResolved(
+                    DispatchResultNow(new RegisterStrikeCombatantOp(strikeRegistration))
+                );
                 registration.Creature.AttachHealthRules(this, registration.State.Creature.Id);
                 registration.Controller.AttachCombatRules(this, registration.State.Creature.Id);
+                UnityStrikeActionInstaller.Install(
+                    registration.Controller,
+                    registration.State.Creature.Id,
+                    strikeContext
+                );
             }
         }
 
@@ -423,6 +484,7 @@ namespace Game.Rules.Unity
         {
             RequireCombatComposition();
             topologyProvider.Replace(CreateTopology(tiles));
+            strikeContext.ReplaceTiles(tiles);
         }
 
         /// <summary>Looks up the retained source for an encounter health origin.</summary>
@@ -595,6 +657,15 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException(outcome.Reason);
         }
 
+        private static TResult RequireResolved<TResult>(OpResult<TResult> result)
+        {
+            if (result is ResolvedOpResult<TResult> resolved)
+                return resolved.Value;
+            if (result is InvalidOpResult<TResult> invalid)
+                throw new InvalidOperationException(invalid.Reason);
+            throw new InvalidOperationException("The rules request did not resolve.");
+        }
+
         private void RequireCombatComposition()
         {
             if (!supportsCombatActions)
@@ -620,6 +691,7 @@ namespace Game.Rules.Unity
         {
             CreatureId id = registration.State.Creature.Id;
             controllerIds.Add(registration.Controller, id);
+            controllers.Add(id, registration.Controller);
             creatureIds.Add(registration.Creature, id);
             creatures.Add(id, registration.Creature);
         }
@@ -631,7 +703,8 @@ namespace Game.Rules.Unity
                 .SeedHealth(id, state.Health)
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)
-                .SeedActionEconomy(id, new ActionEconomyState(0, false));
+                .SeedActionEconomy(id, new ActionEconomyState(0, false))
+                .SeedMultipleAttackPenalty(id, new MultipleAttackPenaltyState(0));
             foreach (ActiveRuleBinding binding in state.RuleBindings)
                 seed.SeedRuleBinding(binding);
         }
@@ -729,15 +802,21 @@ namespace Game.Rules.Unity
             }
         }
 
-        private sealed class CombatActionCatalog : IActionCatalog
+        private sealed class CombatActionCatalog : IActionCatalog, IStrikeActionCatalog
         {
             private readonly StrideActionDefinition stride;
             private readonly RageActionDefinition rage;
+            private readonly IStrikeActionCatalog strike;
 
-            public CombatActionCatalog(StrideActionDefinition stride, RageActionDefinition rage)
+            public CombatActionCatalog(
+                StrideActionDefinition stride,
+                RageActionDefinition rage,
+                IStrikeActionCatalog strike
+            )
             {
                 this.stride = stride ?? throw new ArgumentNullException(nameof(stride));
                 this.rage = rage ?? throw new ArgumentNullException(nameof(rage));
+                this.strike = strike ?? throw new ArgumentNullException(nameof(strike));
             }
 
             /// <inheritdoc/>
@@ -745,8 +824,19 @@ namespace Game.Rules.Unity
             {
                 if (definitionId == StrideActionDefinition.DefinitionId)
                     return stride.GetBaseProfile(definitionId);
+                if (definitionId == StrikeActionDefinition.DefinitionId)
+                    throw new InvalidOperationException(
+                        "Strike profiles require the selected item on StrikeActionOp."
+                    );
+                if (definitionId == ReloadActionDefinition.DefinitionId)
+                    throw new InvalidOperationException(
+                        "Reload profiles require the selected item on ReloadActionOp."
+                    );
                 return rage.GetBaseProfile(definitionId);
             }
+
+            /// <inheritdoc/>
+            public StrikeItemDefinition GetStrikeItem(ItemId item) => strike.GetStrikeItem(item);
         }
 
         private sealed class MutableGridTopologyProvider : IGridTopologyProvider

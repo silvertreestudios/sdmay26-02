@@ -133,6 +133,10 @@ namespace Game.Rules.Runtime.Tests
                 await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)))
             );
 
+            Assert.That(
+                failure.Message,
+                Does.StartWith("Multiple Fact observers failed after the reduction committed.")
+            );
             Assert.That(failure.InnerExceptions, Is.EqualTo(new Exception[] { first, second }));
             Assert.That(completed.Count, Is.EqualTo(1));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));

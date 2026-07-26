@@ -48,7 +48,7 @@ public abstract class AIActionController : ActionController
     [ContextMenu("Test Strike")]
     public void TestStrike()
     {
-        EntityAction strike = Actions.Find(action => action is Unarmed || action is StrikeWeapon);
+        EntityAction strike = Actions.Find(action => action is RulesStrikeAction);
         if (strike != null)
         {
             Debug.Log("Invoking Strike action...");
@@ -62,22 +62,12 @@ public abstract class AIActionController : ActionController
         float bestDamage = 0;
         foreach (EntityAction action in Actions)
         {
-            float damage = 0;
-            if (action is Unarmed)
-            {
-                Unarmed unarmedAction = action as Unarmed;
-                damage = unarmedAction.GetStrikeProfile().GetAverageDamage();
-            }
-            else if (action is StrikeWeapon)
-            {
-                StrikeWeapon strikeWeaponAction = action as StrikeWeapon;
-                if (!strikeWeaponAction.IsUsableBy(gameObject))
-                    continue;
-                damage = strikeWeaponAction.GetStrikeProfile().GetAverageDamage();
-            }
+            if (action is not RulesStrikeAction strike || !strike.IsAvailable(this))
+                continue;
+            double damage = strike.AverageDamage;
             if (damage > bestDamage)
             {
-                bestDamage = damage;
+                bestDamage = (float)damage;
                 bestStrike = action;
             }
         }

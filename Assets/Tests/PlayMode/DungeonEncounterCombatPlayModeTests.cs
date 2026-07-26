@@ -197,11 +197,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
         player.Controller.ActionPoints = 2;
         player.Controller.Reacted = true;
-        player.Controller.StrikePenalty = 2;
         player.Controller.IsTakingAction = true;
         enemy.Controller.ActionPoints = 1;
         enemy.Controller.Reacted = true;
-        enemy.Controller.StrikePenalty = 1;
         enemy.Controller.IsTakingAction = true;
 
         manager.SuspendDungeonCombat();
@@ -334,7 +332,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Controller.AddAction(attack);
         player.Controller.ActionPoints = 2;
         player.Controller.Reacted = true;
-        player.Controller.StrikePenalty = 1;
         player.Controller.SetDungeonExploration(true);
 
         player.Controller.TakeAction(movement);
@@ -345,7 +342,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(attackCalls, Is.Zero);
         Assert.That(player.Controller.ActionPoints, Is.EqualTo(2));
         Assert.That(player.Controller.Reacted, Is.True);
-        Assert.That(player.Controller.StrikePenalty, Is.EqualTo(1));
+        Assert.That(player.Controller.StrikePenalty, Is.Zero);
         Assert.That(player.Controller.HasTurnAuthority, Is.False);
 
         player.Controller.SetDungeonExploration(false);

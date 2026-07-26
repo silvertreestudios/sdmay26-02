@@ -71,7 +71,7 @@ public class PlayerActionController : ActionController
     [ContextMenu("Test Strike")]
     public void TestStrike()
     {
-        EntityAction strike = Actions.Find(action => action is Unarmed || action is StrikeWeapon);
+        EntityAction strike = Actions.Find(action => action is RulesStrikeAction);
         if (strike != null)
         {
             //Debug.Log("Invoking Strike action...");

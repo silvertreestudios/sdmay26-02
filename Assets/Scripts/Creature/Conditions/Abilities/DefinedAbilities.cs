@@ -73,14 +73,9 @@ public static class DefinedAbilities
         "Zombie-Fist",
         (GameObject g) =>
         {
-            // On combat start, IF conditions met, add unarmed strike with 1d6 bludgeoning damage instead of 1d4
-            // TODO add grapple and move from passives
-            CreatureComponent cc = g.GetComponent<CreatureComponent>();
-            List<Dice> damageDice = new() { new Dice(1, 6, "Bludgeoning") };
-            List<DamageValue> damageFlat = new() { new DamageValue("Bludgeoning", cc.strMod) };
-            Unarmed unarmedStrike = new Unarmed(1, damageDice, damageFlat);
-            g.GetComponent<ActionController>().AddAction(unarmedStrike);
-            Debug.Log("Zombie-Fist added to " + g.name);
+            // Strike extraction reads this imported passive while creating the authoritative
+            // unarmed definition. Combat-start processing therefore has no mutable action to add.
+            Debug.Log("Zombie-Fist prepared for " + g.name);
         }
     );
 

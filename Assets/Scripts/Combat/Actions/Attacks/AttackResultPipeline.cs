@@ -5,6 +5,7 @@ using Game.Combat.Rules;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules;
+using Game.Rules.Unity;
 using UnityEngine;
 using RuleSource = Game.Rules.Runtime.RuleSource;
 
@@ -163,8 +164,8 @@ internal sealed class MultipleAttackAndRangePenaltyAdjustment : StrikeAdjustment
 
     public override void Apply(StrikeResolutionContext context)
     {
-        uint strikePenaltyCount =
-            context.AttackerObject.GetComponent<ActionController>()?.StrikePenalty ?? 0;
+        ActionController controller = context.AttackerObject.GetComponent<ActionController>();
+        int strikePenaltyCount = controller == null ? 0 : checked((int)controller.StrikePenalty);
         context.MultipleAttackPenalty = CalculateMultipleAttackPenalty(context, strikePenaltyCount);
         context.RangePenalty = context.TargetingResult?.RangePenalty ?? 0;
 
@@ -190,7 +191,7 @@ internal sealed class MultipleAttackAndRangePenaltyAdjustment : StrikeAdjustment
 
     private static int CalculateMultipleAttackPenalty(
         StrikeResolutionContext context,
-        uint strikePenaltyCount
+        int strikePenaltyCount
     )
     {
         if (strikePenaltyCount == 0)

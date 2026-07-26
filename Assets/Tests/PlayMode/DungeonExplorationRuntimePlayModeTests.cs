@@ -241,8 +241,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             new[] { new Vector3Int(1, 0, 1), new Vector3Int(0, 0, 1) },
             configurePartyBeforeInitialization: party =>
             {
-                party[0].SeedTurnState(true, 2, true, 2);
-                party[1].SeedTurnState(false, 1, false, 1);
+                party[0].SeedTurnState(true, 2, true);
+                party[1].SeedTurnState(false, 1, false);
                 expectedPartyStates = party
                     .Select(controller => new ControllerState(controller))
                     .ToArray();
@@ -529,7 +529,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         RuntimeFixture fixture = CreateRuntimeFixture(
             new[] { new Vector3Int(2, 0, 2) },
             doors: new[] { zDoor, aDoor },
-            configurePartyBeforeInitialization: party => party[0].SeedTurnState(false, 2, true, 2)
+            configurePartyBeforeInitialization: party => party[0].SeedTurnState(false, 2, true)
         );
         List<string> opened = new();
         fixture.Runtime.DoorOpened += opened.Add;
@@ -562,8 +562,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             doors: new[] { followerDoor },
             configurePartyBeforeInitialization: party =>
             {
-                party[0].SeedTurnState(false, 2, true, 2);
-                party[1].SeedTurnState(false, 1, true, 1);
+                party[0].SeedTurnState(false, 2, true);
+                party[1].SeedTurnState(false, 1, true);
             }
         );
         uint leaderActions = fixture.Party[0].Controller.ActionPoints;
@@ -1343,17 +1343,11 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     {
         internal int StartTurnCount { get; private set; }
 
-        internal void SeedTurnState(
-            bool hasTurnAuthority,
-            uint actionPoints,
-            bool reacted,
-            uint strikePenalty
-        )
+        internal void SeedTurnState(bool hasTurnAuthority, uint actionPoints, bool reacted)
         {
             IsTurn = hasTurnAuthority;
             ActionPoints = actionPoints;
             Reacted = reacted;
-            StrikePenalty = strikePenalty;
         }
 
         /// <inheritdoc/>

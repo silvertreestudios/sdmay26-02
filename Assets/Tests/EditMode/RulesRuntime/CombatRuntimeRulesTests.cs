@@ -83,6 +83,31 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(encounter.Facts, Has.Exactly(1).TypeOf<EncounterEndedFact>());
         }
 
+        [Test]
+        public async Task CombatRuntimeCompositionAdvancesMapWithoutStrikeRules()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new RulesStateSeed()
+                    .SeedCreature(new CreatureState(Actor, new PlayerId("party")))
+                    .SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(0))
+            );
+
+            OpResult<MultipleAttackPenaltyState> result = await dispatcher.Dispatch(
+                new AdvanceMultipleAttackPenaltyOp(Actor)
+            );
+
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<MultipleAttackPenaltyState>>());
+            Assert.That(
+                ((ResolvedOpResult<MultipleAttackPenaltyState>)result).Value.AttackCount,
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                dispatcher.Snapshot.MultipleAttackPenalty[Actor].AttackCount,
+                Is.EqualTo(1)
+            );
+            Assert.That(result.Facts, Has.Exactly(1).TypeOf<MultipleAttackPenaltyAdvancedFact>());
+        }
+
         private static RuleDispatcher CreateDispatcher(RulesStateSeed seed) =>
             new RuleDispatcherBuilder(new InMemoryRulesStore(seed)).UseCombatRuntimeRules().Build();
 

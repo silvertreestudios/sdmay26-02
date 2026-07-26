@@ -292,7 +292,8 @@ namespace Game.Rules.Runtime
                 .RegisterEngineReducer<CommitCombatRuntimeOp, CombatRuntimeOutcome>(
                     new CommitCombatRuntimeReducer(),
                     Source
-                );
+                )
+                .UseMultipleAttackPenaltyRules();
         }
     }
 
@@ -405,6 +406,7 @@ namespace Game.Rules.Runtime
             state.Positions.Set(id, combatant.Position);
             state.LandSpeeds.Set(id, combatant.LandSpeed);
             state.ActionEconomy.Set(id, new ActionEconomyState(0, false));
+            state.MultipleAttackPenalty.Set(id, new MultipleAttackPenaltyState(0));
             foreach (ActiveRuleBinding binding in combatant.RuleBindings)
                 state.RuleBindings.Set(binding.Id, binding);
             return CombatRuntimeOutcome.Success;
@@ -432,6 +434,7 @@ namespace Game.Rules.Runtime
                 );
             }
             state.MovementBudgets.Remove(op.Actor);
+            state.MultipleAttackPenalty.Set(op.Actor, new MultipleAttackPenaltyState(0));
             state.ActionEconomy.Set(op.Actor, new ActionEconomyState(op.Actions, true));
             return CombatRuntimeOutcome.Success;
         }
@@ -442,6 +445,7 @@ namespace Game.Rules.Runtime
                 return CombatRuntimeOutcome.Rejected("The turn actor is not registered.");
             state.ActionEconomy.Set(actor, new ActionEconomyState(0, economy.ReactionAvailable));
             state.MovementBudgets.Remove(actor);
+            state.MultipleAttackPenalty.Set(actor, new MultipleAttackPenaltyState(0));
             return CombatRuntimeOutcome.Success;
         }
 

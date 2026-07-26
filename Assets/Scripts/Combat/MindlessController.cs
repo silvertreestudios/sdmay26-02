@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using Game.Creature;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Strikes;
 using GridPrivate;
@@ -195,7 +196,7 @@ public class MindlessController : AIActionController
             }
         }
 
-        EntityAction legalStrike = BestLegalStrike(myTeam);
+        EntityAction legalStrike = BestLegalStrike();
         if (legalStrike != null)
             return legalStrike;
 
@@ -237,29 +238,36 @@ public class MindlessController : AIActionController
         return Actions.Find(action => action is RulesStrideAction);
     }
 
-    private EntityAction BestLegalStrike(string myTeam)
+    private EntityAction BestLegalStrike()
     {
+        if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor))
+            return null;
+        if (!CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager))
+            return null;
         EntityAction bestAction = null;
         GameObject bestTarget = null;
         float bestDamage = 0;
 
-        foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
+        foreach (GameObject target in combatManager.GetCombatants())
         {
-            if (
-                target == this.gameObject
-                || TeamRules.GetInstance().IsFriendly(myTeam, target.GetComponent<Team>().Name)
-            )
+            if (target == this.gameObject)
                 continue;
 
             foreach (EntityAction action in Actions)
             {
-                if (action is not StrikeWeapon strikeWeapon || !strikeWeapon.IsUsableBy(gameObject))
+                if (
+                    action is not RulesStrikeAction strike
+                    || !strike.IsAvailable(this)
+                    || target.GetComponent<CreatureComponent>()
+                        is not CreatureComponent targetCreature
+                )
                     continue;
 
-                if (!strikeWeapon.CanStrikeTarget(gameObject, target, Tiles))
+                CreatureId targetId = bridge.GetCreatureId(targetCreature);
+                if (!strike.CanPreviewTarget(bridge.Snapshot, actor, targetId))
                     continue;
 
-                float damage = strikeWeapon.GetStrikeProfile().GetAverageDamage();
+                float damage = (float)strike.AverageDamage;
                 if (damage > bestDamage)
                 {
                     bestDamage = damage;

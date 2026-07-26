@@ -145,7 +145,7 @@ public sealed record StrikeActionOp(
     CreatureId Actor,
     ItemId Weapon,
     CreatureId Target)
-    : ActionOp<StrikeOutcome>(Actor, ActionIds.Strike)
+    : ActionOp<StrikeResolution>(Actor, ActionIds.Strike)
 {
     public override ActionProfile GetBaseProfile(IActionCatalog catalog)
     {
@@ -430,7 +430,8 @@ Reducers apply one atomic state transition and commit its Facts. Dynamic typed F
 Use the correct extension point:
 
 - To modify or prevent work currently in progress, use middleware on an explicit lifecycle Op.
-- To react to something that has already happened, listen to a committed Fact and dispatch new Ops.
+- To react to committed state, listen to a typed Fact and dispatch new Ops when authorized.
+- To pace a parent operation from a typed, resolved child value in an external adapter, use resolved-operation observation; it has no dispatch authority and does not prove that state changed.
 
 For example, a damage-prevention feature participates before `ApplyDamageReducer` commits. Cranial Detonation listens to `CreatureReducedToZeroFact` because reaching 0 HP is its completed trigger.
 
@@ -549,6 +550,45 @@ public interface IRuleFactBatchListener<TFact>
 The runner groups the batch by committed root and delivers it only after that root has finished. Cranial Detonation uses this form so one spell that reduces several enemies to 0 HP creates one trigger and one prompt.
 
 Fact listeners may dispatch Ops. Those Ops form a new, causally linked resolution batch. They still pass through normal validation and reducer rules.
+
+### 5.3.1 Resolved-operation observers pace external adapters before parent continuation
+
+A dynamically owned external adapter can observe a typed operation result when presentation needs a
+settled calculation that is not itself a committed state transition:
+
+```csharp
+public interface IResolvedOpObserver<TOp, TResult>
+    where TOp : IRuleOp<TResult>
+{
+    ValueTask OnOperationResolved(
+        TOp operation,
+        TResult result,
+        RulesSnapshot currentSnapshot);
+}
+```
+
+The dispatcher notifies this observer only for a `ResolvedOpResult<TResult>`, immediately after the
+operation has its completed result and before it returns to its parent. Invalid, interrupted, and
+cancelled results are not delivered. Callbacks receive the typed operation, resolved value, and
+current immutable snapshot, but no context or dispatch authority. They run outside dispatcher locks
+and are awaited, allowing a Unity adapter to start an attack animation after `ResolveStrikeOp`
+settles but before its parent dispatches `ApplyDamageOp`.
+
+The synchronous Unity dispatch boundary requires every observer `ValueTask` to complete
+synchronously and quickly. An observer must not yield, await a later frame, or otherwise remain
+incomplete for frame-delayed work. It may start presentation immediately, but it must not wait for
+an animation to finish before completing.
+
+Resolved-operation observation is not a third rules-message category and must not replace Facts. A
+resolved roll or calculation says that an operation completed legally; it does not prove that HP,
+position, ammunition, or any other authoritative state changed. Rules behavior responding to such a
+change still uses the corresponding committed Fact. This narrow observer exists only for external
+adapter timing at the pre-parent-continuation seam.
+
+Registrations are dynamic and deterministic. The dispatcher snapshots matching registrations for
+each operation notification pass, so registration changes affect later passes only. It attempts all
+selected observers in registration order even after failures, then propagates one original exception
+or a deterministic aggregate in failure order.
 
 ### 5.4 ActionOp has a mandatory lifecycle
 
@@ -888,7 +928,7 @@ public interface IActionDefinition<TSelection, TOp, TResult>
 public sealed record StrikeSelection(ItemId Weapon, CreatureId Target);
 
 public sealed class StrikeActionDefinition
-    : IActionDefinition<StrikeSelection, StrikeActionOp, StrikeOutcome>
+    : IActionDefinition<StrikeSelection, StrikeActionOp, StrikeResolution>
 {
     public ActionAvailability GetAvailability(
         RulesSnapshot snapshot,
@@ -991,7 +1031,7 @@ public sealed record StrikeActionOp(
     CreatureId Actor,
     ItemId Weapon,
     CreatureId Target)
-    : ActionOp<StrikeOutcome>(Actor, ActionIds.Strike)
+    : ActionOp<StrikeResolution>(Actor, ActionIds.Strike)
 {
     public override ActionProfile GetBaseProfile(IActionCatalog catalog)
     {
@@ -1151,9 +1191,9 @@ public sealed class ResolveStrikeHandler
 }
 
 public sealed class StrikeActionHandler
-    : IOpHandler<StrikeActionOp, StrikeOutcome>
+    : IOpHandler<StrikeActionOp, StrikeResolution>
 {
-    public async ValueTask<StrikeOutcome> Handle(
+    public async ValueTask<StrikeResolution> Handle(
         OpFrame<StrikeActionOp> frame,
         OpHandlerContext context)
     {
@@ -1166,19 +1206,17 @@ public sealed class StrikeActionHandler
             StrikePurpose.Normal,
             DamageSource.From(frame.Id)));
 
-        if (strike is InvalidOpResult<StrikeResolution> invalidStrike)
-            return StrikeOutcome.Aborted(invalidStrike.Reason);
         if (strike is not ResolvedOpResult<StrikeResolution> resolvedStrike)
             throw new InvalidOperationException(
-                "Nested strike resolution cannot be interrupted or cancelled.");
+                "Nested strike resolution did not resolve.");
 
         // Every legally resolved normal Strike changes MAP, including a miss.
         var map = await context.Dispatch(
-            new IncrementMultipleAttackPenaltyOp(frame.Op.Actor));
+            new AdvanceMultipleAttackPenaltyOp(frame.Op.Actor));
+        if (map is not ResolvedOpResult<MultipleAttackPenaltyState>)
+            throw new InvalidOperationException("MAP advancement did not resolve.");
 
-        return new StrikeOutcome(
-            resolvedStrike.Value,
-            MapIncremented: map is ResolvedOpResult<MultipleAttackPenaltyOutcome>);
+        return resolvedStrike.Value;
     }
 }
 ```

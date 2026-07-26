@@ -1,9 +1,14 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -17,7 +22,7 @@ public class Pf2eClericSpellcastingTests
     {
         foreach (GameObject go in created)
             if (go != null)
-                Object.DestroyImmediate(go);
+                UnityEngine.Object.DestroyImmediate(go);
         created.Clear();
         Pf2eItemCatalog.ResetForTests();
     }
@@ -121,7 +126,7 @@ public class Pf2eClericSpellcastingTests
 
         CastSpellResult result = Cast("guidance", cleric, 1, ally.gameObject);
 
-        Assert.That(result.Success, Is.True);
+        Assert.That(result.Success, Is.True, result.Message);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(0));
         Assert.That(
@@ -224,19 +229,67 @@ public class Pf2eClericSpellcastingTests
     {
         CreatureComponent cleric = CreatePreparedCleric();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
-        controller.ActionPoints = 3;
         controller.IsTakingAction = true;
         CreatureComponent target = CreateCreature("Target", 100, 100);
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
         target.transform.position = new Vector3(6, 0, 0);
         target.ac = 12;
+        Tile[,] tiles = new Tile[7, 1];
+        for (int x = 0; x < tiles.GetLength(0); x++)
+            tiles[x, 0] = new Tile();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, targetController },
+            tiles
+        );
+        bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
         UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
 
         CastSpellResult result = Cast("divine-lance", cleric, 2, target.gameObject);
 
-        Assert.That(result.Success, Is.True);
+        Assert.That(result.Success, Is.True, result.Message);
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
         Assert.That(controller.StrikePenalty, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void DivineLanceClearsTakingActionWhenMapAdvancementThrows()
+    {
+        CreatureComponent cleric = CreatePreparedCleric();
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        controller.IsTakingAction = true;
+        CreatureComponent target = CreateCreature("Target", 100, 100);
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        target.transform.position = new Vector3(1, 0, 0);
+        Tile[,] tiles = new Tile[2, 1];
+        for (int x = 0; x < tiles.GetLength(0); x++)
+            tiles[x, 0] = new Tile();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, targetController },
+            tiles
+        );
+        bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
+        InvalidOperationException expected = new("Injected MAP advancement failure.");
+        GetDispatcher(bridge).RegisterFactObserver(new ThrowingMapObserver(expected));
+        InstallTestCombatLog();
+        UnityEngine.Random.State randomState = UnityEngine.Random.state;
+
+        try
+        {
+            UnityEngine.Random.InitState(3);
+            InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
+                Cast("divine-lance", cleric, 2, target.gameObject)
+            );
+
+            Assert.That(actual, Is.SameAs(expected));
+            Assert.That(controller.IsTakingAction, Is.False);
+        }
+        finally
+        {
+            UnityEngine.Random.state = randomState;
+        }
     }
 
     private void InstallTestCombatLog()
@@ -292,6 +345,28 @@ public class Pf2eClericSpellcastingTests
         creature.InitializeHealthBeforeEncounter(currentHitPoints, maximumHitPoints);
         Game.Rules.Unity.UnityCombatRulesBridge.CreateHealthTestComposition(new[] { creature });
         return creature;
+    }
+
+    private static RuleDispatcher GetDispatcher(UnityCombatRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityCombatRulesBridge).GetField(
+            "dispatcher",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private sealed class ThrowingMapObserver : IFactObserver<MultipleAttackPenaltyAdvancedFact>
+    {
+        private readonly Exception failure;
+
+        public ThrowingMapObserver(Exception failure) => this.failure = failure;
+
+        public ValueTask OnFactCommitted(
+            MultipleAttackPenaltyAdvancedFact fact,
+            RulesSnapshot currentSnapshot
+        ) => throw failure;
     }
 
     private sealed class TestCombatLog : CombatLogInterface
