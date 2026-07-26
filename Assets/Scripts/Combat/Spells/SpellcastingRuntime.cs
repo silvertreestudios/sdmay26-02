@@ -4,6 +4,7 @@ using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
@@ -55,14 +56,17 @@ namespace Game.Combat.Spells
     public sealed class SpellCastContext
     {
         public GameObject Caster { get; }
-        public PreparedSpell Spell { get; }
+        public SpellReference Spell { get; }
         public uint ActionCost { get; }
         public bool SpendActions { get; }
         public ISpellDefinition Definition { get; }
 
+        /// <summary>Gets the most recent result produced through this selection context.</summary>
+        public CastSpellResult Result { get; private set; } = new();
+
         public SpellCastContext(
             GameObject caster,
-            PreparedSpell spell,
+            SpellReference spell,
             uint actionCost,
             bool spendActions,
             ISpellDefinition definition
@@ -79,10 +83,14 @@ namespace Game.Combat.Spells
             Caster != null ? Caster.GetComponent<ActionController>() : null;
         public CreatureComponent CasterCreature =>
             Caster != null ? Caster.GetComponent<CreatureComponent>() : null;
-        public SpellcastingState Spellcasting => CasterCreature?.Prepared?.Spellcasting;
+        public ISpellBook SpellBook =>
+            CasterCreature?.Prepared?.SpellBook ?? EmptySpellBook.Instance;
 
-        public CastSpellResult Cast(SpellTargetSelection selection) =>
-            SpellcastingRuntime.Cast(this, selection);
+        public CastSpellResult Cast(SpellTargetSelection selection)
+        {
+            Result = SpellcastingRuntime.Cast(this, selection);
+            return Result;
+        }
     }
 
     public static class SpellcastingRuntime
@@ -99,17 +107,19 @@ namespace Game.Combat.Spells
 
         public static CastSpellResult Cast(
             GameObject caster,
-            PreparedSpell spell,
+            SpellReference spell,
             uint actionCost,
             IReadOnlyList<GameObject> targets = null,
             AreaTargetResult area = null,
             bool spendActions = true
         )
         {
-            if (!SpellRegistry.TryGet(spell?.Slug, out ISpellDefinition definition))
+            if (!SpellRegistry.TryGet(spell.Spell.Value, out ISpellDefinition definition))
                 return Fail(
                     new CastSpellResult(),
-                    spell == null ? "Spell is not prepared." : spell.Name + " is not implemented.",
+                    spell.Spell.IsEmpty
+                        ? "Spell is not prepared."
+                        : spell.Spell.Value + " is not implemented.",
                     caster != null ? caster.GetComponent<ActionController>() : null
                 );
 
@@ -122,13 +132,8 @@ namespace Game.Combat.Spells
             CastSpellResult result = new();
             CreatureComponent creature = context.CasterCreature;
             ActionController controller = context.ActionController;
-            SpellcastingState state = context.Spellcasting;
-            if (
-                context.Caster == null
-                || creature == null
-                || state == null
-                || context.Spell == null
-            )
+            ISpellBook book = context.SpellBook;
+            if (context.Caster == null || creature == null || context.Spell.Spell.IsEmpty)
                 return Fail(result, "Caster is not ready to cast spells.", controller);
             if (
                 context.ActionCost > 0
@@ -137,13 +142,14 @@ namespace Game.Combat.Spells
                 && controller.ActionPoints < context.ActionCost
             )
                 return Fail(result, "Not enough actions.", controller);
-            if (!state.CanCast(context.Spell))
-                return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
+            SpellCastAuthorization authorization = book.Authorize(context.Spell);
+            if (!authorization.IsAuthorized)
+                return Fail(result, authorization.Reason, controller);
 
             if (!context.Definition.Cast(context, selection ?? SpellTargetSelection.None, result))
                 return Fail(result, "Spell target is invalid.", controller);
-            if (!state.Spend(context.Spell))
-                return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
+            if (!book.TrySpend(context.Spell))
+                return Fail(result, "The spell has no remaining slot.", controller);
             if (controller != null && context.SpendActions)
             {
                 try
@@ -181,7 +187,7 @@ namespace Game.Combat.Spells
                     .Caster.GetComponent<CreaturePresentation>()
                     ?.PlayAttack(AnimationStyle.Magic);
             CombatLogInterface log = UnityEngine.Object.FindFirstObjectByType<CombatLogInterface>();
-            log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
+            log?.Log("- " + context.Caster.name + " casts " + context.Definition.DisplayName + ".");
             return result;
         }
 
@@ -286,14 +292,17 @@ namespace Game.Combat.Spells
         {
             CreatureComponent casterCreature = caster.GetComponent<CreatureComponent>();
             CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
-            int dc = casterCreature.Prepared.Spellcasting.SpellDc;
+            int dc = casterCreature.Prepared.SpellBook.SpellDc;
             int saveModifier = targetCreature.ResolveFortitudeSave().Total;
             D20Result save = D20.Roll(saveModifier, dc);
             result.Rolls.Add(save);
             int amount = BasicSaveDamage(damage.DamageAmount, save.degree);
             if (amount > 0)
                 targetCreature.ApplyFinalDamage(amount, source);
-            if (applyDeafenedOnCriticalFailure && save.degree == DegreeOfSuccess.CriticalFail)
+            if (
+                applyDeafenedOnCriticalFailure
+                && save.degree == Game.Creature.DegreeOfSuccess.CriticalFail
+            )
                 (target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>()).Add(
                     "Deafened",
                     new ConditionSource()
@@ -310,13 +319,13 @@ namespace Game.Combat.Spells
                 );
         }
 
-        private static int BasicSaveDamage(int amount, DegreeOfSuccess degree)
+        private static int BasicSaveDamage(int amount, Game.Creature.DegreeOfSuccess degree)
         {
             return degree switch
             {
-                DegreeOfSuccess.CriticalSuccess => 0,
-                DegreeOfSuccess.Success => Mathf.FloorToInt(amount / 2.0f),
-                DegreeOfSuccess.CriticalFail => amount * 2,
+                Game.Creature.DegreeOfSuccess.CriticalSuccess => 0,
+                Game.Creature.DegreeOfSuccess.Success => Mathf.FloorToInt(amount / 2.0f),
+                Game.Creature.DegreeOfSuccess.CriticalFail => amount * 2,
                 _ => amount,
             };
         }

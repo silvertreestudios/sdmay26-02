@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -5,12 +6,14 @@ using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
+using Object = UnityEngine.Object;
 
 public class ClericSpellcastingPlayModeTests : PlayModeBase
 {
@@ -38,6 +41,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
     {
         clericObject = new GameObject("PlayMode Cleric");
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
+        cleric.InitializeHealthBeforeEncounter(10, 10);
         cleric.level = 1;
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };
@@ -57,8 +61,12 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         controller.StartTurn();
         EntityAction light = controller.GetActions().First(action => action.ActionName == "Light");
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(light.IsAvailable(controller), Is.True);
         controller.TakeAction(light);
-        yield return null;
+        float deadline = Time.realtimeSinceStartup + 1f;
+        while (controller.ActionPoints == 3 && Time.realtimeSinceStartup < deadline)
+            yield return null;
 
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
         Assert.That(controller.IsTakingAction, Is.False);
@@ -87,12 +95,16 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
         yield return null;
 
-        PreparedSpell shield = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
-            spell.Slug == "shield"
-        );
+        SpellReference shield = Reference("shield");
         controller.StartTurn();
         ConfirmableSpellDefinition cancelledDefinition = new(shouldCast: false);
-        controller.TakeAction(new CastSpellAction(shield, 1, cancelledDefinition));
+        controller.TakeAction(
+            new CastSpellAction(
+                shield,
+                new SpellActionVariant(1),
+                new TestSpellCatalog(cancelledDefinition)
+            )
+        );
         yield return null;
 
         Assert.That(cancelledDefinition.SelectionStarted, Is.True);
@@ -115,7 +127,13 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         controller.StartTurn();
         ConfirmableSpellDefinition successfulDefinition = new(shouldCast: true);
-        controller.TakeAction(new CastSpellAction(shield, 1, successfulDefinition));
+        controller.TakeAction(
+            new CastSpellAction(
+                shield,
+                new SpellActionVariant(1),
+                new TestSpellCatalog(successfulDefinition)
+            )
+        );
         yield return null;
 
         Assert.That(successfulDefinition.SelectionStarted, Is.True);
@@ -158,9 +176,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
         yield return null;
 
-        PreparedSpell shield = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
-            spell.Slug == "shield"
-        );
+        SpellReference shield = Reference("shield");
         controller.StartTurn();
         SpellCastContext context = new(
             clericObject,
@@ -201,9 +217,10 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         }
 
         public string Slug => "shield";
+        public string DisplayName => "Shield";
+        public IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
+            new[] { new SpellActionVariant(1) };
         public bool SelectionStarted { get; private set; }
-
-        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
 
         public IEnumerator SelectAndCast(SpellCastContext context)
         {
@@ -242,8 +259,9 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
     private sealed class SelfDefeatingSpellDefinition : ISpellDefinition
     {
         public string Slug => "shield";
-
-        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
+        public string DisplayName => "Shield";
+        public IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
+            new[] { new SpellActionVariant(1) };
 
         public IEnumerator SelectAndCast(SpellCastContext context)
         {
@@ -265,5 +283,41 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         }
 
         public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
+    }
+
+    private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);
+
+    private sealed class TestSpellCatalog : ILegacySpellDefinitionCatalog
+    {
+        private readonly ISpellDefinition legacy;
+        private readonly Game.Rules.Runtime.SpellDefinition definition;
+
+        public TestSpellCatalog(ISpellDefinition legacy)
+        {
+            this.legacy = legacy;
+            definition = new Game.Rules.Runtime.SpellDefinition(
+                new SpellId(legacy.Slug),
+                legacy.DisplayName,
+                1,
+                legacy.ActionVariants,
+                Array.Empty<Trait>(),
+                Array.Empty<SpellEffectDirective>()
+            );
+        }
+
+        public bool TryGetSpell(
+            SpellReference reference,
+            out Game.Rules.Runtime.SpellDefinition value
+        )
+        {
+            value = definition;
+            return reference.Spell == definition.Id && reference.Rank >= definition.MinimumRank;
+        }
+
+        public bool TryGetLegacySpell(SpellReference reference, out ISpellDefinition value)
+        {
+            value = legacy;
+            return reference.Spell == definition.Id;
+        }
     }
 }

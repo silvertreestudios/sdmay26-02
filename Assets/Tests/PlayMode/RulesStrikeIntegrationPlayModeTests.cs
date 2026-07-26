@@ -465,7 +465,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             .GetActions()
             .OfType<RulesStrikeAction>()
             .Single(action => action.ActionName == "Unarmed Strike");
-        PreparedSpell divineLance = cleric.Prepared.Spellcasting.GetSpell("divine-lance");
+        SpellReference divineLance = new(new SpellId("divine-lance"), 1);
         UnityEngine.Random.State randomState = UnityEngine.Random.state;
         UnityEngine.Random.InitState(7113);
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Spells;
+using Game.Rules.Runtime;
 using Newtonsoft.Json.Linq;
 
 namespace Game.Creature.Rules
@@ -11,6 +12,7 @@ namespace Game.Creature.Rules
     /// </summary>
     public sealed class PreparedCharacter
     {
+        private ISpellBook spellBook = EmptySpellBook.Instance;
         public CharacterBuild Build { get; }
         public List<OwnedPf2eItem> OwnedItems { get; } = new();
         public HashSet<string> RollOptions { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -24,7 +26,13 @@ namespace Game.Creature.Rules
         public Dictionary<string, string> RuleReferences { get; } =
             new(StringComparer.OrdinalIgnoreCase);
         public List<string> UnsupportedRuleKeys { get; } = new();
-        public SpellcastingState Spellcasting { get; set; }
+
+        /// <summary>Gets or replaces the creature's required spellbook.</summary>
+        public ISpellBook SpellBook
+        {
+            get => spellBook;
+            set => spellBook = value ?? throw new ArgumentNullException(nameof(value));
+        }
 
         /// <summary>
         /// Creates prepared state around saved build choices while leaving all derivation to the preparer.

@@ -13,6 +13,7 @@ namespace Game.Rules.Runtime
         /// <param name="health">The participant's current authoritative health.</param>
         /// <param name="position">The participant's current grid position.</param>
         /// <param name="landSpeed">The participant's land Speed.</param>
+        /// <param name="spellSlots">The participant-owned spell-slot pools.</param>
         /// <param name="ruleBindings">
         /// The participant-owned rule bindings that are active when registration commits.
         /// </param>
@@ -21,12 +22,25 @@ namespace Game.Rules.Runtime
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
+            IReadOnlyList<SpellSlotState> spellSlots,
             IReadOnlyList<ActiveRuleBinding> ruleBindings
         )
         {
             Creature = creature ?? throw new ArgumentNullException(nameof(creature));
             if (ruleBindings == null)
                 throw new ArgumentNullException(nameof(ruleBindings));
+            if (spellSlots == null)
+                throw new ArgumentNullException(nameof(spellSlots));
+            if (spellSlots.Any(slot => slot.Owner != creature.Id))
+                throw new ArgumentException(
+                    "Initial spell-slot pools must be owned by the combatant.",
+                    nameof(spellSlots)
+                );
+            if (spellSlots.Select(slot => slot.Id).Distinct().Count() != spellSlots.Count)
+                throw new ArgumentException(
+                    "Initial spell-slot pools must have unique IDs.",
+                    nameof(spellSlots)
+                );
             if (ruleBindings.Any(binding => binding == null || binding.Owner != creature.Id))
                 throw new ArgumentException(
                     "Initial rule bindings must be non-null and owned by the combatant.",
@@ -40,6 +54,7 @@ namespace Game.Rules.Runtime
             Health = health;
             Position = position;
             LandSpeed = landSpeed;
+            SpellSlots = Array.AsReadOnly(spellSlots.ToArray());
             RuleBindings = Array.AsReadOnly(ruleBindings.ToArray());
         }
 
@@ -54,6 +69,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the participant's authoritative land Speed.</summary>
         public GridDistance LandSpeed { get; }
+
+        /// <summary>Gets participant-owned initial spell-slot pools.</summary>
+        public IReadOnlyList<SpellSlotState> SpellSlots { get; }
 
         /// <summary>Gets participant-owned rule bindings activated by registration.</summary>
         public IReadOnlyList<ActiveRuleBinding> RuleBindings { get; }
@@ -386,6 +404,7 @@ namespace Game.Rules.Runtime
                 || state.Positions.Contains(id)
                 || state.LandSpeeds.Contains(id)
                 || state.ActionEconomy.Contains(id)
+                || combatant.SpellSlots.Any(slot => state.SpellSlots.Contains(slot.Id))
             )
             {
                 return CombatRuntimeOutcome.Rejected("The combatant is already registered.");
@@ -407,6 +426,8 @@ namespace Game.Rules.Runtime
             state.LandSpeeds.Set(id, combatant.LandSpeed);
             state.ActionEconomy.Set(id, new ActionEconomyState(0, false));
             state.MultipleAttackPenalty.Set(id, new MultipleAttackPenaltyState(0));
+            foreach (SpellSlotState slot in combatant.SpellSlots)
+                state.SpellSlots.Set(slot.Id, slot);
             foreach (ActiveRuleBinding binding in combatant.RuleBindings)
                 state.RuleBindings.Set(binding.Id, binding);
             return CombatRuntimeOutcome.Success;

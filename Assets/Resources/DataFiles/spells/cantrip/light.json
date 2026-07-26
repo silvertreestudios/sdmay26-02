@@ -30,7 +30,13 @@
             "value": "120 feet"
         },
         "requirements": "",
-        "rules": [],
+        "rules": [
+            {
+                "key": "CreateActiveEffect",
+                "definition": "spell-effect-light",
+                "target": "self"
+            }
+        ],
         "target": {
             "value": ""
         },

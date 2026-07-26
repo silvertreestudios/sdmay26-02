@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
+using Game.Rules.Runtime;
 using Newtonsoft.Json.Linq;
 
 namespace Game.Creature.Rules
@@ -101,52 +102,32 @@ namespace Game.Creature.Rules
             if (!prepared.HasOwnedItem("cleric"))
                 return;
 
-            SpellcastingState spellcasting = new()
-            {
-                Tradition = "divine",
-                Ability = "wis",
-                SpellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature),
-            };
-            spellcasting.AddPool(new SpellSlotPool("rank-1-bless", SpellSlotKind.Prepared, 1, 1));
-            spellcasting.AddPool(
-                new SpellSlotPool("rank-1-infuse-vitality", SpellSlotKind.Prepared, 1, 1)
+            SpellSlotPoolId blessPool = new("rank-1-bless");
+            SpellSlotPoolId vitalityPool = new("rank-1-infuse-vitality");
+            SpellSlotPoolId fontPool = new("font-heal");
+            prepared.SpellBook = new PreparedSpellBook(
+                new[]
+                {
+                    PreparedSpellEntry.Cantrip(Reference("shield")),
+                    PreparedSpellEntry.Cantrip(Reference("guidance")),
+                    PreparedSpellEntry.Cantrip(Reference("divine-lance")),
+                    PreparedSpellEntry.Cantrip(Reference("haunting-hymn")),
+                    PreparedSpellEntry.Cantrip(Reference("light")),
+                    PreparedSpellEntry.FromPool(Reference("bless"), blessPool),
+                    PreparedSpellEntry.FromPool(Reference("infuse-vitality"), vitalityPool),
+                    PreparedSpellEntry.FromPool(Reference("heal"), fontPool),
+                },
+                new[]
+                {
+                    new PreparedSpellSlotPool(blessPool, 1),
+                    new PreparedSpellSlotPool(vitalityPool, 1),
+                    new PreparedSpellSlotPool(fontPool, 4),
+                },
+                SpellcastingRuntime.SpellAttackModifier(creature)
             );
-            spellcasting.AddPool(new SpellSlotPool("font-heal", SpellSlotKind.Font, 1, 4));
-
-            spellcasting.AddSpell(
-                new PreparedSpell("Shield", 1, true, false, string.Empty, new[] { 1u })
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell("Guidance", 1, true, false, string.Empty, new[] { 1u })
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell("Divine Lance", 1, true, false, string.Empty, new[] { 2u })
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u })
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell("Light", 1, true, false, string.Empty, new[] { 2u })
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell("Bless", 1, false, false, "rank-1-bless", new[] { 2u })
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell(
-                    "Infuse Vitality",
-                    1,
-                    false,
-                    false,
-                    "rank-1-infuse-vitality",
-                    new[] { 1u, 2u, 3u }
-                )
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell("Heal", 1, false, true, "font-heal", new[] { 1u, 2u, 3u })
-            );
-
-            prepared.Spellcasting = spellcasting;
         }
+
+        private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);
 
         private static void ApplyClassBaseMath(
             CreatureComponent creature,

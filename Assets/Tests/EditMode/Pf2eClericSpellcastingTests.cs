@@ -8,7 +8,6 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
-using Game.Rules.Unity.Light;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -71,7 +70,8 @@ public class Pf2eClericSpellcastingTests
     public void ClericSpellStateHasRequestedSpellsSlotsAndWisdomMath()
     {
         CreatureComponent cleric = CreatePreparedCleric();
-        SpellcastingState state = cleric.Prepared.Spellcasting;
+        Assert.That(cleric.Prepared.SpellBook, Is.TypeOf<PreparedSpellBook>());
+        PreparedSpellBook state = (PreparedSpellBook)cleric.Prepared.SpellBook;
 
         CollectionAssert.AreEquivalent(
             new[]
@@ -85,12 +85,12 @@ public class Pf2eClericSpellcastingTests
                 "infuse-vitality",
                 "heal",
             },
-            state.PreparedSpells.Select(spell => spell.Slug)
+            state.CastableSpells.Select(spell => spell.Spell.Value)
         );
-        Assert.That(state.PreparedSpells.Count(spell => spell.IsCantrip), Is.EqualTo(5));
-        Assert.That(state.Pools["rank-1-bless"].UsesRemaining, Is.EqualTo(1));
-        Assert.That(state.Pools["rank-1-infuse-vitality"].UsesRemaining, Is.EqualTo(1));
-        Assert.That(state.Pools["font-heal"].UsesRemaining, Is.EqualTo(4));
+        Assert.That(state.Entries.Count(spell => spell.IsCantrip), Is.EqualTo(5));
+        AssertRemaining(state, "rank-1-bless", 1);
+        AssertRemaining(state, "rank-1-infuse-vitality", 1);
+        AssertRemaining(state, "font-heal", 4);
         Assert.That(state.SpellAttackModifier, Is.EqualTo(7));
         Assert.That(state.SpellDc, Is.EqualTo(17));
         string[] legacySpells =
@@ -113,13 +113,17 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void LightRulesProfileUsesCurrentDataBackedTraits()
+    public void LightCastProfileUsesCurrentDataBackedTraits()
     {
-        LightActionDefinition definition = UnityLightDefinitionLoader.Load(
-            new UnityLightActorStateProvider(new Dictionary<CreatureId, CreatureComponent>())
+        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+        CastSpellActionOp operation = new(
+            new CreatureId("profile-actor"),
+            Reference("light"),
+            new SpellActionVariant(2),
+            SpellCastAuthorization.Cantrip
         );
 
-        ActionProfile profile = definition.GetBaseProfile(LightActionDefinition.DefinitionId);
+        ActionProfile profile = operation.GetBaseProfile(catalog);
 
         Assert.That(profile.Cost, Is.EqualTo(ActionCost.Two));
         Assert.That(
@@ -164,7 +168,7 @@ public class Pf2eClericSpellcastingTests
 
         CastSpellResult second = SpellcastingRuntime.Cast(
             cleric.gameObject,
-            cleric.Prepared.Spellcasting.GetSpell("guidance"),
+            Reference("guidance"),
             1,
             new[] { ally.gameObject },
             spendActions: false
@@ -183,10 +187,7 @@ public class Pf2eClericSpellcastingTests
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
-        Assert.That(
-            cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining,
-            Is.EqualTo(0)
-        );
+        AssertRemaining((PreparedSpellBook)cleric.Prepared.SpellBook, "rank-1-bless", 0);
     }
 
     [Test]
@@ -231,10 +232,7 @@ public class Pf2eClericSpellcastingTests
             ),
             Is.True
         );
-        Assert.That(
-            cleric.Prepared.Spellcasting.Pools["rank-1-infuse-vitality"].UsesRemaining,
-            Is.EqualTo(0)
-        );
+        AssertRemaining((PreparedSpellBook)cleric.Prepared.SpellBook, "rank-1-infuse-vitality", 0);
     }
 
     [Test]
@@ -249,7 +247,7 @@ public class Pf2eClericSpellcastingTests
         Assert.That(result.Success, Is.True);
         Assert.That(ally.hp, Is.GreaterThan(3));
         Assert.That(ally.Health.Current, Is.EqualTo(ally.hp));
-        Assert.That(cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(3));
+        AssertRemaining((PreparedSpellBook)cleric.Prepared.SpellBook, "font-heal", 3);
     }
 
     [Test]
@@ -339,14 +337,21 @@ public class Pf2eClericSpellcastingTests
         params GameObject[] targets
     )
     {
-        PreparedSpell spell = caster.Prepared.Spellcasting.GetSpell(slug);
         return SpellcastingRuntime.Cast(
             caster.gameObject,
-            spell,
+            Reference(slug),
             actionCost,
             targets,
             spendActions: true
         );
+    }
+
+    private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);
+
+    private static void AssertRemaining(PreparedSpellBook book, string pool, int expected)
+    {
+        Assert.That(book.TryGetRemaining(new SpellSlotPoolId(pool), out int uses), Is.True);
+        Assert.That(uses, Is.EqualTo(expected));
     }
 
     private CreatureComponent CreatePreparedCleric()
