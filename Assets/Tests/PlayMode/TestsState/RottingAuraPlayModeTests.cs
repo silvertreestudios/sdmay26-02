@@ -21,6 +21,10 @@ namespace TestsState
         [TearDown]
         public void TearDown()
         {
+            CameraManager cameraManager = Object.FindFirstObjectByType<CameraManager>();
+            if (cameraManager != null)
+                cameraManager.StopFollowing();
+
             foreach (
                 HUDController hud in Object.FindObjectsByType<HUDController>(
                     FindObjectsSortMode.None
