@@ -16,6 +16,7 @@ namespace Game.Strikes
     /// </summary>
     public sealed class RulesStrikeAction : MultiFrameEntityAction
     {
+        private static readonly StrikeActionDefinition strikeActionDefinition = new();
         private readonly StrikeItemDefinition item;
         private readonly UnityStrikeContext strikeContext;
 
@@ -51,7 +52,7 @@ namespace Game.Strikes
                 )
             )
                 return false;
-            return new StrikeActionDefinition().GetAvailability(bridge.Snapshot, actor, item)
+            return strikeActionDefinition.GetAvailability(bridge.Snapshot, actor, item)
                 is AvailableActionAvailability;
         }
 
@@ -59,7 +60,7 @@ namespace Game.Strikes
         /// Checks the full side-effect-free Strike validation path used by authoritative dispatch.
         /// </summary>
         public bool CanPreviewTarget(RulesSnapshot snapshot, CreatureId actor, CreatureId target) =>
-            new StrikeActionDefinition().Validate(
+            strikeActionDefinition.Validate(
                 snapshot,
                 new StrikeActionOp(actor, item.Item, target),
                 strikeContext,
@@ -137,6 +138,7 @@ namespace Game.Strikes
     /// <summary>Presents feature-owned Reload through the generic rules dispatch boundary.</summary>
     public sealed class RulesReloadWeaponAction : EntityAction
     {
+        private static readonly ReloadActionDefinition reloadActionDefinition = new();
         private readonly StrikeItemDefinition item;
 
         /// <summary>Creates a Reload entry for a reload-required Strike item.</summary>
@@ -162,7 +164,7 @@ namespace Game.Strikes
                 )
             )
                 return false;
-            return new ReloadActionDefinition().GetAvailability(bridge.Snapshot, actor, item)
+            return reloadActionDefinition.GetAvailability(bridge.Snapshot, actor, item)
                 is AvailableActionAvailability;
         }
 
