@@ -105,16 +105,25 @@ namespace Game.Rules.Unity.Light
     /// <summary>Installs exactly one rules-backed Light entry for prepared combatants.</summary>
     public static class UnityLightActionInstaller
     {
-        /// <summary>Reconciles one controller's Light action with current preparation.</summary>
+        /// <summary>
+        /// Reconciles one controller's Light action with its lifecycle-safe prepared state.
+        /// </summary>
         /// <param name="controller">The combat controller whose action bar is updated.</param>
+        /// <remarks>
+        /// Encounter composition can run before Unity invokes <c>Start</c>. The creature's generic,
+        /// idempotent runtime-action initializer therefore runs first so its configured build and
+        /// legacy actions are materialized before this feature inspects Light preparation.
+        /// </remarks>
         public static void Install(ActionController controller)
         {
             if (controller == null)
                 throw new ArgumentNullException(nameof(controller));
 
-            bool prepared = UnityLightActorStateProvider
-                .Extract(controller.GetComponent<CreatureComponent>())
-                .IsPrepared;
+            CreatureComponent creature = controller.GetComponent<CreatureComponent>();
+            if (creature != null)
+                creature.InitializeRuntimeActions();
+
+            bool prepared = UnityLightActorStateProvider.Extract(creature).IsPrepared;
             RulesLightAction[] existing = controller
                 .GetActions()
                 .OfType<RulesLightAction>()

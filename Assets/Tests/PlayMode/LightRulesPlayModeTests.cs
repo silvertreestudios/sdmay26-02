@@ -36,6 +36,50 @@ public sealed class LightRulesPlayModeTests
         yield return null;
     }
 
+    [Test]
+    public void PreStartBuildReconciliationInstallsOneLightAlongsideLegacySpells()
+    {
+        CreatureComponent cleric = CreateCreature("Pre-Start Cleric", 0);
+        cleric.level = 1;
+        cleric.wisMod = 4;
+        cleric.Build = new CharacterBuild { ClassName = "Cleric" };
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        Assert.That(cleric.Prepared, Is.Null);
+
+        UnityLightActionInstaller.Install(controller);
+        UnityLightActionInstaller.Install(controller);
+        UnityLightActionInstaller.Install(controller);
+
+        Assert.That(cleric.Prepared, Is.Not.Null);
+        Assert.That(controller.GetActions().OfType<RulesLightAction>().Count(), Is.EqualTo(1));
+        Assert.That(
+            controller.GetActions().OfType<CastSpellAction>().Select(action => action.ActionName),
+            Is.EqualTo(
+                new[]
+                {
+                    "Shield",
+                    "Guidance",
+                    "Divine Lance",
+                    "Haunting Hymn",
+                    "Bless",
+                    "Infuse Vitality 1A",
+                    "Infuse Vitality 2A",
+                    "Infuse Vitality 3A",
+                    "Heal 1A",
+                    "Heal 2A",
+                    "Heal 3A",
+                }
+            )
+        );
+        Assert.That(
+            controller
+                .GetActions()
+                .OfType<CastSpellAction>()
+                .Any(action => action.Spell.Slug == "light"),
+            Is.False
+        );
+    }
+
     [UnityTest]
     public IEnumerator PreparedInitialAndReinforcementCombatantsReceiveOneLightWithLegacySpell()
     {
