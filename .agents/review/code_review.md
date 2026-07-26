@@ -5,7 +5,7 @@ This guidance augments Codex's built-in `/review` and `codex review` behavior. D
 ## Review contract
 
 - Review the complete diff from the intended base branch or merge base to the exact head SHA. State both SHAs; any later code change invalidates the review.
-- For `iterative-pr-delivery`, this built-in exact-SHA review is the one-time pre-PR local gate. Once that gate passes, never reopen local review for later code, documentation, CI, Copilot, human-review, or base-sync changes; verify those changes proportionately and continue the applicable remote gates.
+- For `iterative-pr-delivery`, this built-in exact-SHA review is the one-time pre-PR local gate. Once that gate passes, never reopen local review for later code, documentation, CI, automated-review, human-review, or base-sync changes; verify those changes proportionately and continue the applicable remote gates.
 - Keep the review session independent and non-mutating. Read the task, acceptance criteria, `AGENTS.md`, and any domain skill relevant to the changed files before judging the implementation.
 - For every new or modified C# API, verify its XML documentation follows the guidance in `AGENTS.md`: new public types and non-trivial public or protected members are documented, complex behavior and hazards are understandable to junior contributors, inherited documentation is reused where appropriate, and comments remain accurate and DRY after the change.
 - Distinguish verified behavior from assumptions. Record commands and evidence inspected, and state any verification that could not be performed.
@@ -58,7 +58,7 @@ When UI or serialized Unity content changes, inspect:
 - Use Unity `6000.2.1f1` and the commands in `AGENTS.md`; never add `-quit` to this project's Unity Test Framework runs.
 - Keep test outputs outside tracked asset folders. Inspect Unity console or compilation evidence when Editor state matters.
 - Inspect `git status`, the complete diff, generated files, and serialized diffs. Treat green CI or narrow tests as supporting evidence, not proof of unrelated behavior.
-- For GitHub REST, GraphQL, or `gh` wrapper changes, verify claimed identifiers and fields against current official documentation or an authenticated read-only query. Do not report remembered API behavior as an actionable defect when that verification is unavailable.
+- For GitHub API or integration changes, verify claimed identifiers and fields against current official documentation or a verified read-only query. Do not report remembered API behavior as an actionable defect when that verification is unavailable.
 - For visual changes, verify that the PR body contains the required real screenshots and that they show the full feature without clipping or misleading framing.
 
 ## Review handoff

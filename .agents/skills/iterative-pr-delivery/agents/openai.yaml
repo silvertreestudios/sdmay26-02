@@ -1,4 +1,4 @@
 interface:
   display_name: "Iterative PR Delivery"
   short_description: "Deliver PRs through one-time local and remote review gates"
-  default_prompt: "Use $iterative-pr-delivery to implement this issue through one-time local review, iterative Copilot review, CI, and human handoff."
+  default_prompt: "Use $iterative-pr-delivery to implement this issue through one-time local review, iterative GitHub Copilot review, CI, and handoff to silvertreestudios/pf2e-game."

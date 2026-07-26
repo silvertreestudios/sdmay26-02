@@ -12,26 +12,13 @@ https://dotnet.microsoft.com/en-us/download/dotnet/thank-you/runtime-8.0.22-wind
 
 
 !! IMPORTANT !!
-Program.cs uses an uncommitted "gitToken.txt" text file in order to call the GitHub API.
-You must create a gitToken.txt file that contains a github PAT(Personal Access Token) in this directory for the program to work.
-You can obtain a personal access token from GitHub and copy-paste it into gitToken.txt.  
-
-How to create a PAT:
-1. In the upper-right corner of any page on GitHub, click your profile picture, then click 'Settings'.
-2. In the left sidebar, click '<>Developer settings'.
-3. In the left sidebar, under  'Personal access tokens', click 'Tokens (classic)'.
-4. Select 'Generate new token', then click 'Generate new token (classic)'.
-5. Fill out the note and expiration options.
-6. Select the scopes you'd like to grant this token, and make sure to include 'repo' in the selection.
-7. Click 'Generate token'.
-8. Copy the token and paste it into gitToken.txt (or another file where you can find it again later).
-
-More about Personal Access Tokens:
-https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+Program.cs reads an uncommitted API credential from "gitToken.txt" in this directory.
+Provision that credential through the approved environment-level workflow; this repository does not prescribe an account, credential type, or setup tool.
+Never commit the credential file or copy its contents into tracked files, logs, or issue reports.
 
 
 #Before Use Checklist
-1) Make sure gitToken.txt exists and has a valid personal access token
+1) Make sure gitToken.txt exists and contains a valid API credential
 2) Check that 'processingFunctions' in Program.cs includes a processing function for all assets you plan to import, and make sure it matches to the directory you plan to import from
     -Without a valid processing function a file will still be imported, but with minimal alterations
 3) Check that Constants.apiRoot matches the desired repo

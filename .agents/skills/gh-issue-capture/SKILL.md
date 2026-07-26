@@ -9,12 +9,11 @@ Use this skill to record follow-up work in GitHub Issues with consistent detail 
 
 ## Workflow
 
-1. Check for an existing issue before creating a duplicate:
-   `gh issue list --search "<keywords> in:title,body" --state all`
+1. Search open and closed issues for matching title and body keywords before creating a duplicate.
 2. Classify the work with labels using the schema below.
 3. Write an issue body that preserves reproduction context and a clear finish line.
 4. Ask a human to approve the proposed title, body, and labels. Never create an issue without explicit human approval, including for follow-up work discovered during review, testing, or agent work.
-5. After approval, create the issue with `gh issue create --title "<title>" --body-file <file> --label "<label>"`.
+5. After approval, create the issue with the approved title, body, and labels.
 
 ## Title
 

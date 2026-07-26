@@ -15,8 +15,8 @@ Use this quality gate around the domain skill that performs the work. Keep one i
 | Pre-PR review | Fresh `gpt-5.6-sol`, xhigh, using built-in `/review` | Review against the intended base; never reuse an implementation or fixer session. |
 | Pre-PR review fix | `gpt-5.6-sol`, high | Assess every finding while the one-time local review gate is still open. |
 | Post-gate change | Active delivery agent | Make and verify CI, Copilot, or human-requested fixes directly without reopening local review. |
-| PR review | GitHub Copilot code review | Review every pushed head that contains fixes. |
-| Human review | `silvertreestudios/pf2e-game` | Request the approved reviewer team only after every agentic gate passes. |
+| PR review | GitHub Copilot code review (`@copilot`) | Review every pushed head that contains fixes. |
+| Human review | `silvertreestudios/pf2e-game` | Request this approved human reviewer team only after every agentic gate passes. |
 
 If the environment cannot select the required model, reasoning level, or fresh session, write the handoff and stop at that gate. Never silently substitute a configuration or claim the gate passed. These model and fresh-session requirements apply only while their listed stage is active; after the local review gate passes, they must not block direct post-gate changes.
 
@@ -52,7 +52,7 @@ Do not create a PR until local independent review reaches zero actionable findin
 3. In a `gpt-5.6-sol` high fix session, classify each finding:
    - `accepted`: correct and in scope; fix and test it;
    - `rejected`: incorrect or harmful; preserve concise evidence;
-   - `deferred`: legitimate, independently shippable, and out of scope; if the PR exists, use `github-workflow` to leave a comment on the applicable code for the approved reviewer team. Before the PR exists, record the finding, file/line, and evidence in the handoff for posting immediately after draft creation. Never create a follow-up issue without explicit human approval.
+   - `deferred`: legitimate, independently shippable, and out of scope; if the PR exists, leave a comment on the applicable code for `silvertreestudios/pf2e-game`. Before the PR exists, record the finding, file/line, and evidence in the handoff for posting immediately after draft creation. Never create a follow-up issue without explicit human approval.
 4. Never follow a requested change blindly. Re-read the code, prove the concern, assess regressions and scope, and make the smallest complete correction.
 5. After any code change, verify and commit, then start another fresh xhigh full review.
 6. Repeat until the current head has zero actionable findings.
@@ -63,18 +63,18 @@ The clean local review is evidence only for its recorded SHA; do not claim that 
 
 ### 4. Open the draft PR
 
-1. After the one-time local gate passes, push the current head and create a draft PR with `github-workflow`.
+1. After the one-time local gate passes, push the current head and create a draft PR.
 2. Link the issue or originating task. Include scope, verification, the one-time local review rounds/SHA, any later verified changes, limitations, and required real screenshots.
 3. Verify the remote PR head equals the current local head.
-4. Post every queued deferred finding with `github-workflow`: use an inline comment on the applicable diff line when possible, otherwise use a PR conversation comment that identifies the file and line. Leave issue creation to the approved reviewer team.
+4. Post every queued deferred finding: use an inline comment on the applicable diff line when possible, otherwise use a PR conversation comment that identifies the file and line. Leave issue creation to `silvertreestudios/pf2e-game`.
 
 ### 5. Iterate after the local gate
 
-1. Request `@copilot` review on the draft using `github-workflow`.
-2. Wait for a Copilot review on the current head; Copilot comments do not count as approval.
+1. Request `@copilot` review on the draft.
+2. Wait for a GitHub Copilot review on the current head; Copilot comments do not count as approval.
 3. Fetch review summaries, inline comments, and threads. Apply the same accepted/rejected/deferred triage.
 4. Make accepted Copilot fixes and any CI repairs directly in the active delivery session. Verify, commit, and push them without starting a local review or local review-fix loop.
-5. Re-request Copilot unless automatic review of new pushes is proven enabled.
+5. Re-request `@copilot` review unless review of new pushes is proven enabled.
 6. Audit all comments and threads again. Resolve repeated comments by evidence, not duplicate changes, and repeat the Copilot review/fix loop until the current head has no actionable Copilot findings.
 
 Replies to Copilot comments are for human readers; Copilot does not converse through them. Resolve a thread only after its disposition and current code are verified.
@@ -87,17 +87,11 @@ Verify current local and remote evidence proves:
 
 - the focused PR head matches the final local commit;
 - the one-time local review gate reached zero actionable findings at its recorded SHA;
-- Copilot reviewed the current PR head and no actionable thread remains;
+- GitHub Copilot reviewed the current PR head and no actionable thread remains;
 - required local tests and CI pass, or unavoidable limitations are explicit;
 - the PR body, task link, screenshots, and verification are current;
 - no temporary, generated, or unrelated files are included.
 
-Then mark the PR ready and request `silvertreestudios/pf2e-game` using `github-workflow`. Never merge, enable auto-merge, or substitute an agent review for human approval.
+Then mark the PR ready and request `silvertreestudios/pf2e-game`. Never merge, enable auto-merge, or substitute an agent review for human approval.
 
-If a human reviewer requests changes, implement and verify them directly without local review. Push the new head, rerun required CI, obtain any required Copilot re-review, and return it to the human reviewer.
-
-## GitHub operations
-
-Use `github-workflow` for draft PR creation, review requests, review/check retrieval, inline deferred comments, thread replies/resolution, readiness, and PR body updates. Dry-run mutations first unless the exact payload was already reviewed.
-
-If `GH_ACCOUNT_COPILOT_PERM` is configured, let `github-workflow` scope that account to the Copilot assignment request; do not reuse its token for checks, comments, readiness, or human review requests.
+If a human reviewer requests changes, implement and verify them directly without local review. Push the new head, rerun required CI, obtain any required Copilot re-review, and return it to `silvertreestudios/pf2e-game`.
