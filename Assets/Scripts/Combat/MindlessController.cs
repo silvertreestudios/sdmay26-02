@@ -242,11 +242,13 @@ public class MindlessController : AIActionController
     {
         if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor))
             return null;
+        if (!CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager))
+            return null;
         EntityAction bestAction = null;
         GameObject bestTarget = null;
         float bestDamage = 0;
 
-        foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
+        foreach (GameObject target in combatManager.GetCombatants())
         {
             if (target == this.gameObject)
                 continue;

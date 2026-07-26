@@ -260,6 +260,35 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator BestLegalStrikeWithoutCombatManagerReturnsNoAction()
+    {
+        CreatureComponent actor = CreateCreature("Actor", "strike-test-ai", 20, 10);
+        actor.gameObject.SetActive(false);
+        MindlessController ai = actor.gameObject.AddComponent<MindlessController>();
+        Tile[,] tiles = CreateTiles(1);
+        Occupy(tiles, actor.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { ai },
+            tiles,
+            new ScriptedRollService()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor);
+        bridge.BeginTurn(actorId, 3);
+        Assert.That(CombatManagerInterface.TryGetInstance(out _), Is.False);
+        MethodInfo bestLegalStrike = typeof(MindlessController).GetMethod(
+            "BestLegalStrike",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(bestLegalStrike, Is.Not.Null);
+
+        EntityAction selected = (EntityAction)
+            bestLegalStrike.Invoke(ai, System.Array.Empty<object>());
+
+        Assert.That(selected, Is.Null);
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator BestLegalStrikeWithoutLegacyTeamsSelectsRulesLegalTarget()
     {
         InstallCombatManager();
