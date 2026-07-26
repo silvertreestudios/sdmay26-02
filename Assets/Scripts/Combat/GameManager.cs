@@ -3,12 +3,17 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Encounters;
+using Game.DungeonGeneration;
 using Game.DungeonPersistence;
 using Game.DungeonPersistence.Repository;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
 
+/// <summary>
+/// Selects legacy combat startup or the player-approved persistent procedural dungeon launch for
+/// the active gameplay scene.
+/// </summary>
 public class GameManager : SingletonMonoBehaviour<GameManager>
 {
     // Whether or not combat is active
@@ -16,6 +21,9 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
 
     [SerializeField]
     public TeamRules TeamRelationships { get; private set; }
+
+    private DungeonRunController dungeonRunController;
+    private HUDController dungeonHud;
 
     private void OnEnable()
     {
@@ -25,11 +33,13 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
     private void OnDisable()
     {
         OnCombatEnd.RemoveListener(NextLevel);
+        if (dungeonRunController != null)
+            dungeonRunController.CurrentDepthChanged -= OnDungeonDepthChanged;
     }
 
     private void Start()
     {
-        StartCoroutine("StartCombat");
+        StartCoroutine(StartCombat());
     }
 
     private IEnumerator StartCombat()
@@ -59,16 +69,16 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             );
         }
 
-        ActionController[] sceneControllers = Object
-            .FindObjectsByType<ActionController>(
-                FindObjectsInactive.Exclude,
-                FindObjectsSortMode.InstanceID
-            )
-            .ToArray();
         bool hasEncounterPlans = validation.JsonMap.LevelDocument.EncounterPlans.Count > 0;
         if (!hasEncounterPlans)
         {
-            bool hasAuthoredOpposition = sceneControllers.Any(controller =>
+            ActionController[] legacyControllers = Object
+                .FindObjectsByType<ActionController>(
+                    FindObjectsInactive.Exclude,
+                    FindObjectsSortMode.InstanceID
+                )
+                .ToArray();
+            bool hasAuthoredOpposition = legacyControllers.Any(controller =>
                 !string.Equals(
                     controller.GetComponent<Team>()?.Name,
                     "Players",
@@ -82,6 +92,20 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             }
         }
 
+        if (!SceneTransitionManager.TryConsumeDungeonRunLaunch(out DungeonRunLaunchRequest launch))
+        {
+            Debug.Log(
+                "ProceduralDungeon loaded without a menu launch request; the reusable scene remains passive."
+            );
+            yield break;
+        }
+
+        ActionController[] sceneControllers = Object
+            .FindObjectsByType<ActionController>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.InstanceID
+            )
+            .ToArray();
         ActionController[] party = sceneControllers
             .Where(controller =>
                 string.Equals(
@@ -93,7 +117,7 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             .ToArray();
         if (party.Length == 0)
             throw new InvalidOperationException(
-                "A JSON dungeon requires at least one active Players-team controller."
+                "A JSON dungeon requires at least one authored Players-team controller."
             );
 
         GameObject runtimeRoot = new("Dungeon Encounter Runtime");
@@ -104,31 +128,61 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
                 throw new InvalidOperationException(
                     "A JSON dungeon with planned encounters requires an active HUDController."
                 );
+            // Dungeon bootstrap can fail before exploration presentation enables the HUD. Bind
+            // its UI first so both success status and blocking diagnostics are always safe.
+            hud.EnableUi();
             DungeonEncounterCreatureCatalog encounterCatalog =
                 DungeonEncounterCreatureCatalog.LoadDefaultOrThrow();
-            DungeonRunPersistenceBootstrapResult bootstrap =
-                DungeonRunPersistenceBootstrap.StartNewRun(
+            DungeonLevelDocument template =
+                launch.Mode == DungeonRunLaunchMode.NewRun
+                    ? WithRunSeed(validation.JsonMap.LevelDocument, launch.NormalizedSeed)
+                    : validation.JsonMap.LevelDocument;
+            DungeonRunPersistenceBootstrapResult bootstrap = launch.Mode switch
+            {
+                DungeonRunLaunchMode.NewRun => DungeonRunPersistenceBootstrap.StartNewRun(
                     map,
-                    validation.JsonMap.LevelDocument,
+                    template,
                     encounterCatalog,
                     combatManager,
                     party,
                     hud,
-                    runtimeRoot
-                );
+                    runtimeRoot,
+                    launch.AutosaveDirectory
+                ),
+                DungeonRunLaunchMode.Continue => DungeonRunPersistenceBootstrap.ContinueRun(
+                    map,
+                    template,
+                    encounterCatalog,
+                    combatManager,
+                    party,
+                    hud,
+                    runtimeRoot,
+                    launch.AutosaveDirectory
+                ),
+                _ => throw new InvalidOperationException(
+                    "The procedural dungeon received no supported launch operation."
+                ),
+            };
             if (!bootstrap.IsSuccess)
             {
-                throw new InvalidOperationException(
-                    "The generated dungeon could not initialize persistence:"
-                        + Environment.NewLine
-                        + string.Join(
-                            Environment.NewLine,
-                            bootstrap.Diagnostics.Select(diagnostic =>
-                                $"[{diagnostic.Code}] {diagnostic.Path}: {diagnostic.Message}"
-                            )
-                        )
+                string message = PlayerFacingFailure(bootstrap.Diagnostics);
+                hud.ShowDungeonRunError(message);
+                Debug.LogWarning(
+                    message
+                        + " "
+                        + string.Join(" ", bootstrap.Diagnostics.Select(item => item.Message))
                 );
+                Destroy(runtimeRoot);
+                yield break;
             }
+
+            dungeonRunController = bootstrap.Controller;
+            dungeonHud = hud;
+            dungeonRunController.CurrentDepthChanged += OnDungeonDepthChanged;
+            dungeonHud.ShowDungeonRunStatus(
+                dungeonRunController.StartingSeed,
+                dungeonRunController.CurrentDepth
+            );
         }
         catch
         {
@@ -136,6 +190,50 @@ public class GameManager : SingletonMonoBehaviour<GameManager>
             throw;
         }
         yield return null;
+    }
+
+    private void OnDungeonDepthChanged(int depth)
+    {
+        if (dungeonHud != null && dungeonRunController != null)
+            dungeonHud.ShowDungeonRunStatus(dungeonRunController.StartingSeed, depth);
+    }
+
+    private static DungeonLevelDocument WithRunSeed(DungeonLevelDocument source, int runSeed) =>
+        new(
+            new DungeonGenerationMetadata(
+                source.Generation.Algorithm,
+                runSeed,
+                source.Generation.Depth,
+                source.Generation.TopologyAttempt
+            ),
+            source.Rows,
+            source.Rooms,
+            source.Doors,
+            source.Stairs,
+            source.StartCell,
+            source.SafeCells,
+            source.Objects,
+            source.EncounterPlans,
+            source.RuntimeState
+        );
+
+    private static string PlayerFacingFailure(IReadOnlyList<DungeonSaveDiagnostic> diagnostics)
+    {
+        DungeonSaveDiagnosticCode code =
+            diagnostics.Count == 0
+                ? DungeonSaveDiagnosticCode.InvalidSnapshot
+                : diagnostics[0].Code;
+        return code switch
+        {
+            DungeonSaveDiagnosticCode.MissingSave =>
+                "No saved dungeon run is available to continue.",
+            DungeonSaveDiagnosticCode.CorruptSave =>
+                "The dungeon autosave is corrupt. Return to the menu and start a new run.",
+            DungeonSaveDiagnosticCode.IncompatibleVersion =>
+                "The dungeon autosave is incompatible with this version.",
+            DungeonSaveDiagnosticCode.IoFailure => "The dungeon autosave could not be accessed.",
+            _ => "The dungeon run could not be started.",
+        };
     }
 
     private void NextLevel(string winningTeam)

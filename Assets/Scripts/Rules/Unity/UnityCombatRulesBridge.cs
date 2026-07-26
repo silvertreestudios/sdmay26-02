@@ -142,10 +142,11 @@ namespace Game.Rules.Unity
                 throw new ArgumentNullException(nameof(controller));
             ValidateTiles(tiles);
             UnityCombatRulesBridge bridge = new UnityCombatRulesBridge(
-                new[] { controller },
+                FindExplorationControllers(controller, tiles),
                 tiles,
                 false
             );
+            bridge.strideFriendshipProvider.AllowFriendlyTraversal = false;
             bridge.BeginTurn(bridge.GetCreatureId(controller), ActionCost.One.Amount);
             return bridge;
         }
@@ -293,6 +294,30 @@ namespace Game.Rules.Unity
                 AddRegistrationMaps(registration);
                 registration.Creature.AttachHealthRules(this, registration.State.Creature.Id);
                 registration.Controller.AttachCombatRules(this, registration.State.Creature.Id);
+            }
+        }
+
+        /// <summary>
+        /// Projects final authoritative health and releases this encounter's Unity ownership.
+        /// </summary>
+        /// <remarks>
+        /// The registration maps intentionally outlive initiative membership, so this boundary
+        /// also releases defeated or otherwise removed combatants. Each target verifies exact
+        /// bridge identity before accepting the projection or detach, making repeated or delayed
+        /// release safe when newer encounter ownership already exists.
+        /// </remarks>
+        internal void ReleaseOwnership()
+        {
+            foreach (KeyValuePair<CreatureComponent, CreatureId> entry in creatureIds)
+            {
+                if (entry.Key != null)
+                    entry.Key.DetachHealthRules(this, GetHealth(entry.Value));
+            }
+
+            foreach (ActionController controller in controllerIds.Keys)
+            {
+                if (controller != null)
+                    controller.DetachCombatRules(this);
             }
         }
 
@@ -678,6 +703,7 @@ namespace Game.Rules.Unity
 
         private sealed class UnityTeamStrideFriendshipProvider : IStrideFriendshipProvider
         {
+            internal bool AllowFriendlyTraversal { get; set; } = true;
             private readonly Dictionary<PlayerId, string> teamNames = new();
 
             public void Register(PlayerId player, string teamName) =>
@@ -686,6 +712,8 @@ namespace Game.Rules.Unity
             /// <inheritdoc/>
             public bool IsFriendly(PlayerId mover, PlayerId occupant)
             {
+                if (!AllowFriendlyTraversal)
+                    return false;
                 if (
                     teamNames.TryGetValue(mover, out string moverTeam)
                     && teamNames.TryGetValue(occupant, out string occupantTeam)
@@ -811,6 +839,25 @@ namespace Game.Rules.Unity
                 }
                 return default;
             }
+        }
+
+        private static ActionController[] FindExplorationControllers(
+            ActionController leader,
+            Tile[,] tiles
+        )
+        {
+            return tiles
+                .Cast<Tile>()
+                .Where(tile => tile != null)
+                .SelectMany(tile => tile.Occupants)
+                .Where(occupant => occupant != null)
+                .Select(occupant => occupant.GetComponent<ActionController>())
+                .Where(controller =>
+                    controller != null && controller.GetComponent<CreatureComponent>() != null
+                )
+                .Prepend(leader)
+                .Distinct()
+                .ToArray();
         }
     }
 }

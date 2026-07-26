@@ -9,6 +9,7 @@ using Game.DungeonGeneration;
 using Game.DungeonPersistence;
 using Game.DungeonPersistence.Actors;
 using Game.KayKit;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
@@ -153,23 +154,48 @@ public sealed class DungeonRunTraversalPlayModeTests
 
             if (targetDepth == 1)
             {
+                DungeonLevelDocument currentFloor = map.ValidateSource().JsonMap.LevelDocument;
+                int? arrivalRoomId = DungeonEncounterPlanner.FindArrivalRoomId(
+                    currentFloor,
+                    upArrival.ArrivalCell
+                );
+                Assert.That(arrivalRoomId, Is.Not.Null);
+                TileType[,] topology = map.GetMapData();
                 DungeonDoorController door = Object
                     .FindObjectsByType<DungeonDoorController>(
                         FindObjectsInactive.Exclude,
                         FindObjectsSortMode.None
                     )
+                    .Where(candidate =>
+                        DungeonEncounterPlanner.FindArrivalRoomId(currentFloor, candidate.Cell)
+                        == arrivalRoomId
+                    )
                     .OrderBy(item => item.StableId, StringComparer.Ordinal)
                     .First();
+                DungeonCell openerCell = CardinalNeighbors(door.Cell)
+                    .First(cell =>
+                        cell.X >= 0
+                        && cell.Z >= 0
+                        && cell.X < topology.GetLength(0)
+                        && cell.Z < topology.GetLength(1)
+                        && GridBase.IsWalkableTile(topology[cell.X, cell.Z])
+                    );
                 ActionController opener = LivingParty().First();
                 opener.transform.position = new Vector3(
-                    door.Cell.X + 1,
+                    openerCell.X,
                     opener.transform.position.y,
-                    door.Cell.Z
+                    openerCell.Z
                 );
                 DungeonEncounterRuntimeController runtime =
                     Object.FindFirstObjectByType<DungeonEncounterRuntimeController>();
+
                 Assert.That(runtime.TryOpenDoor(door.Cell), Is.True);
                 Assert.That(door.IsOpen, Is.True);
+                Assert.That(
+                    manager.IsCombatActive,
+                    Is.False,
+                    "Opening the encounter-free arrival room's door must preserve traversal focus."
+                );
                 changedDoorId = door.StableId;
             }
         }
@@ -222,11 +248,11 @@ public sealed class DungeonRunTraversalPlayModeTests
     }
 
     /// <summary>
-    /// Verifies a standard four-PC party receives unique cells and is immediately eligible at the
-    /// paired, encounter-free Up stair after descending.
+    /// Verifies an exploration stair click does not require the party to gather first, then places
+    /// the full four-PC party in unique cells at the paired encounter-free arrival stair.
     /// </summary>
     [UnityTest]
-    public IEnumerator FourLivingPartyMembersArriveEligibleAtPairedStair()
+    public IEnumerator ExplorationStairClickIgnoresPartyProximityAndPlacesFullPartyAtArrival()
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
@@ -270,7 +296,13 @@ public sealed class DungeonRunTraversalPlayModeTests
         );
 
         DungeonStairMarker down = RequireStair(DungeonStairKind.Down);
-        PlaceLivingPartyAt(down, party);
+        DungeonTravelResult unconfirmed = bootstrap.Controller.TryUseStair(down, confirmed: false);
+        Assert.That(
+            unconfirmed.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.ConfirmationRequired),
+            "Exploration travel should depend on the leader's stair click, not each PC's distance."
+        );
+
         DungeonTravelResult descent = bootstrap.Controller.TryUseStair(down, confirmed: true);
 
         Assert.That(
@@ -335,7 +367,7 @@ public sealed class DungeonRunTraversalPlayModeTests
     private static ActionController[] LivingParty() =>
         Object
             .FindObjectsByType<ActionController>(
-                FindObjectsInactive.Include,
+                FindObjectsInactive.Exclude,
                 FindObjectsSortMode.InstanceID
             )
             .Where(member =>
@@ -466,5 +498,13 @@ public sealed class DungeonRunTraversalPlayModeTests
 
         /// <inheritdoc/>
         public void DismissStairTraversal() { }
+    }
+
+    private static IEnumerable<DungeonCell> CardinalNeighbors(DungeonCell cell)
+    {
+        yield return new DungeonCell(cell.X, cell.Z + 1);
+        yield return new DungeonCell(cell.X + 1, cell.Z);
+        yield return new DungeonCell(cell.X, cell.Z - 1);
+        yield return new DungeonCell(cell.X - 1, cell.Z);
     }
 }

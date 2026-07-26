@@ -1,5 +1,5 @@
 <ui:UXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" noNamespaceSchemaLocation="../../../UIElementsSchema/UIElements.xsd" editor-extension-mode="False">
-    <Style src="project://database/Assets/UIStuff/HUD/HUD.uss?fileID=7433441132597879392&amp;guid=7bce28169aab53a4c97f829107456fc8&amp;type=3#HUD" />
+    <ui:Style src="project://database/Assets/UIStuff/HUD/HUD.uss?fileID=7433441132597879392&amp;guid=7bce28169aab53a4c97f829107456fc8&amp;type=3#HUD" />
     <ui:VisualElement name="UpperArea" style="flex-grow: 1; flex-direction: row; align-items: flex-start; visibility: visible; height: 30%; justify-content: space-between; align-self: stretch; flex-shrink: 0; align-content: auto;">
         <ui:VisualElement name="Panel" style="flex-grow: 0; flex-shrink: 0; visibility: visible; flex-direction: row; justify-content: flex-start; align-items: flex-start; align-content: auto; width: 25%; background-color: rgba(0, 0, 0, 0);">
             <ui:VisualElement name="BasicButtonContainer" style="flex-grow: 1; align-self: flex-start; align-content: auto; justify-content: flex-start; align-items: stretch; flex-shrink: 0; width: 100%;">
@@ -8,6 +8,7 @@
         </ui:VisualElement>
         <ui:VisualElement name="VisualElement" style="flex-grow: 1; flex-shrink: 0; width: 50%; height: 100%;">
             <ui:VisualElement name="SpeedControlBar" style="position: absolute; top: 0; left: 0; right: 0; flex-direction: column; align-items: center; z-index: 10;">
+                <ui:Label name="DungeonRunStatusLabel" text="" class="dungeon-run-status" />
                 <ui:VisualElement name="SpeedButtonsBox" class="speed_bar_background" style="flex-direction: row; justify-content: center; align-items: center; padding-top: 6px; padding-bottom: 6px; padding-left: 8px; padding-right: 8px;">
                     <ui:Button name="PauseButton" text="||" class="btn-speed btn-speed--pause" />
                     <ui:Button name="Speed2xButton" text="▶▶" class="btn-speed" />

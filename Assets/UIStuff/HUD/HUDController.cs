@@ -6,6 +6,8 @@ using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence;
+using Game.DungeonPersistence.Autosave;
+using Game.DungeonPersistence.Repository;
 using Game.Strikes;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -53,6 +55,9 @@ public class HUDController
     private float resizeStartHeight;
     private VisualElement stairTraversalOverlay;
     private Action<bool> stairTraversalResponse;
+    private Label dungeonRunStatusLabel;
+    private bool isReturningToMainMenu;
+    private Button dungeonMainMenuButton;
 
     private const float LogMinHeight = 150f;
     private const float LogMaxHeight = 800f;
@@ -162,6 +167,28 @@ public class HUDController
         speed3xButton = ui.Q<Button>("Speed3xButton");
         speedToggleButton = ui.Q<Button>("SpeedToggleButton");
         speedButtonsBox = ui.Q<VisualElement>("SpeedButtonsBox");
+        dungeonRunStatusLabel = ui.Q<Label>("DungeonRunStatusLabel");
+        dungeonMainMenuButton = ui.Q<Button>("DungeonMainMenuButton");
+        if (dungeonMainMenuButton == null)
+        {
+            if (speedButtonsBox == null)
+                throw new InvalidOperationException("The HUD is missing SpeedButtonsBox.");
+
+            dungeonMainMenuButton = new Button
+            {
+                name = "DungeonMainMenuButton",
+                text = "Main Menu",
+            };
+            dungeonMainMenuButton.AddToClassList("btn-speed");
+            dungeonMainMenuButton.style.width = 120f;
+            speedButtonsBox.Add(dungeonMainMenuButton);
+        }
+        dungeonMainMenuButton.style.display = DisplayStyle.None;
+        dungeonMainMenuButton.clicked += ReturnToMainMenu;
+        OnCombatOutcome.AddListener(OnCombatOutcomeChanged);
+
+        if (dungeonRunStatusLabel != null)
+            dungeonRunStatusLabel.style.display = DisplayStyle.None;
         if (pauseButton != null)
             pauseButton.clicked += OnPauseClicked;
         if (speed2xButton != null)
@@ -209,6 +236,8 @@ public class HUDController
     {
         //Debug.Log("OnDisable called");
         OnNextTurn.RemoveListener(OnTurnChanged);
+        OnCombatOutcome.RemoveListener(OnCombatOutcomeChanged);
+
         if (toggleAutoCameraAction != null)
             toggleAutoCameraAction.performed -= OnToggleAutoCamera;
         if (logToggleButton != null)
@@ -221,6 +250,8 @@ public class HUDController
             speed3xButton.clicked -= OnSpeed3xClicked;
         if (speedToggleButton != null)
             speedToggleButton.clicked -= ToggleSpeedBar;
+        if (dungeonMainMenuButton != null)
+            dungeonMainMenuButton.clicked -= ReturnToMainMenu;
         if (resizeHandle != null)
         {
             resizeHandle.UnregisterCallback<PointerDownEvent>(OnResizeStart);
@@ -230,6 +261,15 @@ public class HUDController
         IsPointerOverLog = false;
         _hudHoverCount = 0;
         IsPointerOverHUD = false;
+
+        if (TryGetInstance(out HUDController instance) && instance == this)
+        {
+            IsActive = false;
+            Players = null;
+            currentTurnAC = null;
+            isDungeonExploration = false;
+            trySelectExplorationLeader = _ => false;
+        }
         SettingsMenuControl.OnLogOpacityChanged -= ApplyLogOpacity;
         DismissStairTraversal();
     }
@@ -237,6 +277,48 @@ public class HUDController
     public void EnableUi()
     {
         this.enabled = true;
+    }
+
+    /// <summary>Shows the normalized run seed and selected floor depth in the gameplay HUD.</summary>
+    /// <param name="seed">The normalized deterministic run seed.</param>
+    /// <param name="depth">The selected nonnegative dungeon depth.</param>
+    public void ShowDungeonRunStatus(int seed, int depth)
+    {
+        if (dungeonRunStatusLabel == null)
+            dungeonRunStatusLabel = ui.Q<Label>("DungeonRunStatusLabel");
+        if (dungeonRunStatusLabel == null)
+            throw new InvalidOperationException("The HUD is missing DungeonRunStatusLabel.");
+
+        dungeonRunStatusLabel.RemoveFromClassList("dungeon-run-status--error");
+        dungeonRunStatusLabel.text = $"Seed {seed}  •  Depth {depth}";
+        dungeonRunStatusLabel.style.display = DisplayStyle.Flex;
+        dungeonMainMenuButton.style.display = DisplayStyle.Flex;
+    }
+
+    /// <summary>Shows a blocking dungeon launch diagnostic without exposing repository details.</summary>
+    /// <param name="message">The concise player-facing failure message.</param>
+    public void ShowDungeonRunError(string message)
+    {
+        if (dungeonRunStatusLabel == null)
+            dungeonRunStatusLabel = ui.Q<Label>("DungeonRunStatusLabel");
+        if (dungeonRunStatusLabel == null)
+            throw new InvalidOperationException("The HUD is missing DungeonRunStatusLabel.");
+
+        dungeonRunStatusLabel.AddToClassList("dungeon-run-status--error");
+        dungeonRunStatusLabel.text = message;
+        dungeonRunStatusLabel.style.display = DisplayStyle.Flex;
+        dungeonMainMenuButton.style.display = DisplayStyle.Flex;
+    }
+
+    private void OnCombatOutcomeChanged(bool playerWon)
+    {
+        if (playerWon || FindFirstObjectByType<DungeonRunController>() == null)
+            return;
+
+        ShowDungeonRunError(
+            "Your party has been defeated. Return to the Main Menu to start a new run."
+        );
+        dungeonMainMenuButton.SetEnabled(true);
     }
 
     public static void Setup()
@@ -546,6 +628,52 @@ public class HUDController
     }
 
     private void OnPauseClicked() => ToggleSpeed(0f);
+
+    private void ReturnToMainMenu()
+    {
+        if (isReturningToMainMenu)
+            return;
+
+        StartCoroutine(ReturnToMainMenuAfterCheckpoint());
+    }
+
+    private IEnumerator ReturnToMainMenuAfterCheckpoint()
+    {
+        isReturningToMainMenu = true;
+        float priorTimeScale = Time.timeScale;
+        Time.timeScale = 1f;
+        dungeonMainMenuButton.SetEnabled(false);
+
+        DungeonAutosaveCoordinator autosave = FindFirstObjectByType<DungeonAutosaveCoordinator>();
+        if (autosave != null)
+        {
+            DungeonEncounterRuntimeController runtime =
+                FindFirstObjectByType<DungeonEncounterRuntimeController>();
+            while (runtime != null && runtime.HasActionInProgress)
+                yield return null;
+
+            DungeonSaveResult<DungeonRunSave> checkpoint = autosave.CheckpointCurrentFloor();
+            if (!checkpoint.IsSuccess)
+            {
+                Time.timeScale = priorTimeScale;
+                ShowDungeonRunError("The dungeon run could not be saved. Try again.");
+                dungeonMainMenuButton.SetEnabled(true);
+                isReturningToMainMenu = false;
+                yield break;
+            }
+        }
+
+        // The fade advances on unscaled time. Freeze the departing dungeon only after any
+        // required checkpoint so AI and other gameplay coroutines cannot make it stale.
+        Time.timeScale = 0f;
+        if (SceneTransitionManager.FadeAndLoad("MainMenuScene"))
+            yield break;
+
+        Time.timeScale = priorTimeScale;
+        dungeonMainMenuButton.SetEnabled(true);
+        isReturningToMainMenu = false;
+        ShowDungeonRunError("Another scene transition is already in progress. Try again.");
+    }
 
     private void OnSpeed2xClicked() => ToggleSpeed(2f);
 

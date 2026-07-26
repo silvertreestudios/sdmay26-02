@@ -1,8 +1,13 @@
 using System.Collections;
+using Game.DungeonPersistence;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 
+/// <summary>
+/// Owns the persistent fade overlay and the one-shot dungeon launch request consumed by the
+/// procedural gameplay scene.
+/// </summary>
 public class SceneTransitionManager : MonoBehaviour
 {
     private static SceneTransitionManager _instance;
@@ -12,6 +17,10 @@ public class SceneTransitionManager : MonoBehaviour
 
     private UIDocument _doc;
     private VisualElement _overlay;
+    private DungeonRunLaunchRequest pendingDungeonRun = DungeonRunLaunchRequest.None;
+    private bool isTransitioning;
+
+    internal static bool IsTransitioning => _instance != null && _instance.isTransitioning;
 
     private void Awake()
     {
@@ -52,16 +61,59 @@ public class SceneTransitionManager : MonoBehaviour
         _doc.rootVisualElement.Add(_overlay);
     }
 
-    public static void FadeAndLoad(string sceneName, float duration = 1f)
+    /// <summary>Fades to and loads the named scene unless another transition is in progress.</summary>
+    /// <param name="sceneName">The build-settings scene name to load.</param>
+    /// <param name="duration">The duration of each fade, in unscaled seconds.</param>
+    /// <returns><see langword="true"/> when accepted; otherwise, <see langword="false"/>.</returns>
+    public static bool FadeAndLoad(string sceneName, float duration = 1f)
     {
         EnsureInstance();
-        _instance.StartCoroutine(_instance.FadeRoutine(sceneName, null, duration));
+        return _instance.TryBeginTransition(
+            sceneName,
+            null,
+            duration,
+            DungeonRunLaunchRequest.None
+        );
     }
 
-    public static void FadeAndLoad(int buildIndex, float duration = 1f)
+    /// <summary>Fades to and loads the indexed scene unless another transition is in progress.</summary>
+    /// <param name="buildIndex">The build-settings index to load.</param>
+    /// <param name="duration">The duration of each fade, in unscaled seconds.</param>
+    /// <returns><see langword="true"/> when accepted; otherwise, <see langword="false"/>.</returns>
+    public static bool FadeAndLoad(int buildIndex, float duration = 1f)
     {
         EnsureInstance();
-        _instance.StartCoroutine(_instance.FadeRoutine(null, buildIndex, duration));
+        return _instance.TryBeginTransition(
+            null,
+            buildIndex,
+            duration,
+            DungeonRunLaunchRequest.None
+        );
+    }
+
+    internal static bool FadeAndLoadDungeon(DungeonRunLaunchRequest request, float duration = 1f)
+    {
+        if (request == null || !request.IsPending)
+            throw new System.ArgumentException(
+                "A pending dungeon launch request is required.",
+                nameof(request)
+            );
+
+        EnsureInstance();
+        return _instance.TryBeginTransition("ProceduralDungeon", null, duration, request);
+    }
+
+    internal static bool TryConsumeDungeonRunLaunch(out DungeonRunLaunchRequest request)
+    {
+        if (_instance == null)
+        {
+            request = DungeonRunLaunchRequest.None;
+            return false;
+        }
+
+        request = _instance.pendingDungeonRun;
+        _instance.pendingDungeonRun = DungeonRunLaunchRequest.None;
+        return request.IsPending;
     }
 
     private static void EnsureInstance()
@@ -70,6 +122,29 @@ public class SceneTransitionManager : MonoBehaviour
             return;
         var go = new GameObject("SceneTransitionManager");
         go.AddComponent<SceneTransitionManager>();
+    }
+
+    private bool TryBeginTransition(
+        string sceneName,
+        int? buildIndex,
+        float duration,
+        DungeonRunLaunchRequest request
+    )
+    {
+        if (isTransitioning)
+        {
+            string target = sceneName ?? $"build index {buildIndex.Value}";
+            Debug.LogWarning(
+                $"Scene transition to '{target}' was rejected because another scene transition is already in progress."
+            );
+            return false;
+        }
+
+        isTransitioning = true;
+        pendingDungeonRun = request;
+        _overlay.pickingMode = PickingMode.Position;
+        StartCoroutine(FadeRoutine(sceneName, buildIndex, duration));
+        return true;
     }
 
     private IEnumerator FadeRoutine(string sceneName, int? buildIndex, float duration)
@@ -85,10 +160,28 @@ public class SceneTransitionManager : MonoBehaviour
         _overlay.style.opacity = 1f;
 
         // Start async load, hold activation until fade completes
-        AsyncOperation op =
-            sceneName != null
-                ? SceneManager.LoadSceneAsync(sceneName)
-                : SceneManager.LoadSceneAsync(buildIndex.Value);
+        string target = sceneName ?? $"build index {buildIndex.Value}";
+        AsyncOperation op;
+        try
+        {
+            op =
+                sceneName != null
+                    ? SceneManager.LoadSceneAsync(sceneName)
+                    : SceneManager.LoadSceneAsync(buildIndex.Value);
+        }
+        catch (System.ArgumentException exception)
+        {
+            RecoverFromLoadFailure(target, exception.Message);
+            yield break;
+        }
+
+        // Unity's API contract returns an operation or throws, but keep the framework boundary
+        // defensive so an unavailable scene can never leave the persistent overlay blocking input.
+        if (op == null)
+        {
+            RecoverFromLoadFailure(target, "Unity did not return a scene load operation.");
+            yield break;
+        }
 
         op.allowSceneActivation = false;
         while (op.progress < 0.9f)
@@ -106,5 +199,16 @@ public class SceneTransitionManager : MonoBehaviour
             yield return null;
         }
         _overlay.style.opacity = 0f;
+        _overlay.pickingMode = PickingMode.Ignore;
+        isTransitioning = false;
+    }
+
+    private void RecoverFromLoadFailure(string target, string reason)
+    {
+        Debug.LogError($"Scene transition to '{target}' failed to start: {reason}");
+        pendingDungeonRun = DungeonRunLaunchRequest.None;
+        _overlay.style.opacity = 0f;
+        _overlay.pickingMode = PickingMode.Ignore;
+        isTransitioning = false;
     }
 }

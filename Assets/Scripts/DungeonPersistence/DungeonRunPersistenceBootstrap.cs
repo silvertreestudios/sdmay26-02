@@ -232,6 +232,47 @@ namespace Game.DungeonPersistence
             );
         }
 
+        /// <summary>
+        /// Continues the current-schema autosave from an explicit directory. This overload lets
+        /// embedded hosts and automated flows isolate persistence from the player's default save.
+        /// </summary>
+        /// <param name="map">The reusable generated-dungeon map to populate.</param>
+        /// <param name="initialDocument">A document identifying the supported generator.</param>
+        /// <param name="encounterCatalog">The creature catalog used to restore encounters.</param>
+        /// <param name="combatManager">The active scene combat scheduler.</param>
+        /// <param name="sceneParty">The authored party matching the saved roster.</param>
+        /// <param name="explorationPresentation">Exploration and stair-travel presentation.</param>
+        /// <param name="runtimeRoot">The object that owns restored runtime components.</param>
+        /// <param name="autosaveDirectory">The directory containing the single autosave.</param>
+        /// <returns>The restored runtime or unchanged repository diagnostics.</returns>
+        public static DungeonRunPersistenceBootstrapResult ContinueRun(
+            Map map,
+            DungeonLevelDocument initialDocument,
+            DungeonEncounterCreatureCatalog encounterCatalog,
+            CombatManagerInterface combatManager,
+            IEnumerable<ActionController> sceneParty,
+            IDungeonExplorationPresentation explorationPresentation,
+            GameObject runtimeRoot,
+            string autosaveDirectory
+        )
+        {
+            if (string.IsNullOrWhiteSpace(autosaveDirectory))
+                throw new ArgumentException(
+                    "An autosave directory is required.",
+                    nameof(autosaveDirectory)
+                );
+            return ContinueRun(
+                map,
+                initialDocument,
+                encounterCatalog,
+                combatManager,
+                sceneParty,
+                explorationPresentation,
+                runtimeRoot,
+                new FileSystemDungeonSaveRepository(autosaveDirectory)
+            );
+        }
+
         internal static DungeonRunPersistenceBootstrapResult StartPreparedRunForTests(
             Map map,
             DungeonLevelDocument initialDocument,

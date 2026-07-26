@@ -69,6 +69,8 @@ public sealed class DungeonActorStateAdapterTests
                 actor == effectSourceObject ? "source-slot" : throw new InvalidOperationException()
         );
         SourceFixture restored = CreateFixture("Restored", out restoredObject);
+        restored.Creature.Build = new CharacterBuild();
+        restored.Creature.Prepared = null;
         Action apply = DungeonActorStateAdapter.PrepareRestore(
             restored.Controller,
             captured,
@@ -105,6 +107,31 @@ public sealed class DungeonActorStateAdapterTests
         Assert.That(restored.Creature.equippedRightHand, Is.SameAs(restored.Weapons[1]));
         Assert.That(restored.Creature.GetAmmoQuantity("bolt"), Is.EqualTo(3));
         Assert.That(restored.Creature.IsWeaponLoaded(restored.Weapons[1]), Is.False);
+    }
+
+    [Test]
+    public void CaptureResolvesEquivalentSerializedEquipmentByStableName()
+    {
+        SourceFixture source = CreateFixture("Source", out sourceObject);
+        EquipmentArmor authoredArmor = new() { name = "Explorer's Clothing" };
+        source.Creature.armor = new() { authoredArmor };
+        source.Creature.equippedRightHand = new EquipmentWeapon
+        {
+            name = "heavy crossbow",
+            reload = "1",
+            ammo = "bolt",
+        };
+        source.Creature.equippedArmor = new EquipmentArmor { name = "EXPLORER'S CLOTHING" };
+        source.Creature.equippedLeftHand = new EquipmentWeapon { name = string.Empty };
+
+        DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
+            source.Controller,
+            _ => "unused"
+        );
+
+        Assert.That(captured.Equipment.RightHandId, Is.EqualTo("Heavy Crossbow"));
+        Assert.That(captured.Equipment.ArmorId, Is.EqualTo("Explorer's Clothing"));
+        Assert.That(captured.Equipment.LeftHandId, Is.Empty);
     }
 
     [Test]

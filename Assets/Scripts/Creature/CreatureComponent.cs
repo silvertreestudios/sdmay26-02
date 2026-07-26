@@ -1211,6 +1211,24 @@ namespace Game.Creature
             ProjectCommittedHealth(bridge.GetHealth(creatureId));
         }
 
+        /// <summary>
+        /// Projects final encounter health and releases ownership when it still belongs to the
+        /// given bridge.
+        /// </summary>
+        /// <remarks>
+        /// Projection and detachment share one exact-bridge guard so cleanup from an older
+        /// encounter cannot overwrite health owned by a newer encounter.
+        /// </remarks>
+        internal void DetachHealthRules(UnityCombatRulesBridge bridge, HealthState finalHealth)
+        {
+            if (!ReferenceEquals(healthRules, bridge))
+                return;
+
+            ProjectCommittedHealth(finalHealth);
+            healthRules = null;
+            healthCreatureId = default;
+        }
+
         internal void ProjectCommittedHealth(HealthState health)
         {
             initializedHealth = health;

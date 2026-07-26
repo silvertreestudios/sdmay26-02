@@ -165,6 +165,7 @@ namespace Game.DungeonPersistence
     [DisallowMultipleComponent]
     public sealed class DungeonRunController : MonoBehaviour
     {
+        private const int StairInteractionBufferCells = 2;
         private const string EncounterCatalogResource = "DataFiles/dungeon/encounter-enemies";
 
         private Map map;
@@ -182,12 +183,21 @@ namespace Game.DungeonPersistence
         private GridInput gridInput;
         private int width;
         private int height;
+        private bool hasDeferredConfirmedStairTraversal;
+        private int deferredStairDepth;
+        private string deferredStairId = string.Empty;
 
         /// <summary>Gets whether the controller owns a stable current floor.</summary>
         public bool IsInitialized { get; private set; }
 
         /// <summary>Gets the selected nonnegative depth.</summary>
         public int CurrentDepth { get; private set; }
+
+        /// <summary>Gets the normalized seed shared by every generated floor in this run.</summary>
+        public int StartingSeed { get; private set; }
+
+        /// <summary>Raised after initialization and each successful floor transition.</summary>
+        public event Action<int> CurrentDepthChanged = delegate { };
 
         /// <summary>Gets diagnostics from the most recent rejected or failed attempt.</summary>
         public IReadOnlyList<DungeonTravelDiagnostic> LastDiagnostics { get; private set; } =
@@ -245,11 +255,13 @@ namespace Game.DungeonPersistence
             );
             width = current.Width;
             height = current.Height;
+            StartingSeed = manifest.StartingSeed;
             CurrentDepth = manifest.CurrentDepth;
             gridInput = map.GetComponent<GridInput>();
             if (gridInput != null)
                 gridInput.CellClicked += OnGridCellClicked;
             IsInitialized = true;
+            CurrentDepthChanged.Invoke(CurrentDepth);
         }
 
         internal static IReadOnlyList<DungeonEncounterCandidate> LoadEncounterCandidates()
@@ -279,8 +291,9 @@ namespace Game.DungeonPersistence
         }
 
         /// <summary>
-        /// Presents eligibility and confirmation for a live stair, then traverses only after the
-        /// presenter explicitly confirms.
+        /// Presents eligibility and confirmation for a live stair. A confirmed request traverses
+        /// synchronously when the runtime is stable; confirmation during action cleanup is retained
+        /// and revalidated against the live stair before traversal.
         /// </summary>
         /// <param name="stair">The selected marker belonging to the current reusable map.</param>
         public void RequestUseStair(DungeonStairMarker stair)
@@ -301,7 +314,9 @@ namespace Game.DungeonPersistence
                 return;
             }
 
-            string[] missing = FindMissingLivingParty(current, documented);
+            string[] missing = runtime.IsExplorationActive
+                ? Array.Empty<string>()
+                : FindMissingLivingParty(current, documented);
             int targetDepth =
                 documented.Kind == DungeonStairKind.Down
                     ? CurrentDepth == int.MaxValue
@@ -347,7 +362,24 @@ namespace Game.DungeonPersistence
                 );
                 return;
             }
-            _ = TryUseStair(currentMarker, confirmed && prompt.CanConfirm);
+            bool approved = confirmed && prompt.CanConfirm;
+            DungeonTravelResult result = TryUseStair(currentMarker, approved);
+            if (
+                approved
+                && !result.IsSuccess
+                && result.Diagnostics.Count == 1
+                && result.Diagnostics[0].Code == DungeonTravelDiagnosticCode.RuntimeBusy
+                && !combatManager.IsCombatActive
+                && runtime.HasActionInProgress
+                && requestedDepth == CurrentDepth
+            )
+            {
+                // Confirmation is final even when it races the tail of an exploration action.
+                // Update rematches the live endpoint before spending that approval.
+                hasDeferredConfirmedStairTraversal = true;
+                deferredStairDepth = requestedDepth;
+                deferredStairId = requestedId;
+            }
         }
 
         /// <summary>Attempts a confirmed full-party transition through a generated stair.</summary>
@@ -376,7 +408,9 @@ namespace Game.DungeonPersistence
                     "Dungeon stair travel requires an inactive combat and no action in progress."
                 );
 
-            string[] missing = FindMissingLivingParty(current, documented);
+            string[] missing = runtime.IsExplorationActive
+                ? Array.Empty<string>()
+                : FindMissingLivingParty(current, documented);
             if (missing.Length > 0)
             {
                 DungeonTravelDiagnostic diagnostic = new(
@@ -507,6 +541,7 @@ namespace Game.DungeonPersistence
 
             autosave.AdoptPublishedFloor(candidate, target, runtime);
             CurrentDepth = targetDepth;
+            CurrentDepthChanged.Invoke(CurrentDepth);
             stairPresentation.DismissStairTraversal();
             LastDiagnostics = Array.Empty<DungeonTravelDiagnostic>();
             return new DungeonTravelResult(
@@ -517,11 +552,55 @@ namespace Game.DungeonPersistence
             );
         }
 
+        private void Update()
+        {
+            if (!hasDeferredConfirmedStairTraversal)
+                return;
+            if (
+                !IsInitialized
+                || combatManager.IsCombatActive
+                || deferredStairDepth != CurrentDepth
+            )
+            {
+                ClearDeferredConfirmedStairTraversal();
+                return;
+            }
+
+            DungeonStairMarker currentMarker = map.GetComponentsInChildren<DungeonStairMarker>(
+                    includeInactive: false
+                )
+                .SingleOrDefault(candidate =>
+                    string.Equals(candidate.StableId, deferredStairId, StringComparison.Ordinal)
+                );
+            DungeonLevelDocument current = autosave.LastCommittedSnapshot.GetFloor(CurrentDepth);
+            if (
+                currentMarker == null
+                || !TryMatchCurrentStair(currentMarker, current, out DungeonStair _)
+            )
+            {
+                ClearDeferredConfirmedStairTraversal();
+                return;
+            }
+            if (runtime.HasActionInProgress)
+                return;
+
+            ClearDeferredConfirmedStairTraversal();
+            _ = TryUseStair(currentMarker, confirmed: true);
+        }
+
+        private void ClearDeferredConfirmedStairTraversal()
+        {
+            hasDeferredConfirmedStairTraversal = false;
+            deferredStairDepth = 0;
+            deferredStairId = string.Empty;
+        }
+
         private void OnDestroy()
         {
             if (gridInput != null)
                 gridInput.CellClicked -= OnGridCellClicked;
             stairPresentation?.DismissStairTraversal();
+            ClearDeferredConfirmedStairTraversal();
             IsInitialized = false;
         }
 
@@ -984,7 +1063,12 @@ namespace Game.DungeonPersistence
                 }
             }
             HashSet<DungeonCell> region = new(
-                DungeonStairInteractionRegion.SelectCells(document, stair, blocked, living.Length)
+                DungeonStairInteractionRegion.SelectCells(
+                    document,
+                    stair,
+                    blocked,
+                    living.Length + StairInteractionBufferCells
+                )
             );
             HashSet<DungeonCell> occupied = new();
             return living

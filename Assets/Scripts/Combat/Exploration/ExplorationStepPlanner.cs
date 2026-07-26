@@ -52,8 +52,8 @@ namespace Game.Combat.Exploration
     /// <summary>Identifies why a proposed leader step cannot begin.</summary>
     public enum ExplorationStepRejectionReason
     {
-        /// <summary>The leader destination is not exactly one cardinal cell away.</summary>
-        LeaderStepIsNotCardinal,
+        /// <summary>The leader destination is not exactly one adjacent cell away.</summary>
+        LeaderStepIsNotAdjacent,
 
         /// <summary>The leader destination is currently occupied by another party member.</summary>
         LeaderDestinationOccupied,
@@ -62,7 +62,7 @@ namespace Game.Combat.Exploration
         LeaderDestinationUnavailable,
     }
 
-    /// <summary>Describes one cardinal member move in deterministic execution order.</summary>
+    /// <summary>Describes one adjacent member move in deterministic execution order.</summary>
     public readonly struct ExplorationMemberMove
     {
         internal ExplorationMemberMove(
@@ -82,7 +82,7 @@ namespace Game.Combat.Exploration
         /// <summary>Gets the member's cell before this party step.</summary>
         public DungeonCell From { get; }
 
-        /// <summary>Gets the member's cardinally adjacent destination.</summary>
+        /// <summary>Gets the member's adjacent destination.</summary>
         public DungeonCell To { get; }
     }
 
@@ -118,8 +118,9 @@ namespace Game.Combat.Exploration
         }
 
         /// <summary>
-        /// Gets moved members in execution order: leader first, then each follower selected by
-        /// stable roster order from the members adjacent to its predecessor's prior cell.
+        /// Gets moved members in execution order: leader first, then followers in trail order.
+        /// Adjacent followers consume their predecessor's prior cell; a separated follower takes
+        /// one adjacent catch-up step toward that trail, with stable roster order breaking ties.
         /// </summary>
         public IReadOnlyList<ExplorationMemberMove> Moves => moves;
 
@@ -140,8 +141,9 @@ namespace Game.Combat.Exploration
     }
 
     /// <summary>
-    /// Plans one cardinal leader move followed by a deterministic chain into each predecessor's
-    /// prior cell. Stable roster order breaks ties when multiple followers could extend the chain.
+    /// Plans one adjacent leader move followed by deterministic follower steps. Connected followers
+    /// consume predecessor cells, while followers separated during combat advance one adjacent cell
+    /// toward the trail. Cardinal proximity and then stable roster order resolve connected ties.
     /// </summary>
     public static class ExplorationStepPlanner
     {
@@ -160,10 +162,10 @@ namespace Game.Combat.Exploration
             ExplorationPartyState party = request.Party;
             ExplorationPartyMember leader = party.SelectedLeader;
             DungeonCell destination = request.LeaderDestination;
-            if (!AreCardinalNeighbors(leader.Cell, destination))
+            if (!AreAdjacent(leader.Cell, destination))
             {
                 return new RejectedExplorationStepPlan(
-                    ExplorationStepRejectionReason.LeaderStepIsNotCardinal
+                    ExplorationStepRejectionReason.LeaderStepIsNotAdjacent
                 );
             }
             if (party.Members.Any(member => member.Id != leader.Id && member.Cell == destination))
@@ -190,22 +192,35 @@ namespace Game.Combat.Exploration
                 .ToList();
             while (followers.Count > 0)
             {
-                int followerIndex = followers.FindIndex(follower =>
-                    AreCardinalNeighbors(follower.Cell, predecessorPriorCell)
-                );
-                if (followerIndex < 0 || !request.Availability.CanOccupy(predecessorPriorCell))
+                int followerIndex = FindFollowerIndex(followers, predecessorPriorCell);
+                if (followerIndex < 0)
+                    followerIndex = FindClosestFollowerIndex(followers, predecessorPriorCell);
+
+                ExplorationPartyMember follower = followers[followerIndex];
+                DungeonCell followerDestination = predecessorPriorCell;
+                if (
+                    !AreAdjacent(follower.Cell, followerDestination)
+                    && !TryFindCatchUpStep(
+                        follower,
+                        predecessorPriorCell,
+                        request.Availability,
+                        resultingMembers,
+                        out followerDestination
+                    )
+                )
                 {
                     break;
                 }
+                if (!request.Availability.CanOccupy(followerDestination))
+                    break;
 
-                ExplorationPartyMember follower = followers[followerIndex];
                 moves.Add(
-                    new ExplorationMemberMove(follower.Id, follower.Cell, predecessorPriorCell)
+                    new ExplorationMemberMove(follower.Id, follower.Cell, followerDestination)
                 );
                 int rosterIndex = IndexOf(resultingMembers, follower.Id);
                 resultingMembers[rosterIndex] = new ExplorationPartyMember(
                     follower.Id,
-                    predecessorPriorCell
+                    followerDestination
                 );
                 predecessorPriorCell = follower.Cell;
                 followers.RemoveAt(followerIndex);
@@ -233,11 +248,103 @@ namespace Game.Combat.Exploration
             );
         }
 
+        private static bool AreAdjacent(DungeonCell first, DungeonCell second)
+        {
+            long xDistance = Math.Abs((long)first.X - second.X);
+            long zDistance = Math.Abs((long)first.Z - second.Z);
+            return xDistance <= 1 && zDistance <= 1 && xDistance + zDistance > 0;
+        }
+
         private static bool AreCardinalNeighbors(DungeonCell first, DungeonCell second)
         {
             long xDistance = Math.Abs((long)first.X - second.X);
             long zDistance = Math.Abs((long)first.Z - second.Z);
             return xDistance + zDistance == 1;
         }
+
+        private static int FindFollowerIndex(
+            IReadOnlyList<ExplorationPartyMember> followers,
+            DungeonCell predecessorPriorCell
+        )
+        {
+            for (int index = 0; index < followers.Count; index++)
+            {
+                if (AreCardinalNeighbors(followers[index].Cell, predecessorPriorCell))
+                    return index;
+            }
+            for (int index = 0; index < followers.Count; index++)
+            {
+                if (AreAdjacent(followers[index].Cell, predecessorPriorCell))
+                    return index;
+            }
+            return -1;
+        }
+
+        private static int FindClosestFollowerIndex(
+            IReadOnlyList<ExplorationPartyMember> followers,
+            DungeonCell target
+        )
+        {
+            int selectedIndex = 0;
+            long selectedDistance = ChebyshevDistance(followers[0].Cell, target);
+            for (int index = 1; index < followers.Count; index++)
+            {
+                long distance = ChebyshevDistance(followers[index].Cell, target);
+                if (distance < selectedDistance)
+                {
+                    selectedIndex = index;
+                    selectedDistance = distance;
+                }
+            }
+            return selectedIndex;
+        }
+
+        private static bool TryFindCatchUpStep(
+            ExplorationPartyMember follower,
+            DungeonCell target,
+            IExplorationCellAvailability availability,
+            IReadOnlyList<ExplorationPartyMember> resultingMembers,
+            out DungeonCell destination
+        )
+        {
+            long currentDistance = ChebyshevDistance(follower.Cell, target);
+            DungeonCell[] candidates =
+            {
+                new(follower.Cell.X, follower.Cell.Z + 1),
+                new(follower.Cell.X + 1, follower.Cell.Z),
+                new(follower.Cell.X, follower.Cell.Z - 1),
+                new(follower.Cell.X - 1, follower.Cell.Z),
+                new(follower.Cell.X + 1, follower.Cell.Z + 1),
+                new(follower.Cell.X + 1, follower.Cell.Z - 1),
+                new(follower.Cell.X - 1, follower.Cell.Z - 1),
+                new(follower.Cell.X - 1, follower.Cell.Z + 1),
+            };
+            DungeonCell[] selected = candidates
+                .Where(candidate =>
+                    ChebyshevDistance(candidate, target) < currentDistance
+                    && availability.CanOccupy(candidate)
+                    && resultingMembers.All(member =>
+                        member.Id == follower.Id || member.Cell != candidate
+                    )
+                )
+                .OrderBy(candidate => ChebyshevDistance(candidate, target))
+                .ThenBy(candidate => ManhattanDistance(candidate, target))
+                .Take(1)
+                .ToArray();
+            if (selected.Length == 0)
+            {
+                destination = default;
+                return false;
+            }
+
+            destination = selected[0];
+            return true;
+        }
+
+        private static long ChebyshevDistance(DungeonCell first, DungeonCell second) =>
+            Math.Max(Math.Abs((long)first.X - second.X), Math.Abs((long)first.Z - second.Z));
+
+        private static long ManhattanDistance(DungeonCell first, DungeonCell second) =>
+            Math.Abs((long)first.X - second.X) + Math.Abs((long)first.Z - second.Z);
     }
 }

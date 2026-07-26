@@ -11,7 +11,10 @@ namespace Game.DungeonGeneration
     /// </summary>
     public sealed class DeterministicDungeonGenerator : IDungeonGenerator
     {
-        internal const string AlgorithmId = "donjon-logical-system-random";
+        /// <summary>
+        /// Identifies the generated-floor format used to reject incompatible persisted runs.
+        /// </summary>
+        public const string AlgorithmId = "donjon-logical-system-random";
         internal const int MinimumDimension = 15;
         internal const int MaximumDimension = 101;
 

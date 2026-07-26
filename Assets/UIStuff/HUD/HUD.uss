@@ -218,3 +218,29 @@
     background-color: rgb(180, 80, 20);
     border-color: rgb(255, 220, 100);
 }
+
+.dungeon-run-status {
+    min-width: 300px;
+    height: 34px;
+    margin-bottom: 5px;
+    padding-left: 14px;
+    padding-right: 14px;
+    -unity-text-align: middle-center;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+    font-size: 19px;
+    color: rgb(255, 230, 185);
+    background-color: rgba(42, 31, 27, 0.94);
+    border-color: rgb(233, 196, 140);
+    border-width: 2px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.dungeon-run-status--error {
+    color: rgb(255, 171, 148);
+    border-color: rgb(210, 70, 45);
+    white-space: normal;
+    height: 56px;
+}

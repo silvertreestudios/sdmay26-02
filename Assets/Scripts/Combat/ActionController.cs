@@ -121,6 +121,20 @@ public abstract class ActionController : MonoBehaviour
         SyncActionPointsFromRules();
     }
 
+    /// <summary>Releases encounter action ownership when it still belongs to the given bridge.</summary>
+    /// <remarks>
+    /// Exact bridge identity prevents delayed cleanup from an older encounter from detaching a
+    /// controller that a newer encounter already owns.
+    /// </remarks>
+    internal void DetachCombatRules(UnityCombatRulesBridge bridge)
+    {
+        if (!ReferenceEquals(combatRules, bridge))
+            return;
+
+        combatRules = null;
+        rulesCreatureId = default;
+    }
+
     internal void SyncActionPointsFromRules()
     {
         if (combatRules != null)

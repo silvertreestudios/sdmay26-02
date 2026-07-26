@@ -980,7 +980,7 @@ public sealed class DungeonAutosaveCoordinatorTests
     }
 
     [Test]
-    public void StairTravelRequiresConfirmationAndEveryLivingPartyMember()
+    public void ExplorationStairTravelRequiresConfirmationButIgnoresPartyDistance()
     {
         DungeonTraversalFixture fixture = CreateTraversalFixture();
         DungeonStairMarker stair = CreateStairMarker(fixture.Map, DungeonStairKind.Down);
@@ -993,15 +993,21 @@ public sealed class DungeonAutosaveCoordinatorTests
             Is.EqualTo(DungeonTravelDiagnosticCode.ConfirmationRequired)
         );
         fixture.Party.transform.position = Vector3.zero;
-
-        DungeonTravelResult missing = fixture.Controller.TryUseStair(stair, confirmed: true);
-
-        Assert.That(missing.IsSuccess, Is.False);
-        Assert.That(
-            missing.Diagnostics.Single().Code,
-            Is.EqualTo(DungeonTravelDiagnosticCode.PartyMissing)
+        fixture.Controller.ReplaceGenerationForTests(
+            new SequenceDungeonGenerator(),
+            new DungeonEncounterPlanner(),
+            Array.Empty<DungeonEncounterCandidate>()
         );
-        Assert.That(missing.MissingPartyMembers, Is.EqualTo(new[] { "party-slot" }));
+
+        DungeonTravelResult confirmed = fixture.Controller.TryUseStair(stair, confirmed: true);
+
+        Assert.That(confirmed.IsSuccess, Is.False);
+        Assert.That(confirmed.MissingPartyMembers, Is.Empty);
+        Assert.That(
+            confirmed.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.PopulationFailed),
+            "A distant exploration party must reach the confirmed traversal pipeline."
+        );
         Assert.That(fixture.Repository.Current.Manifest.CurrentDepth, Is.Zero);
     }
 
@@ -1068,34 +1074,18 @@ public sealed class DungeonAutosaveCoordinatorTests
     }
 
     [Test]
-    public void StairActivationPresentsMissingPartyAndRequiresExplicitConfirmation()
+    public void ExplorationStairActivationPresentsConfirmablePromptRegardlessOfPartyDistance()
     {
         DungeonTraversalFixture fixture = CreateTraversalFixture();
         DungeonStairMarker stair = CreateStairMarker(fixture.Map, DungeonStairKind.Down);
         fixture.Party.transform.position = Vector3.zero;
+        fixture.Presentation.ConfirmNext = false;
 
         fixture.Controller.RequestUseStair(stair);
 
         Assert.That(fixture.Presentation.LastPrompt, Is.Not.Null);
-        Assert.That(fixture.Presentation.LastPrompt.CanConfirm, Is.False);
-        Assert.That(
-            fixture.Presentation.LastPrompt.MissingPartyMembers,
-            Is.EqualTo(new[] { "party-slot" })
-        );
-        Assert.That(
-            fixture.Controller.LastDiagnostics.Single().Code,
-            Is.EqualTo(DungeonTravelDiagnosticCode.PartyMissing)
-        );
-
-        fixture.Party.transform.position = new Vector3(
-            stair.ArrivalCell.X,
-            0f,
-            stair.ArrivalCell.Z
-        );
-        fixture.Presentation.ConfirmNext = false;
-        fixture.Controller.RequestUseStair(stair);
-
         Assert.That(fixture.Presentation.LastPrompt.CanConfirm, Is.True);
+        Assert.That(fixture.Presentation.LastPrompt.MissingPartyMembers, Is.Empty);
         Assert.That(
             fixture.Controller.LastDiagnostics.Single().Code,
             Is.EqualTo(DungeonTravelDiagnosticCode.ConfirmationRequired)

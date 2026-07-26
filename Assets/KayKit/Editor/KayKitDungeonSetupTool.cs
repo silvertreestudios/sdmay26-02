@@ -42,7 +42,10 @@ namespace Game.KayKit.Editor
 
         /// <summary>The generated project-owned prefab used to mark a semantic stair endpoint.</summary>
         public const string StairPrefabPath = DungeonPrefabRoot + "/DungeonStair.prefab";
-        public const string OpenDoorwayModelName = "wall_doorway_sides";
+        public const string OpenDoorwayModelName = "wall_doorway";
+
+        /// <summary>The yaw that swings the KayKit doorway leaf fully open around its hinge.</summary>
+        public const float OpenDoorLeafYaw = 90f;
 
         private const float WallVisualHeight = 4f * WallVisualScale;
 
@@ -273,6 +276,14 @@ namespace Game.KayKit.Editor
 
                 if (descriptor.OpenDoorway)
                 {
+                    Transform doorLeaf = instance.transform.Find("wall_doorway_door");
+                    if (doorLeaf == null)
+                    {
+                        throw new InvalidOperationException(
+                            "The KayKit open doorway source is missing its hinged door leaf."
+                        );
+                    }
+                    doorLeaf.localRotation = Quaternion.Euler(0f, OpenDoorLeafYaw, 0f);
                     root.AddComponent<OpenDoorway>();
                     AddDoorPost(root.transform, "LeftDoorPostCollider", -0.43f);
                     AddDoorPost(root.transform, "RightDoorPostCollider", 0.43f);

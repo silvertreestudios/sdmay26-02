@@ -1,23 +1,204 @@
 :root {
 }
 
-.unity-button {
-    width: 400px;
-    height: 75px;
-    font-size: 36px;
-    background-color: rgb(68, 24, 13);
-    color: rgb(233, 196, 140);
-    -unity-text-outline-color: rgb(57, 16, 19);
-    -unity-text-outline-width: 0;
-    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
+.menu-root {
+    flex-grow: 1;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background-color: rgb(30, 20, 18);
 }
 
-.unity-label {
+.title-stack {
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.game-title,
+.game-subtitle {
     -unity-font-definition: resource("Metamorphous-Regular SDF");
-    font-size: 68px;
+    background-color: rgba(62, 18, 15, 0.94);
+    color: rgb(236, 200, 144);
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+    border-bottom-right-radius: 20px;
+    border-bottom-left-radius: 20px;
+    padding-left: 28px;
+    padding-right: 28px;
+    -unity-text-align: middle-center;
+}
+
+.game-title {
+    font-size: 86px;
+    margin-bottom: 8px;
+}
+
+.game-subtitle {
+    font-size: 46px;
+}
+
+.menu-card {
+    width: 520px;
+    min-height: 500px;
+    padding: 24px;
+    align-items: stretch;
+    justify-content: center;
+    background-color: rgba(62, 69, 52, 0.96);
+    border-color: rgb(233, 196, 140);
+    border-width: 2px;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
+}
+
+.menu-heading {
+    -unity-font-definition: resource("Metamorphous-Regular SDF");
+    -unity-text-align: middle-center;
+    font-size: 28px;
+    color: rgb(255, 222, 166);
+    margin-bottom: 16px;
+}
+
+.seed-field {
+    margin-bottom: 4px;
+    color: rgb(248, 229, 195);
+    font-size: 20px;
+}
+
+.seed-field > .unity-base-field__label {
+    min-width: 128px;
+    color: rgb(248, 229, 195);
+}
+
+.seed-field .unity-base-text-field__input {
+    background-color: rgb(35, 28, 25);
+    color: rgb(255, 238, 207);
+    border-color: rgb(180, 137, 81);
+    border-width: 1px;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+.seed-hint {
+    -unity-text-align: middle-right;
+    color: rgb(206, 193, 169);
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+.unity-button {
+    width: 100%;
+    height: 56px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    font-size: 27px;
+    background-color: rgb(68, 24, 13);
+    color: rgb(233, 196, 140);
+    border-color: rgb(233, 196, 140);
+    border-width: 2px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    -unity-font-definition: resource("TitilliumWeb-Regular SDF");
 }
 
 .unity-button:hover {
     background-color: rgb(122, 62, 46);
-    transition-duration: 0.5s;
+    transition-duration: 0.15s;
+}
+
+.unity-button:disabled {
+    background-color: rgb(46, 43, 39);
+    color: rgb(132, 126, 115);
+    border-color: rgb(92, 87, 79);
+}
+
+.menu-primary {
+    background-color: rgb(142, 63, 22);
+}
+
+.menu-secondary {
+    background-color: rgb(38, 91, 55);
+}
+
+.menu-status {
+    min-height: 42px;
+    margin-top: 8px;
+    color: rgb(230, 219, 197);
+    font-size: 17px;
+    white-space: normal;
+    -unity-text-align: middle-center;
+}
+
+.menu-status--error {
+    color: rgb(255, 154, 135);
+}
+
+.menu-divider {
+    height: 1px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+    background-color: rgba(233, 196, 140, 0.55);
+}
+
+.modal-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.78);
+}
+
+.modal-dialog {
+    width: 560px;
+    padding: 28px;
+    background-color: rgb(44, 34, 30);
+    border-color: rgb(236, 200, 144);
+    border-width: 2px;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+    border-bottom-left-radius: 14px;
+    border-bottom-right-radius: 14px;
+}
+
+.modal-title {
+    -unity-font-definition: resource("Metamorphous-Regular SDF");
+    -unity-text-align: middle-center;
+    color: rgb(255, 222, 166);
+    font-size: 32px;
+    margin-bottom: 14px;
+}
+
+.modal-message {
+    color: rgb(238, 225, 202);
+    font-size: 20px;
+    white-space: normal;
+    -unity-text-align: middle-center;
+    margin-bottom: 20px;
+}
+
+.modal-buttons {
+    flex-direction: row;
+    justify-content: center;
+}
+
+.modal-buttons .unity-button {
+    width: 230px;
+    margin-left: 6px;
+    margin-right: 6px;
+}
+
+.modal-confirm {
+    background-color: rgb(142, 63, 22);
+}
+
+.modal-cancel {
+    background-color: rgb(91, 32, 28);
 }

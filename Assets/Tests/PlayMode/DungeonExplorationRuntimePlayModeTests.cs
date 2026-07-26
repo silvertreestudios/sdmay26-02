@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Game.Combat.Encounters;
@@ -152,11 +153,11 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             new DungeonCell(3, 1),
             new DungeonCell(2, 1),
             new DungeonCell(2, 2),
-            new DungeonCell(1, 1)
+            new DungeonCell(2, 0)
         );
         for (int index = 0; index < fixture.Party.Count; index++)
         {
-            int distance = ManhattanDistance(
+            int distance = ChebyshevDistance(
                 beforeSelection[index],
                 fixture.Party[index].GameObject.transform.position
             );
@@ -405,6 +406,118 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies exploration selection rejects a follower-occupied square before rules commit it.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator RulesBackedExplorationStrideRejectsFollowerOccupiedDestination()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 2), new Vector3Int(2, 0, 1) }
+        );
+        Track(new GameObject("Rules Stride Occupancy Test Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        TestActionController leader = fixture.Party[0].Controller;
+        RulesStrideAction stride = new RulesStrideAction();
+        leader.AddAction(stride);
+        Vector3Int from = Vector3Int.RoundToInt(leader.transform.position);
+        Vector3Int destination = Vector3Int.RoundToInt(
+            fixture.Party[1].GameObject.transform.position
+        );
+        LogAssert.Expect(
+            LogType.Warning,
+            "Stride selection failed: A selection resolver returned a value outside the request."
+        );
+
+        leader.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(from.x, from.y, from.z),
+                    new[] { new GridPosition(destination.x, destination.y, destination.z) }
+                )
+            )
+        );
+        int remainingFrames = 120;
+        while (leader.IsTakingAction && remainingFrames-- > 0)
+            yield return null;
+
+        Assert.That(
+            leader.IsTakingAction,
+            Is.False,
+            "The rejected exploration Stride did not finish."
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(2, 2), new DungeonCell(2, 1));
+    }
+
+    /// <summary>
+    /// Verifies repeated rules-backed Strides cross a generated two-room floor, open its connecting
+    /// door, and continue to the center of the second room without losing exploration authority.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator RulesBackedExplorationCrossesTwoRoomsThroughDoorAcrossRepeatedStrides()
+    {
+        DungeonRoom firstRoom = new(1, 1, 1, 9, 9);
+        DungeonRoom secondRoom = new(2, 11, 1, 21, 9);
+        DoorSpec door = new("two-room-door", new DungeonCell(10, 5));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 2), new Vector3Int(1, 0, 2) },
+            doors: new[] { door },
+            rooms: new[] { firstRoom, secondRoom },
+            customGridData: TwoRoomGrid()
+        );
+        Track(new GameObject("Two Room Stride Test Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        Combatant leader = fixture.Party[0];
+        RulesStrideAction stride = new RulesStrideAction();
+        leader.Controller.AddAction(stride);
+
+        yield return ExecuteRulesStride(
+            leader,
+            stride,
+            new DungeonCell(3, 2),
+            new DungeonCell(4, 2),
+            new DungeonCell(5, 3)
+        );
+        AssertPartyCells(fixture, new DungeonCell(5, 3), new DungeonCell(4, 2));
+
+        yield return ExecuteRulesStride(
+            leader,
+            stride,
+            new DungeonCell(6, 4),
+            new DungeonCell(7, 5),
+            new DungeonCell(8, 5),
+            new DungeonCell(9, 5)
+        );
+        AssertPartyCells(fixture, new DungeonCell(9, 5), new DungeonCell(8, 5));
+
+        Assert.That(fixture.Runtime.TryOpenDoor(door.Cell), Is.True);
+        AssertDoorOpen(fixture, door.Cell);
+
+        yield return ExecuteRulesStride(
+            leader,
+            stride,
+            new DungeonCell(10, 5),
+            new DungeonCell(11, 5),
+            new DungeonCell(12, 5),
+            new DungeonCell(13, 5),
+            new DungeonCell(14, 5)
+        );
+        AssertPartyCells(fixture, new DungeonCell(14, 5), new DungeonCell(13, 5));
+
+        yield return ExecuteRulesStride(
+            leader,
+            stride,
+            new DungeonCell(15, 5),
+            new DungeonCell(16, 5)
+        );
+
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(leader.Controller.IsInDungeonExploration, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(16, 5), new DungeonCell(15, 5));
+    }
+
+    /// <summary>
     /// Verifies adjacent exploration doors open for free, immediately update topology and visuals,
     /// capture in ordinal order, and publish exactly one event per committed door.
     /// </summary>
@@ -469,6 +582,159 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies opening the separating door materializes and starts the connected room encounter
+    /// before any party member enters that room.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator OpeningDoorImmediatelyStartsEncounterInConnectedRoom()
+    {
+        DungeonRoom firstRoom = new(1, 1, 1, 9, 9);
+        DungeonRoom secondRoom = new(2, 11, 1, 21, 9);
+        DoorSpec door = new("reveal-door", new DungeonCell(10, 5));
+        DungeonEncounterPlan encounter = new(
+            "revealed-encounter",
+            secondRoom.Id,
+            DungeonEncounterThreat.Low,
+            40,
+            new[] { new DungeonCell(15, 5) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(9, 0, 5), new Vector3Int(7, 0, 5) },
+            doors: new[] { door },
+            rooms: new[] { firstRoom, secondRoom },
+            encounterPlans: new[] { encounter },
+            customGridData: TwoRoomEncounterGrid()
+        );
+
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(
+            fixture.Runtime.GetComponentsInChildren<DungeonEncounterMember>(true),
+            Is.Empty
+        );
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), door.Cell);
+
+        DungeonEncounterMember enemy = fixture
+            .Runtime.GetComponentsInChildren<DungeonEncounterMember>(true)
+            .Single(member => member.IsConfigured);
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(CellOf(enemy.gameObject), Is.EqualTo(new DungeonCell(15, 5)));
+        AssertPartyCells(fixture, new DungeonCell(9, 5), new DungeonCell(7, 5));
+        yield return null;
+
+        Assert.That(
+            manager.IsCombatActive,
+            Is.True,
+            "Door-revealed combat must remain active before a PC crosses the room boundary."
+        );
+    }
+
+    /// <summary>
+    /// Verifies a door opened during combat immediately adds the connected room's living enemies
+    /// to the running encounter before a PC crosses the room boundary.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator OpeningDoorDuringCombatAddsConnectedRoomReinforcements()
+    {
+        DungeonRoom firstRoom = new(1, 1, 1, 9, 9);
+        DungeonRoom secondRoom = new(2, 11, 1, 21, 9);
+        DoorSpec door = new("reinforcement-door", new DungeonCell(10, 5));
+        DungeonEncounterPlan firstEncounter = new(
+            "active-encounter",
+            firstRoom.Id,
+            DungeonEncounterThreat.Low,
+            40,
+            new[] { new DungeonCell(5, 5) },
+            new[] { "goblin-warrior" }
+        );
+        DungeonEncounterPlan secondEncounter = new(
+            "reinforcement-encounter",
+            secondRoom.Id,
+            DungeonEncounterThreat.Low,
+            40,
+            new[] { new DungeonCell(15, 5) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(9, 0, 5), new Vector3Int(7, 0, 5) },
+            doors: new[] { door },
+            rooms: new[] { firstRoom, secondRoom },
+            encounterPlans: new[] { firstEncounter, secondEncounter },
+            configurePartyBeforeInitialization: party =>
+                party[0].GetComponent<CreatureComponent>().initiative = 1000,
+            customGridData: TwoRoomEncounterGrid()
+        );
+        yield return null;
+
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetRoomEncounter(secondRoom.Id).State,
+            Is.EqualTo(DungeonEncounterGroupState.Dormant)
+        );
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), door.Cell);
+
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetRoomEncounter(secondRoom.Id).State,
+            Is.EqualTo(DungeonEncounterGroupState.Active)
+        );
+        Assert.That(
+            fixture
+                .Runtime.GetComponentsInChildren<DungeonEncounterMember>(true)
+                .Count(member => member.IsConfigured),
+            Is.EqualTo(2)
+        );
+    }
+
+    /// <summary>
+    /// Verifies a follower separated by combat resumes advancing toward the leader's trail on the
+    /// first exploration step after the connected encounter is defeated.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator CombatCompletionRestoresSeparatedFollowerCatchUp()
+    {
+        DungeonRoom firstRoom = new(1, 1, 1, 9, 9);
+        DungeonRoom secondRoom = new(2, 11, 1, 21, 9);
+        DoorSpec door = new("recovery-door", new DungeonCell(10, 5));
+        DungeonEncounterPlan encounter = new(
+            "recovery-encounter",
+            secondRoom.Id,
+            DungeonEncounterThreat.Low,
+            40,
+            new[] { new DungeonCell(15, 5) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(9, 0, 5), new Vector3Int(5, 0, 5) },
+            doors: new[] { door },
+            rooms: new[] { firstRoom, secondRoom },
+            encounterPlans: new[] { encounter },
+            customGridData: TwoRoomEncounterGrid()
+        );
+        Combatant leader = fixture.Party[0];
+
+        Assert.That(fixture.Runtime.TryOpenDoor(door.Cell), Is.True);
+        DungeonEncounterMember enemy = fixture
+            .Runtime.GetComponentsInChildren<DungeonEncounterMember>(true)
+            .Single(member => member.IsConfigured);
+        Assert.That(manager.IsCombatActive, Is.True);
+
+        manager.Remove(enemy.GetComponent<ActionController>());
+        enemy.ReportDefeated();
+        enemy.gameObject.SetActive(false);
+
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(fixture.Runtime.IsExplorationActive, Is.True);
+        Ref<bool> continuePath = ExecuteExplorationStep(fixture, leader, new Vector3Int(8, 0, 5));
+
+        Assert.That(continuePath.Value, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(8, 5), new DungeonCell(6, 5));
+        yield break;
+    }
+
+    /// <summary>
     /// Verifies only the current living adjacent PC can open a combat door and that a committed
     /// interaction spends exactly one action.
     /// </summary>
@@ -527,7 +793,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         IReadOnlyList<DoorSpec> doors = null,
         IReadOnlyList<DungeonRoom> rooms = null,
         IReadOnlyList<DungeonEncounterPlan> encounterPlans = null,
-        Action<IReadOnlyList<TestActionController>> configurePartyBeforeInitialization = null
+        Action<IReadOnlyList<TestActionController>> configurePartyBeforeInitialization = null,
+        TileType[,] customGridData = null
     )
     {
         doors ??= Array.Empty<DoorSpec>();
@@ -539,7 +806,9 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 nameof(partyCells)
             );
 
-        TileType[,] gridData = GroundGrid(width, height);
+        TileType[,] gridData = customGridData ?? GroundGrid(width, height);
+        width = gridData.GetLength(0);
+        height = gridData.GetLength(1);
         bool[,] lineOfSight = new bool[width, height];
         foreach (DoorSpec door in doors)
         {
@@ -695,6 +964,35 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         return continuePath;
     }
 
+    private static IEnumerator ExecuteRulesStride(
+        Combatant leader,
+        RulesStrideAction stride,
+        params DungeonCell[] destinations
+    )
+    {
+        Assert.That(destinations, Is.Not.Empty);
+        Assert.That(stride.IsAvailable(leader.Controller), Is.True);
+        Vector3Int from = Vector3Int.RoundToInt(leader.GameObject.transform.position);
+        leader.Controller.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(from.x, from.y, from.z),
+                    destinations.Select(cell => new GridPosition(cell.X, from.y, cell.Z))
+                )
+            )
+        );
+
+        int remainingFrames = 240;
+        while (leader.Controller.IsTakingAction && remainingFrames-- > 0)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "The exploration Stride timed out.");
+        Assert.That(leader.Controller.IsTakingAction, Is.False);
+        DungeonCell expected = destinations[^1];
+        Assert.That(CellOf(leader.GameObject), Is.EqualTo(expected));
+    }
+
     private void RunToCompletion(IEnumerator root)
     {
         Stack<IEnumerator> routines = new();
@@ -785,11 +1083,22 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         return new DungeonCell(position.x, position.z);
     }
 
-    private static int ManhattanDistance(Vector3 first, Vector3 second)
+    private static void RaiseGridCellClick(GridInput input, DungeonCell cell)
+    {
+        FieldInfo clickedField = typeof(GridInput).GetField(
+            "CellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(clickedField, Is.Not.Null);
+        Action<Vector3Int> clicked = (Action<Vector3Int>)clickedField.GetValue(input);
+        clicked(new Vector3Int(cell.X, 0, cell.Z));
+    }
+
+    private static int ChebyshevDistance(Vector3 first, Vector3 second)
     {
         Vector3Int firstCell = Vector3Int.RoundToInt(first);
         Vector3Int secondCell = Vector3Int.RoundToInt(second);
-        return Math.Abs(firstCell.x - secondCell.x) + Math.Abs(firstCell.z - secondCell.z);
+        return Math.Max(Math.Abs(firstCell.x - secondCell.x), Math.Abs(firstCell.z - secondCell.z));
     }
 
     private static TileType[,] GroundGrid(int width, int height)
@@ -1161,5 +1470,35 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 
         /// <inheritdoc/>
         public override List<string> GetMessages() => new();
+    }
+
+    private static TileType[,] TwoRoomGrid()
+    {
+        TileType[,] data = new TileType[23, 11];
+        for (int x = 0; x < data.GetLength(0); x++)
+        {
+            for (int z = 0; z < data.GetLength(1); z++)
+                data[x, z] = TileType.Wall;
+        }
+        FillRoom(1, 9, 1, 9);
+        FillRoom(11, 21, 1, 9);
+        data[10, 5] = TileType.ClosedDoor;
+        return data;
+
+        void FillRoom(int minimumX, int maximumX, int minimumZ, int maximumZ)
+        {
+            for (int x = minimumX; x <= maximumX; x++)
+            {
+                for (int z = minimumZ; z <= maximumZ; z++)
+                    data[x, z] = TileType.Ground;
+            }
+        }
+    }
+
+    private static TileType[,] TwoRoomEncounterGrid()
+    {
+        TileType[,] data = TwoRoomGrid();
+        data[data.GetLength(0) - 1, data.GetLength(1) - 1] = TileType.Ground;
+        return data;
     }
 }
