@@ -297,6 +297,30 @@ namespace Game.Rules.Unity
             }
         }
 
+        /// <summary>
+        /// Projects final authoritative health and releases this encounter's Unity ownership.
+        /// </summary>
+        /// <remarks>
+        /// The registration maps intentionally outlive initiative membership, so this boundary
+        /// also releases defeated or otherwise removed combatants. Each target verifies exact
+        /// bridge identity before accepting the projection or detach, making repeated or delayed
+        /// release safe when newer encounter ownership already exists.
+        /// </remarks>
+        internal void ReleaseOwnership()
+        {
+            foreach (KeyValuePair<CreatureComponent, CreatureId> entry in creatureIds)
+            {
+                if (entry.Key != null)
+                    entry.Key.DetachHealthRules(this, GetHealth(entry.Value));
+            }
+
+            foreach (ActionController controller in controllerIds.Keys)
+            {
+                if (controller != null)
+                    controller.DetachCombatRules(this);
+            }
+        }
+
         /// <summary>Gets current rules-native Stride availability for a registered creature.</summary>
         /// <param name="creature">The registered mover.</param>
         /// <returns>The typed available or unavailable preview state.</returns>

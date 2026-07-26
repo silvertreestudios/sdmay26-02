@@ -215,6 +215,31 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(player.Conditions.Contains("Off-Guard", preservedSource), Is.True);
     }
 
+    /// <summary>
+    /// Verifies suspension releases health ownership for removed combatants without losing any
+    /// authoritative health fields.
+    /// </summary>
+    [Test]
+    public void SuspendDungeonCombat_ReleasesRemovedCombatantCompleteHealthState()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        RuleSource temporarySource = RuleSource.FromSlug("test-temporary-health");
+        RuleSource immunitySource = RuleSource.FromSlug("test-temporary-immunity");
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        player.Creature.ApplyFinalDamage(2, RuleSource.FromSlug("test-wound"));
+        player.Creature.GrantSourceTemporaryHitPoints(temporarySource, 4);
+        player.Creature.AddTemporaryHitPointImmunity(immunitySource);
+        HealthState expectedHealth = player.Creature.Health;
+        manager.Remove(player.Controller);
+
+        manager.SuspendDungeonCombat();
+
+        Assert.That(player.Creature.Health, Is.EqualTo(expectedHealth));
+        Assert.DoesNotThrow(() => player.Creature.InitializeHealthBeforeEncounter(expectedHealth));
+    }
+
     /// <summary>Verifies dungeon victory uses its dedicated event instead of legacy completion events.</summary>
     [Test]
     public void DungeonVictory_EmitsOnlyDungeonCompletionEvent()

@@ -6,12 +6,14 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
+using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence;
 using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Repository;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using GridPrivate;
 using NUnit.Framework;
 using UnityEngine;
@@ -153,18 +155,32 @@ public sealed class DungeonProductionFlowPlayModeTests
     }
 
     /// <summary>
-    /// Walks to a generated stair through the production exploration controls and confirms the
-    /// grid-selected endpoint through the live HUD.
+    /// Completes combat, then walks to a generated stair through the production exploration
+    /// controls and preserves party health while confirming traversal through the live HUD.
     /// </summary>
     [UnityTest]
-    public IEnumerator ExplorationStrideAndHudConfirmTraversesClickedStair()
+    public IEnumerator CompletedCombatThenExplorationStrideTraversesStairAndPreservesHealth()
     {
-        string directory = TrackDirectory("exploration-stair-confirm");
+        string directory = TrackDirectory("post-combat-stair-confirm");
         yield return LaunchNewRun(directory, "362");
 
         DungeonRunController controller = RequireController();
         DungeonStairMarker down = RequireStair(DungeonStairKind.Down);
-        ActionController leader = ProductionParty().Single(member => member.IsInDungeonExploration);
+        ActionController[] party = ProductionParty();
+        ActionController leader = party.Single(member => member.IsInDungeonExploration);
+        CreatureComponent woundedMember = party[0].GetComponent<CreatureComponent>();
+        Assert.That(woundedMember, Is.Not.Null);
+        HealthState expectedHealth = new(woundedMember.maxHp - 1, woundedMember.maxHp);
+        woundedMember.InitializeHealthBeforeEncounter(expectedHealth);
+        CombatManager combatManager = Object.FindFirstObjectByType<CombatManager>();
+        Assert.That(combatManager, Is.Not.Null, "The production combat manager is missing.");
+        combatManager.StartDungeonCombat(party);
+        Assert.That(
+            combatManager.IsCombatActive,
+            Is.False,
+            "A single-team production combat should complete synchronously."
+        );
+        Assert.That(woundedMember.Health, Is.EqualTo(expectedHealth));
         GridBase grid = RequireMap().GetComponent<GridBase>();
         Assert.That(grid, Is.Not.Null, "The production dungeon map has no GridBase.");
         DungeonEncounterRuntimeController runtime =
@@ -194,7 +210,16 @@ public sealed class DungeonProductionFlowPlayModeTests
         ClickButtonWithPointer(confirm);
         yield return null;
 
-        Assert.That(controller.CurrentDepth, Is.EqualTo(1));
+        Assert.That(
+            controller.CurrentDepth,
+            Is.EqualTo(1),
+            string.Join(
+                " | ",
+                controller.LastDiagnostics.Select(item =>
+                    $"{item.Code}:{item.Stage}:{item.Message}"
+                )
+            )
+        );
         DungeonSaveResult<DungeonRunSave> committed = new FileSystemDungeonSaveRepository(
             directory
         ).Load();
@@ -205,6 +230,7 @@ public sealed class DungeonProductionFlowPlayModeTests
         );
         Assert.That(committed.Value.Manifest.CurrentDepth, Is.EqualTo(1));
         Assert.That(committed.Value.GetFloor(1), Is.Not.Null);
+        Assert.That(woundedMember.Health, Is.EqualTo(expectedHealth));
     }
 
     /// <summary>Restores dungeon controls when another scene transition rejects the return request.</summary>

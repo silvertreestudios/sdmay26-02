@@ -490,6 +490,11 @@ public class CombatManager : CombatManagerInterface
     {
         foreach (ActionController controller in activeCombatants)
             controller.ResetEncounterTurnState();
+        if (healthRules != null)
+        {
+            healthRules.ReleaseOwnership();
+            healthRules = null;
+        }
         activeCombatants.Clear();
         initiatives.Clear();
         actedThisRound.Clear();
