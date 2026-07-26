@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Game.Creature;
 using Game.KayKit;
@@ -189,13 +190,20 @@ namespace Game.Rules.Unity.Light
     }
 
     /// <summary>
-    /// Registers Light's post-resolution Unity presentation once for one encounter composition.
+    /// Registers Light's post-resolution Unity presentation once for one encounter dispatcher.
     /// </summary>
     public sealed class UnityLightFeatureComposition
     {
+        // Weak dispatcher keys coordinate independently created composition wrappers without
+        // extending an encounter's lifetime. Registration values deliberately retain neither
+        // the dispatcher nor its observer.
+        private static readonly ConditionalWeakTable<
+            RuleDispatcher,
+            PresentationRegistration
+        > PresentationRegistrations = new();
+
         private readonly RuleDispatcher dispatcher;
         private readonly UnityLightPresentationObserver observer;
-        private bool isPresentationRegistered;
 
         /// <summary>Creates a Light Unity composition over one dispatcher and creature mapping.</summary>
         /// <param name="dispatcher">The encounter dispatcher receiving the typed observer.</param>
@@ -211,13 +219,33 @@ namespace Game.Rules.Unity.Light
             );
         }
 
-        /// <summary>Registers the presentation observer idempotently.</summary>
-        public void RegisterPresentation()
+        /// <summary>
+        /// Registers the presentation observer idempotently across Light compositions for the dispatcher.
+        /// </summary>
+        public void RegisterPresentation() =>
+            PresentationRegistrations
+                .GetValue(dispatcher, _ => new PresentationRegistration())
+                .Register(dispatcher, observer);
+
+        private sealed class PresentationRegistration
         {
-            if (isPresentationRegistered)
-                return;
-            dispatcher.RegisterResolvedOpObserver<LightActionOp, LightCastOutcome>(observer);
-            isPresentationRegistered = true;
+            private readonly object gate = new();
+            private bool isRegistered;
+
+            public void Register(RuleDispatcher dispatcher, UnityLightPresentationObserver observer)
+            {
+                lock (gate)
+                {
+                    if (isRegistered)
+                        return;
+
+                    // Set the flag only after registration succeeds so a failed attempt is retryable.
+                    dispatcher.RegisterResolvedOpObserver<LightActionOp, LightCastOutcome>(
+                        observer
+                    );
+                    isRegistered = true;
+                }
+            }
         }
     }
 

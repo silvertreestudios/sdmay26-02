@@ -160,10 +160,11 @@ public sealed class LightRulesPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator RepeatedFeatureCompositionRegistersOneResolvedObserver()
+    public IEnumerator DistinctFeatureCompositionsRegisterOneResolvedObserver()
     {
         RecordingCombatLog log = InstallCombatLog();
         CreatureComponent cleric = CreatePreparedCleric("Composed Light Cleric", 0);
+        CreatureAnimationController animation = BindAnimatedPresentation(cleric.gameObject);
         yield return null;
 
         CreatureId actor = new CreatureId("composed-light-actor");
@@ -181,11 +182,14 @@ public sealed class LightRulesPlayModeTests
             .UseActionLifecycle(definition)
             .UseLightRules(definition)
             .Build();
-        UnityLightFeatureComposition composition = new(dispatcher, creatures);
-        composition.RegisterPresentation();
-        composition.RegisterPresentation();
+        UnityLightFeatureComposition firstComposition = new(dispatcher, creatures);
+        UnityLightFeatureComposition secondComposition = new(dispatcher, creatures);
+        firstComposition.RegisterPresentation();
+        firstComposition.RegisterPresentation();
+        secondComposition.RegisterPresentation();
         gameplayCommitCount = 0;
         OnGameplayStateCommitted.AddListener(CountGameplayCommit);
+        int initialPlaybackVersion = GetAnimationPlaybackVersion(animation);
 
         OpResult<LightCastOutcome> result = dispatcher
             .Dispatch(new LightActionOp(actor))
@@ -195,6 +199,7 @@ public sealed class LightRulesPlayModeTests
         Assert.That(result, Is.TypeOf<ResolvedOpResult<LightCastOutcome>>());
         Assert.That(gameplayCommitCount, Is.EqualTo(1));
         Assert.That(log.Messages.Count(message => message.Contains("casts Light")), Is.EqualTo(1));
+        Assert.That(GetAnimationPlaybackVersion(animation), Is.EqualTo(initialPlaybackVersion + 1));
     }
 
     [Test]
@@ -282,6 +287,15 @@ public sealed class LightRulesPlayModeTests
             BindingFlags.Static | BindingFlags.NonPublic
         );
         field.SetValue(null, log);
+    }
+
+    private static int GetAnimationPlaybackVersion(CreatureAnimationController animation)
+    {
+        FieldInfo field = typeof(CreatureAnimationController).GetField(
+            "playbackVersion",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        return (int)field.GetValue(animation);
     }
 
     private void CountGameplayCommit() => gameplayCommitCount++;
