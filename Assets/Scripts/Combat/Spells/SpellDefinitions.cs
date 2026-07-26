@@ -102,7 +102,6 @@ namespace Game.Combat.Spells
             ["guidance"] = new GuidanceSpell(),
             ["divine-lance"] = new DivineLanceSpell(),
             ["haunting-hymn"] = new HauntingHymnSpell(),
-            ["light"] = new LightSpell(),
             ["bless"] = new BlessSpell(),
             ["infuse-vitality"] = new InfuseVitalitySpell(),
             ["heal"] = new HealSpell(),
@@ -135,24 +134,6 @@ namespace Game.Combat.Spells
             SpellEffectController
                 .GetOrAdd(context.Caster)
                 .AddOrRefresh(new ShieldSpellEffect(context.Caster));
-            result.Targets.Add(context.Caster);
-            return true;
-        }
-    }
-
-    public sealed class LightSpell : SpellDefinition
-    {
-        public override string Slug => "light";
-
-        public override IEnumerator SelectAndCast(SpellCastContext context) =>
-            CastNow(context, SpellTargetSelection.None);
-
-        public override bool Cast(
-            SpellCastContext context,
-            SpellTargetSelection selection,
-            CastSpellResult result
-        )
-        {
             result.Targets.Add(context.Caster);
             return true;
         }

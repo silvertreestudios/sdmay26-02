@@ -8,6 +8,7 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Light;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -92,12 +93,39 @@ public class Pf2eClericSpellcastingTests
         Assert.That(state.Pools["font-heal"].UsesRemaining, Is.EqualTo(4));
         Assert.That(state.SpellAttackModifier, Is.EqualTo(7));
         Assert.That(state.SpellDc, Is.EqualTo(17));
-        foreach (PreparedSpell spell in state.PreparedSpells)
+        string[] legacySpells =
+        {
+            "shield",
+            "guidance",
+            "divine-lance",
+            "haunting-hymn",
+            "bless",
+            "infuse-vitality",
+            "heal",
+        };
+        Assert.That(SpellRegistry.TryGet("light", out _), Is.False);
+        foreach (string legacySpell in legacySpells)
             Assert.That(
-                SpellRegistry.TryGet(spell.Slug, out _),
+                SpellRegistry.TryGet(legacySpell, out _),
                 Is.True,
-                spell.Name + " should have a runtime definition"
+                legacySpell + " should retain its legacy runtime definition"
             );
+    }
+
+    [Test]
+    public void LightRulesProfileUsesCurrentDataBackedTraits()
+    {
+        LightActionDefinition definition = UnityLightDefinitionLoader.Load(
+            new UnityLightActorStateProvider(new Dictionary<CreatureId, CreatureComponent>())
+        );
+
+        ActionProfile profile = definition.GetBaseProfile(LightActionDefinition.DefinitionId);
+
+        Assert.That(profile.Cost, Is.EqualTo(ActionCost.Two));
+        Assert.That(
+            profile.Traits.Select(trait => trait.Slug),
+            Is.EqualTo(new[] { "cantrip", "concentrate", "light", "manipulate" })
+        );
     }
 
     [Test]

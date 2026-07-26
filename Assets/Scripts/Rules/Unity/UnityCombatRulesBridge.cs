@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
+using Game.Rules.Unity.Light;
 using Game.Rules.Unity.Strike;
 using Game.Strikes;
 using GridPrivate;
@@ -86,13 +87,17 @@ namespace Game.Rules.Unity
             RageActionDefinition rageDefinition = new RageActionDefinition(
                 new UnityRageActorStateProvider(creatures)
             );
+            LightActionDefinition lightDefinition = UnityLightDefinitionLoader.Load(
+                new UnityLightActorStateProvider(creatures)
+            );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
             RuleRegistry registry = registryBuilder.Build();
             CombatActionCatalog actionCatalog = new CombatActionCatalog(
                 strideDefinition,
+                strikeContext,
                 rageDefinition,
-                strikeContext
+                lightDefinition
             );
 
             dispatcher = new RuleDispatcherBuilder(
@@ -106,10 +111,13 @@ namespace Game.Rules.Unity
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
                 .UseRageRules(rageDefinition)
+                .UseLightRules(lightDefinition)
                 .UseStrikeRules(strikeContext, strikeContext, strikeContext)
                 .Build();
             dispatcher.RegisterFactObserver<AmmunitionSpentFact>(strikeContext);
             dispatcher.RegisterFactObserver<StrikeItemLoadedChangedFact>(strikeContext);
+            UnityLightFeatureComposition lightComposition = new(dispatcher, creatures);
+            lightComposition.RegisterPresentation();
             if (attachControllers)
             {
                 UnityStrikePresentationObserver strikePresentation =
@@ -126,6 +134,7 @@ namespace Game.Rules.Unity
                 {
                     entry.Key.AttachCombatRules(this, entry.Value);
                     UnityStrikeActionInstaller.Install(entry.Key, entry.Value, strikeContext);
+                    UnityLightActionInstaller.Install(entry.Key);
                 }
             }
         }
@@ -355,6 +364,7 @@ namespace Game.Rules.Unity
                     registration.State.Creature.Id,
                     strikeContext
                 );
+                UnityLightActionInstaller.Install(registration.Controller);
             }
         }
 
@@ -805,18 +815,23 @@ namespace Game.Rules.Unity
         private sealed class CombatActionCatalog : IActionCatalog, IStrikeActionCatalog
         {
             private readonly StrideActionDefinition stride;
-            private readonly RageActionDefinition rage;
             private readonly IStrikeActionCatalog strike;
+            private readonly IReadOnlyList<IActionCatalog> featureCatalogs;
 
             public CombatActionCatalog(
                 StrideActionDefinition stride,
-                RageActionDefinition rage,
-                IStrikeActionCatalog strike
+                IStrikeActionCatalog strike,
+                params IActionCatalog[] featureCatalogs
             )
             {
                 this.stride = stride ?? throw new ArgumentNullException(nameof(stride));
-                this.rage = rage ?? throw new ArgumentNullException(nameof(rage));
                 this.strike = strike ?? throw new ArgumentNullException(nameof(strike));
+                if (featureCatalogs == null || featureCatalogs.Any(catalog => catalog == null))
+                    throw new ArgumentException(
+                        "Feature action catalogs cannot be null.",
+                        nameof(featureCatalogs)
+                    );
+                this.featureCatalogs = Array.AsReadOnly(featureCatalogs.ToArray());
             }
 
             /// <inheritdoc/>
@@ -832,7 +847,19 @@ namespace Game.Rules.Unity
                     throw new InvalidOperationException(
                         "Reload profiles require the selected item on ReloadActionOp."
                     );
-                return rage.GetBaseProfile(definitionId);
+                foreach (IActionCatalog catalog in featureCatalogs)
+                {
+                    try
+                    {
+                        return catalog.GetBaseProfile(definitionId);
+                    }
+                    catch (KeyNotFoundException)
+                    {
+                        // Each feature catalog owns its definition IDs. Continue to the next
+                        // composed feature without teaching this shared catalog feature names.
+                    }
+                }
+                throw new KeyNotFoundException($"Unknown action definition '{definitionId}'.");
             }
 
             /// <inheritdoc/>

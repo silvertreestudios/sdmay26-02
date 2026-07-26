@@ -5,6 +5,8 @@ using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Unity;
+using GridPrivate;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -46,6 +48,10 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         yield return null;
 
+        Tile[,] tiles = new Tile[1, 1];
+        tiles[0, 0] = new Tile();
+        UnityCombatRulesBridge.Create(new[] { controller }, tiles);
+
         Assert.That(controller.GetActions().Any(action => action.ActionName == "Light"), Is.True);
         Assert.That(controller.GetActions().Any(action => action.ActionName == "Shield"), Is.True);
 
@@ -54,7 +60,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         controller.TakeAction(light);
         yield return null;
 
-        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        Assert.That(controller.ActionPoints, Is.EqualTo(1));
         Assert.That(controller.IsTakingAction, Is.False);
     }
 
@@ -81,12 +87,12 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
         yield return null;
 
-        PreparedSpell light = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
-            spell.Slug == "light"
+        PreparedSpell shield = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
+            spell.Slug == "shield"
         );
         controller.StartTurn();
         ConfirmableSpellDefinition cancelledDefinition = new(shouldCast: false);
-        controller.TakeAction(new CastSpellAction(light, 1, cancelledDefinition));
+        controller.TakeAction(new CastSpellAction(shield, 1, cancelledDefinition));
         yield return null;
 
         Assert.That(cancelledDefinition.SelectionStarted, Is.True);
@@ -109,7 +115,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         controller.StartTurn();
         ConfirmableSpellDefinition successfulDefinition = new(shouldCast: true);
-        controller.TakeAction(new CastSpellAction(light, 1, successfulDefinition));
+        controller.TakeAction(new CastSpellAction(shield, 1, successfulDefinition));
         yield return null;
 
         Assert.That(successfulDefinition.SelectionStarted, Is.True);
@@ -152,13 +158,13 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
         yield return null;
 
-        PreparedSpell light = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
-            spell.Slug == "light"
+        PreparedSpell shield = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
+            spell.Slug == "shield"
         );
         controller.StartTurn();
         SpellCastContext context = new(
             clericObject,
-            light,
+            shield,
             1,
             spendActions: true,
             new SelfDefeatingSpellDefinition()
@@ -194,7 +200,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
             this.shouldCast = shouldCast;
         }
 
-        public string Slug => "light";
+        public string Slug => "shield";
         public bool SelectionStarted { get; private set; }
 
         public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
@@ -235,7 +241,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
     private sealed class SelfDefeatingSpellDefinition : ISpellDefinition
     {
-        public string Slug => "light";
+        public string Slug => "shield";
 
         public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
 

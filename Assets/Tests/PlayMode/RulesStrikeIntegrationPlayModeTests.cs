@@ -26,6 +26,30 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     private int damagePresentationCount;
     private int missPresentationCount;
 
+    [UnitySetUp]
+    public IEnumerator SetUp()
+    {
+        HashSet<GameObject> owners = new();
+        foreach (
+            CombatManagerInterface component in Object.FindObjectsByType<CombatManagerInterface>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            )
+        )
+            owners.Add(component.gameObject);
+        foreach (
+            TeamRules component in Object.FindObjectsByType<TeamRules>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None
+            )
+        )
+            owners.Add(component.gameObject);
+
+        foreach (GameObject owner in owners)
+            Object.Destroy(owner);
+        yield return null;
+    }
+
     [UnityTearDown]
     public IEnumerator TearDown()
     {

@@ -126,7 +126,7 @@ namespace Game.Creature.Rules
                 new PreparedSpell("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u })
             );
             spellcasting.AddSpell(
-                new PreparedSpell("Light", 1, true, false, string.Empty, new[] { 1u })
+                new PreparedSpell("Light", 1, true, false, string.Empty, new[] { 2u })
             );
             spellcasting.AddSpell(
                 new PreparedSpell("Bless", 1, false, false, "rank-1-bless", new[] { 2u })
