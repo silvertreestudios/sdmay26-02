@@ -139,9 +139,21 @@ namespace Game.Rules.Unity.Light
     /// <summary>Presents the rules-backed Light action through the shared Unity action bar.</summary>
     public sealed class RulesLightAction : EntityAction
     {
+        private readonly Func<
+            UnityCombatRulesBridge,
+            LightActionOp,
+            OpResult<LightCastOutcome>
+        > dispatch;
+
         /// <summary>Creates the two-action Light action-bar entry.</summary>
         public RulesLightAction()
-            : base(2) { }
+            : this((bridge, operation) => bridge.Dispatch(operation)) { }
+
+        internal RulesLightAction(
+            Func<UnityCombatRulesBridge, LightActionOp, OpResult<LightCastOutcome>> dispatch
+        )
+            : base(2) =>
+            this.dispatch = dispatch ?? throw new ArgumentNullException(nameof(dispatch));
 
         /// <inheritdoc/>
         public override string ActionName => "Light";
@@ -185,7 +197,11 @@ namespace Game.Rules.Unity.Light
                     return;
                 }
 
-                bridge.Dispatch(new LightActionOp(actor));
+                OpResult<LightCastOutcome> result = dispatch(bridge, new LightActionOp(actor));
+                if (result is not ResolvedOpResult<LightCastOutcome> && result.Facts.Count > 0)
+                {
+                    OnGameplayStateCommitted.Invoke();
+                }
             }
             finally
             {

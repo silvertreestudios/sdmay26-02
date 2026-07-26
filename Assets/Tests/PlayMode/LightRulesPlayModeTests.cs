@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -18,6 +19,14 @@ using Object = UnityEngine.Object;
 
 public sealed class LightRulesPlayModeTests
 {
+    private static readonly RuleDefinitionId InterruptionDefinition = new(
+        "light-unity-test-interruption"
+    );
+    private static readonly BindingId InterruptionBinding = new(
+        "light-unity-test-interruption-binding"
+    );
+    private static readonly RuleSource TestSource = RuleSource.FromSlug("light-unity-test");
+
     private readonly List<GameObject> created = new();
     private int gameplayCommitCount;
 
@@ -191,14 +200,95 @@ public sealed class LightRulesPlayModeTests
         bridge.BeginTurn(actor, 1);
         gameplayCommitCount = 0;
         OnGameplayStateCommitted.AddListener(CountGameplayCommit);
-        RulesLightAction light = controller.GetActions().OfType<RulesLightAction>().Single();
+        OpResult<LightCastOutcome> dispatchResult = OpResult<LightCastOutcome>.Invalid(
+            "The test dispatch has not run."
+        );
+        RulesLightAction light = new(
+            (rulesBridge, operation) =>
+            {
+                dispatchResult = rulesBridge.Dispatch(operation);
+                return dispatchResult;
+            }
+        );
         controller.IsTakingAction = true;
 
         light.Invoke(cleric.gameObject);
 
+        Assert.That(dispatchResult, Is.TypeOf<InvalidOpResult<LightCastOutcome>>());
+        Assert.That(dispatchResult.Facts, Is.Empty);
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
         Assert.That(controller.IsTakingAction, Is.False);
         Assert.That(gameplayCommitCount, Is.Zero);
+        Assert.That(log.Messages, Is.Empty);
+        Assert.That(animation.CurrentClipId, Is.Null);
+    }
+
+    [UnityTest]
+    public IEnumerator InterruptedLightWithCommittedCostNotifiesWithoutResolvedPresentation()
+    {
+        RecordingCombatLog log = InstallCombatLog();
+        CreatureComponent cleric = CreatePreparedCleric("Interrupted Light Cleric", 0);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureAnimationController animation = BindAnimatedPresentation(cleric.gameObject);
+        yield return null;
+
+        Tile[,] tiles = CreateTiles(1);
+        Occupy(tiles, cleric.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(new[] { controller }, tiles);
+        controller.StartTurn();
+        CreatureId actor = bridge.GetCreatureId(controller);
+        Dictionary<CreatureId, CreatureComponent> creatures = new() { [actor] = cleric };
+        LightActionDefinition definition = UnityLightDefinitionLoader.Load(
+            new UnityLightActorStateProvider(creatures)
+        );
+        InterruptingActionMiddleware middleware = new();
+        RuleRegistryBuilder registry = new();
+        registry.Define(InterruptionDefinition).Middleware(RuleLifecyclePhase.Reaction, middleware);
+        RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+            new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedCreature(new CreatureState(actor, new PlayerId("light-unity-test-player")))
+                    .SeedActionEconomy(actor, new ActionEconomyState(3, true))
+                    .SeedRuleBinding(
+                        new ActiveRuleBinding(
+                            InterruptionBinding,
+                            InterruptionDefinition,
+                            actor,
+                            default,
+                            TestSource,
+                            0
+                        )
+                    )
+            )
+        )
+            .UseActionLifecycle(definition)
+            .UseLightRules(definition)
+            .UseRuleRegistry(registry.Build())
+            .Build();
+        new UnityLightFeatureComposition(dispatcher, creatures).RegisterPresentation();
+        gameplayCommitCount = 0;
+        OnGameplayStateCommitted.AddListener(CountGameplayCommit);
+        OpResult<LightCastOutcome> dispatchResult = OpResult<LightCastOutcome>.Invalid(
+            "The test dispatch has not run."
+        );
+        RulesLightAction light = new(
+            (_, operation) =>
+            {
+                dispatchResult = dispatcher.Dispatch(operation).GetAwaiter().GetResult();
+                return dispatchResult;
+            }
+        );
+        controller.IsTakingAction = true;
+
+        light.Invoke(cleric.gameObject);
+
+        Assert.That(dispatchResult, Is.TypeOf<InterruptedOpResult<LightCastOutcome>>());
+        Assert.That(dispatchResult.Facts, Has.Count.EqualTo(1));
+        Assert.That(dispatchResult.Facts.Single(), Is.TypeOf<ActionCostSpentFact>());
+        Assert.That(dispatcher.Snapshot.ActionEconomy[actor].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(middleware.Calls, Is.EqualTo(1));
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(gameplayCommitCount, Is.EqualTo(1));
         Assert.That(log.Messages, Is.Empty);
         Assert.That(animation.CurrentClipId, Is.Null);
     }
@@ -347,6 +437,24 @@ public sealed class LightRulesPlayModeTests
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class InterruptingActionMiddleware
+        : IOpMiddleware<ActionBegunOp, ActionStartOutcome>
+    {
+        public int Calls { get; private set; }
+
+        public ValueTask<OpResult<ActionStartOutcome>> Invoke(
+            OpFrame<ActionBegunOp> frame,
+            OpMiddlewareContext context,
+            OpNext<ActionStartOutcome> next
+        )
+        {
+            Calls++;
+            return new ValueTask<OpResult<ActionStartOutcome>>(
+                OpResult<ActionStartOutcome>.Resolved(ActionStartOutcome.Interrupted)
+            );
+        }
     }
 
     private sealed class RecordingCombatLog : CombatLogInterface
