@@ -1,186 +1,137 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Game.Creature;
-using Game.Rules.Runtime;
-using Game.Rules.Unity;
+using Game.Creature.Rules;
 using UnityEngine;
 
 namespace Game.Combat.Spells
 {
-    /// <summary>Presents one exact spell reference and definition-owned action variant.</summary>
+    /// <summary>
+    /// Presents one spell through the legacy Unity-owned spellcasting pipeline.
+    /// </summary>
+    /// <remarks>
+    /// New and migrated spells should use <see cref="RulesCastSpellAction"/> so validation,
+    /// costs, and effects remain authoritative in the rules runtime.
+    /// </remarks>
+    [Obsolete(
+        "Use RulesCastSpellAction for migrated spells; CastSpellAction is retained only for legacy non-Light spells.",
+        false
+    )]
     [Serializable]
-    public sealed class CastSpellAction : MultiFrameEntityAction
+    public class CastSpellAction : MultiFrameEntityAction
     {
-        private readonly SpellReference spell;
-        private readonly SpellActionVariant variant;
-        private readonly ISpellDefinitionCatalog catalog;
+        private readonly PreparedSpell spell;
+        private readonly uint variantActionCost;
+        private readonly ISpellDefinition definition;
 
-        /// <summary>Creates one spell action-bar entry.</summary>
-        public CastSpellAction(
-            SpellReference spell,
-            SpellActionVariant variant,
-            ISpellDefinitionCatalog catalog
-        )
-            : base((uint)variant.Actions)
+        /// <summary>Gets the legacy prepared spell represented by this action.</summary>
+        public PreparedSpell Spell => spell;
+
+        /// <inheritdoc/>
+        public override string ActionName => BuildActionName(spell, variantActionCost);
+
+        /// <summary>Creates an action for one legacy prepared spell and action-cost variant.</summary>
+        public CastSpellAction(PreparedSpell spell, uint actionCost, ISpellDefinition definition)
+            : base(actionCost)
         {
             this.spell = spell;
-            this.variant = variant;
-            this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            variantActionCost = actionCost;
+            this.definition = definition;
         }
 
-        /// <summary>Gets the exact installed spell identity.</summary>
-        public SpellReference Spell => spell;
-
-        /// <summary>Gets the selected definition-owned action variant.</summary>
-        public SpellActionVariant Variant => variant;
-
-        /// <inheritdoc/>
-        public override string ActionName =>
-            catalog.TryGetSpell(spell, out Game.Rules.Runtime.SpellDefinition definition)
-                ? BuildActionName(definition)
-                : "Cast Spell";
-
-        /// <summary>Reconciles all spell actions on one caster without duplicating entries.</summary>
+        /// <summary>
+        /// Adds the deprecated non-Light spell actions prepared for the supplied caster.
+        /// </summary>
         public static void AddSpellActions(GameObject caster)
         {
+            CreatureComponent creature =
+                caster != null ? caster.GetComponent<CreatureComponent>() : null;
             ActionController controller =
                 caster != null ? caster.GetComponent<ActionController>() : null;
-            if (controller == null)
+#pragma warning disable CS0618 // Intentional legacy bootstrap until each remaining spell migrates.
+            SpellcastingState state = creature?.Prepared?.Spellcasting;
+#pragma warning restore CS0618
+            if (controller == null || state == null)
                 return;
-            UnitySpellActionInstaller.Install(controller, UnitySpellDefinitionCatalog.Load());
-        }
 
-        /// <inheritdoc/>
-        public override bool IsAvailable(ActionController controller)
-        {
-            if (controller == null || !catalog.TryGetSpell(spell, out _))
-                return false;
-            CreatureComponent creature = controller.GetComponent<CreatureComponent>();
-            ISpellBook book = creature?.Prepared?.SpellBook ?? EmptySpellBook.Instance;
-            if (
-                controller.TryGetCombatRules(
-                    out UnityCombatRulesBridge bridge,
-                    out CreatureId actor
-                )
-            )
+            HashSet<string> existing = controller
+                .GetActions()
+                .Select(action => action.ActionName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (PreparedSpell preparedSpell in state.PreparedSpells)
             {
-                SpellCastAuthorization authorization = book.Authorize(
-                    actor,
-                    spell,
-                    new SnapshotSpellSlotStateReader(bridge.Snapshot)
+#pragma warning disable CS0618 // Intentional registry lookup for legacy-only action installation.
+                bool implemented = SpellRegistry.TryGet(
+                    preparedSpell.Slug,
+                    out ISpellDefinition spellDefinition
                 );
-                return authorization.IsAuthorized
-                    && bridge.Snapshot.Health.TryGet(actor, out HealthState health)
-                    && health.Current > 0
-                    && bridge.Snapshot.ActionEconomy.TryGet(actor, out ActionEconomyState economy)
-                    && economy.ActionsRemaining >= variant.Actions;
+#pragma warning restore CS0618
+                if (!implemented)
+                    continue;
+
+                foreach (uint cost in spellDefinition.GetActionCosts(preparedSpell))
+                {
+                    CastSpellAction action = new(preparedSpell, cost, spellDefinition);
+                    if (!existing.Contains(action.ActionName))
+                    {
+                        controller.AddAction(action);
+                        existing.Add(action.ActionName);
+                        if (!creature.actions.Contains(action.ActionName))
+                            creature.actions.Add(action.ActionName);
+                    }
+                }
             }
-            return controller.ActionPoints >= variant.Actions && book.Authorize(spell).IsAuthorized;
         }
 
-        /// <summary>Executes a selected legacy spell directly for deterministic adapter tests.</summary>
+        /// <summary>Executes this legacy action against an already selected target payload.</summary>
         public CastSpellResult Cast(
             GameObject caster,
             IReadOnlyList<GameObject> targets = null,
             GridPublic.AreaTargetResult area = null
-        ) =>
-            SpellcastingRuntime.Cast(
+        )
+        {
+#pragma warning disable CS0618 // The deprecated action intentionally delegates to its legacy runtime.
+            return SpellcastingRuntime.Cast(
                 caster,
                 spell,
-                (uint)variant.Actions,
+                variantActionCost,
                 targets,
                 area,
                 spendActions: true
             );
+#pragma warning restore CS0618
+        }
 
         /// <inheritdoc/>
-        public override void Invoke(GameObject target) =>
-            CoroutineRunner.Run(InvokeAndComplete(target));
-
         protected override IEnumerator MFInvoke(GameObject caster)
         {
-            yield return InvokeCore(caster);
-        }
-
-        private IEnumerator InvokeAndComplete(GameObject caster)
-        {
-            ActionController controller =
-                caster != null ? caster.GetComponent<ActionController>() : null;
-            bool resolved = false;
-            bool committed = false;
-            bool notifyInAction = false;
-            try
+            ActionController actionController = caster.GetComponent<ActionController>();
+            if (definition == null)
             {
-                if (!catalog.TryGetSpell(spell, out Game.Rules.Runtime.SpellDefinition definition))
-                    yield break;
+                if (actionController != null)
+                    actionController.IsTakingAction = false;
+                yield break;
+            }
 
-                if (
-                    definition.Effects.Count > 0
-                    && controller != null
-                    && controller.TryGetCombatRules(
-                        out UnityCombatRulesBridge bridge,
-                        out CreatureId actor
-                    )
-                )
-                {
-                    ISpellBook book =
-                        controller.GetComponent<CreatureComponent>()?.Prepared?.SpellBook
-                        ?? EmptySpellBook.Instance;
-                    SpellCastAuthorization authorization = book.Authorize(
-                        actor,
-                        spell,
-                        new SnapshotSpellSlotStateReader(bridge.Snapshot)
-                    );
-                    if (!authorization.IsAuthorized)
-                        yield break;
-                    OpResult<CastSpellOutcome> result = bridge.Dispatch(
-                        new CastSpellActionOp(actor, spell, variant, authorization)
-                    );
-                    resolved = result is ResolvedOpResult<CastSpellOutcome>;
-                    committed = result.Facts.Count > 0;
-                    notifyInAction = committed && !resolved;
-                }
-                else
-                {
-                    if (
-                        catalog is not ILegacySpellDefinitionCatalog legacyCatalog
-                        || !legacyCatalog.TryGetLegacySpell(spell, out ISpellDefinition legacy)
-                    )
-                        yield break;
-                    SpellCastContext context = new(
-                        caster,
-                        spell,
-                        (uint)variant.Actions,
-                        spendActions: true,
-                        legacy
-                    );
-                    yield return legacy.SelectAndCast(context);
-                    resolved = context.Result.Success;
-                    committed = resolved;
-                    notifyInAction = resolved;
-                }
-            }
-            finally
-            {
-                if (controller != null)
-                    controller.IsTakingAction = false;
-                OnActionComplete.Invoke();
-                if (committed && notifyInAction)
-                    OnGameplayStateCommitted.Invoke();
-                if (CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager))
-                    combatManager.CheckForEndOfGame();
-            }
+            SpellCastContext context = new(
+                caster,
+                spell,
+                variantActionCost,
+                spendActions: true,
+                definition
+            );
+            yield return definition.SelectAndCast(context);
         }
 
-        private IEnumerator InvokeCore(GameObject caster)
+        private static string BuildActionName(PreparedSpell spell, uint actionCost)
         {
-            yield return InvokeAndComplete(caster);
+            if (spell == null)
+                return "Cast Spell";
+            if (spell.ActionCosts.Count > 1)
+                return spell.Name + " " + actionCost + "A";
+            return spell.Name;
         }
-
-        private string BuildActionName(Game.Rules.Runtime.SpellDefinition definition) =>
-            definition.Variants.Count > 1
-                ? $"{definition.DisplayName} {variant}"
-                : definition.DisplayName;
     }
 }

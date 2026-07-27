@@ -28,20 +28,28 @@ namespace Game.Combat.Spells
                 : EmptySpellBook.Instance;
     }
 
-    /// <summary>Idempotently reconciles definition-backed spell actions on one controller.</summary>
+    /// <summary>Idempotently reconciles rules-native spell actions on one encounter controller.</summary>
     public static class UnitySpellActionInstaller
     {
-        /// <summary>Installs exactly one action for every prepared reference and definition variant.</summary>
+        /// <summary>
+        /// Installs exactly one rules action for every prepared, generically supported definition.
+        /// </summary>
+        /// <remarks>
+        /// The deprecated creature bootstrap independently owns non-Light legacy actions. This
+        /// installer runs only from encounter composition and never replaces those instances.
+        /// </remarks>
         /// <param name="controller">The caster whose action list is reconciled.</param>
-        /// <param name="catalog">The data-backed definitions that own action variants.</param>
-        public static void Install(ActionController controller, ISpellDefinitionCatalog catalog)
+        /// <param name="catalog">The encounter rules catalog that owns definitions and spellbooks.</param>
+        public static void Install(ActionController controller, ISpellActionCatalog catalog)
         {
             if (controller == null)
                 throw new ArgumentNullException(nameof(controller));
             if (catalog == null)
                 throw new ArgumentNullException(nameof(catalog));
             CreatureComponent creature = controller.GetComponent<CreatureComponent>();
-            ISpellBook book = creature?.Prepared?.SpellBook ?? EmptySpellBook.Instance;
+            if (creature == null || !controller.TryGetCombatRules(out _, out CreatureId actor))
+                return;
+            ISpellBook book = catalog.GetSpellBook(actor);
             HashSet<(SpellReference Spell, SpellActionVariant Variant)> desired = new();
             foreach (SpellReference reference in book.CastableSpells)
             {
@@ -52,18 +60,20 @@ namespace Game.Combat.Spells
                     )
                 )
                     continue;
+                if (definition.Effects.Count == 0)
+                    continue;
                 foreach (SpellActionVariant variant in definition.Variants)
                     desired.Add((reference, variant));
             }
 
             Dictionary<
                 (SpellReference Spell, SpellActionVariant Variant),
-                CastSpellAction
+                RulesCastSpellAction
             > retained = new();
             foreach (
-                CastSpellAction action in controller
+                RulesCastSpellAction action in controller
                     .GetActions()
-                    .OfType<CastSpellAction>()
+                    .OfType<RulesCastSpellAction>()
                     .ToArray()
             )
             {
@@ -77,7 +87,12 @@ namespace Game.Combat.Spells
             {
                 if (retained.ContainsKey(key))
                     continue;
-                CastSpellAction action = new(key.Spell, key.Variant, catalog);
+                RulesCastSpellAction action = new(
+                    key.Spell,
+                    key.Variant,
+                    new CastSpellActionDefinition(catalog),
+                    catalog
+                );
                 controller.AddAction(action);
                 if (creature != null && !creature.actions.Contains(action.ActionName))
                     creature.actions.Add(action.ActionName);
@@ -140,7 +155,6 @@ namespace Game.Combat.Spells
                 },
                 actor
             );
-            PresentSafely(OnGameplayStateCommitted.Invoke, actor);
             return default;
         }
 

@@ -37,6 +37,7 @@ namespace Game.Rules.Unity
         private readonly UnityStrikeContext strikeContext;
         private readonly RuleDispatcher dispatcher;
         private readonly UnitySpellDefinitionCatalog spellCatalog;
+        private readonly ISpellActionCatalog spellActionCatalog;
         private readonly IReadOnlyList<IDisposable> presentationResources;
         private readonly bool supportsCombatActions;
         private readonly bool projectsActionPoints;
@@ -51,6 +52,7 @@ namespace Game.Rules.Unity
             strideDefinition = new StrideActionDefinition(topologyProvider);
             strikeContext = null;
             spellCatalog = null;
+            spellActionCatalog = null;
             presentationResources = Array.Empty<IDisposable>();
             RulesStateSeed seed = new RulesStateSeed();
             foreach (CreatureComponent creature in encounterCreatures)
@@ -108,8 +110,10 @@ namespace Game.Rules.Unity
                 strideDefinition,
                 strikeContext,
                 spellCatalog,
+                spellBooks,
                 rageDefinition
             );
+            spellActionCatalog = actionCatalog;
 
             dispatcher = new RuleDispatcherBuilder(
                 new InMemoryRulesStore(seed),
@@ -122,7 +126,7 @@ namespace Game.Rules.Unity
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
                 .UseRageRules(rageDefinition)
-                .UseSpellcastingRules(actionCatalog, spellBooks)
+                .UseSpellcastingRules(actionCatalog)
                 .UseStrikeRules(strikeContext, strikeContext, strikeContext)
                 .Build();
             dispatcher.RegisterFactObserver<AmmunitionSpentFact>(strikeContext);
@@ -154,7 +158,7 @@ namespace Game.Rules.Unity
                     entry.Key.AttachCombatRules(this, entry.Value);
                     UnityStrikeActionInstaller.Install(entry.Key, entry.Value, strikeContext);
                     entry.Key.GetComponent<CreatureComponent>()?.InitializeRuntimeActions();
-                    UnitySpellActionInstaller.Install(entry.Key, spellCatalog);
+                    UnitySpellActionInstaller.Install(entry.Key, actionCatalog);
                 }
             }
         }
@@ -385,7 +389,7 @@ namespace Game.Rules.Unity
                     strikeContext
                 );
                 registration.Creature.InitializeRuntimeActions();
-                UnitySpellActionInstaller.Install(registration.Controller, spellCatalog);
+                UnitySpellActionInstaller.Install(registration.Controller, spellActionCatalog);
             }
         }
 
@@ -848,19 +852,22 @@ namespace Game.Rules.Unity
         {
             private readonly StrideActionDefinition stride;
             private readonly IStrikeActionCatalog strike;
-            private readonly ISpellActionCatalog spell;
+            private readonly ISpellDefinitionCatalog spell;
+            private readonly ISpellBookProvider spellBooks;
             private readonly IReadOnlyList<IActionCatalog> featureCatalogs;
 
             public CombatActionCatalog(
                 StrideActionDefinition stride,
                 IStrikeActionCatalog strike,
-                ISpellActionCatalog spell,
+                ISpellDefinitionCatalog spell,
+                ISpellBookProvider spellBooks,
                 params IActionCatalog[] featureCatalogs
             )
             {
                 this.stride = stride ?? throw new ArgumentNullException(nameof(stride));
                 this.strike = strike ?? throw new ArgumentNullException(nameof(strike));
                 this.spell = spell ?? throw new ArgumentNullException(nameof(spell));
+                this.spellBooks = spellBooks ?? throw new ArgumentNullException(nameof(spellBooks));
                 if (featureCatalogs == null || featureCatalogs.Any(catalog => catalog == null))
                     throw new ArgumentException(
                         "Feature action catalogs cannot be null.",
@@ -905,6 +912,10 @@ namespace Game.Rules.Unity
                 SpellReference reference,
                 out Game.Rules.Runtime.SpellDefinition definition
             ) => spell.TryGetSpell(reference, out definition);
+
+            /// <inheritdoc/>
+            public ISpellBook GetSpellBook(CreatureId creature) =>
+                spellBooks.GetSpellBook(creature);
         }
 
         private sealed class MutableGridTopologyProvider : IGridTopologyProvider

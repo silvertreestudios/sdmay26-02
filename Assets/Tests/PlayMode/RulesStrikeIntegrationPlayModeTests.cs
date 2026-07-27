@@ -465,35 +465,45 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             .GetActions()
             .OfType<RulesStrikeAction>()
             .Single(action => action.ActionName == "Unarmed Strike");
-        SpellReference divineLance = new(new SpellId("divine-lance"), 1);
+#pragma warning disable CS0618 // This seam verifies legacy spell attacks share rules-owned MAP.
+        PreparedSpell divineLance = cleric.Prepared.Spellcasting.GetSpell("divine-lance");
         UnityEngine.Random.State randomState = UnityEngine.Random.state;
-        UnityEngine.Random.InitState(7113);
+        try
+        {
+            UnityEngine.Random.InitState(7113);
 
-        bridge.BeginTurn(actor, 3);
-        RequireResolved(bridge.Dispatch(new StrikeActionOp(actor, unarmed.Item.Item, targetId)));
-        CastSpellResult spellSecond = SpellcastingRuntime.Cast(
-            cleric.gameObject,
-            divineLance,
-            2,
-            new[] { target.gameObject }
-        );
-        Assert.That(spellSecond.Success, Is.True, spellSecond.Message);
-        Assert.That(clericController.StrikePenalty, Is.EqualTo(2));
+            bridge.BeginTurn(actor, 3);
+            RequireResolved(
+                bridge.Dispatch(new StrikeActionOp(actor, unarmed.Item.Item, targetId))
+            );
+            CastSpellResult spellSecond = SpellcastingRuntime.Cast(
+                cleric.gameObject,
+                divineLance,
+                2,
+                new[] { target.gameObject }
+            );
+            Assert.That(spellSecond.Success, Is.True, spellSecond.Message);
+            Assert.That(clericController.StrikePenalty, Is.EqualTo(2));
 
-        bridge.BeginTurn(actor, 3);
-        CastSpellResult spellFirst = SpellcastingRuntime.Cast(
-            cleric.gameObject,
-            divineLance,
-            2,
-            new[] { target.gameObject }
-        );
-        Assert.That(spellFirst.Success, Is.True, spellFirst.Message);
-        ResolvedOpResult<StrikeResolution> strikeSecond = RequireResolved(
-            bridge.Dispatch(new StrikeActionOp(actor, unarmed.Item.Item, targetId))
-        );
-        Assert.That(strikeSecond.Value.MultipleAttackPenalty, Is.EqualTo(-4));
-        Assert.That(clericController.StrikePenalty, Is.EqualTo(2));
-        UnityEngine.Random.state = randomState;
+            bridge.BeginTurn(actor, 3);
+            CastSpellResult spellFirst = SpellcastingRuntime.Cast(
+                cleric.gameObject,
+                divineLance,
+                2,
+                new[] { target.gameObject }
+            );
+            Assert.That(spellFirst.Success, Is.True, spellFirst.Message);
+            ResolvedOpResult<StrikeResolution> strikeSecond = RequireResolved(
+                bridge.Dispatch(new StrikeActionOp(actor, unarmed.Item.Item, targetId))
+            );
+            Assert.That(strikeSecond.Value.MultipleAttackPenalty, Is.EqualTo(-4));
+            Assert.That(clericController.StrikePenalty, Is.EqualTo(2));
+        }
+        finally
+        {
+            UnityEngine.Random.state = randomState;
+        }
+#pragma warning restore CS0618
         yield return null;
     }
 

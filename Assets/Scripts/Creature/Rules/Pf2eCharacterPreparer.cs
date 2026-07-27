@@ -102,29 +102,66 @@ namespace Game.Creature.Rules
             if (!prepared.HasOwnedItem("cleric"))
                 return;
 
-            SpellSlotPoolId blessPool = new("rank-1-bless");
-            SpellSlotPoolId vitalityPool = new("rank-1-infuse-vitality");
-            SpellSlotPoolId fontPool = new("font-heal");
+            PrepareLegacySpellcasting(creature, prepared);
+#pragma warning disable CS0618 // Shared legacy math remains authoritative until the last spell migrates.
+            int spellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature);
+#pragma warning restore CS0618
             prepared.SpellBook = new PreparedSpellBook(
-                new[]
-                {
-                    PreparedSpellEntry.Cantrip(Reference("shield")),
-                    PreparedSpellEntry.Cantrip(Reference("guidance")),
-                    PreparedSpellEntry.Cantrip(Reference("divine-lance")),
-                    PreparedSpellEntry.Cantrip(Reference("haunting-hymn")),
-                    PreparedSpellEntry.Cantrip(Reference("light")),
-                    PreparedSpellEntry.FromPool(Reference("bless"), blessPool),
-                    PreparedSpellEntry.FromPool(Reference("infuse-vitality"), vitalityPool),
-                    PreparedSpellEntry.FromPool(Reference("heal"), fontPool),
-                },
-                new[]
-                {
-                    new PreparedSpellSlotPool(blessPool, 1),
-                    new PreparedSpellSlotPool(vitalityPool, 1),
-                    new PreparedSpellSlotPool(fontPool, 4),
-                },
-                SpellcastingRuntime.SpellAttackModifier(creature)
+                new[] { PreparedSpellEntry.Cantrip(Reference("light")) },
+                Array.Empty<PreparedSpellSlotPool>(),
+                spellAttackModifier
             );
+        }
+
+        private static void PrepareLegacySpellcasting(
+            CreatureComponent creature,
+            PreparedCharacter prepared
+        )
+        {
+#pragma warning disable CS0618 // Intentional bootstrap for spells awaiting rules-native migration.
+            SpellcastingState spellcasting = new()
+            {
+                Tradition = "divine",
+                Ability = "wis",
+                SpellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature),
+            };
+            spellcasting.AddPool(new SpellSlotPool("rank-1-bless", SpellSlotKind.Prepared, 1, 1));
+            spellcasting.AddPool(
+                new SpellSlotPool("rank-1-infuse-vitality", SpellSlotKind.Prepared, 1, 1)
+            );
+            spellcasting.AddPool(new SpellSlotPool("font-heal", SpellSlotKind.Font, 1, 4));
+
+            spellcasting.AddSpell(
+                new PreparedSpell("Shield", 1, true, false, string.Empty, new[] { 1u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Guidance", 1, true, false, string.Empty, new[] { 1u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Divine Lance", 1, true, false, string.Empty, new[] { 2u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Bless", 1, false, false, "rank-1-bless", new[] { 2u })
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell(
+                    "Infuse Vitality",
+                    1,
+                    false,
+                    false,
+                    "rank-1-infuse-vitality",
+                    new[] { 1u, 2u, 3u }
+                )
+            );
+            spellcasting.AddSpell(
+                new PreparedSpell("Heal", 1, false, true, "font-heal", new[] { 1u, 2u, 3u })
+            );
+
+            prepared.Spellcasting = spellcasting;
+#pragma warning restore CS0618
         }
 
         private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);

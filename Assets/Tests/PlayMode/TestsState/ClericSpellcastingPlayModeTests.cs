@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -6,14 +5,12 @@ using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
-using Game.Rules.Runtime;
-using Game.Rules.Unity;
-using GridPrivate;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
-using Object = UnityEngine.Object;
+
+#pragma warning disable CS0618 // This fixture intentionally exercises legacy non-Light spells.
 
 public class ClericSpellcastingPlayModeTests : PlayModeBase
 {
@@ -37,11 +34,10 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
     }
 
     [UnityTest]
-    public IEnumerator ClericWithPlayerControllerGetsSpellActionsAndLightSpendsActions()
+    public IEnumerator ClericWithPlayerControllerGetsOnlyLegacyNonLightActionsBeforeComposition()
     {
         clericObject = new GameObject("PlayMode Cleric");
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
-        cleric.InitializeHealthBeforeEncounter(10, 10);
         cleric.level = 1;
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };
@@ -52,23 +48,17 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         yield return null;
 
-        Tile[,] tiles = new Tile[1, 1];
-        tiles[0, 0] = new Tile();
-        UnityCombatRulesBridge.Create(new[] { controller }, tiles);
-
-        Assert.That(controller.GetActions().Any(action => action.ActionName == "Light"), Is.True);
+        Assert.That(controller.GetActions().Any(action => action.ActionName == "Light"), Is.False);
         Assert.That(controller.GetActions().Any(action => action.ActionName == "Shield"), Is.True);
 
         controller.StartTurn();
-        EntityAction light = controller.GetActions().First(action => action.ActionName == "Light");
-        Assert.That(controller.IsTakingAction, Is.False);
-        Assert.That(light.IsAvailable(controller), Is.True);
-        controller.TakeAction(light);
-        float deadline = Time.realtimeSinceStartup + 1f;
-        while (controller.ActionPoints == 3 && Time.realtimeSinceStartup < deadline)
-            yield return null;
+        EntityAction shield = controller
+            .GetActions()
+            .First(action => action.ActionName == "Shield");
+        controller.TakeAction(shield);
+        yield return null;
 
-        Assert.That(controller.ActionPoints, Is.EqualTo(1));
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
         Assert.That(controller.IsTakingAction, Is.False);
     }
 
@@ -95,16 +85,12 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
         yield return null;
 
-        SpellReference shield = Reference("shield");
+        PreparedSpell shield = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
+            spell.Slug == "shield"
+        );
         controller.StartTurn();
         ConfirmableSpellDefinition cancelledDefinition = new(shouldCast: false);
-        controller.TakeAction(
-            new CastSpellAction(
-                shield,
-                new SpellActionVariant(1),
-                new TestSpellCatalog(cancelledDefinition)
-            )
-        );
+        controller.TakeAction(new CastSpellAction(shield, 1, cancelledDefinition));
         yield return null;
 
         Assert.That(cancelledDefinition.SelectionStarted, Is.True);
@@ -127,13 +113,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         controller.StartTurn();
         ConfirmableSpellDefinition successfulDefinition = new(shouldCast: true);
-        controller.TakeAction(
-            new CastSpellAction(
-                shield,
-                new SpellActionVariant(1),
-                new TestSpellCatalog(successfulDefinition)
-            )
-        );
+        controller.TakeAction(new CastSpellAction(shield, 1, successfulDefinition));
         yield return null;
 
         Assert.That(successfulDefinition.SelectionStarted, Is.True);
@@ -176,7 +156,9 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         presentation.Bind(animationController, visual.GetComponent<CreatureEquipmentVisuals>());
         yield return null;
 
-        SpellReference shield = Reference("shield");
+        PreparedSpell shield = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
+            spell.Slug == "shield"
+        );
         controller.StartTurn();
         SpellCastContext context = new(
             clericObject,
@@ -217,10 +199,9 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         }
 
         public string Slug => "shield";
-        public string DisplayName => "Shield";
-        public IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
-            new[] { new SpellActionVariant(1) };
         public bool SelectionStarted { get; private set; }
+
+        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
 
         public IEnumerator SelectAndCast(SpellCastContext context)
         {
@@ -259,9 +240,8 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
     private sealed class SelfDefeatingSpellDefinition : ISpellDefinition
     {
         public string Slug => "shield";
-        public string DisplayName => "Shield";
-        public IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
-            new[] { new SpellActionVariant(1) };
+
+        public IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) => new[] { 1u };
 
         public IEnumerator SelectAndCast(SpellCastContext context)
         {
@@ -284,40 +264,6 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
     }
-
-    private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);
-
-    private sealed class TestSpellCatalog : ILegacySpellDefinitionCatalog
-    {
-        private readonly ISpellDefinition legacy;
-        private readonly Game.Rules.Runtime.SpellDefinition definition;
-
-        public TestSpellCatalog(ISpellDefinition legacy)
-        {
-            this.legacy = legacy;
-            definition = new Game.Rules.Runtime.SpellDefinition(
-                new SpellId(legacy.Slug),
-                legacy.DisplayName,
-                1,
-                legacy.ActionVariants,
-                Array.Empty<Trait>(),
-                Array.Empty<SpellEffectDirective>()
-            );
-        }
-
-        public bool TryGetSpell(
-            SpellReference reference,
-            out Game.Rules.Runtime.SpellDefinition value
-        )
-        {
-            value = definition;
-            return reference.Spell == definition.Id && reference.Rank >= definition.MinimumRank;
-        }
-
-        public bool TryGetLegacySpell(SpellReference reference, out ISpellDefinition value)
-        {
-            value = legacy;
-            return reference.Spell == definition.Id;
-        }
-    }
 }
+
+#pragma warning restore CS0618

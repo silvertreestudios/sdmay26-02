@@ -85,22 +85,43 @@ public sealed class PreparedSpellBookTests
     }
 
     [Test]
-    public void LocalSpendingConsumesRankedPoolButNeverConsumesCantrip()
+    public void ResourceBindingIsExactAndDoesNotExposeLocalMutableSpending()
     {
         PreparedSpellBook book = CreateBook(
             PreparedSpellEntry.Cantrip(Light),
             PreparedSpellEntry.FromPool(Bless, PreparedPool)
         );
 
-        Assert.That(book.Authorize(Light).Kind, Is.EqualTo(SpellCastResourceKind.Cantrip));
-        Assert.That(book.Authorize(Bless).Kind, Is.EqualTo(SpellCastResourceKind.SpellSlot));
-        Assert.That(book.TrySpend(Light), Is.True);
-        Assert.That(book.TrySpend(Light), Is.True);
-        Assert.That(book.TrySpend(Bless), Is.True);
-        Assert.That(book.Authorize(Bless).IsAuthorized, Is.False);
-        Assert.That(book.TrySpend(Bless), Is.False);
         Assert.That(
-            book.Authorize(new SpellReference(new SpellId("light"), 2)).IsAuthorized,
+            book.BindResource(Owner, Light).Kind,
+            Is.EqualTo(SpellCastResourceKind.Cantrip)
+        );
+        Assert.That(book.BindResource(Owner, Bless).Pool, Is.EqualTo(Scoped(PreparedPool)));
+        Assert.That(
+            book.BindResource(Owner, new SpellReference(new SpellId("light"), 2)).IsAuthorized,
+            Is.False
+        );
+        Assert.That(
+            typeof(PreparedSpellBook).GetMethod("TrySpend"),
+            Is.Null,
+            "Rules-native books must not expose local mutable spending."
+        );
+    }
+
+    [Test]
+    public void SyntheticRankedSpellRequiresTheExactPreparedRank()
+    {
+        SpellReference rankThree = new(new SpellId("synthetic-ranked-spell"), 3);
+        PreparedSpellBook book = CreateBook(PreparedSpellEntry.FromPool(rankThree, PreparedPool));
+        Reader reader = new(new SpellSlotState(Scoped(PreparedPool), Owner, 1, 1));
+
+        Assert.That(book.Authorize(Owner, rankThree, reader).IsAuthorized, Is.True);
+        Assert.That(
+            book.Authorize(Owner, new SpellReference(rankThree.Spell, 2), reader).IsAuthorized,
+            Is.False
+        );
+        Assert.That(
+            book.Authorize(Owner, new SpellReference(rankThree.Spell, 4), reader).IsAuthorized,
             Is.False
         );
     }

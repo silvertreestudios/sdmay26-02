@@ -8,33 +8,25 @@ using Game.Rules.Runtime;
 using GridPublic;
 using UnityEngine;
 
+#pragma warning disable CS0618 // Every definition in this file belongs to the isolated legacy path.
+
 namespace Game.Combat.Spells
 {
     public interface ISpellDefinition
     {
         string Slug { get; }
-        string DisplayName { get; }
-        IReadOnlyList<SpellActionVariant> ActionVariants { get; }
+        IReadOnlyList<uint> GetActionCosts(PreparedSpell spell);
         IEnumerator SelectAndCast(SpellCastContext context);
         bool Cast(SpellCastContext context, SpellTargetSelection selection, CastSpellResult result);
         bool AppliesMultipleAttackPenalty(SpellCastContext context);
-    }
-
-    /// <summary>Resolves legacy Unity spell effects behind the general spell catalog boundary.</summary>
-    public interface ILegacySpellDefinitionCatalog : ISpellDefinitionCatalog
-    {
-        /// <summary>Attempts to resolve the Unity effect adapter for one exact spell.</summary>
-        bool TryGetLegacySpell(SpellReference reference, out ISpellDefinition definition);
     }
 
     public abstract class SpellDefinition : ISpellDefinition
     {
         public abstract string Slug { get; }
 
-        public virtual string DisplayName => Slug.Replace("-", " ");
-
-        public virtual IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
-            new[] { new SpellActionVariant(1) };
+        public virtual IReadOnlyList<uint> GetActionCosts(PreparedSpell spell) =>
+            spell?.ActionCosts ?? Array.Empty<uint>();
 
         public virtual bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
 
@@ -102,6 +94,11 @@ namespace Game.Combat.Spells
         }
     }
 
+    /// <summary>Resolves definitions used only by the legacy non-Light spellcasting path.</summary>
+    [Obsolete(
+        "Use ISpellDefinitionCatalog for rules-native spells; SpellRegistry is retained only for legacy non-Light spells.",
+        false
+    )]
     public static class SpellRegistry
     {
         private static readonly Dictionary<string, ISpellDefinition> Definitions = new(
@@ -180,8 +177,6 @@ namespace Game.Combat.Spells
     public sealed class DivineLanceSpell : SpellDefinition
     {
         public override string Slug => "divine-lance";
-        public override IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
-            new[] { new SpellActionVariant(2) };
 
         public override bool AppliesMultipleAttackPenalty(SpellCastContext context) => true;
 
@@ -203,7 +198,7 @@ namespace Game.Combat.Spells
                 new List<DamageValue>()
             )
             {
-                AttackModifierOverride = casterCreature.Prepared.SpellBook.SpellAttackModifier,
+                AttackModifierOverride = casterCreature.Prepared.Spellcasting.SpellAttackModifier,
                 SourceInfo = new AttackSourceInfo(
                     "Divine Lance",
                     "spell",
@@ -241,8 +236,6 @@ namespace Game.Combat.Spells
     public sealed class HauntingHymnSpell : SpellDefinition
     {
         public override string Slug => "haunting-hymn";
-        public override IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
-            new[] { new SpellActionVariant(2) };
 
         public override IEnumerator SelectAndCast(SpellCastContext context)
         {
@@ -280,8 +273,6 @@ namespace Game.Combat.Spells
     public sealed class BlessSpell : SpellDefinition
     {
         public override string Slug => "bless";
-        public override IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
-            new[] { new SpellActionVariant(2) };
 
         public override IEnumerator SelectAndCast(SpellCastContext context)
         {
@@ -324,13 +315,6 @@ namespace Game.Combat.Spells
     public sealed class InfuseVitalitySpell : SpellDefinition
     {
         public override string Slug => "infuse-vitality";
-        public override IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
-            new[]
-            {
-                new SpellActionVariant(1),
-                new SpellActionVariant(2),
-                new SpellActionVariant(3),
-            };
 
         public override IEnumerator SelectAndCast(SpellCastContext context) =>
             SelectFixedRangeTargetAndCast(context, 30);
@@ -372,13 +356,6 @@ namespace Game.Combat.Spells
     public sealed class HealSpell : SpellDefinition
     {
         public override string Slug => "heal";
-        public override IReadOnlyList<SpellActionVariant> ActionVariants { get; } =
-            new[]
-            {
-                new SpellActionVariant(1),
-                new SpellActionVariant(2),
-                new SpellActionVariant(3),
-            };
 
         public override IEnumerator SelectAndCast(SpellCastContext context)
         {
@@ -450,3 +427,5 @@ namespace Game.Combat.Spells
         }
     }
 }
+
+#pragma warning restore CS0618

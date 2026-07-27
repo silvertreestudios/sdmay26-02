@@ -27,6 +27,15 @@ namespace Game.Creature.Rules
             new(StringComparer.OrdinalIgnoreCase);
         public List<string> UnsupportedRuleKeys { get; } = new();
 
+        /// <summary>
+        /// Gets or replaces the local state used by legacy non-Light spellcasting.
+        /// </summary>
+        [Obsolete(
+            "Use SpellBook and rules-native spell actions for migrated spells; Spellcasting is retained only for legacy non-Light spells.",
+            false
+        )]
+        public SpellcastingState Spellcasting { get; set; }
+
         /// <summary>Gets or replaces the creature's required spellbook.</summary>
         public ISpellBook SpellBook
         {

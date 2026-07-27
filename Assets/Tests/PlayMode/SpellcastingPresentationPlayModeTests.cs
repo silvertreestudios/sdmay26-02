@@ -13,13 +13,17 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
+#pragma warning disable CS0618 // This fixture verifies the explicit legacy/rules-native split.
+
 public sealed class SpellcastingPresentationPlayModeTests
 {
     private readonly List<GameObject> created = new();
+    private int gameplayCommitCount;
 
     [UnityTearDown]
     public IEnumerator TearDown()
     {
+        OnGameplayStateCommitted.RemoveListener(CountGameplayCommit);
         foreach (GameObject value in created)
             if (value != null)
                 Object.Destroy(value);
@@ -29,28 +33,33 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [Test]
-    public void PreStartInstallationIsIdempotentAndUsesCastSpellActionForLight()
+    public void PreStartInitializationAddsLegacySpellsButDoesNotAddLight()
     {
         CreatureComponent cleric = CreateCreature("Pre-Start Cleric", 0, prepared: false);
         cleric.level = 1;
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
-        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
-
         cleric.InitializeRuntimeActions();
-        UnitySpellActionInstaller.Install(controller, catalog);
-        UnitySpellActionInstaller.Install(controller, catalog);
 
-        CastSpellAction[] light = controller
+        RulesCastSpellAction[] light = controller
             .GetActions()
-            .OfType<CastSpellAction>()
+            .OfType<RulesCastSpellAction>()
             .Where(action => action.Spell == Reference("light"))
             .ToArray();
-        Assert.That(light, Has.Length.EqualTo(1));
-        Assert.That(light[0].Variant, Is.EqualTo(new SpellActionVariant(2)));
+        Assert.That(light, Is.Empty);
         Assert.That(
-            controller.GetActions().Count(action => action.ActionName == "Shield"),
+            controller
+                .GetActions()
+                .OfType<CastSpellAction>()
+                .Any(action => action.Spell.Slug == "light"),
+            Is.False
+        );
+        Assert.That(
+            controller
+                .GetActions()
+                .OfType<CastSpellAction>()
+                .Count(action => action.ActionName == "Shield"),
             Is.EqualTo(1)
         );
     }
@@ -76,6 +85,13 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         Assert.That(LightActions(initialController), Has.Count.EqualTo(1));
         Assert.That(LightActions(noncasterController), Is.Empty);
+        Assert.That(
+            initialController
+                .GetActions()
+                .OfType<CastSpellAction>()
+                .Any(action => action.Spell.Slug == "shield"),
+            Is.True
+        );
 
         CreatureComponent reinforcement = CreateCreature("Reinforcement", 2, prepared: true);
         TestActionController reinforcementController =
@@ -83,12 +99,23 @@ public sealed class SpellcastingPresentationPlayModeTests
         yield return null;
         Occupy(tiles, reinforcement.gameObject);
         bridge.RegisterCombatants(new[] { reinforcementController });
-        UnitySpellActionInstaller.Install(
-            reinforcementController,
-            UnitySpellDefinitionCatalog.Load()
+        CreatureId reinforcementId = bridge.GetCreatureId(reinforcementController);
+        TestSpellActionCatalog repeatCatalog = new(
+            UnitySpellDefinitionCatalog.Load(),
+            reinforcementId,
+            reinforcement.Prepared.SpellBook
         );
+        UnitySpellActionInstaller.Install(reinforcementController, repeatCatalog);
+        UnitySpellActionInstaller.Install(reinforcementController, repeatCatalog);
 
         Assert.That(LightActions(reinforcementController), Has.Count.EqualTo(1));
+        Assert.That(
+            reinforcementController
+                .GetActions()
+                .OfType<CastSpellAction>()
+                .Any(action => action.Spell.Slug == "shield"),
+            Is.True
+        );
     }
 
     [UnityTest]
@@ -101,7 +128,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         Tile[,] tiles = CreateTiles(1);
         Occupy(tiles, cleric.gameObject);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(new[] { controller }, tiles);
-        CastSpellAction light = LightActions(controller).Single();
+        RulesCastSpellAction light = LightActions(controller).Single();
 
         bridge.BeginTurn(bridge.GetCreatureId(controller), 1);
         controller.IsTakingAction = true;
@@ -113,12 +140,15 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(VisualLights(cleric), Is.Empty);
 
         bridge.BeginTurn(bridge.GetCreatureId(controller), 3);
+        gameplayCommitCount = 0;
+        OnGameplayStateCommitted.AddListener(CountGameplayCommit);
         controller.IsTakingAction = true;
         light.Invoke(cleric.gameObject);
         yield return null;
 
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
         Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(gameplayCommitCount, Is.EqualTo(1));
         Assert.That(VisualLights(cleric), Has.Count.EqualTo(1));
         Assert.That(VisualLights(cleric).Single().range, Is.EqualTo(4f));
 
@@ -212,10 +242,10 @@ public sealed class SpellcastingPresentationPlayModeTests
         return creature;
     }
 
-    private static List<CastSpellAction> LightActions(ActionController controller) =>
+    private static List<RulesCastSpellAction> LightActions(ActionController controller) =>
         controller
             .GetActions()
-            .OfType<CastSpellAction>()
+            .OfType<RulesCastSpellAction>()
             .Where(action => action.Spell == Reference("light"))
             .ToList();
 
@@ -259,8 +289,44 @@ public sealed class SpellcastingPresentationPlayModeTests
         gameObject.AddComponent<CoroutineRunner>();
     }
 
+    private void CountGameplayCommit()
+    {
+        gameplayCommitCount++;
+    }
+
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
     }
+
+    private sealed class TestSpellActionCatalog : ISpellActionCatalog
+    {
+        private readonly UnitySpellDefinitionCatalog definitions;
+        private readonly CreatureId owner;
+        private readonly ISpellBook book;
+
+        public TestSpellActionCatalog(
+            UnitySpellDefinitionCatalog definitions,
+            CreatureId owner,
+            ISpellBook book
+        )
+        {
+            this.definitions = definitions;
+            this.owner = owner;
+            this.book = book;
+        }
+
+        public ActionProfile GetBaseProfile(ActionDefinitionId definitionId) =>
+            definitions.GetBaseProfile(definitionId);
+
+        public bool TryGetSpell(
+            SpellReference reference,
+            out Game.Rules.Runtime.SpellDefinition definition
+        ) => definitions.TryGetSpell(reference, out definition);
+
+        public ISpellBook GetSpellBook(CreatureId creature) =>
+            creature == owner ? book : EmptySpellBook.Instance;
+    }
 }
+
+#pragma warning restore CS0618

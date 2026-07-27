@@ -10,9 +10,7 @@ using RulesSpellDefinition = Game.Rules.Runtime.SpellDefinition;
 namespace Game.Combat.Spells
 {
     /// <summary>Loads immutable generic spell definitions from the project spell JSON.</summary>
-    public sealed class UnitySpellDefinitionCatalog
-        : ISpellActionCatalog,
-            ILegacySpellDefinitionCatalog
+    public sealed class UnitySpellDefinitionCatalog : IActionCatalog, ISpellDefinitionCatalog
     {
         private readonly IReadOnlyDictionary<SpellId, RulesSpellDefinition> definitions;
 
@@ -66,10 +64,6 @@ namespace Game.Combat.Spells
                 $"Spell profiles require a selected SpellReference and variant, not '{definitionId}'."
             );
 
-        /// <inheritdoc/>
-        public bool TryGetLegacySpell(SpellReference reference, out ISpellDefinition definition) =>
-            SpellRegistry.TryGet(reference.Spell.Value, out definition);
-
         private static RulesSpellDefinition Parse(string json)
         {
             JObject root = JObject.Parse(json);
@@ -110,7 +104,8 @@ namespace Game.Combat.Spells
                 effects.Add(
                     new SpellEffectDirective(
                         new RuleDefinitionId(definition),
-                        ParseDuration(system.SelectToken("duration.value")?.Value<string>())
+                        ParseDuration(system.SelectToken("duration.value")?.Value<string>()),
+                        rule.Value<string>("target")
                     )
                 );
             }
@@ -157,6 +152,8 @@ namespace Game.Combat.Spells
             && left.Effects.Select(effect => effect.DefinitionId)
                 .SequenceEqual(right.Effects.Select(effect => effect.DefinitionId))
             && left.Effects.Select(effect => effect.Duration)
-                .SequenceEqual(right.Effects.Select(effect => effect.Duration));
+                .SequenceEqual(right.Effects.Select(effect => effect.Duration))
+            && left.Effects.Select(effect => effect.Target)
+                .SequenceEqual(right.Effects.Select(effect => effect.Target));
     }
 }

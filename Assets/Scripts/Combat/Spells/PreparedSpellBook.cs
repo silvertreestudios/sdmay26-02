@@ -87,14 +87,13 @@ namespace Game.Combat.Spells
     }
 
     /// <summary>
-    /// Implements exact-rank prepared casting for Clerics and owns legacy local slot state.
+    /// Implements exact-rank preparation and binds resources owned by encounter rules state.
     /// </summary>
     public sealed class PreparedSpellBook : ISpellBook
     {
         private readonly IReadOnlyList<PreparedSpellEntry> entries;
         private readonly IReadOnlyList<SpellReference> castableSpells;
         private readonly Dictionary<SpellSlotPoolId, int> maximums;
-        private readonly Dictionary<SpellSlotPoolId, int> remaining;
 
         /// <summary>Creates a validated, deduplicated prepared spellbook.</summary>
         /// <param name="entries">Exact-rank preparations and their authorized resources.</param>
@@ -124,7 +123,6 @@ namespace Game.Combat.Spells
             if (uniquePools.GroupBy(pool => pool.Id).Any(group => group.Count() > 1))
                 throw new ArgumentException("Slot pool IDs must be unique.", nameof(pools));
             maximums = uniquePools.ToDictionary(pool => pool.Id, pool => pool.Maximum);
-            remaining = new Dictionary<SpellSlotPoolId, int>(maximums);
             if (uniqueEntries.Any(entry => !entry.IsCantrip && !maximums.ContainsKey(entry.Pool)))
                 throw new ArgumentException(
                     "Every ranked preparation must reference a declared slot pool.",
@@ -191,7 +189,7 @@ namespace Game.Combat.Spells
         }
 
         /// <inheritdoc/>
-        public SpellCastAuthorization Authorize(SpellReference spell)
+        public SpellCastAuthorization BindResource(CreatureId owner, SpellReference spell)
         {
             PreparedSpellEntry[] matches = entries.Where(entry => entry.Spell == spell).ToArray();
             if (matches.Length == 0)
@@ -199,42 +197,10 @@ namespace Game.Combat.Spells
                     "The exact spell rank is not known or prepared."
                 );
             PreparedSpellEntry entry = matches[0];
-            if (entry.IsCantrip)
-                return SpellCastAuthorization.Cantrip;
-            if (!remaining.TryGetValue(entry.Pool, out int uses))
-                return SpellCastAuthorization.Unavailable(
-                    "The authorized spell-slot pool is missing."
-                );
-            return uses > 0
-                ? SpellCastAuthorization.FromPool(entry.Pool)
-                : SpellCastAuthorization.Unavailable(
-                    "The authorized spell-slot pool is exhausted."
-                );
+            return entry.IsCantrip
+                ? SpellCastAuthorization.Cantrip
+                : SpellCastAuthorization.FromPool(EncounterPool(owner, entry.Pool));
         }
-
-        /// <inheritdoc/>
-        public bool TrySpend(SpellReference spell)
-        {
-            PreparedSpellEntry[] matches = entries.Where(entry => entry.Spell == spell).ToArray();
-            if (matches.Length == 0)
-                return false;
-            PreparedSpellEntry entry = matches[0];
-            if (entry.IsCantrip)
-                return true;
-            if (!remaining.TryGetValue(entry.Pool, out int uses) || uses <= 0)
-                return false;
-            remaining[entry.Pool] = uses - 1;
-            return true;
-        }
-
-        /// <summary>
-        /// Reads remaining uses from a local prepared slot pool for non-encounter UI and tests.
-        /// </summary>
-        /// <param name="pool">The local pool ID declared when this book was constructed.</param>
-        /// <param name="uses">The remaining uses when the pool exists.</param>
-        /// <returns><see langword="true"/> when the local pool exists.</returns>
-        public bool TryGetRemaining(SpellSlotPoolId pool, out int uses) =>
-            remaining.TryGetValue(pool, out uses);
 
         private static SpellSlotPoolId EncounterPool(CreatureId owner, SpellSlotPoolId pool) =>
             new($"{owner.Value}:{pool.Value}");
@@ -270,10 +236,7 @@ namespace Game.Combat.Spells
         ) => SpellCastAuthorization.Unavailable("The creature has no spellbook.");
 
         /// <inheritdoc/>
-        public SpellCastAuthorization Authorize(SpellReference spell) =>
+        public SpellCastAuthorization BindResource(CreatureId owner, SpellReference spell) =>
             SpellCastAuthorization.Unavailable("The creature has no spellbook.");
-
-        /// <inheritdoc/>
-        public bool TrySpend(SpellReference spell) => false;
     }
 }

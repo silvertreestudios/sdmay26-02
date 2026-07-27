@@ -13,6 +13,8 @@ using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
 
+#pragma warning disable CS0618 // This fixture intentionally locks down the deprecated legacy path.
+
 public class Pf2eClericSpellcastingTests
 {
     private readonly List<GameObject> created = new();
@@ -70,8 +72,7 @@ public class Pf2eClericSpellcastingTests
     public void ClericSpellStateHasRequestedSpellsSlotsAndWisdomMath()
     {
         CreatureComponent cleric = CreatePreparedCleric();
-        Assert.That(cleric.Prepared.SpellBook, Is.TypeOf<PreparedSpellBook>());
-        PreparedSpellBook state = (PreparedSpellBook)cleric.Prepared.SpellBook;
+        SpellcastingState state = cleric.Prepared.Spellcasting;
 
         CollectionAssert.AreEquivalent(
             new[]
@@ -80,56 +81,48 @@ public class Pf2eClericSpellcastingTests
                 "guidance",
                 "divine-lance",
                 "haunting-hymn",
-                "light",
                 "bless",
                 "infuse-vitality",
                 "heal",
             },
-            state.CastableSpells.Select(spell => spell.Spell.Value)
+            state.PreparedSpells.Select(spell => spell.Slug)
         );
-        Assert.That(state.Entries.Count(spell => spell.IsCantrip), Is.EqualTo(5));
-        AssertRemaining(state, "rank-1-bless", 1);
-        AssertRemaining(state, "rank-1-infuse-vitality", 1);
-        AssertRemaining(state, "font-heal", 4);
+        Assert.That(state.PreparedSpells.Count(spell => spell.IsCantrip), Is.EqualTo(4));
+        Assert.That(state.GetSpell("light"), Is.Null);
+        Assert.That(
+            cleric.Prepared.SpellBook.CastableSpells,
+            Is.EqualTo(new[] { new SpellReference(new SpellId("light"), 1) })
+        );
+        Assert.That(SpellRegistry.TryGet("light", out _), Is.False);
+        Assert.That(state.Pools["rank-1-bless"].UsesRemaining, Is.EqualTo(1));
+        Assert.That(state.Pools["rank-1-infuse-vitality"].UsesRemaining, Is.EqualTo(1));
+        Assert.That(state.Pools["font-heal"].UsesRemaining, Is.EqualTo(4));
         Assert.That(state.SpellAttackModifier, Is.EqualTo(7));
         Assert.That(state.SpellDc, Is.EqualTo(17));
-        string[] legacySpells =
-        {
-            "shield",
-            "guidance",
-            "divine-lance",
-            "haunting-hymn",
-            "bless",
-            "infuse-vitality",
-            "heal",
-        };
-        Assert.That(SpellRegistry.TryGet("light", out _), Is.False);
-        foreach (string legacySpell in legacySpells)
+        foreach (PreparedSpell spell in state.PreparedSpells)
             Assert.That(
-                SpellRegistry.TryGet(legacySpell, out _),
+                SpellRegistry.TryGet(spell.Slug, out _),
                 Is.True,
-                legacySpell + " should retain its legacy runtime definition"
+                spell.Name + " should have a runtime definition"
             );
     }
 
     [Test]
-    public void LightCastProfileUsesCurrentDataBackedTraits()
+    public void LegacyEntryPointsAreWarningOnlyObsolete()
     {
-        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
-        CastSpellActionOp operation = new(
-            new CreatureId("profile-actor"),
-            Reference("light"),
-            new SpellActionVariant(2),
-            SpellCastAuthorization.Cantrip
-        );
+        AssertWarningOnlyObsolete(typeof(CastSpellAction));
+        AssertWarningOnlyObsolete(typeof(SpellcastingRuntime));
+        AssertWarningOnlyObsolete(typeof(SpellcastingState));
+        AssertWarningOnlyObsolete(typeof(SpellRegistry));
 
-        ActionProfile profile = operation.GetBaseProfile(catalog);
-
-        Assert.That(profile.Cost, Is.EqualTo(ActionCost.Two));
-        Assert.That(
-            profile.Traits.Select(trait => trait.Slug),
-            Is.EqualTo(new[] { "cantrip", "concentrate", "light", "manipulate" })
+        PropertyInfo property = typeof(PreparedCharacter).GetProperty(
+            nameof(PreparedCharacter.Spellcasting)
         );
+        Assert.That(property, Is.Not.Null);
+        ObsoleteAttribute attribute = property.GetCustomAttribute<ObsoleteAttribute>();
+        Assert.That(attribute, Is.Not.Null);
+        Assert.That(attribute.IsError, Is.False);
+        Assert.That(attribute.Message, Does.Contain("SpellBook"));
     }
 
     [Test]
@@ -168,12 +161,58 @@ public class Pf2eClericSpellcastingTests
 
         CastSpellResult second = SpellcastingRuntime.Cast(
             cleric.gameObject,
-            Reference("guidance"),
+            cleric.Prepared.Spellcasting.GetSpell("guidance"),
             1,
             new[] { ally.gameObject },
             spendActions: false
         );
         Assert.That(second.Success, Is.False);
+    }
+
+    [Test]
+    public void HauntingHymnUsesLegacyAreaSelectionAndBasicSaveResolution()
+    {
+        CreatureComponent cleric = CreatePreparedCleric();
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        controller.ActionPoints = 3;
+        CreatureComponent target = CreateCreature("Haunting Hymn Target", 30, 30);
+        AreaTargetResult area = new()
+        {
+            Placement = new AreaPlacement(),
+            Cells = new List<Vector3Int> { Vector3Int.zero },
+            Creatures = new List<AreaAffectedCreature>
+            {
+                new()
+                {
+                    Creature = target.gameObject,
+                    Cell = Vector3Int.zero,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                },
+            },
+        };
+        UnityEngine.Random.State priorState = UnityEngine.Random.state;
+        CastSpellResult result;
+        try
+        {
+            UnityEngine.Random.InitState(181);
+            PreparedSpell spell = cleric.Prepared.Spellcasting.GetSpell("haunting-hymn");
+            result = SpellcastingRuntime.Cast(
+                cleric.gameObject,
+                spell,
+                2,
+                area: area,
+                spendActions: true
+            );
+        }
+        finally
+        {
+            UnityEngine.Random.state = priorState;
+        }
+
+        Assert.That(result.Success, Is.True, result.Message);
+        Assert.That(result.Targets, Is.EqualTo(new[] { target.gameObject }));
+        Assert.That(result.Rolls, Has.Count.EqualTo(1));
+        Assert.That(controller.ActionPoints, Is.EqualTo(1));
     }
 
     [Test]
@@ -187,7 +226,10 @@ public class Pf2eClericSpellcastingTests
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.ResolveAttackRoll().Total, Is.EqualTo(1));
-        AssertRemaining((PreparedSpellBook)cleric.Prepared.SpellBook, "rank-1-bless", 0);
+        Assert.That(
+            cleric.Prepared.Spellcasting.Pools["rank-1-bless"].UsesRemaining,
+            Is.EqualTo(0)
+        );
     }
 
     [Test]
@@ -232,7 +274,10 @@ public class Pf2eClericSpellcastingTests
             ),
             Is.True
         );
-        AssertRemaining((PreparedSpellBook)cleric.Prepared.SpellBook, "rank-1-infuse-vitality", 0);
+        Assert.That(
+            cleric.Prepared.Spellcasting.Pools["rank-1-infuse-vitality"].UsesRemaining,
+            Is.EqualTo(0)
+        );
     }
 
     [Test]
@@ -240,14 +285,22 @@ public class Pf2eClericSpellcastingTests
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally", 3, 20);
-        UnityEngine.Random.InitState(12);
-
-        CastSpellResult result = Cast("heal", cleric, 2, ally.gameObject);
+        UnityEngine.Random.State priorState = UnityEngine.Random.state;
+        CastSpellResult result;
+        try
+        {
+            UnityEngine.Random.InitState(12);
+            result = Cast("heal", cleric, 2, ally.gameObject);
+        }
+        finally
+        {
+            UnityEngine.Random.state = priorState;
+        }
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.hp, Is.GreaterThan(3));
         Assert.That(ally.Health.Current, Is.EqualTo(ally.hp));
-        AssertRemaining((PreparedSpellBook)cleric.Prepared.SpellBook, "font-heal", 3);
+        Assert.That(cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(3));
     }
 
     [Test]
@@ -269,10 +322,18 @@ public class Pf2eClericSpellcastingTests
             tiles
         );
         bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
-        UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
-
-        CastSpellResult result = Cast("divine-lance", cleric, 2, target.gameObject);
+        UnityEngine.Random.State priorState = UnityEngine.Random.state;
+        CastSpellResult result;
+        try
+        {
+            UnityEngine.Random.InitState(3);
+            result = Cast("divine-lance", cleric, 2, target.gameObject);
+        }
+        finally
+        {
+            UnityEngine.Random.state = priorState;
+        }
 
         Assert.That(result.Success, Is.True, result.Message);
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
@@ -337,21 +398,14 @@ public class Pf2eClericSpellcastingTests
         params GameObject[] targets
     )
     {
+        PreparedSpell spell = caster.Prepared.Spellcasting.GetSpell(slug);
         return SpellcastingRuntime.Cast(
             caster.gameObject,
-            Reference(slug),
+            spell,
             actionCost,
             targets,
             spendActions: true
         );
-    }
-
-    private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);
-
-    private static void AssertRemaining(PreparedSpellBook book, string pool, int expected)
-    {
-        Assert.That(book.TryGetRemaining(new SpellSlotPoolId(pool), out int uses), Is.True);
-        Assert.That(uses, Is.EqualTo(expected));
     }
 
     private CreatureComponent CreatePreparedCleric()
@@ -388,6 +442,14 @@ public class Pf2eClericSpellcastingTests
         );
         Assert.That(field, Is.Not.Null);
         return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private static void AssertWarningOnlyObsolete(Type type)
+    {
+        ObsoleteAttribute attribute = type.GetCustomAttribute<ObsoleteAttribute>();
+        Assert.That(attribute, Is.Not.Null, type.Name);
+        Assert.That(attribute.IsError, Is.False, type.Name);
+        Assert.That(attribute.Message, Is.Not.Empty, type.Name);
     }
 
     private sealed class ThrowingMapObserver : IFactObserver<MultipleAttackPenaltyAdvancedFact>
@@ -434,3 +496,5 @@ public class Pf2eClericSpellcastingTests
         public override void EndTurn() { }
     }
 }
+
+#pragma warning restore CS0618

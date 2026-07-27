@@ -921,7 +921,9 @@ namespace Game.Creature
             runtimeActionsInitialized = true;
             if (Prepared != null && Prepared.HasOwnedItem("rage"))
                 actionController.AddAction(new RulesRageAction());
+#pragma warning disable CS0618 // Intentional bootstrap for legacy non-Light spell actions.
             CastSpellAction.AddSpellActions(gameObject);
+#pragma warning restore CS0618
         }
 
         void Update()

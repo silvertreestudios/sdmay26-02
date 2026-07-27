@@ -199,11 +199,14 @@ namespace Game.Rules.Runtime
             ISpellSlotStateReader slots
         );
 
-        /// <summary>Resolves whether an exact cast can use the book's local resource state.</summary>
-        SpellCastAuthorization Authorize(SpellReference spell);
-
-        /// <summary>Spends the book's local slot state for legacy non-rules casting adapters.</summary>
-        bool TrySpend(SpellReference spell);
+        /// <summary>
+        /// Binds an exact prepared spell to its encounter-scoped cantrip or slot resource.
+        /// </summary>
+        /// <remarks>
+        /// This does not inspect remaining uses. <see cref="Authorize"/> performs the authoritative
+        /// live-state check immediately before the action lifecycle commits the bound cost.
+        /// </remarks>
+        SpellCastAuthorization BindResource(CreatureId owner, SpellReference spell);
     }
 
     /// <summary>Supplies the current spellbook for one registered creature.</summary>
@@ -256,15 +259,26 @@ namespace Game.Rules.Runtime
         /// <summary>Creates a request to apply one registered active-effect definition.</summary>
         /// <param name="definitionId">The definition registered in the active-rule registry.</param>
         /// <param name="duration">The lifecycle duration copied to each created effect.</param>
-        public SpellEffectDirective(RuleDefinitionId definitionId, EffectDuration duration)
+        /// <param name="target">The data-owned target selector, currently <c>self</c>.</param>
+        public SpellEffectDirective(
+            RuleDefinitionId definitionId,
+            EffectDuration duration,
+            string target
+        )
         {
             if (definitionId.IsEmpty)
                 throw new ArgumentException(
                     "An effect definition ID is required.",
                     nameof(definitionId)
                 );
+            if (!string.Equals(target, "self", StringComparison.Ordinal))
+                throw new ArgumentException(
+                    "Only the self spell-effect target is currently supported.",
+                    nameof(target)
+                );
             DefinitionId = definitionId;
             Duration = duration;
+            Target = target;
         }
 
         /// <summary>Gets the generic active-effect definition to instantiate.</summary>
@@ -272,6 +286,11 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the duration assigned to each created effect instance.</summary>
         public EffectDuration Duration { get; }
+
+        /// <summary>
+        /// Gets the definition-owned target selector used during rules resolution.
+        /// </summary>
+        public string Target { get; }
     }
 
     /// <summary>Stores immutable data shared by rules and Unity spell presentation.</summary>
@@ -357,7 +376,11 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>Extends action-profile lookup with selected spell definition data.</summary>
-    public interface ISpellActionCatalog : IActionCatalog, ISpellDefinitionCatalog { }
+    public interface ISpellActionCatalog : IActionCatalog, ISpellDefinitionCatalog
+    {
+        /// <summary>Gets the immutable prepared spellbook owned by one encounter creature.</summary>
+        ISpellBook GetSpellBook(CreatureId creature);
+    }
 
     /// <summary>Generic immutable state carried by a spell-created active effect.</summary>
     public sealed class SpellEffectState : IEffectState, IEquatable<SpellEffectState>

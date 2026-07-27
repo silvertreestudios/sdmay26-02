@@ -40,6 +40,36 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void HealthSnapshotReportsOnlyPresentCreaturesWithHitPointsAsAlive()
+        {
+            CreatureId defeated = new CreatureId("defeated-creature");
+            CreatureId missing = new CreatureId("missing-creature");
+            RulesSnapshot snapshot = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedHealth(Creature, new HealthState(1, 20))
+                    .SeedHealth(defeated, new HealthState(0, 20))
+            ).Snapshot;
+
+            Assert.That(snapshot.Health.IsAlive(Creature), Is.True);
+            Assert.That(snapshot.Health.IsAlive(defeated), Is.False);
+            Assert.That(snapshot.Health.IsAlive(missing), Is.False);
+        }
+
+        [Test]
+        public void ActionEconomySnapshotRequiresPresentStateAndEnoughRemainingActions()
+        {
+            CreatureId missing = new CreatureId("missing-creature");
+            RulesSnapshot snapshot = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActionEconomy(Creature, new ActionEconomyState(2, true))
+            ).Snapshot;
+
+            Assert.That(snapshot.ActionEconomy.CanSpendActions(Creature, 2), Is.True);
+            Assert.That(snapshot.ActionEconomy.CanSpendActions(Creature, 3), Is.False);
+            Assert.That(snapshot.ActionEconomy.CanSpendActions(Creature, -1), Is.False);
+            Assert.That(snapshot.ActionEconomy.CanSpendActions(missing, 0), Is.False);
+        }
+
+        [Test]
         public void SeedProvidesEveryNamedSliceWithoutSharingCallerCollections()
         {
             List<Trait> callerTraits = new List<Trait> { Trait.FromSlug("humanoid") };
