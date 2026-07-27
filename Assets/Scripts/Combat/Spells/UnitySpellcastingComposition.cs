@@ -35,7 +35,7 @@ namespace Game.Combat.Spells
         /// Installs exactly one rules action for every prepared, generically supported definition.
         /// </summary>
         /// <remarks>
-        /// The deprecated creature bootstrap independently owns non-Light legacy actions. This
+        /// The creature bootstrap independently owns non-Light legacy actions. This
         /// installer runs only from encounter composition and never replaces those instances.
         /// </remarks>
         /// <param name="controller">The caster whose action list is reconciled.</param>

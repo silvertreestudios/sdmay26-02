@@ -8,8 +8,6 @@ using Game.Rules.Runtime;
 using GridPublic;
 using UnityEngine;
 
-#pragma warning disable CS0618 // Every definition in this file belongs to the isolated legacy path.
-
 namespace Game.Combat.Spells
 {
     public interface ISpellDefinition
@@ -94,11 +92,6 @@ namespace Game.Combat.Spells
         }
     }
 
-    /// <summary>Resolves definitions used only by the legacy non-Light spellcasting path.</summary>
-    [Obsolete(
-        "Use ISpellDefinitionCatalog for rules-native spells; SpellRegistry is retained only for legacy non-Light spells.",
-        false
-    )]
     public static class SpellRegistry
     {
         private static readonly Dictionary<string, ISpellDefinition> Definitions = new(
@@ -427,5 +420,3 @@ namespace Game.Combat.Spells
         }
     }
 }
-
-#pragma warning restore CS0618

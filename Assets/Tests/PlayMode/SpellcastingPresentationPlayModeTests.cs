@@ -13,8 +13,6 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
-#pragma warning disable CS0618 // This fixture verifies the explicit legacy/rules-native split.
-
 public sealed class SpellcastingPresentationPlayModeTests
 {
     private readonly List<GameObject> created = new();
@@ -328,5 +326,3 @@ public sealed class SpellcastingPresentationPlayModeTests
             creature == owner ? book : EmptySpellBook.Instance;
     }
 }
-
-#pragma warning restore CS0618

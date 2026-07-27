@@ -13,8 +13,6 @@ using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
 
-#pragma warning disable CS0618 // This fixture intentionally locks down the deprecated legacy path.
-
 public class Pf2eClericSpellcastingTests
 {
     private readonly List<GameObject> created = new();
@@ -105,24 +103,6 @@ public class Pf2eClericSpellcastingTests
                 Is.True,
                 spell.Name + " should have a runtime definition"
             );
-    }
-
-    [Test]
-    public void LegacyEntryPointsAreWarningOnlyObsolete()
-    {
-        AssertWarningOnlyObsolete(typeof(CastSpellAction));
-        AssertWarningOnlyObsolete(typeof(SpellcastingRuntime));
-        AssertWarningOnlyObsolete(typeof(SpellcastingState));
-        AssertWarningOnlyObsolete(typeof(SpellRegistry));
-
-        PropertyInfo property = typeof(PreparedCharacter).GetProperty(
-            nameof(PreparedCharacter.Spellcasting)
-        );
-        Assert.That(property, Is.Not.Null);
-        ObsoleteAttribute attribute = property.GetCustomAttribute<ObsoleteAttribute>();
-        Assert.That(attribute, Is.Not.Null);
-        Assert.That(attribute.IsError, Is.False);
-        Assert.That(attribute.Message, Does.Contain("SpellBook"));
     }
 
     [Test]
@@ -444,14 +424,6 @@ public class Pf2eClericSpellcastingTests
         return (RuleDispatcher)field.GetValue(bridge);
     }
 
-    private static void AssertWarningOnlyObsolete(Type type)
-    {
-        ObsoleteAttribute attribute = type.GetCustomAttribute<ObsoleteAttribute>();
-        Assert.That(attribute, Is.Not.Null, type.Name);
-        Assert.That(attribute.IsError, Is.False, type.Name);
-        Assert.That(attribute.Message, Is.Not.Empty, type.Name);
-    }
-
     private sealed class ThrowingMapObserver : IFactObserver<MultipleAttackPenaltyAdvancedFact>
     {
         private readonly Exception failure;
@@ -496,5 +468,3 @@ public class Pf2eClericSpellcastingTests
         public override void EndTurn() { }
     }
 }
-
-#pragma warning restore CS0618

@@ -103,9 +103,7 @@ namespace Game.Creature.Rules
                 return;
 
             PrepareLegacySpellcasting(creature, prepared);
-#pragma warning disable CS0618 // Shared legacy math remains authoritative until the last spell migrates.
             int spellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature);
-#pragma warning restore CS0618
             prepared.SpellBook = new PreparedSpellBook(
                 new[] { PreparedSpellEntry.Cantrip(Reference("light")) },
                 Array.Empty<PreparedSpellSlotPool>(),
@@ -118,7 +116,6 @@ namespace Game.Creature.Rules
             PreparedCharacter prepared
         )
         {
-#pragma warning disable CS0618 // Intentional bootstrap for spells awaiting rules-native migration.
             SpellcastingState spellcasting = new()
             {
                 Tradition = "divine",
@@ -161,7 +158,6 @@ namespace Game.Creature.Rules
             );
 
             prepared.Spellcasting = spellcasting;
-#pragma warning restore CS0618
         }
 
         private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);

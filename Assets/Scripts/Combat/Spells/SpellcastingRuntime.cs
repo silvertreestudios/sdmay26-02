@@ -16,8 +16,6 @@ using MultipleAttackPenaltyState = Game.Rules.Runtime.MultipleAttackPenaltyState
 using ResolvedMapOpResult = Game.Rules.Runtime.ResolvedOpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
 using RuleSource = Game.Rules.Runtime.RuleSource;
 
-#pragma warning disable CS0618 // This file is the intentionally isolated legacy runtime.
-
 namespace Game.Combat.Spells
 {
     public sealed class CastSpellResult
@@ -87,16 +85,6 @@ namespace Game.Combat.Spells
             SpellcastingRuntime.Cast(this, selection);
     }
 
-    /// <summary>
-    /// Executes spells through the deprecated Unity-owned non-Light spellcasting pipeline.
-    /// </summary>
-    /// <remarks>
-    /// New and migrated spells should dispatch <see cref="Game.Rules.Runtime.CastSpellActionOp"/>.
-    /// </remarks>
-    [Obsolete(
-        "Dispatch CastSpellActionOp through the rules runtime for migrated spells; SpellcastingRuntime is retained only for legacy non-Light spells.",
-        false
-    )]
     public static class SpellcastingRuntime
     {
         public static StrikeTargetRequest FixedRangeTarget(int rangeFeet)
@@ -118,10 +106,7 @@ namespace Game.Combat.Spells
             bool spendActions = true
         )
         {
-#pragma warning disable CS0618 // This deprecated runtime intentionally resolves the legacy registry.
-            bool implemented = SpellRegistry.TryGet(spell?.Slug, out ISpellDefinition definition);
-#pragma warning restore CS0618
-            if (!implemented)
+            if (!SpellRegistry.TryGet(spell?.Slug, out ISpellDefinition definition))
                 return Fail(
                     new CastSpellResult(),
                     spell == null ? "Spell is not prepared." : spell.Name + " is not implemented.",
@@ -350,5 +335,3 @@ namespace Game.Combat.Spells
         }
     }
 }
-
-#pragma warning restore CS0618

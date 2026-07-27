@@ -10,8 +10,6 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 
-#pragma warning disable CS0618 // This fixture intentionally exercises legacy non-Light spells.
-
 public class ClericSpellcastingPlayModeTests : PlayModeBase
 {
     private GameObject clericObject;
@@ -265,5 +263,3 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
     }
 }
-
-#pragma warning restore CS0618
