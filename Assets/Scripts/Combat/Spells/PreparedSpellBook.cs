@@ -164,12 +164,10 @@ namespace Game.Combat.Spells
             ISpellSlotStateReader slots
         )
         {
-            PreparedSpellEntry[] matches = entries.Where(entry => entry.Spell == spell).ToArray();
-            if (matches.Length == 0)
+            if (!TryGetEntry(spell, out PreparedSpellEntry entry))
                 return SpellCastAuthorization.Unavailable(
                     "The exact spell rank is not known or prepared."
                 );
-            PreparedSpellEntry entry = matches[0];
             if (entry.IsCantrip)
                 return SpellCastAuthorization.Cantrip;
             SpellSlotPoolId authorizedPool = EncounterPool(owner, entry.Pool);
@@ -191,15 +189,26 @@ namespace Game.Combat.Spells
         /// <inheritdoc/>
         public SpellCastAuthorization BindResource(CreatureId owner, SpellReference spell)
         {
-            PreparedSpellEntry[] matches = entries.Where(entry => entry.Spell == spell).ToArray();
-            if (matches.Length == 0)
+            if (!TryGetEntry(spell, out PreparedSpellEntry entry))
                 return SpellCastAuthorization.Unavailable(
                     "The exact spell rank is not known or prepared."
                 );
-            PreparedSpellEntry entry = matches[0];
             return entry.IsCantrip
                 ? SpellCastAuthorization.Cantrip
                 : SpellCastAuthorization.FromPool(EncounterPool(owner, entry.Pool));
+        }
+
+        private bool TryGetEntry(SpellReference spell, out PreparedSpellEntry entry)
+        {
+            for (int index = 0; index < entries.Count; index++)
+            {
+                if (entries[index].Spell != spell)
+                    continue;
+                entry = entries[index];
+                return true;
+            }
+            entry = default;
+            return false;
         }
 
         private static SpellSlotPoolId EncounterPool(CreatureId owner, SpellSlotPoolId pool) =>
