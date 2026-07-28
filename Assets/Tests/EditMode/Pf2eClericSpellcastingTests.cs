@@ -79,14 +79,19 @@ public class Pf2eClericSpellcastingTests
                 "guidance",
                 "divine-lance",
                 "haunting-hymn",
-                "light",
                 "bless",
                 "infuse-vitality",
                 "heal",
             },
             state.PreparedSpells.Select(spell => spell.Slug)
         );
-        Assert.That(state.PreparedSpells.Count(spell => spell.IsCantrip), Is.EqualTo(5));
+        Assert.That(state.PreparedSpells.Count(spell => spell.IsCantrip), Is.EqualTo(4));
+        Assert.That(state.GetSpell("light"), Is.Null);
+        Assert.That(
+            cleric.Prepared.SpellBook.CastableSpells,
+            Is.EqualTo(new[] { new SpellReference(new SpellId("light"), 1) })
+        );
+        Assert.That(SpellRegistry.TryGet("light", out _), Is.False);
         Assert.That(state.Pools["rank-1-bless"].UsesRemaining, Is.EqualTo(1));
         Assert.That(state.Pools["rank-1-infuse-vitality"].UsesRemaining, Is.EqualTo(1));
         Assert.That(state.Pools["font-heal"].UsesRemaining, Is.EqualTo(4));
@@ -142,6 +147,52 @@ public class Pf2eClericSpellcastingTests
             spendActions: false
         );
         Assert.That(second.Success, Is.False);
+    }
+
+    [Test]
+    public void HauntingHymnUsesLegacyAreaSelectionAndBasicSaveResolution()
+    {
+        CreatureComponent cleric = CreatePreparedCleric();
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        controller.ActionPoints = 3;
+        CreatureComponent target = CreateCreature("Haunting Hymn Target", 30, 30);
+        AreaTargetResult area = new()
+        {
+            Placement = new AreaPlacement(),
+            Cells = new List<Vector3Int> { Vector3Int.zero },
+            Creatures = new List<AreaAffectedCreature>
+            {
+                new()
+                {
+                    Creature = target.gameObject,
+                    Cell = Vector3Int.zero,
+                    LineOfEffect = StrikeLineOfEffect.Clear,
+                },
+            },
+        };
+        UnityEngine.Random.State priorState = UnityEngine.Random.state;
+        CastSpellResult result;
+        try
+        {
+            UnityEngine.Random.InitState(181);
+            PreparedSpell spell = cleric.Prepared.Spellcasting.GetSpell("haunting-hymn");
+            result = SpellcastingRuntime.Cast(
+                cleric.gameObject,
+                spell,
+                2,
+                area: area,
+                spendActions: true
+            );
+        }
+        finally
+        {
+            UnityEngine.Random.state = priorState;
+        }
+
+        Assert.That(result.Success, Is.True, result.Message);
+        Assert.That(result.Targets, Is.EqualTo(new[] { target.gameObject }));
+        Assert.That(result.Rolls, Has.Count.EqualTo(1));
+        Assert.That(controller.ActionPoints, Is.EqualTo(1));
     }
 
     [Test]
@@ -214,9 +265,17 @@ public class Pf2eClericSpellcastingTests
     {
         CreatureComponent cleric = CreatePreparedCleric();
         CreatureComponent ally = CreateCreature("Ally", 3, 20);
-        UnityEngine.Random.InitState(12);
-
-        CastSpellResult result = Cast("heal", cleric, 2, ally.gameObject);
+        UnityEngine.Random.State priorState = UnityEngine.Random.state;
+        CastSpellResult result;
+        try
+        {
+            UnityEngine.Random.InitState(12);
+            result = Cast("heal", cleric, 2, ally.gameObject);
+        }
+        finally
+        {
+            UnityEngine.Random.state = priorState;
+        }
 
         Assert.That(result.Success, Is.True);
         Assert.That(ally.hp, Is.GreaterThan(3));
@@ -243,10 +302,18 @@ public class Pf2eClericSpellcastingTests
             tiles
         );
         bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
-        UnityEngine.Random.InitState(3);
         InstallTestCombatLog();
-
-        CastSpellResult result = Cast("divine-lance", cleric, 2, target.gameObject);
+        UnityEngine.Random.State priorState = UnityEngine.Random.state;
+        CastSpellResult result;
+        try
+        {
+            UnityEngine.Random.InitState(3);
+            result = Cast("divine-lance", cleric, 2, target.gameObject);
+        }
+        finally
+        {
+            UnityEngine.Random.state = priorState;
+        }
 
         Assert.That(result.Success, Is.True, result.Message);
         Assert.That(controller.ActionPoints, Is.EqualTo(1));

@@ -5,6 +5,46 @@ using System.Collections.ObjectModel;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>
+    /// Provides common, feature-agnostic queries over authoritative creature state slices.
+    /// </summary>
+    public static class StateSliceSnapshotExtensions
+    {
+        /// <summary>
+        /// Determines whether a creature has authoritative health state with at least one Hit Point.
+        /// </summary>
+        /// <param name="health">The health slice from an authoritative rules snapshot.</param>
+        /// <param name="creature">The creature whose ability to act is being queried.</param>
+        /// <returns>
+        /// <see langword="true"/> when the creature has health state and its current Hit Points are
+        /// greater than zero; otherwise, <see langword="false"/>.
+        /// </returns>
+        public static bool IsAlive(
+            this StateSliceSnapshot<CreatureId, HealthState> health,
+            CreatureId creature
+        ) => health != null && health.TryGet(creature, out HealthState state) && state.Current > 0;
+
+        /// <summary>
+        /// Determines whether a creature can pay a requested number of actions from current state.
+        /// </summary>
+        /// <param name="actionEconomy">The action-economy slice from an authoritative snapshot.</param>
+        /// <param name="creature">The creature that would spend the actions.</param>
+        /// <param name="actions">The non-negative number of actions required.</param>
+        /// <returns>
+        /// <see langword="true"/> when the request is non-negative, the creature has action-economy
+        /// state, and enough actions remain; otherwise, <see langword="false"/>.
+        /// </returns>
+        public static bool CanSpendActions(
+            this StateSliceSnapshot<CreatureId, ActionEconomyState> actionEconomy,
+            CreatureId creature,
+            int actions
+        ) =>
+            actions >= 0
+            && actionEconomy != null
+            && actionEconomy.TryGet(creature, out ActionEconomyState state)
+            && state.ActionsRemaining >= actions;
+    }
+
     public sealed class StateSliceSnapshot<TKey, TValue>
         : IReadOnlyCollection<KeyValuePair<TKey, TValue>>
     {

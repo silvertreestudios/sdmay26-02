@@ -46,6 +46,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new HealthState(8, 10),
                 new GridPosition(2, 0, 3),
                 new GridDistance(25),
+                Array.Empty<SpellSlotState>(),
                 new[] { initialBinding }
             );
 

@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
+using Game.Rules.Runtime;
 using Newtonsoft.Json.Linq;
 
 namespace Game.Creature.Rules
@@ -101,6 +102,20 @@ namespace Game.Creature.Rules
             if (!prepared.HasOwnedItem("cleric"))
                 return;
 
+            PrepareLegacySpellcasting(creature, prepared);
+            int spellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature);
+            prepared.SpellBook = new PreparedSpellBook(
+                new[] { PreparedSpellEntry.Cantrip(Reference("light")) },
+                Array.Empty<PreparedSpellSlotPool>(),
+                spellAttackModifier
+            );
+        }
+
+        private static void PrepareLegacySpellcasting(
+            CreatureComponent creature,
+            PreparedCharacter prepared
+        )
+        {
             SpellcastingState spellcasting = new()
             {
                 Tradition = "divine",
@@ -126,9 +141,6 @@ namespace Game.Creature.Rules
                 new PreparedSpell("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u })
             );
             spellcasting.AddSpell(
-                new PreparedSpell("Light", 1, true, false, string.Empty, new[] { 1u })
-            );
-            spellcasting.AddSpell(
                 new PreparedSpell("Bless", 1, false, false, "rank-1-bless", new[] { 2u })
             );
             spellcasting.AddSpell(
@@ -147,6 +159,8 @@ namespace Game.Creature.Rules
 
             prepared.Spellcasting = spellcasting;
         }
+
+        private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);
 
         private static void ApplyClassBaseMath(
             CreatureComponent creature,
