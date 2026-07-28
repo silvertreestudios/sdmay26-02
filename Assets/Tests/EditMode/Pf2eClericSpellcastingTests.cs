@@ -92,6 +92,7 @@ public class Pf2eClericSpellcastingTests
         AssertCatalogRejects(root => root["system"]["damage"]["0"]["formula"] = "4");
         AssertCatalogRejects(root => root["system"]["damage"]["0"]["category"] = "persistent");
         AssertCatalogRejects(root => root["system"]["overlays"]["unsupported"] = new JObject());
+        AssertCatalogRejects(root => root["system"]["overlays"] = new JArray());
     }
 
     [Test]

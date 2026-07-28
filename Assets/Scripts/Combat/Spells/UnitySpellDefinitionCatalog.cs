@@ -166,10 +166,19 @@ namespace Game.Combat.Spells
                 throw new InvalidOperationException(
                     $"Spell '{name}' contains an unsupported spell-attack defense."
                 );
-            if (system["overlays"] is JObject overlays && overlays.Properties().Any())
-                throw new InvalidOperationException(
-                    $"Spell '{name}' contains unsupported spell overlays."
-                );
+            if (system["overlays"] is JToken overlaysToken)
+            {
+                switch (overlaysToken)
+                {
+                    case JValue { Type: JTokenType.Null }:
+                    case JObject overlays when !overlays.Properties().Any():
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Spell '{name}' contains unsupported spell overlays."
+                        );
+                }
+            }
             if (system["damage"] is not JObject damage || !damage.Properties().Any())
                 throw new InvalidOperationException(
                     $"Spell '{name}' requires immediate typed spell-attack damage."
