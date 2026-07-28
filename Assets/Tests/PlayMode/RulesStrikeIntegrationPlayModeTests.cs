@@ -26,6 +26,19 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     private int damagePresentationCount;
     private int missPresentationCount;
 
+    [UnitySetUp]
+    public IEnumerator SetUp()
+    {
+        HashSet<GameObject> singletonOwners = new();
+        if (CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager))
+            singletonOwners.Add(combatManager.gameObject);
+        if (TeamRules.TryGetInstance(out TeamRules teamRules))
+            singletonOwners.Add(teamRules.gameObject);
+        foreach (GameObject singletonOwner in singletonOwners)
+            Object.Destroy(singletonOwner);
+        yield return null;
+    }
+
     [UnityTearDown]
     public IEnumerator TearDown()
     {
