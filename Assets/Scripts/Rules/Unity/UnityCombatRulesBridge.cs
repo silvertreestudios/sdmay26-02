@@ -279,6 +279,27 @@ namespace Game.Rules.Unity
             return id;
         }
 
+        /// <summary>
+        /// Tries to get the stable rules ID assigned to a Unity creature in this encounter.
+        /// </summary>
+        /// <param name="creature">The Unity creature whose encounter registration is queried.</param>
+        /// <param name="id">
+        /// The encounter-stable rules identifier when <paramref name="creature"/> is registered.
+        /// </param>
+        /// <returns>
+        /// <see langword="true"/> when the creature is registered; otherwise,
+        /// <see langword="false"/>.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="creature"/> is <see langword="null"/>.
+        /// </exception>
+        public bool TryGetCreatureId(CreatureComponent creature, out CreatureId id)
+        {
+            if (creature == null)
+                throw new ArgumentNullException(nameof(creature));
+            return creatureIds.TryGetValue(creature, out id);
+        }
+
         /// <summary>Gets the stable rules ID assigned to a registered controller.</summary>
         /// <param name="controller">The registered Unity action controller.</param>
         /// <returns>The encounter-stable rules identifier.</returns>

@@ -133,7 +133,15 @@ namespace Game.Combat.Spells
                         selection.Value.Target.GetComponent<CreatureComponent>();
                     if (target == null)
                         yield break;
-                    spellSelection = new SpellCastSelection(new[] { bridge.GetCreatureId(target) });
+                    if (!bridge.TryGetCreatureId(target, out CreatureId targetId))
+                    {
+                        Debug.LogWarning(
+                            "Cast a Spell was rejected: Selected target is not registered in the active combat encounter.",
+                            caster
+                        );
+                        yield break;
+                    }
+                    spellSelection = new SpellCastSelection(new[] { targetId });
                 }
 
                 try

@@ -21,6 +21,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 {
     private readonly List<GameObject> created = new();
     private int gameplayCommitCount;
+    private int actionCompleteCount;
     private int damageEventCount;
     private int missEventCount;
 
@@ -40,6 +41,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     public IEnumerator TearDown()
     {
         OnGameplayStateCommitted.RemoveListener(CountGameplayCommit);
+        OnActionComplete.RemoveListener(CountActionComplete);
         OnDamageDealt.RemoveListener(CountDamageEvent);
         OnAttackMiss.RemoveListener(CountMissEvent);
         foreach (GameObject value in created)
@@ -320,6 +322,60 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator DivineLanceRejectsSelectedCreatureMissingFromCombatRegistration()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Registered Caster", 0, prepared: true);
+        CreatureComponent unregisteredTarget = CreateCreature(
+            "Unregistered Grid Target",
+            1,
+            prepared: false
+        );
+        TestActionController clericController =
+            cleric.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, unregisteredTarget.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { clericController },
+            tiles,
+            new ScriptedRollService(20)
+        );
+        RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        grid.Target = unregisteredTarget.gameObject;
+        bridge.BeginTurn(actor, 3);
+        RulesSnapshot snapshotBeforeSelection = bridge.Snapshot;
+        actionCompleteCount = 0;
+        damageEventCount = 0;
+        gameplayCommitCount = 0;
+        OnActionComplete.AddListener(CountActionComplete);
+        OnDamageDealt.AddListener(CountDamageEvent);
+        OnGameplayStateCommitted.AddListener(CountGameplayCommit);
+        clericController.IsTakingAction = true;
+        LogAssert.Expect(
+            LogType.Warning,
+            "Cast a Spell was rejected: Selected target is not registered in the active combat encounter."
+        );
+
+        action.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && gameplayCommitCount == 0; frame++)
+            yield return null;
+
+        Assert.That(gameplayCommitCount, Is.EqualTo(1), "Coroutine wrapper did not complete.");
+        Assert.That(actionCompleteCount, Is.EqualTo(1));
+        Assert.That(clericController.IsTakingAction, Is.False);
+        Assert.That(clericController.ActionPoints, Is.EqualTo(3));
+        Assert.That(unregisteredTarget.hp, Is.EqualTo(10));
+        Assert.That(damageEventCount, Is.Zero);
+        Assert.That(clericController.StrikePenalty, Is.Zero);
+        Assert.That(bridge.Snapshot, Is.SameAs(snapshotBeforeSelection));
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(snapshotBeforeSelection.Version));
+    }
+
+    [UnityTest]
     public IEnumerator GenericExpirationThenRemovalAndDisposeAreIdempotentAndIsolated()
     {
         CreatureComponent owner = CreateCreature("Effect Owner", 0, prepared: false);
@@ -484,6 +540,11 @@ public sealed class SpellcastingPresentationPlayModeTests
     private void CountGameplayCommit()
     {
         gameplayCommitCount++;
+    }
+
+    private void CountActionComplete()
+    {
+        actionCompleteCount++;
     }
 
     private void CountDamageEvent(string damageType) => damageEventCount++;
