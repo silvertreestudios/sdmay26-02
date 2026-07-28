@@ -221,17 +221,19 @@ namespace Game.Rules.Runtime
         ) => new CastSpellActionOp(actor, spell, variant, selection);
     }
 
-    /// <summary>Reports one resolved spell cast and every active effect it created.</summary>
+    /// <summary>Reports one resolved spell cast, its active effects, and its resolved attacks.</summary>
     public sealed class CastSpellOutcome
     {
         /// <summary>Creates the structural result of a resolved generic spell cast.</summary>
         /// <param name="actor">The caster that resolved the action.</param>
         /// <param name="spell">The exact spell identity and cast rank.</param>
         /// <param name="createdEffects">All active effects committed by the cast.</param>
+        /// <param name="resolvedAttacks">All spell attacks resolved by the cast.</param>
         public CastSpellOutcome(
             CreatureId actor,
             SpellReference spell,
-            IEnumerable<ActiveEffectId> createdEffects
+            IEnumerable<ActiveEffectId> createdEffects,
+            IEnumerable<SpellAttackResolution> resolvedAttacks
         )
         {
             Actor = actor;
@@ -241,6 +243,16 @@ namespace Game.Rules.Runtime
                     createdEffects ?? throw new ArgumentNullException(nameof(createdEffects))
                 ).ToArray()
             );
+            ResolvedAttacks = new ReadOnlyCollection<SpellAttackResolution>(
+                (
+                    resolvedAttacks ?? throw new ArgumentNullException(nameof(resolvedAttacks))
+                ).ToArray()
+            );
+            if (ResolvedAttacks.Any(attack => attack == null))
+                throw new ArgumentException(
+                    "Resolved spell attacks cannot contain null.",
+                    nameof(resolvedAttacks)
+                );
         }
 
         /// <summary>Gets the creature that cast the spell.</summary>
@@ -251,6 +263,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the active effects created by the cast.</summary>
         public IReadOnlyList<ActiveEffectId> CreatedEffects { get; }
+
+        /// <summary>Gets the immutable spell attacks resolved by the cast.</summary>
+        public IReadOnlyList<SpellAttackResolution> ResolvedAttacks { get; }
     }
 
     /// <summary>Registers generic spell validation and active-effect creation.</summary>
@@ -263,15 +278,41 @@ namespace Game.Rules.Runtime
         public static RuleDispatcherBuilder UseSpellcastingRules(
             this RuleDispatcherBuilder builder,
             ISpellActionCatalog catalog
+        ) =>
+            UseSpellcastingRules(
+                builder,
+                catalog,
+                UnsupportedSpellAttackResolutionDataProvider.Instance
+            );
+
+        /// <summary>Adds Cast a Spell with an explicit spell-attack Unity or test adapter.</summary>
+        /// <param name="builder">The dispatcher composition being configured.</param>
+        /// <param name="catalog">Encounter spell definitions and prepared spellbooks.</param>
+        /// <param name="resolutionData">Current target and spell-attack resolution data.</param>
+        /// <returns>The same builder for fluent composition.</returns>
+        public static RuleDispatcherBuilder UseSpellcastingRules(
+            this RuleDispatcherBuilder builder,
+            ISpellActionCatalog catalog,
+            ISpellAttackResolutionDataProvider resolutionData
         )
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
+            if (catalog == null)
+                throw new ArgumentNullException(nameof(catalog));
+            if (resolutionData == null)
+                throw new ArgumentNullException(nameof(resolutionData));
             CastSpellActionDefinition definition = new CastSpellActionDefinition(catalog);
             return builder
-                .RegisterActionValidator(new CastSpellActionValidator(definition))
+                .RegisterActionValidator(
+                    new CastSpellActionValidator(definition, catalog, resolutionData)
+                )
                 .RegisterHandler<CastSpellActionOp, CastSpellOutcome>(
                     new CastSpellActionHandler(catalog)
+                )
+                .RegisterHandler<ResolveSpellAttackOp, SpellAttackResolution>(
+                    new ResolveSpellAttackHandler(catalog, resolutionData),
+                    InvocationPolicy.NestedOnly
                 );
         }
     }
@@ -279,14 +320,51 @@ namespace Game.Rules.Runtime
     internal sealed class CastSpellActionValidator : IActionValidator<CastSpellActionOp>
     {
         private readonly CastSpellActionDefinition definition;
+        private readonly ISpellDefinitionCatalog catalog;
+        private readonly ISpellAttackResolutionDataProvider resolutionData;
 
-        public CastSpellActionValidator(CastSpellActionDefinition definition) =>
+        public CastSpellActionValidator(
+            CastSpellActionDefinition definition,
+            ISpellDefinitionCatalog catalog,
+            ISpellAttackResolutionDataProvider resolutionData
+        )
+        {
             this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
+            this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            this.resolutionData =
+                resolutionData ?? throw new ArgumentNullException(nameof(resolutionData));
+        }
 
         public ActionValidationResult Validate(
             OpFrame<CastSpellActionOp> frame,
             RulesSnapshot snapshot
-        ) => definition.Validate(snapshot, frame.Op);
+        )
+        {
+            ActionValidationResult common = definition.Validate(snapshot, frame.Op);
+            if (common is not ActionValidationResult.ValidActionValidationResult)
+                return common;
+            if (!catalog.TryGetSpell(frame.Op.Spell, out SpellDefinition spell))
+                return ActionValidationResult.Invalid("The spell reference is unknown.");
+            if (spell.Attacks.Count == 0)
+                return ActionValidationResult.Valid;
+            if (
+                spell.Attacks.Count != 1
+                || spell.Attacks[0].Target is not OneCreatureSpellAttackTarget
+            )
+                return ActionValidationResult.Invalid(
+                    "The spell attack target structure is unsupported."
+                );
+            if (frame.Op.Selection.Creatures.Count != 1)
+                return ActionValidationResult.Invalid(
+                    "The spell attack requires exactly one creature target."
+                );
+            CreatureId target = frame.Op.Selection.Creatures[0];
+            if (!snapshot.Creatures.Contains(target))
+                return ActionValidationResult.Invalid("The selected creature is not registered.");
+            if (!snapshot.Health.TryGet(target, out HealthState health) || health.Current == 0)
+                return ActionValidationResult.Invalid("The selected creature is not alive.");
+            return resolutionData.Validate(snapshot, frame.Op.Actor, spell.Attacks[0], target);
+        }
     }
 
     internal sealed class CastSpellActionHandler : IOpHandler<CastSpellActionOp, CastSpellOutcome>
@@ -305,6 +383,7 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException("A validated spell definition disappeared.");
 
             List<ActiveEffectId> created = new();
+            List<SpellAttackResolution> attacks = new();
             for (int index = 0; index < definition.Effects.Count; index++)
             {
                 SpellEffectDirective directive = definition.Effects[index];
@@ -338,7 +417,38 @@ namespace Game.Rules.Runtime
                     );
                 created.Add(effectId);
             }
-            return new CastSpellOutcome(frame.Op.Actor, frame.Op.Spell, created);
+            foreach (SpellAttackDefinition attack in definition.Attacks)
+            {
+                CreatureId target = frame.Op.Selection.Creatures.Single();
+                OpResult<SpellAttackResolution> result = await context.Dispatch(
+                    new ResolveSpellAttackOp(frame.Op.Actor, frame.Op.Spell, attack, target)
+                );
+                if (result is not ResolvedOpResult<SpellAttackResolution> resolved)
+                    throw new InvalidOperationException("Spell attack resolution did not resolve.");
+                SpellAttackResolution resolution = resolved.Value;
+                if (resolution.Hit && resolution.FinalDamage > 0)
+                {
+                    OpResult<DamageOutcome> damage = await context.Dispatch(
+                        new ApplyDamageOp(
+                            target,
+                            resolution.FinalDamage,
+                            new HealthChangeOriginId($"spell-{frame.RootId.Value}"),
+                            RuleSource.FromSlug(frame.Op.Spell.Spell.Value)
+                        )
+                    );
+                    if (damage is not ResolvedOpResult<DamageOutcome>)
+                        throw new InvalidOperationException("Spell attack damage did not resolve.");
+                }
+                OpResult<MultipleAttackPenaltyState> advanced = await context.Dispatch(
+                    new AdvanceMultipleAttackPenaltyOp(frame.Op.Actor)
+                );
+                if (advanced is not ResolvedOpResult<MultipleAttackPenaltyState>)
+                    throw new InvalidOperationException(
+                        "Spell attack MAP advancement did not resolve."
+                    );
+                attacks.Add(resolution);
+            }
+            return new CastSpellOutcome(frame.Op.Actor, frame.Op.Spell, created, attacks);
         }
 
         private static CreatureId ResolveTarget(

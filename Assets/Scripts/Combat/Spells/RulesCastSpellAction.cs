@@ -1,7 +1,9 @@
 using System;
 using System.Collections;
+using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using GridPublic;
 using UnityEngine;
 
 namespace Game.Combat.Spells
@@ -92,25 +94,73 @@ namespace Game.Combat.Spells
                     yield break;
                 }
 
-                CastSpellActionOp operation = actionDefinition.CreateOp(
-                    actor,
-                    spell,
-                    variant,
-                    SpellCastSelection.Empty
-                );
-                OpResult<CastSpellOutcome> result = bridge.Dispatch(operation);
-                if (result is InvalidOpResult<CastSpellOutcome> invalid)
-                    Debug.LogWarning($"Cast a Spell was rejected: {invalid.Reason}", caster);
-                else if (result is InterruptedOpResult<CastSpellOutcome>)
-                    Debug.LogWarning("Cast a Spell was interrupted.", caster);
-                else if (result is CancelledOpResult<CastSpellOutcome>)
-                    Debug.LogWarning("Cast a Spell was cancelled.", caster);
-                else if (result is not ResolvedOpResult<CastSpellOutcome>)
-                    Debug.LogWarning("Cast a Spell returned an unknown structural result.", caster);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, caster);
+                if (!catalog.TryGetSpell(spell, out Game.Rules.Runtime.SpellDefinition definition))
+                {
+                    Debug.LogWarning("The rules-native spell definition is unavailable.", caster);
+                    yield break;
+                }
+                SpellCastSelection spellSelection = SpellCastSelection.Empty;
+                if (definition.Attacks.Count > 0)
+                {
+                    if (
+                        definition.Attacks.Count != 1
+                        || definition.Attacks[0].Target
+                            is not OneCreatureSpellAttackTarget oneCreature
+                    )
+                    {
+                        Debug.LogWarning(
+                            "The rules-native spell target structure is unsupported.",
+                            caster
+                        );
+                        yield break;
+                    }
+                    CoroutineResult<StrikeTargetResult> selection = new();
+                    yield return GridAPI
+                        .GetInstance()
+                        .GetStrikeTarget(
+                            caster,
+                            new StrikeTargetRequest
+                            {
+                                IsRanged = true,
+                                FixedRangeFeet = oneCreature.RangeFeet,
+                                RequiresLineOfEffect = true,
+                            },
+                            selection
+                        );
+                    if (selection.Value?.Target == null)
+                        yield break;
+                    CreatureComponent target =
+                        selection.Value.Target.GetComponent<CreatureComponent>();
+                    if (target == null)
+                        yield break;
+                    spellSelection = new SpellCastSelection(new[] { bridge.GetCreatureId(target) });
+                }
+
+                try
+                {
+                    CastSpellActionOp operation = actionDefinition.CreateOp(
+                        actor,
+                        spell,
+                        variant,
+                        spellSelection
+                    );
+                    OpResult<CastSpellOutcome> result = bridge.Dispatch(operation);
+                    if (result is InvalidOpResult<CastSpellOutcome> invalid)
+                        Debug.LogWarning($"Cast a Spell was rejected: {invalid.Reason}", caster);
+                    else if (result is InterruptedOpResult<CastSpellOutcome>)
+                        Debug.LogWarning("Cast a Spell was interrupted.", caster);
+                    else if (result is CancelledOpResult<CastSpellOutcome>)
+                        Debug.LogWarning("Cast a Spell was cancelled.", caster);
+                    else if (result is not ResolvedOpResult<CastSpellOutcome>)
+                        Debug.LogWarning(
+                            "Cast a Spell returned an unknown structural result.",
+                            caster
+                        );
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception, caster);
+                }
             }
             finally
             {

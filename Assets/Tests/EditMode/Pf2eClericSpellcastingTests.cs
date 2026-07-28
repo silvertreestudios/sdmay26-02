@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -10,6 +9,7 @@ using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -46,6 +46,55 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
+    public void DivineLanceJsonBuildsOnlyOptedInRankOneSpellAttack()
+    {
+        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+
+        Assert.That(
+            catalog.TryGetSpell(
+                new SpellReference(new SpellId("divine-lance"), 1),
+                out Game.Rules.Runtime.SpellDefinition divineLance
+            ),
+            Is.True
+        );
+        Assert.That(divineLance.Attacks, Has.Count.EqualTo(1));
+        SpellAttackDefinition attack = divineLance.Attacks.Single();
+        Assert.That(attack.Target, Is.TypeOf<OneCreatureSpellAttackTarget>());
+        Assert.That(((OneCreatureSpellAttackTarget)attack.Target).RangeFeet, Is.EqualTo(60));
+        Assert.That(attack.Damage, Has.Count.EqualTo(1));
+        Assert.That(attack.Damage[0].Dice, Is.EqualTo(2));
+        Assert.That(attack.Damage[0].Sides, Is.EqualTo(4));
+        Assert.That(attack.Damage[0].DamageType, Is.EqualTo("spirit"));
+        Assert.That(
+            catalog.TryGetSpell(new SpellReference(new SpellId("divine-lance"), 2), out _),
+            Is.False
+        );
+        Assert.That(
+            catalog.TryGetSpell(
+                new SpellReference(new SpellId("gouging-claw"), 1),
+                out Game.Rules.Runtime.SpellDefinition otherAttackSpell
+            ),
+            Is.True
+        );
+        Assert.That(otherAttackSpell.Attacks, Is.Empty);
+    }
+
+    [Test]
+    public void OptedInSpellAttackRejectsEveryUnprovenDataShape()
+    {
+        AssertCatalogRejects(root => root["system"]["target"]["value"] = "2 creatures");
+        AssertCatalogRejects(root => root["system"]["range"]["value"] = "touch");
+        AssertCatalogRejects(root =>
+        {
+            JArray traits = (JArray)root["system"]["traits"]["value"];
+            traits.Remove(traits.First(token => token.Value<string>() == "attack"));
+        });
+        AssertCatalogRejects(root => root["system"]["damage"]["0"]["formula"] = "4");
+        AssertCatalogRejects(root => root["system"]["damage"]["0"]["category"] = "persistent");
+        AssertCatalogRejects(root => root["system"]["overlays"]["unsupported"] = new JObject());
+    }
+
+    [Test]
     public void LevelOneClericPreparesCloisteredDivineFontAndNoSanctification()
     {
         CreatureComponent cleric = CreatePreparedCleric();
@@ -73,25 +122,23 @@ public class Pf2eClericSpellcastingTests
         SpellcastingState state = cleric.Prepared.Spellcasting;
 
         CollectionAssert.AreEquivalent(
-            new[]
-            {
-                "shield",
-                "guidance",
-                "divine-lance",
-                "haunting-hymn",
-                "bless",
-                "infuse-vitality",
-                "heal",
-            },
+            new[] { "shield", "guidance", "haunting-hymn", "bless", "infuse-vitality", "heal" },
             state.PreparedSpells.Select(spell => spell.Slug)
         );
-        Assert.That(state.PreparedSpells.Count(spell => spell.IsCantrip), Is.EqualTo(4));
+        Assert.That(state.PreparedSpells.Count(spell => spell.IsCantrip), Is.EqualTo(3));
         Assert.That(state.GetSpell("light"), Is.Null);
         Assert.That(
             cleric.Prepared.SpellBook.CastableSpells,
-            Is.EqualTo(new[] { new SpellReference(new SpellId("light"), 1) })
+            Is.EqualTo(
+                new[]
+                {
+                    new SpellReference(new SpellId("light"), 1),
+                    new SpellReference(new SpellId("divine-lance"), 1),
+                }
+            )
         );
         Assert.That(SpellRegistry.TryGet("light", out _), Is.False);
+        Assert.That(SpellRegistry.TryGet("divine-lance", out _), Is.False);
         Assert.That(state.Pools["rank-1-bless"].UsesRemaining, Is.EqualTo(1));
         Assert.That(state.Pools["rank-1-infuse-vitality"].UsesRemaining, Is.EqualTo(1));
         Assert.That(state.Pools["font-heal"].UsesRemaining, Is.EqualTo(4));
@@ -283,82 +330,6 @@ public class Pf2eClericSpellcastingTests
         Assert.That(cleric.Prepared.Spellcasting.Pools["font-heal"].UsesRemaining, Is.EqualTo(3));
     }
 
-    [Test]
-    public void DivineLanceUsesSpellAttackAndMultipleAttackPenalty()
-    {
-        CreatureComponent cleric = CreatePreparedCleric();
-        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
-        controller.IsTakingAction = true;
-        CreatureComponent target = CreateCreature("Target", 100, 100);
-        TestActionController targetController =
-            target.gameObject.AddComponent<TestActionController>();
-        target.transform.position = new Vector3(6, 0, 0);
-        target.ac = 12;
-        Tile[,] tiles = new Tile[7, 1];
-        for (int x = 0; x < tiles.GetLength(0); x++)
-            tiles[x, 0] = new Tile();
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new ActionController[] { controller, targetController },
-            tiles
-        );
-        bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
-        InstallTestCombatLog();
-        UnityEngine.Random.State priorState = UnityEngine.Random.state;
-        CastSpellResult result;
-        try
-        {
-            UnityEngine.Random.InitState(3);
-            result = Cast("divine-lance", cleric, 2, target.gameObject);
-        }
-        finally
-        {
-            UnityEngine.Random.state = priorState;
-        }
-
-        Assert.That(result.Success, Is.True, result.Message);
-        Assert.That(controller.ActionPoints, Is.EqualTo(1));
-        Assert.That(controller.StrikePenalty, Is.EqualTo(1));
-    }
-
-    [Test]
-    public void DivineLanceClearsTakingActionWhenMapAdvancementThrows()
-    {
-        CreatureComponent cleric = CreatePreparedCleric();
-        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
-        controller.IsTakingAction = true;
-        CreatureComponent target = CreateCreature("Target", 100, 100);
-        TestActionController targetController =
-            target.gameObject.AddComponent<TestActionController>();
-        target.transform.position = new Vector3(1, 0, 0);
-        Tile[,] tiles = new Tile[2, 1];
-        for (int x = 0; x < tiles.GetLength(0); x++)
-            tiles[x, 0] = new Tile();
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new ActionController[] { controller, targetController },
-            tiles
-        );
-        bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
-        InvalidOperationException expected = new("Injected MAP advancement failure.");
-        GetDispatcher(bridge).RegisterFactObserver(new ThrowingMapObserver(expected));
-        InstallTestCombatLog();
-        UnityEngine.Random.State randomState = UnityEngine.Random.state;
-
-        try
-        {
-            UnityEngine.Random.InitState(3);
-            InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
-                Cast("divine-lance", cleric, 2, target.gameObject)
-            );
-
-            Assert.That(actual, Is.SameAs(expected));
-            Assert.That(controller.IsTakingAction, Is.False);
-        }
-        finally
-        {
-            UnityEngine.Random.state = randomState;
-        }
-    }
-
     private void InstallTestCombatLog()
     {
         GameObject logObject = new("Test Combat Log");
@@ -369,6 +340,23 @@ public class Pf2eClericSpellcastingTests
             BindingFlags.Static | BindingFlags.NonPublic
         );
         field.SetValue(null, log);
+    }
+
+    private static void AssertCatalogRejects(Action<JObject> mutate)
+    {
+        TextAsset asset = Resources.Load<TextAsset>("DataFiles/spells/cantrip/divine-lance");
+        Assert.That(asset, Is.Not.Null);
+        JObject root = JObject.Parse(asset.text);
+        mutate(root);
+        MethodInfo parse = typeof(UnitySpellDefinitionCatalog).GetMethod(
+            "Parse",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        Assert.That(parse, Is.Not.Null);
+        TargetInvocationException exception = Assert.Throws<TargetInvocationException>(() =>
+            parse.Invoke(null, new object[] { root.ToString() })
+        );
+        Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
     }
 
     private CastSpellResult Cast(
@@ -412,28 +400,6 @@ public class Pf2eClericSpellcastingTests
         creature.InitializeHealthBeforeEncounter(currentHitPoints, maximumHitPoints);
         Game.Rules.Unity.UnityCombatRulesBridge.CreateHealthTestComposition(new[] { creature });
         return creature;
-    }
-
-    private static RuleDispatcher GetDispatcher(UnityCombatRulesBridge bridge)
-    {
-        FieldInfo field = typeof(UnityCombatRulesBridge).GetField(
-            "dispatcher",
-            BindingFlags.Instance | BindingFlags.NonPublic
-        );
-        Assert.That(field, Is.Not.Null);
-        return (RuleDispatcher)field.GetValue(bridge);
-    }
-
-    private sealed class ThrowingMapObserver : IFactObserver<MultipleAttackPenaltyAdvancedFact>
-    {
-        private readonly Exception failure;
-
-        public ThrowingMapObserver(Exception failure) => this.failure = failure;
-
-        public ValueTask OnFactCommitted(
-            MultipleAttackPenaltyAdvancedFact fact,
-            RulesSnapshot currentSnapshot
-        ) => throw failure;
     }
 
     private sealed class TestCombatLog : CombatLogInterface

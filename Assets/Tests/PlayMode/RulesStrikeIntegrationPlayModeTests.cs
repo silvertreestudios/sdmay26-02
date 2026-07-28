@@ -425,7 +425,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator NormalStrikeAndLegacySpellAttackShareMapInBothOrders()
+    public IEnumerator NormalStrikeAndRulesSpellAttackShareMapInBothOrders()
     {
         InstallCombatLog();
         CreatureComponent cleric = CreateCreature("Cleric", "player", 100, 10);
@@ -446,7 +446,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(10, 2, 10, 2)
+            new ScriptedRollService(10, 2, 10, 2, 2, 10, 2, 2, 10)
         );
         CreatureId actor = bridge.GetCreatureId(cleric);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -454,35 +454,27 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             .GetActions()
             .OfType<RulesStrikeAction>()
             .Single(action => action.ActionName == "Unarmed Strike");
-        PreparedSpell divineLance = cleric.Prepared.Spellcasting.GetSpell("divine-lance");
-        UnityEngine.Random.State randomState = UnityEngine.Random.state;
-        UnityEngine.Random.InitState(7113);
+        SpellReference divineLance = new(new SpellId("divine-lance"), 1);
+        SpellCastSelection selection = new(new[] { targetId });
 
         bridge.BeginTurn(actor, 3);
         RequireResolved(bridge.Dispatch(new StrikeActionOp(actor, unarmed.Item.Item, targetId)));
-        CastSpellResult spellSecond = SpellcastingRuntime.Cast(
-            cleric.gameObject,
-            divineLance,
-            2,
-            new[] { target.gameObject }
+        OpResult<CastSpellOutcome> spellSecond = bridge.Dispatch(
+            new CastSpellActionOp(actor, divineLance, new SpellActionVariant(2), selection)
         );
-        Assert.That(spellSecond.Success, Is.True, spellSecond.Message);
+        Assert.That(spellSecond, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
         Assert.That(clericController.StrikePenalty, Is.EqualTo(2));
 
         bridge.BeginTurn(actor, 3);
-        CastSpellResult spellFirst = SpellcastingRuntime.Cast(
-            cleric.gameObject,
-            divineLance,
-            2,
-            new[] { target.gameObject }
+        OpResult<CastSpellOutcome> spellFirst = bridge.Dispatch(
+            new CastSpellActionOp(actor, divineLance, new SpellActionVariant(2), selection)
         );
-        Assert.That(spellFirst.Success, Is.True, spellFirst.Message);
+        Assert.That(spellFirst, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
         ResolvedOpResult<StrikeResolution> strikeSecond = RequireResolved(
             bridge.Dispatch(new StrikeActionOp(actor, unarmed.Item.Item, targetId))
         );
         Assert.That(strikeSecond.Value.MultipleAttackPenalty, Is.EqualTo(-4));
         Assert.That(clericController.StrikePenalty, Is.EqualTo(2));
-        UnityEngine.Random.state = randomState;
         yield return null;
     }
 

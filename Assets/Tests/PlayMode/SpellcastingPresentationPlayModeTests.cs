@@ -1,14 +1,18 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Light;
 using GridPrivate;
+using GridPublic;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
@@ -17,11 +21,27 @@ public sealed class SpellcastingPresentationPlayModeTests
 {
     private readonly List<GameObject> created = new();
     private int gameplayCommitCount;
+    private int damageEventCount;
+    private int missEventCount;
+
+    [UnitySetUp]
+    public IEnumerator SetUp()
+    {
+        if (!CombatManagerInterface.TryGetInstance(out _))
+        {
+            GameObject manager = new("Spellcasting PlayMode Combat Manager");
+            created.Add(manager);
+            manager.AddComponent<CombatManager>();
+        }
+        yield return null;
+    }
 
     [UnityTearDown]
     public IEnumerator TearDown()
     {
         OnGameplayStateCommitted.RemoveListener(CountGameplayCommit);
+        OnDamageDealt.RemoveListener(CountDamageEvent);
+        OnAttackMiss.RemoveListener(CountMissEvent);
         foreach (GameObject value in created)
             if (value != null)
                 Object.Destroy(value);
@@ -46,11 +66,19 @@ public sealed class SpellcastingPresentationPlayModeTests
             .Where(action => action.Spell == Reference("light"))
             .ToArray();
         Assert.That(light, Is.Empty);
+        Assert.That(RulesActions(controller, "divine-lance"), Is.Empty);
         Assert.That(
             controller
                 .GetActions()
                 .OfType<CastSpellAction>()
                 .Any(action => action.Spell.Slug == "light"),
+            Is.False
+        );
+        Assert.That(
+            controller
+                .GetActions()
+                .OfType<CastSpellAction>()
+                .Any(action => action.Spell.Slug == "divine-lance"),
             Is.False
         );
         Assert.That(
@@ -82,7 +110,16 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
 
         Assert.That(LightActions(initialController), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(initialController, "divine-lance"), Has.Count.EqualTo(1));
         Assert.That(LightActions(noncasterController), Is.Empty);
+        Assert.That(RulesActions(noncasterController, "divine-lance"), Is.Empty);
+        Assert.That(
+            initialController
+                .GetActions()
+                .OfType<CastSpellAction>()
+                .Any(action => action.Spell.Slug == "divine-lance"),
+            Is.False
+        );
         Assert.That(
             initialController
                 .GetActions()
@@ -107,6 +144,14 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnitySpellActionInstaller.Install(reinforcementController, repeatCatalog);
 
         Assert.That(LightActions(reinforcementController), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(reinforcementController, "divine-lance"), Has.Count.EqualTo(1));
+        Assert.That(
+            reinforcementController
+                .GetActions()
+                .OfType<CastSpellAction>()
+                .Any(action => action.Spell.Slug == "divine-lance"),
+            Is.False
+        );
         Assert.That(
             reinforcementController
                 .GetActions()
@@ -153,6 +198,125 @@ public sealed class SpellcastingPresentationPlayModeTests
         bridge.ReleaseOwnership();
         yield return null;
         Assert.That(VisualLights(cleric), Is.Empty);
+    }
+
+    [UnityTest]
+    public IEnumerator DivineLanceSelectionCancellationAndSuccessReleaseLockAndProjectOutcome()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CapturingCombatLog log = InstallCombatLog();
+        CreatureComponent cleric = CreateCreature("Divine Lance Cleric", 0, prepared: true);
+        cleric.ac = 10;
+        GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+            "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab"
+        );
+        GameObject visual = Object.Instantiate(visualPrefab, cleric.transform);
+        CreatureAnimationController animation = visual.GetComponent<CreatureAnimationController>();
+        CreaturePresentation presentation = cleric.gameObject.AddComponent<CreaturePresentation>();
+        presentation.Bind(animation, visual.GetComponent<CreatureEquipmentVisuals>());
+        CreatureComponent target = CreateCreature("Divine Lance Target", 1, prepared: false);
+        target.ac = 10;
+        TestActionController clericController =
+            cleric.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { clericController, targetController },
+            tiles,
+            new ScriptedRollService(10, 2, 3, 1)
+        );
+        RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        OnDamageDealt.AddListener(CountDamageEvent);
+        OnAttackMiss.AddListener(CountMissEvent);
+
+        bridge.BeginTurn(actor, 3);
+        clericController.IsTakingAction = true;
+        action.Invoke(cleric.gameObject);
+        yield return null;
+
+        Assert.That(clericController.IsTakingAction, Is.False);
+        Assert.That(clericController.ActionPoints, Is.EqualTo(3));
+        Assert.That(target.hp, Is.EqualTo(10));
+        Assert.That(damageEventCount, Is.Zero);
+        Assert.That(missEventCount, Is.Zero);
+        Assert.That(animation.CurrentClipId, Is.Null);
+
+        grid.Target = target.gameObject;
+        clericController.IsTakingAction = true;
+        action.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(clericController.IsTakingAction, Is.False);
+        Assert.That(clericController.ActionPoints, Is.EqualTo(1));
+        Assert.That(target.hp, Is.EqualTo(5));
+        Assert.That(damageEventCount, Is.EqualTo(1));
+        Assert.That(missEventCount, Is.Zero);
+        Assert.That(
+            animation.CurrentClipId,
+            Is.EqualTo("animation/combatranged/ranged_magic_shoot")
+        );
+        Assert.That(log.Messages.Any(message => message.Contains("casts Divine Lance")), Is.True);
+        Assert.That(log.Entries, Has.Count.EqualTo(1));
+        Assert.That(log.Entries.Single().Kind, Is.EqualTo(CombatLogEntryKind.Attack));
+        Assert.That(log.Entries.Single().Action, Is.EqualTo("Divine Lance"));
+
+        bridge.BeginTurn(actor, 3);
+        clericController.IsTakingAction = true;
+        action.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(clericController.IsTakingAction, Is.False);
+        Assert.That(clericController.ActionPoints, Is.EqualTo(1));
+        Assert.That(target.hp, Is.EqualTo(5));
+        Assert.That(damageEventCount, Is.EqualTo(1));
+        Assert.That(missEventCount, Is.EqualTo(1));
+        Assert.That(log.Entries, Has.Count.EqualTo(2));
+        Assert.That(log.Entries.Last().Outcome, Is.EqualTo(CombatLogOutcome.CriticalFailure));
+    }
+
+    [UnityTest]
+    public IEnumerator DivineLanceRejectsTargetThatBecomesStaleAfterSelection()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Stale Caster", 0, prepared: true);
+        CreatureComponent target = CreateCreature("Stale Target", 1, prepared: false);
+        target.ac = 10;
+        TestActionController clericController =
+            cleric.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(21);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { clericController, targetController },
+            tiles,
+            new ScriptedRollService(20)
+        );
+        RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
+        grid.Target = target.gameObject;
+        grid.AfterSelection = () => target.transform.position = new Vector3(20, 0, 0);
+        bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
+        clericController.IsTakingAction = true;
+
+        action.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(clericController.IsTakingAction, Is.False);
+        Assert.That(clericController.ActionPoints, Is.EqualTo(3));
+        Assert.That(target.hp, Is.EqualTo(10));
+        Assert.That(clericController.StrikePenalty, Is.Zero);
     }
 
     [UnityTest]
@@ -241,10 +405,16 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     private static List<RulesCastSpellAction> LightActions(ActionController controller) =>
+        RulesActions(controller, "light");
+
+    private static List<RulesCastSpellAction> RulesActions(
+        ActionController controller,
+        string slug
+    ) =>
         controller
             .GetActions()
             .OfType<RulesCastSpellAction>()
-            .Where(action => action.Spell == Reference("light"))
+            .Where(action => action.Spell == Reference(slug))
             .ToList();
 
     private static List<UnityEngine.Light> VisualLights(CreatureComponent owner) =>
@@ -287,14 +457,113 @@ public sealed class SpellcastingPresentationPlayModeTests
         gameObject.AddComponent<CoroutineRunner>();
     }
 
+    private SelectingGridApi InstallGrid()
+    {
+        if (GridAPI.TryGetInstance(out GridAPI active))
+            Object.DestroyImmediate(active.gameObject);
+        GameObject gameObject = new("Spellcasting Selecting Grid");
+        created.Add(gameObject);
+        return gameObject.AddComponent<SelectingGridApi>();
+    }
+
+    private CapturingCombatLog InstallCombatLog()
+    {
+        if (CombatLog.TryGetInstance(out CombatLogInterface active))
+            Object.DestroyImmediate(active.gameObject);
+        GameObject gameObject = new("Spellcasting Combat Log");
+        created.Add(gameObject);
+        CapturingCombatLog log = gameObject.AddComponent<CapturingCombatLog>();
+        FieldInfo field = typeof(SingletonMonoBehaviour<CombatLogInterface>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        field.SetValue(null, log);
+        return log;
+    }
+
     private void CountGameplayCommit()
     {
         gameplayCommitCount++;
     }
 
+    private void CountDamageEvent(string damageType) => damageEventCount++;
+
+    private void CountMissEvent(GameObject attacker) => missEventCount++;
+
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class SelectingGridApi : GridAPI
+    {
+        public GameObject Target { get; set; }
+        public System.Action AfterSelection { get; set; }
+
+        public override IEnumerator SelectStridePath(
+            GameObject character,
+            StridePathSelectionRequest request,
+            CoroutineResult<SelectionOutcome<MovementPath>> selection
+        )
+        {
+            yield break;
+        }
+
+        public override IEnumerator GetStrikeTarget(
+            GameObject attacker,
+            StrikeTargetRequest request,
+            CoroutineResult<StrikeTargetResult> target
+        )
+        {
+            target.Value = Target == null ? null : new StrikeTargetResult { Target = Target };
+            AfterSelection?.Invoke();
+            yield break;
+        }
+
+        public override IEnumerator GetAreaTarget(
+            AreaTargetSource source,
+            AreaTargetRequest request,
+            CoroutineResult<AreaTargetResult> target
+        )
+        {
+            yield break;
+        }
+
+        public override bool DestroyToken(GameObject token) => false;
+    }
+
+    private sealed class CapturingCombatLog : CombatLogInterface
+    {
+        public List<string> Messages { get; } = new();
+        public List<CombatLogEntry> Entries { get; } = new();
+
+        public override void DevMode() { }
+
+        public override void ReleaseMode() { }
+
+        public override void AddWhiteList(string tag) { }
+
+        public override void AddBlackList(string tag) { }
+
+        public override void DevLog(string msg) => Messages.Add(msg);
+
+        public override void DevLog(string msg, string tag) => Messages.Add(msg);
+
+        public override void DevLog(string msg, List<string> tags) => Messages.Add(msg);
+
+        public override void Log(string msg) => Messages.Add(msg);
+
+        public override void Log(string msg, string tag) => Messages.Add(msg);
+
+        public override void Log(string msg, List<string> tags) => Messages.Add(msg);
+
+        public override List<string> GetMessages() => Messages;
+
+        public override void LogEntry(CombatLogEntry entry)
+        {
+            Entries.Add(entry);
+            base.LogEntry(entry);
+        }
     }
 
     private sealed class TestSpellActionCatalog : ISpellActionCatalog

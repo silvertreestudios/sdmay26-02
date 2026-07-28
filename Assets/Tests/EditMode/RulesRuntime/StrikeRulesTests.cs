@@ -371,6 +371,7 @@ namespace Game.Rules.Runtime.Tests
                 .UseHealthRules()
                 .UseCombatRuntimeRules()
                 .UseActionLifecycle(catalog)
+                .UseCheckResolution()
                 .UseStrikeRules(catalog, targeting, data)
                 .Build();
             return new TestRuntime(dispatcher, rolls, targeting);

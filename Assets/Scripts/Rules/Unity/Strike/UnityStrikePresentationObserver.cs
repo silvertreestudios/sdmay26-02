@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
+using Game.Rules.Unity.Attack;
 using UnityEngine;
 
 namespace Game.Rules.Unity.Strike
@@ -97,23 +98,21 @@ namespace Game.Rules.Unity.Strike
             )
                 return default;
 
-            PresentSafely(() => PublishOutcomeEvent(attacker, result), attacker);
-            PresentSafely(
-                () =>
-                {
-                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
-                    {
-                        log.LogEntry(
-                            BuildCombatLogEntry(
-                                attacker,
-                                target,
-                                strikeContext.GetStrikeItem(operation.Item),
-                                result
-                            )
-                        );
-                    }
-                },
-                attacker
+            UnityAttackResultPresentation.Present(
+                attacker,
+                target,
+                strikeContext.GetStrikeItem(operation.Item).Label,
+                new UnityAttackResult(
+                    result.AttackRoll,
+                    result.AttackModifier,
+                    result.ArmorClass,
+                    result.Degree,
+                    ToDamage(result),
+                    result.FinalDamage,
+                    result.MultipleAttackPenalty,
+                    result.RangePenalty,
+                    result.CoverBonus
+                )
             );
             return default;
         }
@@ -151,102 +150,11 @@ namespace Game.Rules.Unity.Strike
                 presentation?.PlayAttack(AnimationStyle.Unarmed, target.transform.position);
         }
 
-        private static void PublishOutcomeEvent(GameObject attacker, StrikeResolution resolution)
+        private static IEnumerable<UnityAttackDamagePart> ToDamage(StrikeResolution resolution)
         {
-            if (resolution.Hit)
-            {
-                string damageType =
-                    resolution.Damage.Count == 0 ? "untyped" : resolution.Damage[0].DamageType;
-                OnDamageDealt.Invoke(damageType);
-            }
-            else
-            {
-                OnAttackMiss.Invoke(attacker);
-            }
-        }
-
-        private static CombatLogEntry BuildCombatLogEntry(
-            GameObject attacker,
-            GameObject target,
-            StrikeItemDefinition item,
-            StrikeResolution resolution
-        )
-        {
-            CombatLogEntry entry = new CombatLogEntry
-            {
-                Kind = CombatLogEntryKind.Attack,
-                Outcome = ToCombatLogOutcome(resolution.Degree),
-                Actor = attacker.name,
-                Target = target.name,
-                Action = item.Label,
-                Roll = new CombatLogRoll
-                {
-                    NaturalRoll = resolution.AttackRoll.Values[0],
-                    TotalModifier = resolution.AttackModifier,
-                    Total = resolution.AttackRoll.Total + resolution.AttackModifier,
-                    DifficultyClass = resolution.ArmorClass,
-                },
-                Damage = BuildDamage(resolution),
-            };
-            entry.Tags.Add("attack");
-            entry.Details.Add(
-                new CombatLogDetail(
-                    "D20 Roll",
-                    $"{entry.Roll.Total} ({entry.Roll.NaturalRoll} + {entry.Roll.TotalModifier})"
-                )
-            );
-            entry.Details.Add(new CombatLogDetail("Target AC", resolution.ArmorClass.ToString()));
-            entry.Details.Add(
-                new CombatLogDetail(
-                    "MAP",
-                    resolution.MultipleAttackPenalty == 0
-                        ? "none"
-                        : resolution.MultipleAttackPenalty.ToString()
-                )
-            );
-            entry.Details.Add(
-                new CombatLogDetail(
-                    "Range Penalty",
-                    resolution.RangePenalty == 0 ? "none" : resolution.RangePenalty.ToString()
-                )
-            );
-            entry.Details.Add(
-                new CombatLogDetail(
-                    "Cover",
-                    resolution.CoverBonus == 0 ? "none" : $"+{resolution.CoverBonus} AC"
-                )
-            );
-            entry.Details.Add(new CombatLogDetail("Result", resolution.Degree.ToString()));
-            entry.Details.Add(
-                new CombatLogDetail("Total Damage", $"{resolution.FinalDamage} damage")
-            );
-            return entry;
-        }
-
-        private static CombatLogDamage BuildDamage(StrikeResolution resolution)
-        {
-            CombatLogDamage damage = new CombatLogDamage { Total = resolution.FinalDamage };
             foreach (StrikeDamagePart part in resolution.Damage)
-            {
-                damage.Parts.Add(
-                    new CombatLogDamagePart(part.DamageType.ToLowerInvariant(), part.Amount)
-                );
-            }
-            return damage;
+                yield return new UnityAttackDamagePart(part.DamageType, part.Amount);
         }
-
-        private static CombatLogOutcome ToCombatLogOutcome(
-            Game.Rules.Runtime.DegreeOfSuccess degree
-        ) =>
-            degree switch
-            {
-                Game.Rules.Runtime.DegreeOfSuccess.CriticalSuccess =>
-                    CombatLogOutcome.CriticalSuccess,
-                Game.Rules.Runtime.DegreeOfSuccess.Success => CombatLogOutcome.Success,
-                Game.Rules.Runtime.DegreeOfSuccess.CriticalFailure =>
-                    CombatLogOutcome.CriticalFailure,
-                _ => CombatLogOutcome.Failure,
-            };
 
         private static void PresentSafely(Action presentation, UnityEngine.Object context)
         {

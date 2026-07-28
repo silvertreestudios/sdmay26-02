@@ -13,7 +13,6 @@ namespace Game.Rules.Runtime.Tests
     {
         private static readonly CreatureId Actor = new CreatureId("check-actor");
         private static readonly CreatureId Target = new CreatureId("check-target");
-        private static readonly ItemId Weapon = new ItemId("check-weapon");
         private static readonly RuleSource ExistingStatus = RuleSource.FromSlug("existing-status");
         private static readonly RuleSource MiddlewareSource = RuleSource.FromSlug(
             "middleware-status"
@@ -184,6 +183,60 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task AttackCheckCombinesInitialMapCurrentAndMiddlewareBeforeRolling()
+        {
+            Modifier current = Modifier.StatusBonus(2, ExistingStatus, Statistic.AttackRoll);
+            ActiveRuleBinding binding = new(
+                new BindingId("attack-check-binding"),
+                MiddlewareDefinition,
+                Actor,
+                new ActiveEffectId("attack-check-effect"),
+                MiddlewareSource,
+                0
+            );
+            RuleRegistryBuilder registry = new();
+            registry
+                .Define(MiddlewareDefinition)
+                .Middleware(RuleLifecyclePhase.Transformation, new AttackStatusMiddleware());
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(
+                    CreateSeed(Array.Empty<Modifier>()).SeedRuleBinding(binding)
+                ),
+                new ScriptedRollService(12)
+            )
+                .RegisterHandler<AttackCheckWorkflowOp, CheckOutcome>(
+                    new AttackCheckWorkflowHandler(current)
+                )
+                .UseCheckResolution()
+                .UseRuleRegistry(registry.Build())
+                .Build();
+
+            CheckOutcome outcome = RequireResolved(
+                await dispatcher.Dispatch(new AttackCheckWorkflowOp())
+            ).Value;
+
+            Assert.That(outcome.Roll.Values.Single(), Is.EqualTo(12));
+            Assert.That(outcome.Modifiers.Total, Is.EqualTo(4));
+            Assert.That(outcome.Total, Is.EqualTo(16));
+            Assert.That(outcome.Degree, Is.EqualTo(DegreeOfSuccess.Success));
+            Assert.That(
+                outcome.Modifiers.Applied.Select(modifier => modifier.Source),
+                Is.EquivalentTo(
+                    new[]
+                    {
+                        RuleSource.FromSlug("spell-attack"),
+                        RuleSource.FromSlug("multiple-attack-penalty"),
+                        ExistingStatus,
+                    }
+                )
+            );
+            Assert.That(
+                outcome.Modifiers.Suppressed.Select(modifier => modifier.Source),
+                Is.EqualTo(new[] { MiddlewareSource })
+            );
+        }
+
+        [Test]
         public void CheckOperationsRejectExternalDispatchAndUntrustedSourceIdsBeforeRolling()
         {
             ScriptedRollService externalRolls = new ScriptedRollService(10);
@@ -350,6 +403,45 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class AttackModifierWorkflowOp : IRuleOp<ModifierCollection> { }
 
+        private sealed class AttackCheckWorkflowOp : IRuleOp<CheckOutcome> { }
+
+        private sealed class AttackCheckWorkflowHandler
+            : IOpHandler<AttackCheckWorkflowOp, CheckOutcome>
+        {
+            private readonly Modifier current;
+
+            public AttackCheckWorkflowHandler(Modifier current) => this.current = current;
+
+            public async ValueTask<CheckOutcome> Handle(
+                OpFrame<AttackCheckWorkflowOp> frame,
+                OpHandlerContext context
+            ) =>
+                RequireResolved(
+                    await context.Dispatch(
+                        new AttackCheckOp(
+                            Actor,
+                            Target,
+                            16,
+                            new[]
+                            {
+                                Modifier.Untyped(
+                                    7,
+                                    RuleSource.FromSlug("spell-attack"),
+                                    Statistic.AttackRoll
+                                ),
+                                Modifier.Untyped(
+                                    -5,
+                                    RuleSource.FromSlug("multiple-attack-penalty"),
+                                    Statistic.AttackRoll
+                                ),
+                                current,
+                            },
+                            CheckSource.From(frame.Id)
+                        )
+                    )
+                ).Value;
+        }
+
         private sealed class AttackModifierWorkflowHandler
             : IOpHandler<AttackModifierWorkflowOp, ModifierCollection>
         {
@@ -362,7 +454,15 @@ namespace Game.Rules.Runtime.Tests
                         new CollectAttackModifiersOp(
                             Actor,
                             Target,
-                            Weapon,
+                            new[]
+                            {
+                                Modifier.Untyped(
+                                    7,
+                                    RuleSource.FromSlug("initial-attack"),
+                                    Statistic.AttackRoll
+                                ),
+                                Modifier.StatusBonus(2, ExistingStatus, Statistic.AttackRoll),
+                            },
                             CheckSource.From(frame.Id)
                         )
                     )

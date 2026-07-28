@@ -35,7 +35,7 @@ namespace Game.Combat.Spells
         /// Installs exactly one rules action for every prepared, generically supported definition.
         /// </summary>
         /// <remarks>
-        /// The creature bootstrap independently owns non-Light legacy actions. This
+        /// The creature bootstrap independently owns legacy spells without generic directives. This
         /// installer runs only from encounter composition and never replaces those instances.
         /// </remarks>
         /// <param name="controller">The caster whose action list is reconciled.</param>
@@ -60,7 +60,7 @@ namespace Game.Combat.Spells
                     )
                 )
                     continue;
-                if (definition.Effects.Count == 0)
+                if (definition.Effects.Count == 0 && definition.Attacks.Count == 0)
                     continue;
                 foreach (SpellActionVariant variant in definition.Variants)
                     desired.Add((reference, variant));

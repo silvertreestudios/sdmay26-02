@@ -63,6 +63,36 @@ namespace Game.Rules.Runtime
         }
     }
 
+    internal sealed class AttackCheckHandler : IOpHandler<AttackCheckOp, CheckOutcome>
+    {
+        public async ValueTask<CheckOutcome> Handle(
+            OpFrame<AttackCheckOp> frame,
+            OpHandlerContext context
+        )
+        {
+            CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
+            OpResult<ModifierCollection> modifiersResult = await context.Dispatch(
+                new CollectAttackModifiersOp(
+                    frame.Op.Actor,
+                    frame.Op.Target,
+                    frame.Op.InitialModifiers,
+                    frame.Op.Source
+                )
+            );
+            if (modifiersResult is not ResolvedOpResult<ModifierCollection> resolvedModifiers)
+                throw new InvalidOperationException(
+                    "Attack modifier collection must produce a resolved result."
+                );
+            return new CheckOutcome(
+                frame.Op.Actor,
+                frame.Op.Source,
+                context.Rolls.Roll(DiceExpressions.D20),
+                resolvedModifiers.Value,
+                frame.Op.DifficultyClass
+            );
+        }
+    }
+
     internal sealed class CollectSkillCheckModifiersHandler
         : IOpHandler<CollectSkillCheckModifiersOp, ModifierCollection>
     {
@@ -106,11 +136,6 @@ namespace Game.Rules.Runtime
     internal sealed class CollectAttackModifiersHandler
         : IOpHandler<CollectAttackModifiersOp, ModifierCollection>
     {
-        private readonly IRulesSelectors selectors;
-
-        public CollectAttackModifiersHandler(IRulesSelectors selectors) =>
-            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
-
         public ValueTask<ModifierCollection> Handle(
             OpFrame<CollectAttackModifiersOp> frame,
             OpHandlerContext context
@@ -118,7 +143,7 @@ namespace Game.Rules.Runtime
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
             return new ValueTask<ModifierCollection>(
-                selectors.GetAttackModifiers(context.Snapshot, frame.Op.Attacker)
+                new ModifierCollection(Statistic.AttackRoll, frame.Op.InitialModifiers)
             );
         }
     }

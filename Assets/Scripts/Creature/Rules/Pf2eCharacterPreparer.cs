@@ -105,7 +105,11 @@ namespace Game.Creature.Rules
             PrepareLegacySpellcasting(creature, prepared);
             int spellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature);
             prepared.SpellBook = new PreparedSpellBook(
-                new[] { PreparedSpellEntry.Cantrip(Reference("light")) },
+                new[]
+                {
+                    PreparedSpellEntry.Cantrip(Reference("light")),
+                    PreparedSpellEntry.Cantrip(Reference("divine-lance")),
+                },
                 Array.Empty<PreparedSpellSlotPool>(),
                 spellAttackModifier
             );
@@ -133,9 +137,6 @@ namespace Game.Creature.Rules
             );
             spellcasting.AddSpell(
                 new PreparedSpell("Guidance", 1, true, false, string.Empty, new[] { 1u })
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell("Divine Lance", 1, true, false, string.Empty, new[] { 2u })
             );
             spellcasting.AddSpell(
                 new PreparedSpell("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u })

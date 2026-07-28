@@ -6,6 +6,7 @@ using Game.Combat.Spells;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Light;
+using Game.Rules.Unity.Spells;
 using Game.Rules.Unity.Strike;
 using Game.Strikes;
 using GridPrivate;
@@ -35,6 +36,7 @@ namespace Game.Rules.Unity
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
         private readonly UnityStrikeContext strikeContext;
+        private readonly UnitySpellAttackContext spellAttackContext;
         private readonly RuleDispatcher dispatcher;
         private readonly UnitySpellDefinitionCatalog spellCatalog;
         private readonly ISpellActionCatalog spellActionCatalog;
@@ -51,6 +53,7 @@ namespace Game.Rules.Unity
             topologyProvider = new MutableGridTopologyProvider(CreateHealthTestTopology());
             strideDefinition = new StrideActionDefinition(topologyProvider);
             strikeContext = null;
+            spellAttackContext = null;
             spellCatalog = null;
             spellActionCatalog = null;
             presentationResources = Array.Empty<IDisposable>();
@@ -91,6 +94,7 @@ namespace Game.Rules.Unity
                 Seed(seed, registration.State);
             }
             strikeContext = new UnityStrikeContext(creatures, tiles, seed);
+            spellAttackContext = new UnitySpellAttackContext(creatures, tiles);
             RageActionDefinition rageDefinition = new RageActionDefinition(
                 new UnityRageActorStateProvider(creatures)
             );
@@ -126,13 +130,17 @@ namespace Game.Rules.Unity
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
                 .UseRageRules(rageDefinition)
-                .UseSpellcastingRules(actionCatalog)
+                .UseCheckResolution()
+                .UseSpellcastingRules(actionCatalog, spellAttackContext)
                 .UseStrikeRules(strikeContext, strikeContext, strikeContext)
                 .Build();
             dispatcher.RegisterFactObserver<AmmunitionSpentFact>(strikeContext);
             dispatcher.RegisterFactObserver<StrikeItemLoadedChangedFact>(strikeContext);
             dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
                 new UnityResolvedSpellCastPresentationObserver(creatures, spellCatalog)
+            );
+            dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
+                new UnitySpellAttackPresentationObserver(creatures, spellCatalog)
             );
             UnityLightEffectPresentationObserver effectPresentation =
                 UnityLightEffectPresentationObserver.Create(spellCatalog, creatures);
@@ -523,6 +531,7 @@ namespace Game.Rules.Unity
             RequireCombatComposition();
             topologyProvider.Replace(CreateTopology(tiles));
             strikeContext.ReplaceTiles(tiles);
+            spellAttackContext.ReplaceTiles(tiles);
         }
 
         /// <summary>Looks up the retained source for an encounter health origin.</summary>

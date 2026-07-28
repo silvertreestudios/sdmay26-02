@@ -100,7 +100,6 @@ namespace Game.Combat.Spells
         {
             ["shield"] = new ShieldSpell(),
             ["guidance"] = new GuidanceSpell(),
-            ["divine-lance"] = new DivineLanceSpell(),
             ["haunting-hymn"] = new HauntingHymnSpell(),
             ["bless"] = new BlessSpell(),
             ["infuse-vitality"] = new InfuseVitalitySpell(),
@@ -162,65 +161,6 @@ namespace Game.Combat.Spells
             if (controller.HasEffect<GuidanceImmunitySpellEffect>())
                 return false;
             controller.AddOrRefresh(new GuidanceSpellEffect(context.Caster));
-            result.Targets.Add(target);
-            return true;
-        }
-    }
-
-    public sealed class DivineLanceSpell : SpellDefinition
-    {
-        public override string Slug => "divine-lance";
-
-        public override bool AppliesMultipleAttackPenalty(SpellCastContext context) => true;
-
-        public override IEnumerator SelectAndCast(SpellCastContext context) =>
-            SelectFixedRangeTargetAndCast(context, 60);
-
-        public override bool Cast(
-            SpellCastContext context,
-            SpellTargetSelection selection,
-            CastSpellResult result
-        )
-        {
-            GameObject target = FirstTarget(selection);
-            if (target == null || SpellcastingRuntime.DistanceFeet(context.Caster, target) > 60)
-                return false;
-            CreatureComponent casterCreature = context.CasterCreature;
-            StrikeProfile profile = new(
-                new List<Dice> { new Dice(2, 4, "spirit") },
-                new List<DamageValue>()
-            )
-            {
-                AttackModifierOverride = casterCreature.Prepared.Spellcasting.SpellAttackModifier,
-                SourceInfo = new AttackSourceInfo(
-                    "Divine Lance",
-                    "spell",
-                    "spell",
-                    new[] { "attack", "spell", "spirit" }
-                ),
-                Traits = new List<string> { "attack", "spell", "spirit" },
-                ItemSlug = "divine-lance",
-                WeaponCategory = string.Empty,
-                IsRangedAttack = true,
-                ReachFeet = 60,
-            };
-            StrikeTargetResult targeting = new()
-            {
-                Target = target,
-                DistanceFeet = SpellcastingRuntime.DistanceFeet(context.Caster, target),
-                LineOfEffect = StrikeLineOfEffect.Clear,
-                Cover = StrikeCover.None,
-                RangePenalty = 0,
-            };
-            StrikeResolutionPipeline.Resolve(
-                new StrikeResolutionRequest
-                {
-                    Attacker = context.Caster,
-                    Target = target,
-                    Profile = profile,
-                    TargetingResult = targeting,
-                }
-            );
             result.Targets.Add(target);
             return true;
         }

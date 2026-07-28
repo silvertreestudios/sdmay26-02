@@ -256,6 +256,7 @@ namespace Game.Rules.Runtime
             {
                 typeof(SkillCheckOp),
                 typeof(SavingThrowOp),
+                typeof(AttackCheckOp),
                 typeof(CollectSkillCheckModifiersOp),
                 typeof(CollectSavingThrowModifiersOp),
                 typeof(CollectAttackModifiersOp),
@@ -270,6 +271,12 @@ namespace Game.Rules.Runtime
                 }
             }
 
+            Add(
+                new HandlerRegistration<AttackCheckOp, CheckOutcome>(
+                    new AttackCheckHandler(),
+                    InvocationPolicy.NestedOnly
+                )
+            );
             Add(
                 new HandlerRegistration<SkillCheckOp, CheckOutcome>(
                     new SkillCheckHandler(),
@@ -296,7 +303,7 @@ namespace Game.Rules.Runtime
             );
             Add(
                 new HandlerRegistration<CollectAttackModifiersOp, ModifierCollection>(
-                    new CollectAttackModifiersHandler(selectors),
+                    new CollectAttackModifiersHandler(),
                     InvocationPolicy.NestedOnly
                 )
             );

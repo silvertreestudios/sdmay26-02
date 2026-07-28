@@ -8,6 +8,7 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity.Attack;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
@@ -234,11 +235,7 @@ namespace Game.Rules.Unity.Strike
         {
             CreatureComponent attacker = RequireCreature(actor);
             CreatureComponent defender = RequireCreature(target);
-            Pf2eModifierResolution currentAttack = attacker.ResolveAttackRoll(0);
-            List<Modifier> attackModifiers = currentAttack
-                .AppliedModifiers.Where(modifier => modifier.Value != 0)
-                .Select(ToRuntimeModifier)
-                .ToList();
+            IReadOnlyList<Modifier> attackModifiers = UnityAttackModifierAdapter.Capture(attacker);
 
             PreparedStrikeContributions prepared = UnityPreparedStrikeDataAdapter.Capture(
                 attacker,
@@ -472,24 +469,6 @@ namespace Game.Rules.Unity.Strike
             }
             return defender.ResolveArmorClass(modifiers).Total;
         }
-
-        private static Modifier ToRuntimeModifier(Pf2eModifier modifier) =>
-            new Modifier(
-                modifier.Value,
-                modifier.Type switch
-                {
-                    Pf2eModifierType.Circumstance => ModifierType.Circumstance,
-                    Pf2eModifierType.Item => ModifierType.Item,
-                    Pf2eModifierType.Status => ModifierType.Status,
-                    _ => ModifierType.Untyped,
-                },
-                RuleSource.FromSlug(
-                    string.IsNullOrWhiteSpace(CreatureSlug.FromName(modifier.Source))
-                        ? "unity-modifier"
-                        : CreatureSlug.FromName(modifier.Source)
-                ),
-                Statistic.AttackRoll
-            );
 
         private static IEnumerable<EquipmentWeapon> EnumerateWeapons(CreatureComponent creature)
         {
