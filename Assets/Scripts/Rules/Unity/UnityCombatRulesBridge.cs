@@ -130,7 +130,6 @@ namespace Game.Rules.Unity
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
                 .UseRageRules(rageDefinition)
-                .UseCheckResolution()
                 .UseSpellcastingRules(actionCatalog, spellAttackContext)
                 .UseStrikeRules(strikeContext, strikeContext, strikeContext)
                 .Build();
@@ -139,7 +138,7 @@ namespace Game.Rules.Unity
             dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
                 new UnityResolvedSpellCastPresentationObserver(creatures, spellCatalog)
             );
-            dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
+            dispatcher.RegisterResolvedOpObserver<ResolveSpellAttackOp, SpellAttackResolution>(
                 new UnitySpellAttackPresentationObserver(creatures, spellCatalog)
             );
             UnityLightEffectPresentationObserver effectPresentation =

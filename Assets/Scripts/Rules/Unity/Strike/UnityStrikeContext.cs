@@ -235,7 +235,9 @@ namespace Game.Rules.Unity.Strike
         {
             CreatureComponent attacker = RequireCreature(actor);
             CreatureComponent defender = RequireCreature(target);
-            IReadOnlyList<Modifier> attackModifiers = UnityAttackModifierAdapter.Capture(attacker);
+            IReadOnlyList<Modifier> attackModifiers = UnityAttackDataAdapter.CaptureModifiers(
+                attacker
+            );
 
             PreparedStrikeContributions prepared = UnityPreparedStrikeDataAdapter.Capture(
                 attacker,
@@ -251,7 +253,7 @@ namespace Game.Rules.Unity.Strike
             )
             {
                 prepared.DamageDice.Add(
-                    new StrikeDamageComponent(1, 4, "vitality", "Infuse Vitality")
+                    new TypedDamageDice(new DiceExpression(1, 4), "vitality", "Infuse Vitality")
                 );
             }
 
@@ -263,18 +265,8 @@ namespace Game.Rules.Unity.Strike
                 attackModifiers,
                 prepared.DamageDice,
                 prepared.FlatDamage,
-                (defender.weaknesses ?? new List<DamageValue>()).Select(
-                    value => new StrikeDefenseAdjustment(
-                        value.DamageType,
-                        Math.Max(0, value.DamageAmount)
-                    )
-                ),
-                (defender.resistances ?? new List<DamageValue>()).Select(
-                    value => new StrikeDefenseAdjustment(
-                        value.DamageType,
-                        Math.Max(0, value.DamageAmount)
-                    )
-                )
+                UnityAttackDataAdapter.CaptureWeaknesses(defender),
+                UnityAttackDataAdapter.CaptureResistances(defender)
             );
         }
 
@@ -335,8 +327,15 @@ namespace Game.Rules.Unity.Strike
                     Trait.FromSlug("unarmed"),
                 },
                 creature.attackBonus,
-                new[] { new StrikeDamageComponent(1, unarmedDie, "bludgeoning", "Unarmed Strike") },
-                new[] { new StrikeFlatDamage(creature.strMod, "bludgeoning", "Strength") },
+                new[]
+                {
+                    new TypedDamageDice(
+                        new DiceExpression(1, unarmedDie),
+                        "bludgeoning",
+                        "Unarmed Strike"
+                    ),
+                },
+                new[] { new TypedFlatDamage(creature.strMod, "bludgeoning", "Strength") },
                 5,
                 0,
                 0,
@@ -352,11 +351,11 @@ namespace Game.Rules.Unity.Strike
                 StrikeAmmunitionRequirement ammoRequirement = string.IsNullOrWhiteSpace(weapon.ammo)
                     ? StrikeAmmunitionRequirement.None
                     : StrikeAmmunitionRequirement.Required(AmmunitionIdFor(actor, weapon.ammo));
-                List<StrikeFlatDamage> flat = new List<StrikeFlatDamage>();
+                List<TypedFlatDamage> flat = new List<TypedFlatDamage>();
                 if (weapon.range <= 0 || string.IsNullOrWhiteSpace(weapon.ammo))
                 {
                     flat.Add(
-                        new StrikeFlatDamage(
+                        new TypedFlatDamage(
                             creature.damageBonus,
                             weapon.damage.damageType,
                             "Damage bonus"
@@ -375,9 +374,11 @@ namespace Game.Rules.Unity.Strike
                     creature.GetAttackBonusForWeapon(weapon),
                     new[]
                     {
-                        new StrikeDamageComponent(
-                            weapon.damage.numberOfDice,
-                            weapon.damage.sidesPerDie,
+                        new TypedDamageDice(
+                            new DiceExpression(
+                                weapon.damage.numberOfDice,
+                                weapon.damage.sidesPerDie
+                            ),
                             weapon.damage.damageType,
                             weapon.name
                         ),
@@ -515,8 +516,8 @@ namespace Game.Rules.Unity.Strike
 
     internal sealed class PreparedStrikeContributions
     {
-        public List<StrikeDamageComponent> DamageDice { get; } = new();
-        public List<StrikeFlatDamage> FlatDamage { get; } = new();
+        public List<TypedDamageDice> DamageDice { get; } = new();
+        public List<TypedFlatDamage> FlatDamage { get; } = new();
     }
 
     internal static class UnityPreparedStrikeDataAdapter
@@ -583,7 +584,7 @@ namespace Game.Rules.Unity.Strike
             string primaryType = item.DamageDice[0].DamageType;
             foreach (RuleModifier modifier in flatModifiers.Where(value => value.Value != 0))
                 result.FlatDamage.Add(
-                    new StrikeFlatDamage(modifier.Value, primaryType, modifier.Slug)
+                    new TypedFlatDamage(modifier.Value, primaryType, modifier.Slug)
                 );
 
             if (!item.IsRanged)
@@ -602,7 +603,7 @@ namespace Game.Rules.Unity.Strike
                     int desired = GetAbilityModifier(attacker, ability.Ability);
                     int existing = item.FlatDamage.Count == 0 ? 0 : item.FlatDamage[0].Amount;
                     result.FlatDamage.Add(
-                        new StrikeFlatDamage(desired - existing, primaryType, ability.Ability)
+                        new TypedFlatDamage(desired - existing, primaryType, ability.Ability)
                     );
                 }
             }
@@ -621,9 +622,8 @@ namespace Game.Rules.Unity.Strike
             )
             {
                 result.DamageDice.Add(
-                    new StrikeDamageComponent(
-                        dice.DiceNumber,
-                        dice.DieSize,
+                    new TypedDamageDice(
+                        new DiceExpression(dice.DiceNumber, dice.DieSize),
                         dice.Category ?? "precision",
                         "Prepared damage dice"
                     )
@@ -651,7 +651,7 @@ namespace Game.Rules.Unity.Strike
             AddOption(options, $"item:slug:{item.Definition.Value}");
             if (!string.IsNullOrWhiteSpace(item.Category))
                 AddOption(options, $"item:category:{item.Category}");
-            AddOption(options, $"item:damage:die:faces:{item.DamageDice[0].Sides}");
+            AddOption(options, $"item:damage:die:faces:{item.DamageDice[0].Dice.Sides}");
             if (item.IsRanged)
                 AddOption(options, "item:ranged");
             if (targeting.OffGuard)

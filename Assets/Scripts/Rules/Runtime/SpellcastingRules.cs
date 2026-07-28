@@ -221,19 +221,17 @@ namespace Game.Rules.Runtime
         ) => new CastSpellActionOp(actor, spell, variant, selection);
     }
 
-    /// <summary>Reports one resolved spell cast, its active effects, and its resolved attacks.</summary>
+    /// <summary>Reports the active effects created by one resolved spell cast.</summary>
     public sealed class CastSpellOutcome
     {
         /// <summary>Creates the structural result of a resolved generic spell cast.</summary>
         /// <param name="actor">The caster that resolved the action.</param>
         /// <param name="spell">The exact spell identity and cast rank.</param>
         /// <param name="createdEffects">All active effects committed by the cast.</param>
-        /// <param name="resolvedAttacks">All spell attacks resolved by the cast.</param>
         public CastSpellOutcome(
             CreatureId actor,
             SpellReference spell,
-            IEnumerable<ActiveEffectId> createdEffects,
-            IEnumerable<SpellAttackResolution> resolvedAttacks
+            IEnumerable<ActiveEffectId> createdEffects
         )
         {
             Actor = actor;
@@ -243,16 +241,6 @@ namespace Game.Rules.Runtime
                     createdEffects ?? throw new ArgumentNullException(nameof(createdEffects))
                 ).ToArray()
             );
-            ResolvedAttacks = new ReadOnlyCollection<SpellAttackResolution>(
-                (
-                    resolvedAttacks ?? throw new ArgumentNullException(nameof(resolvedAttacks))
-                ).ToArray()
-            );
-            if (ResolvedAttacks.Any(attack => attack == null))
-                throw new ArgumentException(
-                    "Resolved spell attacks cannot contain null.",
-                    nameof(resolvedAttacks)
-                );
         }
 
         /// <summary>Gets the creature that cast the spell.</summary>
@@ -263,9 +251,6 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the active effects created by the cast.</summary>
         public IReadOnlyList<ActiveEffectId> CreatedEffects { get; }
-
-        /// <summary>Gets the immutable spell attacks resolved by the cast.</summary>
-        public IReadOnlyList<SpellAttackResolution> ResolvedAttacks { get; }
     }
 
     /// <summary>Registers generic spell validation and active-effect creation.</summary>
@@ -294,6 +279,19 @@ namespace Game.Rules.Runtime
             this RuleDispatcherBuilder builder,
             ISpellActionCatalog catalog,
             ISpellAttackResolutionDataProvider resolutionData
+        ) => UseSpellcastingRules(builder, catalog, resolutionData, new RulesSelectors());
+
+        /// <summary>Adds Cast a Spell with explicit spell-attack data and snapshot selectors.</summary>
+        /// <param name="builder">The dispatcher composition being configured.</param>
+        /// <param name="catalog">Encounter spell definitions and prepared spellbooks.</param>
+        /// <param name="resolutionData">Current target and spell-attack resolution data.</param>
+        /// <param name="selectors">Pure selectors for current snapshot-owned attack modifiers.</param>
+        /// <returns>The same builder for fluent composition.</returns>
+        public static RuleDispatcherBuilder UseSpellcastingRules(
+            this RuleDispatcherBuilder builder,
+            ISpellActionCatalog catalog,
+            ISpellAttackResolutionDataProvider resolutionData,
+            IRulesSelectors selectors
         )
         {
             if (builder == null)
@@ -302,6 +300,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(catalog));
             if (resolutionData == null)
                 throw new ArgumentNullException(nameof(resolutionData));
+            if (selectors == null)
+                throw new ArgumentNullException(nameof(selectors));
             CastSpellActionDefinition definition = new CastSpellActionDefinition(catalog);
             return builder
                 .RegisterActionValidator(
@@ -311,7 +311,7 @@ namespace Game.Rules.Runtime
                     new CastSpellActionHandler(catalog)
                 )
                 .RegisterHandler<ResolveSpellAttackOp, SpellAttackResolution>(
-                    new ResolveSpellAttackHandler(catalog, resolutionData),
+                    new ResolveSpellAttackHandler(catalog, resolutionData, selectors),
                     InvocationPolicy.NestedOnly
                 );
         }
@@ -383,7 +383,6 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException("A validated spell definition disappeared.");
 
             List<ActiveEffectId> created = new();
-            List<SpellAttackResolution> attacks = new();
             for (int index = 0; index < definition.Effects.Count; index++)
             {
                 SpellEffectDirective directive = definition.Effects[index];
@@ -417,11 +416,11 @@ namespace Game.Rules.Runtime
                     );
                 created.Add(effectId);
             }
-            foreach (SpellAttackDefinition attack in definition.Attacks)
+            if (definition.Attacks.Count > 0)
             {
                 CreatureId target = frame.Op.Selection.Creatures.Single();
                 OpResult<SpellAttackResolution> result = await context.Dispatch(
-                    new ResolveSpellAttackOp(frame.Op.Actor, frame.Op.Spell, attack, target)
+                    new ResolveSpellAttackOp(frame.Op.Actor, frame.Op.Spell, target)
                 );
                 if (result is not ResolvedOpResult<SpellAttackResolution> resolved)
                     throw new InvalidOperationException("Spell attack resolution did not resolve.");
@@ -446,9 +445,8 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException(
                         "Spell attack MAP advancement did not resolve."
                     );
-                attacks.Add(resolution);
             }
-            return new CastSpellOutcome(frame.Op.Actor, frame.Op.Spell, created, attacks);
+            return new CastSpellOutcome(frame.Op.Actor, frame.Op.Spell, created);
         }
 
         private static CreatureId ResolveTarget(

@@ -34,14 +34,14 @@ namespace Game.Rules.Runtime.Tests
                 new ScriptedRollService(10, 2, 3)
             );
 
-            ResolvedOpResult<CastSpellOutcome> result = RequireResolved(
-                await dispatcher.Dispatch(Cast(Target))
-            );
+            var dispatch = await DispatchResolvedAttack(dispatcher, Cast(Target));
+            ResolvedOpResult<CastSpellOutcome> result = dispatch.Cast;
 
-            SpellAttackResolution attack = result.Value.ResolvedAttacks.Single();
-            Assert.That(attack.AttackCheck.Total, Is.EqualTo(17));
-            Assert.That(attack.AttackCheck.Degree, Is.EqualTo(DegreeOfSuccess.Success));
+            SpellAttackResolution attack = dispatch.Attack;
+            Assert.That(attack.AttackRoll.Total + attack.AttackModifier, Is.EqualTo(17));
+            Assert.That(attack.Degree, Is.EqualTo(DegreeOfSuccess.Success));
             Assert.That(attack.Damage.Single().DamageType, Is.EqualTo("spirit"));
+            Assert.That(attack.Damage.Single().Sources, Does.Contain("divine-lance"));
             Assert.That(attack.FinalDamage, Is.EqualTo(5));
             Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(25));
             Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
@@ -63,8 +63,8 @@ namespace Game.Rules.Runtime.Tests
             TestResolutionDataProvider provider = new(
                 Data(
                     armorClass: 15,
-                    weaknesses: new[] { new SpellAttackDefenseAdjustment("spirit", 3) },
-                    resistances: new[] { new SpellAttackDefenseAdjustment("spirit", 2) }
+                    weaknesses: new[] { new TypedDefenseAdjustment("spirit", 3) },
+                    resistances: new[] { new TypedDefenseAdjustment("spirit", 2) }
                 ),
                 ActionValidationResult.Valid
             );
@@ -75,10 +75,11 @@ namespace Game.Rules.Runtime.Tests
                 new ScriptedRollService(18, 2, 3)
             );
 
-            SpellAttackResolution attack = RequireResolved(await dispatcher.Dispatch(Cast(Target)))
-                .Value.ResolvedAttacks.Single();
+            SpellAttackResolution attack = (
+                await DispatchResolvedAttack(dispatcher, Cast(Target))
+            ).Attack;
 
-            Assert.That(attack.AttackCheck.Degree, Is.EqualTo(DegreeOfSuccess.CriticalSuccess));
+            Assert.That(attack.Degree, Is.EqualTo(DegreeOfSuccess.CriticalSuccess));
             Assert.That(attack.FinalDamage, Is.EqualTo(11));
             Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(19));
         }
@@ -93,13 +94,69 @@ namespace Game.Rules.Runtime.Tests
                 new ScriptedRollService(2)
             );
 
-            ResolvedOpResult<CastSpellOutcome> result = RequireResolved(
-                await dispatcher.Dispatch(Cast(Target))
-            );
+            var dispatch = await DispatchResolvedAttack(dispatcher, Cast(Target));
+            ResolvedOpResult<CastSpellOutcome> result = dispatch.Cast;
 
-            Assert.That(result.Value.ResolvedAttacks.Single().Hit, Is.False);
+            Assert.That(dispatch.Attack.Hit, Is.False);
             Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(30));
             Assert.That(result.Facts.OfType<DamageAppliedFact>(), Is.Empty);
+            Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task AttackCombinesPreparedSnapshotUnityAndRulesOwnedMapModifiers()
+        {
+            Modifier snapshotModifier = Modifier.StatusBonus(
+                1,
+                RuleSource.FromSlug("snapshot-status"),
+                Statistic.AttackRoll
+            );
+            Modifier unityModifier = new(
+                2,
+                ModifierType.Circumstance,
+                RuleSource.FromSlug("unity-circumstance"),
+                Statistic.AttackRoll
+            );
+            InMemoryRulesStore store = CreateStore(
+                snapshotModifiers: new[] { snapshotModifier },
+                priorAttacks: 1
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                new TestResolutionDataProvider(
+                    Data(15, modifiers: new[] { unityModifier }),
+                    ActionValidationResult.Valid
+                ),
+                new ScriptedRollService(10, 2, 3)
+            );
+
+            SpellAttackResolution attack = (
+                await DispatchResolvedAttack(dispatcher, Cast(Target))
+            ).Attack;
+
+            Assert.That(attack.AttackModifier, Is.EqualTo(5));
+            Assert.That(attack.MultipleAttackPenalty, Is.EqualTo(-5));
+            Assert.That(attack.Degree, Is.EqualTo(DegreeOfSuccess.Success));
+            Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public async Task NaturalOneProducesCriticalFailureWithoutDamageAndAdvancesMap()
+        {
+            InMemoryRulesStore store = CreateStore();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                new TestResolutionDataProvider(Data(15), ActionValidationResult.Valid),
+                new ScriptedRollService(1)
+            );
+
+            SpellAttackResolution attack = (
+                await DispatchResolvedAttack(dispatcher, Cast(Target))
+            ).Attack;
+
+            Assert.That(attack.Degree, Is.EqualTo(DegreeOfSuccess.CriticalFailure));
+            Assert.That(attack.Damage, Is.Empty);
+            Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(30));
             Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.EqualTo(1));
         }
 
@@ -122,11 +179,8 @@ namespace Game.Rules.Runtime.Tests
                 : ActionValidationResult.Valid;
             TestResolutionDataProvider provider = new(Data(15), providerValidation);
             InMemoryRulesStore store = CreateStore();
-            RuleDispatcher dispatcher = CreateDispatcher(
-                store,
-                provider,
-                new ScriptedRollService(20)
-            );
+            ScriptedRollService rolls = new(20);
+            RuleDispatcher dispatcher = CreateDispatcher(store, provider, rolls);
             CastSpellActionOp operation = invalid switch
             {
                 InvalidSelection.Empty => Cast(),
@@ -144,6 +198,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.Zero);
             Assert.That(result.Facts, Is.Empty);
             Assert.That(provider.CaptureCalls, Is.Zero);
+            Assert.That(rolls.Remaining, Is.EqualTo(1));
         }
 
         [Test]
@@ -163,12 +218,8 @@ namespace Game.Rules.Runtime.Tests
                 .Middleware(RuleLifecyclePhase.Reaction, new InterruptingActionMiddleware());
             InMemoryRulesStore store = CreateStore(binding);
             TestResolutionDataProvider provider = new(Data(15), ActionValidationResult.Valid);
-            RuleDispatcher dispatcher = CreateDispatcher(
-                store,
-                provider,
-                new ScriptedRollService(20),
-                registry.Build()
-            );
+            ScriptedRollService rolls = new(20);
+            RuleDispatcher dispatcher = CreateDispatcher(store, provider, rolls, registry.Build());
 
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(Cast(Target));
 
@@ -180,6 +231,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
             Assert.That(result.Facts.OfType<DamageAppliedFact>(), Is.Empty);
             Assert.That(result.Facts.OfType<MultipleAttackPenaltyAdvancedFact>(), Is.Empty);
+            Assert.That(rolls.Remaining, Is.EqualTo(1));
         }
 
         [Test]
@@ -193,9 +245,7 @@ namespace Game.Rules.Runtime.Tests
 
             InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(
                 async () =>
-                    await dispatcher.Dispatch(
-                        new ResolveSpellAttackOp(Actor, DivineLance, AttackDefinition(), Target)
-                    )
+                    await dispatcher.Dispatch(new ResolveSpellAttackOp(Actor, DivineLance, Target))
             );
 
             Assert.That(error.Message, Does.Contain("nested-only"));
@@ -204,20 +254,20 @@ namespace Game.Rules.Runtime.Tests
         private static SpellAttackResolutionData Data(
             int armorClass,
             IEnumerable<Modifier> modifiers = null,
-            IEnumerable<SpellAttackDefenseAdjustment> weaknesses = null,
-            IEnumerable<SpellAttackDefenseAdjustment> resistances = null
+            IEnumerable<TypedDefenseAdjustment> weaknesses = null,
+            IEnumerable<TypedDefenseAdjustment> resistances = null
         ) =>
             new(
                 armorClass,
                 modifiers ?? Array.Empty<Modifier>(),
-                weaknesses ?? Array.Empty<SpellAttackDefenseAdjustment>(),
-                resistances ?? Array.Empty<SpellAttackDefenseAdjustment>()
+                weaknesses ?? Array.Empty<TypedDefenseAdjustment>(),
+                resistances ?? Array.Empty<TypedDefenseAdjustment>()
             );
 
         private static SpellAttackDefinition AttackDefinition() =>
             new(
                 new OneCreatureSpellAttackTarget(60),
-                new[] { new SpellAttackDamageComponent(2, 4, "spirit") }
+                new[] { new TypedDamageDice(new DiceExpression(2, 4), "spirit", "divine-lance") }
             );
 
         private static CastSpellActionOp Cast(params CreatureId[] targets) =>
@@ -228,7 +278,11 @@ namespace Game.Rules.Runtime.Tests
                 new SpellCastSelection(targets ?? Array.Empty<CreatureId>())
             );
 
-        private static InMemoryRulesStore CreateStore(ActiveRuleBinding binding = null)
+        private static InMemoryRulesStore CreateStore(
+            ActiveRuleBinding binding = null,
+            IEnumerable<Modifier> snapshotModifiers = null,
+            int priorAttacks = 0
+        )
         {
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Actor, Players))
@@ -238,7 +292,19 @@ namespace Game.Rules.Runtime.Tests
                 .SeedHealth(Target, new HealthState(30, 30))
                 .SeedHealth(DeadTarget, new HealthState(0, 30))
                 .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
-                .SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(0));
+                .SeedStatistics(
+                    new CreatureStatisticsState(
+                        Actor,
+                        0,
+                        10,
+                        0,
+                        0,
+                        0,
+                        new Dictionary<Skill, int>(),
+                        snapshotModifiers ?? Array.Empty<Modifier>()
+                    )
+                )
+                .SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(priorAttacks));
             if (binding != null)
                 seed.SeedRuleBinding(binding);
             return new InMemoryRulesStore(seed);
@@ -267,6 +333,22 @@ namespace Game.Rules.Runtime.Tests
         {
             Assert.That(result, Is.TypeOf<ResolvedOpResult<T>>());
             return (ResolvedOpResult<T>)result;
+        }
+
+        private static async Task<(
+            ResolvedOpResult<CastSpellOutcome> Cast,
+            SpellAttackResolution Attack
+        )> DispatchResolvedAttack(RuleDispatcher dispatcher, CastSpellActionOp operation)
+        {
+            CapturingSpellAttackObserver observer = new();
+            dispatcher.RegisterResolvedOpObserver<ResolveSpellAttackOp, SpellAttackResolution>(
+                observer
+            );
+            ResolvedOpResult<CastSpellOutcome> cast = RequireResolved(
+                await dispatcher.Dispatch(operation)
+            );
+            Assert.That(observer.Result, Is.Not.Null);
+            return (cast, observer.Result);
         }
 
         public enum InvalidSelection
@@ -311,6 +393,22 @@ namespace Game.Rules.Runtime.Tests
             {
                 CaptureCalls++;
                 return data;
+            }
+        }
+
+        private sealed class CapturingSpellAttackObserver
+            : IResolvedOpObserver<ResolveSpellAttackOp, SpellAttackResolution>
+        {
+            public SpellAttackResolution Result { get; private set; }
+
+            public ValueTask OnOperationResolved(
+                ResolveSpellAttackOp operation,
+                SpellAttackResolution result,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Result = result;
+                return default;
             }
         }
 

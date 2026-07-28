@@ -49,11 +49,7 @@
             "value": "60 feet"
         },
         "requirements": "",
-        "rules": [
-            {
-                "key": "ResolveSpellAttack"
-            }
-        ],
+        "rules": [],
         "target": {
             "value": "1 creature"
         },

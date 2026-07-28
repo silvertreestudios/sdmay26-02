@@ -8,10 +8,10 @@ using CreatureSlug = Game.Creature.Rules.Pf2eSlug;
 
 namespace Game.Rules.Unity.Attack
 {
-    /// <summary>Converts current prepared Unity attack modifiers into rules-runtime values.</summary>
-    internal static class UnityAttackModifierAdapter
+    /// <summary>Captures feature-agnostic Unity values used by typed attack resolution.</summary>
+    internal static class UnityAttackDataAdapter
     {
-        public static IReadOnlyList<Modifier> Capture(CreatureComponent attacker)
+        public static IReadOnlyList<Modifier> CaptureModifiers(CreatureComponent attacker)
         {
             if (attacker == null)
                 throw new ArgumentNullException(nameof(attacker));
@@ -21,6 +21,34 @@ namespace Game.Rules.Unity.Attack
                 .Select(ToRuntimeModifier)
                 .ToArray();
         }
+
+        public static IReadOnlyList<TypedDefenseAdjustment> CaptureWeaknesses(
+            CreatureComponent defender
+        )
+        {
+            if (defender == null)
+                throw new ArgumentNullException(nameof(defender));
+            return CaptureDefenses(defender.weaknesses);
+        }
+
+        public static IReadOnlyList<TypedDefenseAdjustment> CaptureResistances(
+            CreatureComponent defender
+        )
+        {
+            if (defender == null)
+                throw new ArgumentNullException(nameof(defender));
+            return CaptureDefenses(defender.resistances);
+        }
+
+        private static IReadOnlyList<TypedDefenseAdjustment> CaptureDefenses(
+            IEnumerable<DamageValue> values
+        ) =>
+            (values ?? Enumerable.Empty<DamageValue>())
+                .Select(value => new TypedDefenseAdjustment(
+                    value.DamageType,
+                    Math.Max(0, value.DamageAmount)
+                ))
+                .ToArray();
 
         private static Modifier ToRuntimeModifier(Pf2eModifier modifier) =>
             new(

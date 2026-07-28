@@ -46,7 +46,7 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void DivineLanceJsonBuildsOnlyOptedInRankOneSpellAttack()
+    public void DivineLanceJsonStructurallyBuildsOnlyRankOneSpellAttack()
     {
         UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
 
@@ -62,9 +62,10 @@ public class Pf2eClericSpellcastingTests
         Assert.That(attack.Target, Is.TypeOf<OneCreatureSpellAttackTarget>());
         Assert.That(((OneCreatureSpellAttackTarget)attack.Target).RangeFeet, Is.EqualTo(60));
         Assert.That(attack.Damage, Has.Count.EqualTo(1));
-        Assert.That(attack.Damage[0].Dice, Is.EqualTo(2));
-        Assert.That(attack.Damage[0].Sides, Is.EqualTo(4));
+        Assert.That(attack.Damage[0].Dice, Is.EqualTo(new DiceExpression(2, 4)));
         Assert.That(attack.Damage[0].DamageType, Is.EqualTo("spirit"));
+        TextAsset source = Resources.Load<TextAsset>("DataFiles/spells/cantrip/divine-lance");
+        Assert.That(JObject.Parse(source.text)["system"]["rules"], Is.Empty);
         Assert.That(
             catalog.TryGetSpell(new SpellReference(new SpellId("divine-lance"), 2), out _),
             Is.False
@@ -80,19 +81,48 @@ public class Pf2eClericSpellcastingTests
     }
 
     [Test]
-    public void OptedInSpellAttackRejectsEveryUnprovenDataShape()
+    public void SpellAttackHydrationIsNameIndependent()
     {
-        AssertCatalogRejects(root => root["system"]["target"]["value"] = "2 creatures");
-        AssertCatalogRejects(root => root["system"]["range"]["value"] = "touch");
-        AssertCatalogRejects(root =>
+        Game.Rules.Runtime.SpellDefinition definition = ParseDefinition(root =>
+        {
+            root["name"] = "Radiant Needle";
+            root["_id"] = "unrelated-id";
+        });
+
+        Assert.That(definition.Id, Is.EqualTo(new SpellId("radiant-needle")));
+        Assert.That(definition.Attacks, Has.Count.EqualTo(1));
+        Assert.That(definition.Attacks[0].Damage[0].Source, Is.EqualTo("radiant-needle"));
+    }
+
+    [Test]
+    public void UnsupportedAttackShapesRemainAvailableWithoutTypedAttackHydration()
+    {
+        AssertCatalogDoesNotHydrate(root => root["system"]["target"]["value"] = "2 creatures");
+        AssertCatalogDoesNotHydrate(root => root["system"]["range"]["value"] = "touch");
+        AssertCatalogDoesNotHydrate(root => ((JObject)root["system"]).Remove("defense"));
+        AssertCatalogDoesNotHydrate(root =>
+            root["system"]["defense"] = new JObject { ["save"] = "fortitude" }
+        );
+        AssertCatalogDoesNotHydrate(root =>
         {
             JArray traits = (JArray)root["system"]["traits"]["value"];
             traits.Remove(traits.First(token => token.Value<string>() == "attack"));
         });
-        AssertCatalogRejects(root => root["system"]["damage"]["0"]["formula"] = "4");
-        AssertCatalogRejects(root => root["system"]["damage"]["0"]["category"] = "persistent");
-        AssertCatalogRejects(root => root["system"]["overlays"]["unsupported"] = new JObject());
-        AssertCatalogRejects(root => root["system"]["overlays"] = new JArray());
+        AssertCatalogDoesNotHydrate(root => root["system"]["damage"]["0"]["formula"] = "4");
+        AssertCatalogDoesNotHydrate(root => root["system"]["damage"]["0"]["applyMod"] = true);
+        AssertCatalogDoesNotHydrate(root =>
+            root["system"]["damage"]["0"]["category"] = "persistent"
+        );
+        AssertCatalogDoesNotHydrate(root =>
+            root["system"]["damage"]["0"]["kinds"] = new JArray("persistent")
+        );
+        AssertCatalogDoesNotHydrate(root =>
+            root["system"]["damage"]["0"]["materials"] = new JArray("silver")
+        );
+        AssertCatalogDoesNotHydrate(root =>
+            root["system"]["overlays"]["unsupported"] = new JObject()
+        );
+        AssertCatalogDoesNotHydrate(root => root["system"]["overlays"] = new JArray());
     }
 
     [Test]
@@ -343,7 +373,13 @@ public class Pf2eClericSpellcastingTests
         field.SetValue(null, log);
     }
 
-    private static void AssertCatalogRejects(Action<JObject> mutate)
+    private static void AssertCatalogDoesNotHydrate(Action<JObject> mutate)
+    {
+        Game.Rules.Runtime.SpellDefinition definition = ParseDefinition(mutate);
+        Assert.That(definition.Attacks, Is.Empty);
+    }
+
+    private static Game.Rules.Runtime.SpellDefinition ParseDefinition(Action<JObject> mutate)
     {
         TextAsset asset = Resources.Load<TextAsset>("DataFiles/spells/cantrip/divine-lance");
         Assert.That(asset, Is.Not.Null);
@@ -354,10 +390,8 @@ public class Pf2eClericSpellcastingTests
             BindingFlags.Static | BindingFlags.NonPublic
         );
         Assert.That(parse, Is.Not.Null);
-        TargetInvocationException exception = Assert.Throws<TargetInvocationException>(() =>
-            parse.Invoke(null, new object[] { root.ToString() })
-        );
-        Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
+        return (Game.Rules.Runtime.SpellDefinition)
+            parse.Invoke(null, new object[] { root.ToString() });
     }
 
     private CastSpellResult Cast(

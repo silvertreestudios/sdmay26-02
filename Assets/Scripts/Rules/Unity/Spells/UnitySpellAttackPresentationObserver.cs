@@ -10,7 +10,7 @@ namespace Game.Rules.Unity.Spells
 {
     /// <summary>Projects resolved generic spell attacks through shared attack presentation.</summary>
     public sealed class UnitySpellAttackPresentationObserver
-        : IResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>
+        : IResolvedOpObserver<ResolveSpellAttackOp, SpellAttackResolution>
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly ISpellDefinitionCatalog catalog;
@@ -29,8 +29,8 @@ namespace Game.Rules.Unity.Spells
 
         /// <inheritdoc/>
         public ValueTask OnOperationResolved(
-            CastSpellActionOp operation,
-            CastSpellOutcome result,
+            ResolveSpellAttackOp operation,
+            SpellAttackResolution result,
             RulesSnapshot currentSnapshot
         )
         {
@@ -43,36 +43,33 @@ namespace Game.Rules.Unity.Spells
                 || attacker == null
             )
                 return default;
-            foreach (SpellAttackResolution attack in result.ResolvedAttacks)
-            {
-                if (
-                    !creatures.TryGetValue(attack.Target, out CreatureComponent target)
-                    || target == null
+            if (
+                !creatures.TryGetValue(result.Target, out CreatureComponent target)
+                || target == null
+            )
+                return default;
+            UnityAttackResultPresentation.Present(
+                attacker.gameObject,
+                target.gameObject,
+                definition.DisplayName,
+                new UnityAttackResult(
+                    result.AttackRoll,
+                    result.AttackModifier,
+                    result.ArmorClass,
+                    result.Degree,
+                    ToDamage(result),
+                    result.FinalDamage,
+                    result.MultipleAttackPenalty,
+                    0,
+                    0
                 )
-                    continue;
-                UnityAttackResultPresentation.Present(
-                    attacker.gameObject,
-                    target.gameObject,
-                    definition.DisplayName,
-                    new UnityAttackResult(
-                        attack.AttackCheck.Roll,
-                        attack.AttackCheck.Modifiers.Total,
-                        attack.AttackCheck.DifficultyClass,
-                        attack.AttackCheck.Degree,
-                        ToDamage(attack),
-                        attack.FinalDamage,
-                        attack.MultipleAttackPenalty,
-                        0,
-                        0
-                    )
-                );
-            }
+            );
             return default;
         }
 
         private static IEnumerable<UnityAttackDamagePart> ToDamage(SpellAttackResolution resolution)
         {
-            foreach (SpellAttackDamagePart part in resolution.Damage)
+            foreach (TypedDamagePart part in resolution.Damage)
                 yield return new UnityAttackDamagePart(part.DamageType, part.Amount);
         }
     }

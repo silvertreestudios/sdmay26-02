@@ -1,11 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
-    /// <summary>Requests one already-begun spell attack through the generic attack runtime.</summary>
+    /// <summary>Requests one already-begun spell attack through the typed rules runtime.</summary>
     /// <remarks>
     /// This operation is nested-only. A validated <see cref="CastSpellActionOp"/> supplies its
     /// catalog-owned definition after the shared action lifecycle commits costs.
@@ -13,12 +12,7 @@ namespace Game.Rules.Runtime
     public sealed class ResolveSpellAttackOp : IRuleOp<SpellAttackResolution>
     {
         /// <summary>Creates one nested spell-attack request.</summary>
-        public ResolveSpellAttackOp(
-            CreatureId actor,
-            SpellReference spell,
-            SpellAttackDefinition attack,
-            CreatureId target
-        )
+        public ResolveSpellAttackOp(CreatureId actor, SpellReference spell, CreatureId target)
         {
             if (actor.IsEmpty)
                 throw new ArgumentException("A spell attack actor is required.", nameof(actor));
@@ -26,7 +20,6 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("A spell attack target is required.", nameof(target));
             Actor = actor;
             Spell = spell;
-            Attack = attack ?? throw new ArgumentNullException(nameof(attack));
             Target = target;
         }
 
@@ -35,9 +28,6 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the exact spell and rank.</summary>
         public SpellReference Spell { get; }
-
-        /// <summary>Gets the catalog-owned immutable attack definition.</summary>
-        public SpellAttackDefinition Attack { get; }
 
         /// <summary>Gets the selected target.</summary>
         public CreatureId Target { get; }
@@ -48,27 +38,40 @@ namespace Game.Rules.Runtime
     {
         private readonly ISpellActionCatalog catalog;
         private readonly ISpellAttackResolutionDataProvider resolutionData;
+        private readonly IRulesSelectors selectors;
 
         public ResolveSpellAttackHandler(
             ISpellActionCatalog catalog,
-            ISpellAttackResolutionDataProvider resolutionData
+            ISpellAttackResolutionDataProvider resolutionData,
+            IRulesSelectors selectors
         )
         {
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             this.resolutionData =
                 resolutionData ?? throw new ArgumentNullException(nameof(resolutionData));
+            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
         }
 
-        public async ValueTask<SpellAttackResolution> Handle(
+        public ValueTask<SpellAttackResolution> Handle(
             OpFrame<ResolveSpellAttackOp> frame,
             OpHandlerContext context
         )
         {
             ResolveSpellAttackOp operation = frame.Op;
+            if (!catalog.TryGetSpell(operation.Spell, out SpellDefinition definition))
+                throw new InvalidOperationException("The spell-attack definition is unavailable.");
+            if (
+                definition.Attacks.Count != 1
+                || definition.Attacks[0].Target is not OneCreatureSpellAttackTarget
+            )
+                throw new InvalidOperationException(
+                    "The spell does not contain one supported spell attack."
+                );
+            SpellAttackDefinition attack = definition.Attacks[0];
             SpellAttackResolutionData data = resolutionData.Capture(
                 context.Snapshot,
                 operation.Actor,
-                operation.Attack,
+                attack,
                 operation.Target
             );
             int priorAttacks = context.Snapshot.MultipleAttackPenalty.TryGet(
@@ -91,78 +94,50 @@ namespace Game.Rules.Runtime
                     Statistic.AttackRoll
                 ),
             };
-            initialModifiers.AddRange(data.AttackModifiers);
-            OpResult<CheckOutcome> checkResult = await context.Dispatch(
-                new AttackCheckOp(
+            if (
+                selectors.TryGetCurrentModifiers(
+                    context.Snapshot,
                     operation.Actor,
-                    operation.Target,
-                    data.ArmorClass,
-                    initialModifiers,
-                    CheckSource.From(frame.Id)
+                    Statistic.AttackRoll,
+                    out ModifierCollection snapshotModifiers
                 )
+            )
+                initialModifiers.AddRange(snapshotModifiers.Candidates);
+            initialModifiers.AddRange(data.AttackModifiers);
+            ModifierCollection attackModifiers = new(Statistic.AttackRoll, initialModifiers);
+            RollResult attackRoll = context.Rolls.Roll(DiceExpressions.D20);
+            int attackTotal = checked(attackRoll.Total + attackModifiers.Total);
+            DegreeOfSuccess degree = DegreeOfSuccessResolver.Resolve(
+                attackRoll.Values[0],
+                attackTotal,
+                data.ArmorClass
             );
-            if (checkResult is not ResolvedOpResult<CheckOutcome> resolvedCheck)
-                throw new InvalidOperationException("Spell attack check did not resolve.");
-
-            IReadOnlyList<SpellAttackDamagePart> damage = resolvedCheck.Value.Degree
+            IReadOnlyList<TypedDamagePart> damage = degree
                 is DegreeOfSuccess.Success
                     or DegreeOfSuccess.CriticalSuccess
-                ? ResolveDamage(operation.Attack, data, resolvedCheck.Value.Degree, context.Rolls)
-                : Array.Empty<SpellAttackDamagePart>();
-            return new SpellAttackResolution(
-                operation.Spell,
-                operation.Actor,
-                operation.Target,
-                resolvedCheck.Value,
-                mapPenalty,
-                damage
+                ? TypedDamageResolver.Resolve(
+                    attack.Damage,
+                    Array.Empty<TypedFlatDamage>(),
+                    Array.Empty<TypedDamageDice>(),
+                    degree,
+                    data.Weaknesses,
+                    data.Resistances,
+                    context.Rolls
+                )
+                : Array.Empty<TypedDamagePart>();
+            return new ValueTask<SpellAttackResolution>(
+                new SpellAttackResolution(
+                    operation.Spell,
+                    operation.Actor,
+                    operation.Target,
+                    attackRoll,
+                    attackModifiers.Total,
+                    data.ArmorClass,
+                    degree,
+                    mapPenalty,
+                    damage
+                )
             );
-        }
-
-        private static IReadOnlyList<SpellAttackDamagePart> ResolveDamage(
-            SpellAttackDefinition attack,
-            SpellAttackResolutionData data,
-            DegreeOfSuccess degree,
-            IRollService rolls
-        )
-        {
-            Dictionary<string, int> amounts = new(StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, string> labels = new(StringComparer.OrdinalIgnoreCase);
-            foreach (SpellAttackDamageComponent component in attack.Damage)
-            {
-                if (!amounts.ContainsKey(component.DamageType))
-                {
-                    amounts.Add(component.DamageType, 0);
-                    labels.Add(component.DamageType, component.DamageType);
-                }
-                amounts[component.DamageType] = checked(
-                    amounts[component.DamageType]
-                    + rolls.Roll(new DiceExpression(component.Dice, component.Sides)).Total
-                );
-            }
-            if (degree == DegreeOfSuccess.CriticalSuccess)
-            {
-                foreach (string damageType in amounts.Keys.ToArray())
-                    amounts[damageType] = checked(amounts[damageType] * 2);
-            }
-            foreach (string damageType in amounts.Keys.ToArray())
-            {
-                SpellAttackDefenseAdjustment weakness = data.Weaknesses.FirstOrDefault(value =>
-                    string.Equals(value.DamageType, damageType, StringComparison.OrdinalIgnoreCase)
-                );
-                SpellAttackDefenseAdjustment resistance = data.Resistances.FirstOrDefault(value =>
-                    string.Equals(value.DamageType, damageType, StringComparison.OrdinalIgnoreCase)
-                );
-                int amount = amounts[damageType];
-                if (weakness != null)
-                    amount = checked(amount + weakness.Amount);
-                if (resistance != null)
-                    amount -= resistance.Amount;
-                amounts[damageType] = Math.Max(0, amount);
-            }
-            return labels
-                .Select(pair => new SpellAttackDamagePart(pair.Value, amounts[pair.Key]))
-                .ToArray();
         }
     }
 

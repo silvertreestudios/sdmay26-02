@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -271,70 +269,5 @@ namespace Game.Rules.Runtime
             DifficultyClass = difficultyClass;
             Source = source;
         }
-    }
-
-    /// <summary>
-    /// Requests one nested d20 attack check after collecting interceptable attack modifiers.
-    /// </summary>
-    public sealed class AttackCheckOp : IRuleOp<CheckOutcome>
-    {
-        private readonly IReadOnlyList<Modifier> initialModifiers;
-
-        /// <summary>Creates an immutable nested attack-check request.</summary>
-        /// <param name="actor">The creature making the attack.</param>
-        /// <param name="target">The creature whose defense is checked.</param>
-        /// <param name="difficultyClass">The positive Armor Class to meet.</param>
-        /// <param name="initialModifiers">
-        /// Frozen spell, item, MAP, range, and current modifier candidates.
-        /// </param>
-        /// <param name="source">The trusted ancestor responsible for the attack.</param>
-        public AttackCheckOp(
-            CreatureId actor,
-            CreatureId target,
-            int difficultyClass,
-            IEnumerable<Modifier> initialModifiers,
-            CheckSource source
-        )
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("An attack actor is required.", nameof(actor));
-            if (target.IsEmpty)
-                throw new ArgumentException("An attack target is required.", nameof(target));
-            if (difficultyClass <= 0)
-                throw new ArgumentOutOfRangeException(nameof(difficultyClass));
-            if (initialModifiers == null)
-                throw new ArgumentNullException(nameof(initialModifiers));
-            Modifier[] copied = initialModifiers.ToArray();
-            if (copied.Any(modifier => modifier.IsEmpty))
-                throw new ArgumentException(
-                    "Initial attack modifiers cannot be empty.",
-                    nameof(initialModifiers)
-                );
-            if (source.IsEmpty)
-                throw new ArgumentException(
-                    "An attack check requires trusted source provenance.",
-                    nameof(source)
-                );
-            Actor = actor;
-            Target = target;
-            DifficultyClass = difficultyClass;
-            this.initialModifiers = Array.AsReadOnly(copied);
-            Source = source;
-        }
-
-        /// <summary>Gets the attacking creature.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the target creature.</summary>
-        public CreatureId Target { get; }
-
-        /// <summary>Gets the target Armor Class.</summary>
-        public int DifficultyClass { get; }
-
-        /// <summary>Gets frozen modifier candidates known before middleware.</summary>
-        public IReadOnlyList<Modifier> InitialModifiers => initialModifiers;
-
-        /// <summary>Gets the trusted ancestor responsible for the check.</summary>
-        public CheckSource Source { get; }
     }
 }

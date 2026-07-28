@@ -152,7 +152,7 @@ namespace Game.Rules.Unity.Strike
 
         private static IEnumerable<UnityAttackDamagePart> ToDamage(StrikeResolution resolution)
         {
-            foreach (StrikeDamagePart part in resolution.Damage)
+            foreach (TypedDamagePart part in resolution.Damage)
                 yield return new UnityAttackDamagePart(part.DamageType, part.Amount);
         }
 

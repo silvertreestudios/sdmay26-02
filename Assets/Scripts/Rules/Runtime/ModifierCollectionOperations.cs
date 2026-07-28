@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -19,24 +17,24 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the target creature.</summary>
         public CreatureId Target { get; }
 
+        /// <summary>Gets the stable weapon item used by the attack.</summary>
+        public ItemId Weapon { get; }
+
         /// <summary>Gets the ancestor operation responsible for the attack calculation.</summary>
         public CheckSource Source { get; }
-
-        /// <summary>Gets immutable base, MAP, range, and adapter-provided modifier candidates.</summary>
-        public IReadOnlyList<Modifier> InitialModifiers { get; }
 
         /// <summary>Creates a nested attack-modifier collection request.</summary>
         /// <param name="attacker">The attacking creature.</param>
         /// <param name="target">The target creature.</param>
-        /// <param name="initialModifiers">Frozen candidates known before middleware runs.</param>
+        /// <param name="weapon">The weapon item used for this attack.</param>
         /// <param name="source">The ancestor operation responsible for the calculation.</param>
         /// <exception cref="ArgumentException">
-        /// Any required creature or source identity is empty, or a modifier is empty.
+        /// Any required creature, item, or source identity is empty.
         /// </exception>
         public CollectAttackModifiersOp(
             CreatureId attacker,
             CreatureId target,
-            IEnumerable<Modifier> initialModifiers,
+            ItemId weapon,
             CheckSource source
         )
         {
@@ -44,14 +42,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("An attacker is required.", nameof(attacker));
             if (target.IsEmpty)
                 throw new ArgumentException("A target is required.", nameof(target));
-            if (initialModifiers == null)
-                throw new ArgumentNullException(nameof(initialModifiers));
-            Modifier[] copied = initialModifiers.ToArray();
-            if (copied.Any(modifier => modifier.IsEmpty))
-                throw new ArgumentException(
-                    "Initial attack modifiers cannot be empty.",
-                    nameof(initialModifiers)
-                );
+            if (weapon.IsEmpty)
+                throw new ArgumentException("A weapon item is required.", nameof(weapon));
             if (source.IsEmpty)
                 throw new ArgumentException(
                     "Modifier collection requires trusted source provenance.",
@@ -60,7 +52,7 @@ namespace Game.Rules.Runtime
 
             Attacker = attacker;
             Target = target;
-            InitialModifiers = Array.AsReadOnly(copied);
+            Weapon = weapon;
             Source = source;
         }
     }

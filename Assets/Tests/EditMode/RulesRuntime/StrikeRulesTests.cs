@@ -103,10 +103,10 @@ namespace Game.Rules.Runtime.Tests
                     new StrikeResolutionData(
                         15,
                         Array.Empty<Modifier>(),
-                        Array.Empty<StrikeDamageComponent>(),
-                        Array.Empty<StrikeFlatDamage>(),
-                        new[] { new StrikeDefenseAdjustment("slashing", 3) },
-                        new[] { new StrikeDefenseAdjustment("slashing", 1) }
+                        Array.Empty<TypedDamageDice>(),
+                        Array.Empty<TypedFlatDamage>(),
+                        new[] { new TypedDefenseAdjustment("slashing", 3) },
+                        new[] { new TypedDefenseAdjustment("slashing", 1) }
                     )
                 )
             );
@@ -358,10 +358,10 @@ namespace Game.Rules.Runtime.Tests
                     new StrikeResolutionData(
                         15,
                         Array.Empty<Modifier>(),
-                        Array.Empty<StrikeDamageComponent>(),
-                        Array.Empty<StrikeFlatDamage>(),
-                        Array.Empty<StrikeDefenseAdjustment>(),
-                        Array.Empty<StrikeDefenseAdjustment>()
+                        Array.Empty<TypedDamageDice>(),
+                        Array.Empty<TypedFlatDamage>(),
+                        Array.Empty<TypedDefenseAdjustment>(),
+                        Array.Empty<TypedDefenseAdjustment>()
                     )
                 );
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
@@ -390,8 +390,8 @@ namespace Game.Rules.Runtime.Tests
                 "martial",
                 traits ?? Array.Empty<Trait>(),
                 10,
-                new[] { new StrikeDamageComponent(1, 6, "slashing", "Test Sword") },
-                new[] { new StrikeFlatDamage(2, "slashing", "Strength") },
+                new[] { new TypedDamageDice(new DiceExpression(1, 6), "slashing", "Test Sword") },
+                new[] { new TypedFlatDamage(2, "slashing", "Strength") },
                 5,
                 reloadActions > 0 ? 30 : 0,
                 reloadActions,

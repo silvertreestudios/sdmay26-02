@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Attack;
@@ -89,19 +88,9 @@ namespace Game.Rules.Unity.Spells
             CreatureComponent defender = RequireCreature(target);
             return new SpellAttackResolutionData(
                 Math.Max(1, defender.ResolveArmorClass().Total),
-                UnityAttackModifierAdapter.Capture(attacker),
-                (defender.weaknesses ?? new List<DamageValue>()).Select(
-                    value => new SpellAttackDefenseAdjustment(
-                        value.DamageType,
-                        Math.Max(0, value.DamageAmount)
-                    )
-                ),
-                (defender.resistances ?? new List<DamageValue>()).Select(
-                    value => new SpellAttackDefenseAdjustment(
-                        value.DamageType,
-                        Math.Max(0, value.DamageAmount)
-                    )
-                )
+                UnityAttackDataAdapter.CaptureModifiers(attacker),
+                UnityAttackDataAdapter.CaptureWeaknesses(defender),
+                UnityAttackDataAdapter.CaptureResistances(defender)
             );
         }
 

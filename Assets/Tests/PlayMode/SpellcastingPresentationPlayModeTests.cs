@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -161,6 +162,40 @@ public sealed class SpellcastingPresentationPlayModeTests
                 .Any(action => action.Spell.Slug == "shield"),
             Is.True
         );
+    }
+
+    [UnityTest]
+    public IEnumerator PreparedRulesNativeSpellWithoutSupportedBehaviorFailsInstallation()
+    {
+        CreatureComponent caster = CreateCreature("Unsupported Native Caster", 0, prepared: true);
+        TestActionController controller = caster.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(1);
+        Occupy(tiles, caster.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(new[] { controller }, tiles);
+        CreatureId owner = bridge.GetCreatureId(controller);
+        SpellReference unsupported = Reference("unsupported-native");
+        Game.Rules.Runtime.SpellDefinition definition = new(
+            unsupported.Spell,
+            "Unsupported Native",
+            1,
+            new[] { new SpellActionVariant(2) },
+            Array.Empty<Trait>(),
+            Array.Empty<SpellEffectDirective>(),
+            Array.Empty<SpellAttackDefinition>()
+        );
+        ISpellBook book = new PreparedSpellBook(
+            new[] { PreparedSpellEntry.Cantrip(unsupported) },
+            Array.Empty<PreparedSpellSlotPool>(),
+            7
+        );
+        UnsupportedSpellActionCatalog catalog = new(definition, owner, book);
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellActionInstaller.Install(controller, catalog)
+        );
+
+        Assert.That(error.Message, Does.Contain("no supported effect or attack"));
     }
 
     [UnityTest]
@@ -651,6 +686,44 @@ public sealed class SpellcastingPresentationPlayModeTests
             SpellReference reference,
             out Game.Rules.Runtime.SpellDefinition definition
         ) => definitions.TryGetSpell(reference, out definition);
+
+        public ISpellBook GetSpellBook(CreatureId creature) =>
+            creature == owner ? book : EmptySpellBook.Instance;
+    }
+
+    private sealed class UnsupportedSpellActionCatalog : ISpellActionCatalog
+    {
+        private readonly Game.Rules.Runtime.SpellDefinition definition;
+        private readonly CreatureId owner;
+        private readonly ISpellBook book;
+
+        public UnsupportedSpellActionCatalog(
+            Game.Rules.Runtime.SpellDefinition definition,
+            CreatureId owner,
+            ISpellBook book
+        )
+        {
+            this.definition = definition;
+            this.owner = owner;
+            this.book = book;
+        }
+
+        public ActionProfile GetBaseProfile(ActionDefinitionId definitionId) =>
+            throw new KeyNotFoundException();
+
+        public bool TryGetSpell(
+            SpellReference reference,
+            out Game.Rules.Runtime.SpellDefinition value
+        )
+        {
+            if (reference.Spell == definition.Id && reference.Rank == definition.MinimumRank)
+            {
+                value = definition;
+                return true;
+            }
+            value = null;
+            return false;
+        }
 
         public ISpellBook GetSpellBook(CreatureId creature) =>
             creature == owner ? book : EmptySpellBook.Instance;

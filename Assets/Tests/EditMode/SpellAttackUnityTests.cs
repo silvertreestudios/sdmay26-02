@@ -35,7 +35,7 @@ public sealed class SpellAttackUnityTests
         UnitySpellAttackContext context = new(creatures, tiles);
         SpellAttackDefinition attack = new(
             new OneCreatureSpellAttackTarget(60),
-            new[] { new SpellAttackDamageComponent(2, 4, "spirit") }
+            new[] { new TypedDamageDice(new DiceExpression(2, 4), "spirit", "test-spell") }
         );
         RulesSnapshot snapshot = new InMemoryRulesStore(new RulesStateSeed()).Snapshot;
 

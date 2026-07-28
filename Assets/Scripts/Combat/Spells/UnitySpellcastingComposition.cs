@@ -61,7 +61,9 @@ namespace Game.Combat.Spells
                 )
                     continue;
                 if (definition.Effects.Count == 0 && definition.Attacks.Count == 0)
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Prepared rules-native spell '{reference}' has no supported effect or attack."
+                    );
                 foreach (SpellActionVariant variant in definition.Variants)
                     desired.Add((reference, variant));
             }
