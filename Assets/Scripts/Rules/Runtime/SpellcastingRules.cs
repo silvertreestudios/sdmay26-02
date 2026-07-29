@@ -279,19 +279,6 @@ namespace Game.Rules.Runtime
             this RuleDispatcherBuilder builder,
             ISpellActionCatalog catalog,
             ISpellAttackResolutionDataProvider resolutionData
-        ) => UseSpellcastingRules(builder, catalog, resolutionData, new RulesSelectors());
-
-        /// <summary>Adds Cast a Spell with explicit spell-attack data and snapshot selectors.</summary>
-        /// <param name="builder">The dispatcher composition being configured.</param>
-        /// <param name="catalog">Encounter spell definitions and prepared spellbooks.</param>
-        /// <param name="resolutionData">Current target and spell-attack resolution data.</param>
-        /// <param name="selectors">Pure selectors for current snapshot-owned attack modifiers.</param>
-        /// <returns>The same builder for fluent composition.</returns>
-        public static RuleDispatcherBuilder UseSpellcastingRules(
-            this RuleDispatcherBuilder builder,
-            ISpellActionCatalog catalog,
-            ISpellAttackResolutionDataProvider resolutionData,
-            IRulesSelectors selectors
         )
         {
             if (builder == null)
@@ -300,8 +287,6 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(catalog));
             if (resolutionData == null)
                 throw new ArgumentNullException(nameof(resolutionData));
-            if (selectors == null)
-                throw new ArgumentNullException(nameof(selectors));
             CastSpellActionDefinition definition = new CastSpellActionDefinition(catalog);
             return builder
                 .RegisterActionValidator(
@@ -311,7 +296,7 @@ namespace Game.Rules.Runtime
                     new CastSpellActionHandler(catalog)
                 )
                 .RegisterHandler<ResolveSpellAttackOp, SpellAttackResolution>(
-                    new ResolveSpellAttackHandler(catalog, resolutionData, selectors),
+                    new ResolveSpellAttackHandler(catalog, resolutionData),
                     InvocationPolicy.NestedOnly
                 );
         }

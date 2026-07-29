@@ -125,6 +125,7 @@ namespace Game.Rules.Unity
             )
                 .UseHealthRules()
                 .UseCombatRuntimeRules()
+                .UseCheckResolution()
                 .UseActiveEffectRules(registry)
                 .UseActionLifecycle(actionCatalog)
                 .UseMovementRules(topologyProvider)

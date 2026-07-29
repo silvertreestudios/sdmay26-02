@@ -38,21 +38,18 @@ namespace Game.Rules.Runtime
     {
         private readonly ISpellActionCatalog catalog;
         private readonly ISpellAttackResolutionDataProvider resolutionData;
-        private readonly IRulesSelectors selectors;
 
         public ResolveSpellAttackHandler(
             ISpellActionCatalog catalog,
-            ISpellAttackResolutionDataProvider resolutionData,
-            IRulesSelectors selectors
+            ISpellAttackResolutionDataProvider resolutionData
         )
         {
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             this.resolutionData =
                 resolutionData ?? throw new ArgumentNullException(nameof(resolutionData));
-            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
         }
 
-        public ValueTask<SpellAttackResolution> Handle(
+        public async ValueTask<SpellAttackResolution> Handle(
             OpFrame<ResolveSpellAttackOp> frame,
             OpHandlerContext context
         )
@@ -94,24 +91,20 @@ namespace Game.Rules.Runtime
                     Statistic.AttackRoll
                 ),
             };
-            if (
-                selectors.TryGetCurrentModifiers(
-                    context.Snapshot,
-                    operation.Actor,
-                    Statistic.AttackRoll,
-                    out ModifierCollection snapshotModifiers
-                )
-            )
-                initialModifiers.AddRange(snapshotModifiers.Candidates);
             initialModifiers.AddRange(data.AttackModifiers);
-            ModifierCollection attackModifiers = new(Statistic.AttackRoll, initialModifiers);
-            RollResult attackRoll = context.Rolls.Roll(DiceExpressions.D20);
-            int attackTotal = checked(attackRoll.Total + attackModifiers.Total);
-            DegreeOfSuccess degree = DegreeOfSuccessResolver.Resolve(
-                attackRoll.Values[0],
-                attackTotal,
-                data.ArmorClass
+            OpResult<CheckOutcome> attackResult = await context.Dispatch(
+                new AttackCheckOp(
+                    operation.Actor,
+                    operation.Target,
+                    initialModifiers,
+                    data.ArmorClass,
+                    CheckSource.From(frame.Id)
+                )
             );
+            if (attackResult is not ResolvedOpResult<CheckOutcome> resolvedAttack)
+                throw new InvalidOperationException("Spell attack check did not resolve.");
+            CheckOutcome attackOutcome = resolvedAttack.Value;
+            DegreeOfSuccess degree = attackOutcome.Degree;
             IReadOnlyList<TypedDamagePart> damage = degree
                 is DegreeOfSuccess.Success
                     or DegreeOfSuccess.CriticalSuccess
@@ -125,18 +118,16 @@ namespace Game.Rules.Runtime
                     context.Rolls
                 )
                 : Array.Empty<TypedDamagePart>();
-            return new ValueTask<SpellAttackResolution>(
-                new SpellAttackResolution(
-                    operation.Spell,
-                    operation.Actor,
-                    operation.Target,
-                    attackRoll,
-                    attackModifiers.Total,
-                    data.ArmorClass,
-                    degree,
-                    mapPenalty,
-                    damage
-                )
+            return new SpellAttackResolution(
+                operation.Spell,
+                operation.Actor,
+                operation.Target,
+                attackOutcome.Roll,
+                attackOutcome.Modifiers.Total,
+                data.ArmorClass,
+                degree,
+                mapPenalty,
+                damage
             );
         }
     }

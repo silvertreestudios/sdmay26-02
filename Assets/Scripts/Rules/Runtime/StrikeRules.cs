@@ -947,7 +947,7 @@ namespace Game.Rules.Runtime
             this.resolutionData = resolutionData;
         }
 
-        public ValueTask<StrikeResolution> Handle(
+        public async ValueTask<StrikeResolution> Handle(
             OpFrame<ResolveStrikeOp> frame,
             OpHandlerContext context
         )
@@ -977,17 +977,16 @@ namespace Game.Rules.Runtime
                 ? map.AttackCount
                 : 0;
             int mapPenalty = MultipleAttackPenaltyResolver.Resolve(priorAttacks, item.IsAgile);
-            StrikeResolution resolution = Resolve(item, data, legal, mapPenalty, context.Rolls);
-
-            return new ValueTask<StrikeResolution>(resolution);
+            return await Resolve(frame, item, data, legal, mapPenalty, context);
         }
 
-        private static StrikeResolution Resolve(
+        private static async ValueTask<StrikeResolution> Resolve(
+            OpFrame<ResolveStrikeOp> frame,
             StrikeItemDefinition item,
             StrikeResolutionData data,
             LegalStrikeTargetingOutcome targeting,
             int mapPenalty,
-            IRollService rolls
+            OpHandlerContext context
         )
         {
             List<Modifier> attackCandidates = new List<Modifier>
@@ -1009,30 +1008,32 @@ namespace Game.Rules.Runtime
                 ),
             };
             attackCandidates.AddRange(data.AttackModifiers);
-            ModifierCollection attack = new ModifierCollection(
-                Statistic.AttackRoll,
-                attackCandidates
-            );
             int armorClass = data.ArmorClass;
-            RollResult attackRoll = rolls.Roll(DiceExpressions.D20);
-            int total = checked(attackRoll.Total + attack.Total);
-            DegreeOfSuccess degree = DegreeOfSuccessResolver.Resolve(
-                attackRoll.Values[0],
-                total,
-                armorClass
+            OpResult<CheckOutcome> attackResult = await context.Dispatch(
+                new AttackCheckOp(
+                    frame.Op.Actor,
+                    frame.Op.Target,
+                    attackCandidates,
+                    armorClass,
+                    CheckSource.From(frame.Id)
+                )
             );
+            if (attackResult is not ResolvedOpResult<CheckOutcome> resolvedAttack)
+                throw new InvalidOperationException("Strike attack check did not resolve.");
+            CheckOutcome attack = resolvedAttack.Value;
+            DegreeOfSuccess degree = attack.Degree;
             bool hit =
                 degree == DegreeOfSuccess.Success || degree == DegreeOfSuccess.CriticalSuccess;
             IReadOnlyList<TypedDamagePart> damage = Array.Empty<TypedDamagePart>();
             int finalDamage = 0;
             if (hit)
             {
-                damage = ResolveDamage(item, data, degree, rolls);
+                damage = ResolveDamage(item, data, degree, context.Rolls);
                 finalDamage = damage.Sum(part => part.Amount);
             }
             return new StrikeResolution(
-                attackRoll,
-                attack.Total,
+                attack.Roll,
+                attack.Modifiers.Total,
                 mapPenalty,
                 targeting.RangePenalty,
                 armorClass,

@@ -38,6 +38,11 @@ namespace Game.Rules.Runtime.Tests
             ResolvedOpResult<CastSpellOutcome> result = dispatch.Cast;
 
             SpellAttackResolution attack = dispatch.Attack;
+            Assert.That(dispatch.Check.Operation.Attacker, Is.EqualTo(Actor));
+            Assert.That(dispatch.Check.Operation.Target, Is.EqualTo(Target));
+            Assert.That(dispatch.Check.Outcome.Roll, Is.SameAs(attack.AttackRoll));
+            Assert.That(dispatch.Check.Outcome.Modifiers.Total, Is.EqualTo(attack.AttackModifier));
+            Assert.That(dispatch.Check.Outcome.Degree, Is.EqualTo(attack.Degree));
             Assert.That(attack.AttackRoll.Total + attack.AttackModifier, Is.EqualTo(17));
             Assert.That(attack.Degree, Is.EqualTo(DegreeOfSuccess.Success));
             Assert.That(attack.Damage.Single().DamageType, Is.EqualTo("spirit"));
@@ -337,18 +342,22 @@ namespace Game.Rules.Runtime.Tests
 
         private static async Task<(
             ResolvedOpResult<CastSpellOutcome> Cast,
-            SpellAttackResolution Attack
+            SpellAttackResolution Attack,
+            CapturingAttackCheckObserver Check
         )> DispatchResolvedAttack(RuleDispatcher dispatcher, CastSpellActionOp operation)
         {
             CapturingSpellAttackObserver observer = new();
+            CapturingAttackCheckObserver checkObserver = new();
             dispatcher.RegisterResolvedOpObserver<ResolveSpellAttackOp, SpellAttackResolution>(
                 observer
             );
+            dispatcher.RegisterResolvedOpObserver<AttackCheckOp, CheckOutcome>(checkObserver);
             ResolvedOpResult<CastSpellOutcome> cast = RequireResolved(
                 await dispatcher.Dispatch(operation)
             );
             Assert.That(observer.Result, Is.Not.Null);
-            return (cast, observer.Result);
+            Assert.That(checkObserver.Outcome, Is.Not.Null);
+            return (cast, observer.Result, checkObserver);
         }
 
         public enum InvalidSelection
@@ -408,6 +417,24 @@ namespace Game.Rules.Runtime.Tests
             )
             {
                 Result = result;
+                return default;
+            }
+        }
+
+        private sealed class CapturingAttackCheckObserver
+            : IResolvedOpObserver<AttackCheckOp, CheckOutcome>
+        {
+            public AttackCheckOp Operation { get; private set; }
+            public CheckOutcome Outcome { get; private set; }
+
+            public ValueTask OnOperationResolved(
+                AttackCheckOp operation,
+                CheckOutcome result,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Operation = operation;
+                Outcome = result;
                 return default;
             }
         }

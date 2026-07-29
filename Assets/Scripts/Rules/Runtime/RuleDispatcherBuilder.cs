@@ -227,15 +227,15 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Registers the engine-owned check, save, and modifier-collection handlers with the
-        /// standard pure snapshot selectors.
+        /// Registers the engine-owned attack, check, save, and modifier-collection handlers with
+        /// the standard pure snapshot selectors.
         /// </summary>
         /// <returns>This builder so configuration can be chained.</returns>
         public RuleDispatcherBuilder UseCheckResolution() =>
             UseCheckResolution(new RulesSelectors());
 
         /// <summary>
-        /// Registers the engine-owned check, save, and modifier-collection handlers.
+        /// Registers the engine-owned attack, check, save, and modifier-collection handlers.
         /// </summary>
         /// <param name="selectors">The pure selectors used to read base and current modifier inputs.</param>
         /// <returns>This builder so configuration can be chained.</returns>
@@ -254,6 +254,7 @@ namespace Game.Rules.Runtime
 
             Type[] reservedTypes =
             {
+                typeof(AttackCheckOp),
                 typeof(SkillCheckOp),
                 typeof(SavingThrowOp),
                 typeof(CollectSkillCheckModifiersOp),
@@ -270,6 +271,12 @@ namespace Game.Rules.Runtime
                 }
             }
 
+            Add(
+                new HandlerRegistration<AttackCheckOp, CheckOutcome>(
+                    new AttackCheckHandler(),
+                    InvocationPolicy.NestedOnly
+                )
+            );
             Add(
                 new HandlerRegistration<SkillCheckOp, CheckOutcome>(
                     new SkillCheckHandler(),

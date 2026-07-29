@@ -1,10 +1,44 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
     // Check handlers deliberately contain no state mutation. They combine a pure selector result
     // with the callback-scoped roll source so middleware and trace provenance remain engine-owned.
+    internal sealed class AttackCheckHandler : IOpHandler<AttackCheckOp, CheckOutcome>
+    {
+        public async ValueTask<CheckOutcome> Handle(
+            OpFrame<AttackCheckOp> frame,
+            OpHandlerContext context
+        )
+        {
+            CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
+            OpResult<ModifierCollection> modifiersResult = await context.Dispatch(
+                new CollectAttackModifiersOp(frame.Op.Attacker, frame.Op.Target, frame.Op.Source)
+            );
+            if (!(modifiersResult is ResolvedOpResult<ModifierCollection> resolvedModifiers))
+            {
+                throw new InvalidOperationException(
+                    "Attack modifier collection must produce a resolved result."
+                );
+            }
+
+            ModifierCollection modifiers = new ModifierCollection(
+                Statistic.AttackRoll,
+                frame.Op.InitialModifiers.Concat(resolvedModifiers.Value.Candidates)
+            );
+            RollResult roll = context.Rolls.Roll(DiceExpressions.D20);
+            return new CheckOutcome(
+                frame.Op.Attacker,
+                frame.Op.Source,
+                roll,
+                modifiers,
+                frame.Op.DifficultyClass
+            );
+        }
+    }
+
     internal sealed class SkillCheckHandler : IOpHandler<SkillCheckOp, CheckOutcome>
     {
         public async ValueTask<CheckOutcome> Handle(
@@ -117,8 +151,17 @@ namespace Game.Rules.Runtime
         )
         {
             CheckHandlerSupport.RequireAncestorSource(frame.Id, frame.Op.Source, context.Trace);
+            if (
+                selectors.TryGetCurrentModifiers(
+                    context.Snapshot,
+                    frame.Op.Attacker,
+                    Statistic.AttackRoll,
+                    out ModifierCollection modifiers
+                )
+            )
+                return new ValueTask<ModifierCollection>(modifiers);
             return new ValueTask<ModifierCollection>(
-                selectors.GetAttackModifiers(context.Snapshot, frame.Op.Attacker)
+                new ModifierCollection(Statistic.AttackRoll, Array.Empty<Modifier>())
             );
         }
     }

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -167,6 +169,91 @@ namespace Game.Rules.Runtime
             DifficultyClass = difficultyClass;
             Total = checked(roll.Total + modifiers.Total);
             Degree = DegreeOfSuccessResolver.Resolve(roll.Values[0], Total, difficultyClass);
+        }
+    }
+
+    /// <summary>
+    /// Requests one generic attack check after a feature has validated its target and assembled its
+    /// feature-owned modifier inputs.
+    /// </summary>
+    /// <remarks>
+    /// This operation is nested-only. Its handler adds current rules-state and middleware
+    /// candidates to <see cref="InitialModifiers"/>, resolves stacking once, and produces the same
+    /// <see cref="CheckOutcome"/> used by every shared check path.
+    /// </remarks>
+    public sealed class AttackCheckOp : IRuleOp<CheckOutcome>
+    {
+        private readonly IReadOnlyList<Modifier> initialModifiers;
+
+        /// <summary>Gets the creature making the attack.</summary>
+        public CreatureId Attacker { get; }
+
+        /// <summary>Gets the creature targeted by the attack.</summary>
+        public CreatureId Target { get; }
+
+        /// <summary>Gets an immutable copy of the feature-owned modifier candidates.</summary>
+        public IReadOnlyList<Modifier> InitialModifiers => initialModifiers;
+
+        /// <summary>Gets the positive target difficulty class.</summary>
+        public int DifficultyClass { get; }
+
+        /// <summary>Gets the trusted ancestor that requested the attack check.</summary>
+        public CheckSource Source { get; }
+
+        /// <summary>Creates one nested attack-check request from immutable rules data.</summary>
+        /// <param name="attacker">The creature making the attack.</param>
+        /// <param name="target">The creature targeted by the attack.</param>
+        /// <param name="initialModifiers">
+        /// Feature-owned candidates such as proficiency, MAP, range, or captured Unity data.
+        /// </param>
+        /// <param name="difficultyClass">The positive target difficulty class.</param>
+        /// <param name="source">The ancestor operation responsible for the attack check.</param>
+        /// <exception cref="ArgumentException">
+        /// A required creature or source identity is empty, or a modifier is empty.
+        /// </exception>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="initialModifiers"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="difficultyClass"/> is not positive.
+        /// </exception>
+        public AttackCheckOp(
+            CreatureId attacker,
+            CreatureId target,
+            IEnumerable<Modifier> initialModifiers,
+            int difficultyClass,
+            CheckSource source
+        )
+        {
+            if (attacker.IsEmpty)
+                throw new ArgumentException(
+                    "An attack check requires an attacker.",
+                    nameof(attacker)
+                );
+            if (target.IsEmpty)
+                throw new ArgumentException("An attack check requires a target.", nameof(target));
+            if (initialModifiers == null)
+                throw new ArgumentNullException(nameof(initialModifiers));
+            if (difficultyClass <= 0)
+                throw new ArgumentOutOfRangeException(nameof(difficultyClass));
+            if (source.IsEmpty)
+                throw new ArgumentException(
+                    "An attack check requires trusted source provenance.",
+                    nameof(source)
+                );
+
+            Modifier[] copied = initialModifiers.ToArray();
+            if (copied.Any(modifier => modifier.IsEmpty))
+                throw new ArgumentException(
+                    "Initial attack modifiers cannot contain an empty value.",
+                    nameof(initialModifiers)
+                );
+
+            Attacker = attacker;
+            Target = target;
+            this.initialModifiers = Array.AsReadOnly(copied);
+            DifficultyClass = difficultyClass;
+            Source = source;
         }
     }
 
