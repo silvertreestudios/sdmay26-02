@@ -280,6 +280,64 @@ public sealed class KayKitDungeonExamplePlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator DestroyedPanTargetAfterFinalInitialYield_ExitsBeforeFollowing()
+    {
+        Camera gameplayCamera = Camera.main;
+        CameraManager cameraManager = Object.FindFirstObjectByType<CameraManager>();
+        Assert.That(gameplayCamera, Is.Not.Null);
+        Assert.That(cameraManager, Is.Not.Null);
+        cameraManager.StopFollowing();
+
+        MethodInfo getCameraLookAtPosition = typeof(CameraManager).GetMethod(
+            "GetCameraLookAtPosition",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        MethodInfo panToTargetRoutine = typeof(CameraManager).GetMethod(
+            "PanToTargetRoutine",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(getCameraLookAtPosition, Is.Not.Null);
+        Assert.That(panToTargetRoutine, Is.Not.Null);
+
+        Vector3 initialCameraPosition = gameplayCamera.transform.position;
+        Vector3 lookAtPosition = (Vector3)
+            getCameraLookAtPosition.Invoke(cameraManager, System.Array.Empty<object>());
+        Vector3 panOffset = new(3f, 0f, 0f);
+        Vector3 expectedFinalPosition = initialCameraPosition + panOffset;
+        GameObject target = new("Destroyed Camera Pan Target");
+        target.transform.position = lookAtPosition + panOffset;
+
+        IEnumerator routine = (IEnumerator)
+            panToTargetRoutine.Invoke(cameraManager, new object[] { target, true });
+        Assert.That(Time.unscaledDeltaTime, Is.GreaterThan(0f));
+        int maximumInitialPanSteps = Mathf.CeilToInt(0.5f / Time.unscaledDeltaTime) + 1;
+        bool reachedFinalInitialPanYield = false;
+        for (int step = 0; step < maximumInitialPanSteps; step++)
+        {
+            Assert.That(routine.MoveNext(), Is.True);
+            if (
+                Vector3.SqrMagnitude(gameplayCamera.transform.position - expectedFinalPosition)
+                < 0.000001f
+            )
+            {
+                reachedFinalInitialPanYield = true;
+                break;
+            }
+        }
+
+        Assert.That(reachedFinalInitialPanYield, Is.True);
+        Object.DestroyImmediate(target);
+
+        bool hasNextStep = true;
+        Assert.DoesNotThrow(() => hasNextStep = routine.MoveNext());
+        Assert.That(hasNextStep, Is.False);
+        Assert.That(cameraManager.IsFollowing, Is.False);
+        LogAssert.NoUnexpectedReceived();
+
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator DoorsObstaclesPathsAndLineOfSightUseRuntimeGridRules()
     {
         GridBase grid = Object.FindFirstObjectByType<GridBase>();

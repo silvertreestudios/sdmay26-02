@@ -238,6 +238,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
     private IEnumerator PanToTargetRoutine(GameObject target, bool followIndefinitely)
     {
+        followTarget = null;
         float panDuration = 0.5f;
         Vector3 offset = mainCamera.transform.position - GetCameraLookAtPosition();
 
@@ -245,8 +246,11 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         float elapsed = 0f;
         while (elapsed < panDuration)
         {
-            if (target == null)
+            if (target == null || mainCamera == null)
+            {
+                ClearPanState();
                 yield break;
+            }
             elapsed += Time.unscaledDeltaTime;
             float t = Mathf.Clamp01(elapsed / panDuration);
             Vector3 desiredPosition = target.transform.position + offset;
@@ -262,13 +266,19 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         if (followIndefinitely)
         {
             // Follow indefinitely by tracking target delta (X/Z only) so orbiting still works.
-            followTarget = target;
+            if (target == null || mainCamera == null)
+            {
+                ClearPanState();
+                yield break;
+            }
+
             Vector3 lastTargetPos = target.transform.position;
+            followTarget = target;
             while (true)
             {
-                if (target == null)
+                if (target == null || mainCamera == null)
                 {
-                    followTarget = null;
+                    ClearPanState();
                     yield break;
                 }
 
@@ -282,11 +292,20 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
         else
         {
             // Track target for 1 second then stop (X/Z only)
+            if (target == null || mainCamera == null)
+            {
+                ClearPanState();
+                yield break;
+            }
+
             elapsed = 0f;
             while (elapsed < 1f)
             {
-                if (target == null)
+                if (target == null || mainCamera == null)
+                {
+                    ClearPanState();
                     yield break;
+                }
                 elapsed += Time.unscaledDeltaTime;
                 Vector3 desiredPosition = target.transform.position + offset;
                 desiredPosition.y = mainCamera.transform.position.y;
@@ -294,6 +313,14 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
                 yield return null;
             }
         }
+
+        ClearPanState();
+    }
+
+    private void ClearPanState()
+    {
+        followTarget = null;
+        currentPanRoutine = null;
     }
 
     public void FocusOnCombatants()
