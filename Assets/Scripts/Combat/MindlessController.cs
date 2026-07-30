@@ -87,7 +87,7 @@ public class MindlessController : AIActionController
 
     internal bool CanRebindGrid()
     {
-        return !IsTurn && !IsTakingAction;
+        return !HasTurnAuthority && !IsTakingAction;
     }
 
     private IEnumerator ExecuteTurnSequence()

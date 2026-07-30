@@ -144,7 +144,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
-        public async Task InitiativeFactOwnsQuickTemperedRequirementsAndOneShot()
+        public async Task EncounterStartFactOwnsQuickTemperedRequirementsAndOneShot()
         {
             TestRageActorStateProvider allowedProvider = new TestRageActorStateProvider(
                 CreateActorState(ownsQuickTempered: true)
@@ -187,6 +187,28 @@ namespace Game.Tests.EditMode.RulesRuntime
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
             );
             Assert.That(allowed.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void EncounterStartAppliesQuickTemperedBeforeHigherInitiativeTurn()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState(ownsQuickTempered: true)),
+                new ScriptedRollService(1, 20),
+                actorInitiativeModifier: 0,
+                enemyInitiativeModifier: 0
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].CurrentTurn.Value.Actor,
+                Is.EqualTo(Enemy)
+            );
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.True);
+            Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.EqualTo(3));
+            Assert.That(
+                dispatcher.Snapshot.Health[Actor].TemporarySource,
+                Is.EqualTo(RageRules.Source)
+            );
         }
 
         [Test]
@@ -252,6 +274,21 @@ namespace Game.Tests.EditMode.RulesRuntime
 
         private static RuleDispatcher CreateDispatcher(IRageActorStateProvider provider)
         {
+            return CreateDispatcher(
+                provider,
+                new ScriptedRollService(10, 10),
+                actorInitiativeModifier: 10,
+                enemyInitiativeModifier: 0
+            );
+        }
+
+        private static RuleDispatcher CreateDispatcher(
+            IRageActorStateProvider provider,
+            ScriptedRollService rolls,
+            int actorInitiativeModifier,
+            int enemyInitiativeModifier
+        )
+        {
             RageActionDefinition definition = new RageActionDefinition(provider);
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
@@ -274,7 +311,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             registryBuilder.AddOutcomeRule();
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
                 new InMemoryRulesStore(seed),
-                new ScriptedRollService(10, 10)
+                rolls
             )
                 .UseHealthRules()
                 .UseCombatRuntimeRules()
@@ -292,8 +329,12 @@ namespace Game.Tests.EditMode.RulesRuntime
                             Party,
                             new[]
                             {
-                                new EncounterParticipant(Actor, Party, 10),
-                                new EncounterParticipant(Enemy, Opposition, 0),
+                                new EncounterParticipant(Actor, Party, actorInitiativeModifier),
+                                new EncounterParticipant(
+                                    Enemy,
+                                    Opposition,
+                                    enemyInitiativeModifier
+                                ),
                             }
                         )
                     )

@@ -460,7 +460,10 @@ namespace Game.Rules.Runtime
                 .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnEncounterEndListener());
             builder
                 .Define(QuickTemperedRuleDefinitionId)
-                .FactListener(RuleLifecyclePhase.Reaction, new QuickTemperedInitiativeListener());
+                .FactListener(
+                    RuleLifecyclePhase.Reaction,
+                    new QuickTemperedEncounterStartListener()
+                );
             return builder;
         }
 
@@ -549,19 +552,20 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class QuickTemperedInitiativeListener
-        : IRuleFactListener<InitiativeBoundaryReachedFact>
+    internal sealed class QuickTemperedEncounterStartListener
+        : IRuleFactListener<EncounterStartedFact>
     {
-        public async ValueTask OnFactCommitted(
-            InitiativeBoundaryReachedFact fact,
-            FactContext context
-        )
+        public async ValueTask OnFactCommitted(EncounterStartedFact fact, FactContext context)
         {
-            if (fact.Creature != context.Binding.Owner)
+            if (
+                !context.Snapshot.Encounters.TryGet(fact.Encounter.Id, out EncounterState encounter)
+                || encounter.Phase != EncounterPhase.Active
+                || !encounter.Roster.Any(entry => entry.Creature == context.Binding.Owner)
+            )
                 return;
             await RageHandlerSupport.RequireResolved(
                 context.Dispatch(
-                    new ResolveQuickTemperedTriggerOp(fact.Creature, context.Binding.Id)
+                    new ResolveQuickTemperedTriggerOp(context.Binding.Owner, context.Binding.Id)
                 )
             );
         }

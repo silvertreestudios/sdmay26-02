@@ -6,6 +6,7 @@ using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -587,6 +588,46 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>
+    /// Verifies an authoritative AI turn rejects grid replacement during its startup and decision
+    /// delays, before an action marks itself in progress.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator MindlessController_AuthoritativeTurnRejectsRebindDuringDelays()
+    {
+        GameObject aiObject = Create("Delayed AI");
+        CreatureComponent aiCreature = aiObject.AddComponent<CreatureComponent>();
+        aiCreature.name = "Delayed AI";
+        aiCreature.initiative = 200;
+        aiCreature.InitializeHealthBeforeEncounter(10, 10);
+        Team aiTeam = aiObject.AddComponent<Team>();
+        aiTeam.Name = "Enemies";
+        DelayedDecisionMindlessController ai =
+            aiObject.AddComponent<DelayedDecisionMindlessController>();
+        ai.Configure(new TestGridBinding(), new TestEntityAction("Delayed Decision", 1, () => { }));
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+
+        manager.StartDungeonCombat(new ActionController[] { ai, player.Controller });
+
+        Assert.That(ai.HasTurnAuthority, Is.True);
+        Assert.That(ai.IsTakingAction, Is.False);
+        Assert.That(
+            ai.CanRebindGrid(),
+            Is.False,
+            "The initial coroutine yield must retain authoritative turn ownership."
+        );
+
+        yield return new WaitUntil(() => ai.DecisionCount == 1);
+
+        Assert.That(ai.HasTurnAuthority, Is.True);
+        Assert.That(ai.IsTakingAction, Is.False);
+        Assert.That(
+            ai.CanRebindGrid(),
+            Is.False,
+            "The pre-invocation decision delay must retain authoritative turn ownership."
+        );
+    }
+
     private CombatantFixture CreateCombatant(string name, string teamName, int initiative)
     {
         GameObject gameObject = Create(name);
@@ -692,6 +733,50 @@ public sealed class DungeonEncounterCombatPlayModeTests
             IsTakingAction = false;
             CombatManagerInterface.GetInstance().NextTurn();
         }
+    }
+
+    private sealed class DelayedDecisionMindlessController : MindlessController
+    {
+        private EntityAction decision;
+
+        public int DecisionCount { get; private set; }
+
+        public void Configure(GridAPIPrivate grid, EntityAction nextDecision)
+        {
+            RebindGrid(grid);
+            decision = nextDecision;
+        }
+
+        protected override EntityAction SelectNextAction()
+        {
+            DecisionCount++;
+            return decision;
+        }
+    }
+
+    private sealed class TestGridBinding : GridAPIPrivate
+    {
+        private readonly Tile[,] tiles =
+        {
+            { new Tile() },
+        };
+        private readonly bool[,] lineOfSightBlocks = new bool[1, 1];
+        private readonly IPathfinder pathfinder;
+
+        public TestGridBinding()
+        {
+            pathfinder = new Dijkstra(tiles);
+        }
+
+        public Tile[,] GetTiles() => tiles;
+
+        public bool[,] GetLineOfSightBlocks() => lineOfSightBlocks;
+
+        public IPathfinder GetPathfinder() => pathfinder;
+
+        public bool AddToken(GameObject token) => true;
+
+        public bool DestroyToken(GameObject token) => true;
     }
 
     private sealed class TestEntityAction : EntityAction
