@@ -204,13 +204,23 @@ public sealed class SpellcastingPresentationPlayModeTests
         CreatureComponent cleric = CreateCreature("Casting Cleric", 0, prepared: true);
         InstallCoroutineRunner();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Light Opponent", 1, prepared: false);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
         yield return null;
-        Tile[,] tiles = CreateTiles(1);
+        Tile[,] tiles = CreateTiles(2);
         Occupy(tiles, cleric.gameObject);
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(new[] { controller }, tiles);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10)
+        );
         RulesCastSpellAction light = LightActions(controller).Single();
+        CreatureId actor = bridge.GetCreatureId(controller);
 
-        bridge.BeginTurn(bridge.GetCreatureId(controller), 1);
+        bridge.BeginTurn(actor, 3);
+        bridge.SpendLegacyActions(actor, 2);
         controller.IsTakingAction = true;
         light.Invoke(cleric.gameObject);
         yield return null;
@@ -219,7 +229,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(controller.IsTakingAction, Is.False);
         Assert.That(VisualLights(cleric), Is.Empty);
 
-        bridge.BeginTurn(bridge.GetCreatureId(controller), 3);
+        bridge.BeginTurn(actor, 3);
         gameplayCommitCount = 0;
         OnGameplayStateCommitted.AddListener(CountGameplayCommit);
         controller.IsTakingAction = true;
@@ -265,7 +275,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(10, 2, 3, 1)
+            new ScriptedRollService(20, 10, 10, 2, 3, 1)
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         CreatureId actor = bridge.GetCreatureId(cleric);
@@ -338,7 +348,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(20)
+            new ScriptedRollService(20, 10, 20)
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         grid.Target = target.gameObject;
@@ -369,14 +379,22 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
         TestActionController clericController =
             cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent registeredOpponent = CreateCreature(
+            "Registered Opponent",
+            2,
+            prepared: false
+        );
+        TestActionController opponentController =
+            registeredOpponent.gameObject.AddComponent<TestActionController>();
         yield return null;
-        Tile[,] tiles = CreateTiles(2);
+        Tile[,] tiles = CreateTiles(3);
         Occupy(tiles, cleric.gameObject);
         Occupy(tiles, unregisteredTarget.gameObject);
+        Occupy(tiles, registeredOpponent.gameObject);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new ActionController[] { clericController },
+            new ActionController[] { clericController, opponentController },
             tiles,
-            new ScriptedRollService(20)
+            new ScriptedRollService(20, 10, 20)
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         CreatureId actor = bridge.GetCreatureId(cleric);

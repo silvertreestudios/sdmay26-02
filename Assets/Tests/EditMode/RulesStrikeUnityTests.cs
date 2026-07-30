@@ -73,6 +73,14 @@ public sealed class RulesStrikeUnityTests
     public void PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage()
     {
         CreatureComponent torgrim = Load("DataFiles/playerCharacters/Torgrim");
+        torgrim.Prepared.OwnedItems.RemoveAll(item =>
+            string.Equals(
+                item.Item.Slug,
+                "quick-tempered",
+                System.StringComparison.OrdinalIgnoreCase
+            )
+        );
+        torgrim.Prepared.RollOptions.Remove("feat:quick-tempered");
         CreatureComponent lena = Load("DataFiles/playerCharacters/Lena");
         CreatureComponent target = CreateCreature("Target", "enemy", 100, 10);
         torgrim.gameObject.AddComponent<Conditions>();
@@ -95,7 +103,7 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { torgrimController, lenaController, targetController },
             tiles,
-            new ScriptedRollService(10, 4, 10, 4, 5, 3)
+            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4, 5, 3)
         );
         CreatureId torgrimId = bridge.GetCreatureId(torgrim);
         CreatureId lenaId = bridge.GetCreatureId(lena);
@@ -166,7 +174,7 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { archerController, targetController },
             tiles,
-            new ScriptedRollService(10, 4)
+            new ScriptedRollService(20, 10, 10, 4)
         );
         CreatureId actor = bridge.GetCreatureId(archer);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -213,10 +221,18 @@ public sealed class RulesStrikeUnityTests
         archer.unloadedWeapons = new List<string> { "sling" };
         archer.SetAmmoQuantity("sling-bullets", 1);
         TestActionController controller = archer.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Opponent", "enemies", 20, 10);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        Place(archer.gameObject, 0);
+        Place(opponent.gameObject, 1);
+        Tile[,] reloadTiles = CreateTiles(2);
+        Occupy(reloadTiles, archer.gameObject);
+        Occupy(reloadTiles, opponent.gameObject);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new[] { controller },
-            CreateTiles(1),
-            new ScriptedRollService()
+            new ActionController[] { controller, opponentController },
+            reloadTiles,
+            new ScriptedRollService(20, 10)
         );
         CreatureId actor = bridge.GetCreatureId(archer);
         bridge.BeginTurn(actor, 3);
@@ -246,15 +262,20 @@ public sealed class RulesStrikeUnityTests
             attacker.gameObject.AddComponent<TestActionController>();
         TestActionController targetController =
             target.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Opponent", "enemies", 20, 10);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
         Place(attacker.gameObject, 0);
         Place(target.gameObject, 1);
-        Tile[,] tiles = CreateTiles(2);
+        Place(opponent.gameObject, 2);
+        Tile[,] tiles = CreateTiles(3);
         Occupy(tiles, attacker.gameObject);
         Occupy(tiles, target.gameObject);
-        ScriptedRollService rolls = new(20);
+        Occupy(tiles, opponent.gameObject);
+        ScriptedRollService rolls = new(20, 15, 10, 20);
 
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new ActionController[] { attackerController, targetController },
+            new ActionController[] { attackerController, targetController, opponentController },
             tiles,
             rolls
         );
@@ -303,15 +324,20 @@ public sealed class RulesStrikeUnityTests
             attacker.gameObject.AddComponent<TestActionController>();
         TestActionController targetController =
             target.gameObject.AddComponent<TestActionController>();
+        CreatureComponent reserveTarget = CreateCreature("Reserve Target", "enemies", 20, 10);
+        TestActionController reserveController =
+            reserveTarget.gameObject.AddComponent<TestActionController>();
         Place(attacker.gameObject, 0);
         Place(target.gameObject, 1);
-        Tile[,] tiles = CreateTiles(2);
+        Place(reserveTarget.gameObject, 2);
+        Tile[,] tiles = CreateTiles(3);
         Occupy(tiles, attacker.gameObject);
         Occupy(tiles, target.gameObject);
+        Occupy(tiles, reserveTarget.gameObject);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new ActionController[] { attackerController, targetController },
+            new ActionController[] { attackerController, targetController, reserveController },
             tiles,
-            new ScriptedRollService(20)
+            new ScriptedRollService(20, 15, 10, 20)
         );
         CreatureId actor = bridge.GetCreatureId(attacker);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -421,7 +447,7 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { attackerController, targetController },
             tiles,
-            new ScriptedRollService(2)
+            new ScriptedRollService(20, 10, 2)
         );
         CreatureId actor = bridge.GetCreatureId(attacker);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -471,7 +497,7 @@ public sealed class RulesStrikeUnityTests
         Tile[,] tiles = CreateTiles(2);
         Occupy(tiles, archer.gameObject);
         Occupy(tiles, target.gameObject);
-        ScriptedRollService rolls = new(20);
+        ScriptedRollService rolls = new(20, 10, 20);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { archerController, targetController },
             tiles,

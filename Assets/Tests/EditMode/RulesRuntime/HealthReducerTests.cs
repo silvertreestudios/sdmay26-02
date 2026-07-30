@@ -118,7 +118,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task ReductionToZeroVacatesPositionButPreservesHealthAndIdentity()
+        public async Task ReductionToZeroDefersVacatingPositionUntilDefeatReactionsSettle()
         {
             GridPosition occupiedPosition = new GridPosition(2, 0, 3);
             RulesStateSeed seed = new RulesStateSeed()
@@ -132,7 +132,7 @@ namespace Game.Rules.Runtime.Tests
             );
 
             Assert.That(RequireResolved(result).Value.AppliedToCurrent, Is.EqualTo(2));
-            Assert.That(dispatcher.Snapshot.Positions.Contains(Creature), Is.False);
+            Assert.That(dispatcher.Snapshot.Positions[Creature], Is.EqualTo(occupiedPosition));
             Assert.That(dispatcher.Snapshot.Health[Creature], Is.EqualTo(new HealthState(0, 10)));
             Assert.That(dispatcher.Snapshot.Creatures[Creature].Id, Is.EqualTo(Creature));
             Assert.That(result.Facts.OfType<CreatureReducedToZeroFact>().Count(), Is.EqualTo(1));

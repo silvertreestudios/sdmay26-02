@@ -70,7 +70,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
     }
 
-    /// <summary>Verifies removing the active controller clears its stale turn-owner reference.</summary>
+    /// <summary>Verifies host removal does not mutate the authoritative active roster.</summary>
     [Test]
     public void Remove_CurrentTurnOwnerClearsReferenceWithoutReentrantAdvance()
     {
@@ -82,10 +82,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         manager.Remove(current.Controller);
 
-        Assert.That(manager.WhosTurn(), Is.Null);
+        Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
         Assert.That(
             manager.GetCombatants(),
-            Is.EquivalentTo(new[] { next.GameObject, ally.GameObject })
+            Is.EquivalentTo(new[] { current.GameObject, next.GameObject, ally.GameObject })
         );
         Assert.That(next.Controller.StartTurnCount, Is.Zero);
 
@@ -262,7 +262,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            enemy.GameObject.SetActive(false);
+            enemy.Creature.ApplyFinalDamage(enemy.Creature.hp, RuleSource.FromSlug("test-victory"));
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
 
@@ -305,7 +305,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            player.GameObject.SetActive(false);
+            player.Creature.ApplyFinalDamage(
+                player.Creature.hp,
+                RuleSource.FromSlug("test-defeat")
+            );
 
             Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
@@ -458,10 +461,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         public override void EndTurn()
         {
-            if (!IsTurn)
+            if (!HasTurnAuthority)
                 return;
 
-            IsTurn = false;
             IsTakingAction = false;
             CombatManagerInterface.GetInstance().NextTurn();
         }

@@ -1,193 +1,178 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
-using GridPublic;
 using UnityEngine;
-using UnityEngine.Events;
 
+/// <summary>Hosts and projects the single rules-owned encounter lifecycle.</summary>
 public class CombatManager : CombatManagerInterface
 {
-    // Fields
     protected List<ActionController> Combatants = new();
-    protected List<TurnStep> TurnQueue = new();
-    protected ActionController TurnTaker = null;
     private readonly List<ActionController> activeCombatants = new();
-    private readonly Dictionary<ActionController, uint> initiatives = new();
-    private readonly HashSet<ActionController> actedThisRound = new();
     private bool combatActive;
     private bool dungeonDirectedCombat;
-    private UnityCombatRulesBridge healthRules;
+    private bool encounterEnded;
+    private EncounterOutcome? pendingOutcomePresentation;
+    private UnityCombatRulesBridge combatRules;
 
-    // Events
-    // See CombatEvents.cs for a list of events triggered by this class
-
-    /// <summary>
-    /// Raised when a dungeon-directed combat ends with the surviving team name, or an empty
-    /// string when no team survives.
-    /// </summary>
+    /// <summary>Raised with the surviving team display name when dungeon combat ends.</summary>
     public event Action<string> DungeonCombatEnded = delegate { };
 
-    /// <summary>Raised whenever initiative starts or returns to exploration.</summary>
+    /// <inheritdoc/>
     public override event Action<bool> CombatActivityChanged = delegate { };
 
     /// <inheritdoc/>
     public override bool IsCombatActive => combatActive;
 
+    /// <inheritdoc/>
     public override void AddCombatant(ActionController combatant)
     {
         if (combatant == null)
             throw new ArgumentNullException(nameof(combatant));
         if (Combatants.Contains(combatant))
             return;
-
-        OnCombatantJoin.Invoke(combatant.gameObject);
         Combatants.Add(combatant);
-    }
-
-    public override void AddEvent(TurnStep ts)
-    {
-        TurnQueue.Add(ts);
-    }
-
-    public override void Remove(ActionController combatant)
-    {
-        Combatants.Remove(combatant);
-        activeCombatants.Remove(combatant);
-        initiatives.Remove(combatant);
-        actedThisRound.Remove(combatant);
-        if (TurnTaker == combatant)
-            TurnTaker = null;
-        for (int i = TurnQueue.Count - 1; i >= 0; i--)
-        {
-            if (TurnQueue[i].Player == combatant)
-                TurnQueue.RemoveAt(i);
-        }
-    }
-
-    public override void Remove(TurnStep e)
-    {
-        for (int i = 0; i < TurnQueue.Count; i++)
-        {
-            if (TurnQueue[i] == e)
-                TurnQueue.RemoveAt(i);
-        }
-    }
-
-    public override void Remove(UnityAction e)
-    {
-        for (int i = 0; i < TurnQueue.Count; i++)
-        {
-            if (TurnQueue[i].Event == e)
-                TurnQueue.RemoveAt(i);
-        }
-    }
-
-    public override GameObject WhosTurn()
-    {
-        return TurnTaker == null ? null : TurnTaker.gameObject;
-    }
-
-    public override List<GameObject> GetCombatants()
-    {
-        List<GameObject> list = new();
-        foreach (var c in TurnQueue)
-        {
-            if (c.Player != null && activeCombatants.Contains(c.Player))
-                list.Add(c.Player.gameObject);
-        }
-
-        if (TurnTaker != null && list.Remove(TurnTaker.gameObject))
-            list.Insert(0, TurnTaker.gameObject);
-        return list;
-    }
-
-    [ContextMenu("StartCombat")]
-    public override void StartCombat()
-    {
-        BeginCombat(Combatants.Where(CanTakeTurn).ToArray(), false);
+        OnCombatantJoin.Invoke(combatant.gameObject);
     }
 
     /// <inheritdoc/>
-    public override void StartDungeonCombat(IReadOnlyList<ActionController> participants)
+    public override void Remove(ActionController combatant)
     {
-        BeginCombat(participants, true);
+        if (combatant == null)
+            return;
+        // Defeat presentation retires this controller from future host registrations. The active
+        // rules roster stays immutable and retains the creature as a timing boundary.
+        Combatants.Remove(combatant);
     }
+
+    /// <inheritdoc/>
+    public override GameObject WhosTurn()
+    {
+        if (
+            !combatActive
+            || combatRules == null
+            || !combatRules.GetEncounter().CurrentTurn.HasValue
+        )
+            return null;
+        CreatureId actor = combatRules.GetEncounter().CurrentTurn.Value.Actor;
+        return combatRules.TryGetController(actor, out ActionController controller)
+            ? controller.gameObject
+            : null;
+    }
+
+    /// <inheritdoc/>
+    public override List<GameObject> GetCombatants()
+    {
+        if (!combatActive || combatRules == null)
+            return Combatants
+                .Where(controller => controller != null)
+                .Select(c => c.gameObject)
+                .ToList();
+
+        return combatRules
+            .GetEncounter()
+            .Roster.Where(entry =>
+                combatRules.Snapshot.Health.TryGet(entry.Creature, out HealthState health)
+                && health.IsLiving
+            )
+            .Select(entry =>
+                combatRules.TryGetController(entry.Creature, out ActionController controller)
+                    ? controller.gameObject
+                    : null
+            )
+            .Where(gameObject => gameObject != null)
+            .ToList();
+    }
+
+    [ContextMenu("StartCombat")]
+    public override void StartCombat() => BeginCombat(Combatants.ToArray(), false);
+
+    /// <inheritdoc/>
+    public override void StartDungeonCombat(IReadOnlyList<ActionController> participants) =>
+        BeginCombat(participants, true);
 
     /// <inheritdoc/>
     public override void AddDungeonReinforcements(IReadOnlyList<ActionController> reinforcements)
     {
         if (reinforcements == null)
             throw new ArgumentNullException(nameof(reinforcements));
-        if (!combatActive || !dungeonDirectedCombat)
-        {
+        if (!combatActive || !dungeonDirectedCombat || combatRules == null)
             throw new InvalidOperationException(
-                "Dungeon reinforcements require an active dungeon-directed combat."
+                "Dungeon reinforcements require an active dungeon encounter."
             );
-        }
 
         ActionController[] additions = reinforcements.Distinct().ToArray();
-        if (additions.Any(controller => controller == null))
+        if (
+            additions.Length == 0
+            || additions.Any(controller => controller == null)
+            || additions.Any(controller => !Combatants.Contains(controller))
+            || additions.Any(activeCombatants.Contains)
+        )
             throw new ArgumentException(
-                "Reinforcements cannot contain null.",
+                "Reinforcements must be new, registered, unique controllers.",
                 nameof(reinforcements)
             );
-        if (additions.Any(controller => !Combatants.Contains(controller)))
-        {
-            throw new InvalidOperationException(
-                "Every reinforcement must register with the combat manager before activation."
-            );
-        }
-        if (additions.Any(controller => activeCombatants.Contains(controller)))
-        {
-            throw new InvalidOperationException(
-                "An active combatant cannot be added as a reinforcement twice."
-            );
-        }
-        if (additions.Any(controller => !CanTakeTurn(controller)))
-        {
-            throw new InvalidOperationException(
-                "Defeated or disabled combatants cannot join as reinforcements."
-            );
-        }
 
-        foreach (ActionController reinforcement in additions)
-        {
-            activeCombatants.Add(reinforcement);
-            uint initiative = reinforcement.GetInitiative();
-            initiatives.Add(reinforcement, initiative);
-            bool waitsForNextRound =
-                TurnTaker != null
-                && initiatives.TryGetValue(TurnTaker, out uint currentInitiative)
-                && initiative > currentInitiative;
-            if (waitsForNextRound)
-                actedThisRound.Add(reinforcement);
-            InsertReinforcement(reinforcement, waitsForNextRound);
-        }
-
-        healthRules.RegisterCombatants(additions);
         Pf2eRulesEngine.ApplyCombatStartRules(additions);
-        LogInitiative(
-            "Reinforcements",
-            additions.OrderByDescending(controller => initiatives[controller]).ToArray()
-        );
+        combatRules.RegisterCombatants(additions);
+        activeCombatants.AddRange(additions);
     }
 
     /// <inheritdoc/>
     public override void SuspendDungeonCombat()
     {
-        if (!combatActive || !dungeonDirectedCombat)
-        {
+        if (!combatActive || !dungeonDirectedCombat || combatRules == null)
             throw new InvalidOperationException(
-                "Only an active dungeon-directed combat can be suspended."
+                "Only an active dungeon encounter can be suspended."
             );
-        }
-
-        Pf2eRulesEngine.EndEncounter(activeCombatants);
+        combatRules.SuspendEncounter();
         StopCombatState();
+    }
+
+    /// <inheritdoc/>
+    public override void EndCurrentTurn(ActionController expectedActor)
+    {
+        if (expectedActor == null)
+            throw new ArgumentNullException(nameof(expectedActor));
+        if (!combatActive || combatRules == null)
+            return;
+        CreatureId actor = combatRules.GetCreatureId(expectedActor);
+        combatRules.EndTurn(actor);
+        OnGameplayStateCommitted.Invoke();
+    }
+
+    /// <inheritdoc/>
+    public override void NextTurn()
+    {
+        GameObject current = WhosTurn();
+        if (current != null)
+            EndCurrentTurn(current.GetComponent<ActionController>());
+    }
+
+    /// <inheritdoc/>
+    public override bool CheckForEndOfGame()
+    {
+        if (
+            pendingOutcomePresentation.HasValue
+            && !activeCombatants.Any(controller => controller != null && controller.IsTakingAction)
+        )
+        {
+            EncounterOutcome pending = pendingOutcomePresentation.Value;
+            pendingOutcomePresentation = null;
+            CompleteEncounterOutcomePresentation(pending);
+        }
+        return encounterEnded
+            || (combatRules != null && combatRules.GetEncounter().Phase == EncounterPhase.Ended);
+    }
+
+    /// <inheritdoc/>
+    public override void RefreshRulesTopology()
+    {
+        if (combatRules != null && TryGetCurrentTiles(out Tile[,] tiles))
+            combatRules.RefreshTopology(tiles);
     }
 
     private void BeginCombat(IReadOnlyList<ActionController> participants, bool dungeonDirected)
@@ -198,69 +183,154 @@ public class CombatManager : CombatManagerInterface
             throw new InvalidOperationException("Combat is already active.");
 
         ActionController[] selected = participants.Distinct().ToArray();
-        if (selected.Length == 0)
+        if (
+            selected.Length == 0
+            || selected.Any(controller => controller == null)
+            || selected.Any(controller => !Combatants.Contains(controller))
+        )
             throw new ArgumentException(
-                "Combat requires at least one participant.",
+                "Combat requires registered, unique, non-null participants.",
                 nameof(participants)
             );
-        if (selected.Any(controller => controller == null))
-            throw new ArgumentException(
-                "Combat participants cannot contain null.",
-                nameof(participants)
-            );
-        if (selected.Any(controller => !Combatants.Contains(controller)))
-        {
-            throw new InvalidOperationException(
-                "Every participant must register with the combat manager before combat starts."
-            );
-        }
-        if (selected.Any(controller => !CanTakeTurn(controller)))
-        {
-            throw new InvalidOperationException(
-                "Defeated or disabled controllers cannot begin combat."
-            );
-        }
 
+        Pf2eRulesEngine.ApplyCombatStartRules(selected);
         activeCombatants.Clear();
         activeCombatants.AddRange(selected);
-        actedThisRound.Clear();
-        initiatives.Clear();
-        TurnTaker = null;
         dungeonDirectedCombat = dungeonDirected;
+        encounterEnded = false;
+        pendingOutcomePresentation = null;
+        combatRules = UnityCombatRulesBridge.Create(activeCombatants, GetCurrentTilesOrFallback());
+        combatRules.EncounterStarted += PresentEncounterStarted;
+        combatRules.TurnBegan += PresentTurnBegan;
+        combatRules.EncounterEnded += PresentEncounterOutcome;
         combatActive = true;
-        foreach (ActionController controller in activeCombatants)
-            controller.ResetEncounterTurnState();
+        combatRules.StartEncounter("players");
+    }
 
-        RebuildCombatRulesBridge();
-        RollInitiative(activeCombatants);
-        Pf2eRulesEngine.ApplyCombatStartRules(activeCombatants);
+    private void PresentEncounterStarted()
+    {
+        LogInitiative();
         CombatActivityChanged.Invoke(true);
         OnCombatStart.Invoke();
-        NextTurn();
     }
 
-    private void RebuildCombatRulesBridge()
+    private void LogInitiative()
     {
-        healthRules = UnityCombatRulesBridge.Create(activeCombatants, GetCurrentTilesOrFallback());
-    }
-
-    /// <inheritdoc/>
-    public override void RefreshRulesTopology()
-    {
-        if (healthRules != null && TryGetCurrentTiles(out Tile[,] tiles))
+        if (combatRules == null || !CombatLog.TryGetInstance(out CombatLogInterface log))
+            return;
+        EncounterState encounter = combatRules.GetEncounter();
+        string message = "Initiative Order:\n";
+        for (int index = 0; index < encounter.Roster.Count; index++)
         {
-            healthRules.RefreshTopology(tiles);
+            InitiativeEntry entry = encounter.Roster[index];
+            string displayName = combatRules.TryGetController(
+                entry.Creature,
+                out ActionController controller
+            )
+                ? controller.gameObject.name
+                : entry.Creature.Value;
+            message += $"  {index + 1}. {displayName} (Initiative: {entry.Total})\n";
         }
+        log.Log(message);
+    }
+
+    private void PresentTurnBegan(TurnIdentity turn)
+    {
+        if (
+            combatRules != null
+            && combatRules.TryGetController(turn.Actor, out ActionController controller)
+        )
+            OnNextTurn.Invoke(controller.gameObject);
+    }
+
+    private void PresentEncounterOutcome(EncounterOutcome outcome)
+    {
+        encounterEnded = true;
+        if (activeCombatants.Any(controller => controller != null && controller.IsTakingAction))
+        {
+            pendingOutcomePresentation = outcome;
+            return;
+        }
+        CompleteEncounterOutcomePresentation(outcome);
+    }
+
+    private void CompleteEncounterOutcomePresentation(EncounterOutcome outcome)
+    {
+        bool playerWon = outcome == EncounterOutcome.PlayerVictory;
+        string winningTeam = playerWon ? FindProtagonistTeam() : FindLivingNonPlayerTeam();
+        bool wasDungeonDirected = dungeonDirectedCombat;
+
+        if (wasDungeonDirected)
+            DungeonCombatEnded.Invoke(winningTeam);
+        else
+            OnCombatEnd.Invoke(winningTeam);
+        if (!wasDungeonDirected || !playerWon)
+            OnCombatOutcome.Invoke(playerWon);
+        StopCombatState();
+    }
+
+    private string FindLivingNonPlayerTeam()
+    {
+        foreach (ActionController controller in activeCombatants)
+        {
+            Team team = controller == null ? null : controller.GetComponent<Team>();
+            if (
+                team != null
+                && !string.IsNullOrWhiteSpace(team.Name)
+                && !string.Equals(team.Name, "players", StringComparison.OrdinalIgnoreCase)
+            )
+                return team.Name;
+        }
+        return string.Empty;
+    }
+
+    private string FindProtagonistTeam()
+    {
+        if (combatRules == null)
+            return string.Empty;
+        PlayerId protagonist = combatRules.GetEncounter().ProtagonistTeam;
+        foreach (ActionController controller in activeCombatants)
+        {
+            if (
+                controller != null
+                && combatRules.Snapshot.Creatures.TryGet(
+                    combatRules.GetCreatureId(controller),
+                    out CreatureState creature
+                )
+                && creature.Player == protagonist
+            )
+            {
+                Team team = controller.GetComponent<Team>();
+                if (team != null && !string.IsNullOrWhiteSpace(team.Name))
+                    return team.Name;
+            }
+        }
+        return string.Empty;
+    }
+
+    private void StopCombatState()
+    {
+        if (combatRules != null)
+        {
+            combatRules.EncounterStarted -= PresentEncounterStarted;
+            combatRules.TurnBegan -= PresentTurnBegan;
+            combatRules.EncounterEnded -= PresentEncounterOutcome;
+            combatRules.ReleaseOwnership();
+            combatRules = null;
+        }
+        foreach (ActionController controller in activeCombatants)
+            controller?.ResetEncounterTurnState();
+        activeCombatants.Clear();
+        combatActive = false;
+        dungeonDirectedCombat = false;
+        pendingOutcomePresentation = null;
+        CombatActivityChanged.Invoke(false);
     }
 
     private static Tile[,] GetCurrentTilesOrFallback()
     {
         if (TryGetCurrentTiles(out Tile[,] tiles))
             return tiles;
-
-        // Some focused combat tests intentionally construct no grid. Their actions never invoke
-        // rules-native movement, so a single open cell keeps the shared non-movement state usable
-        // without manufacturing a mutable or unbounded topology.
         Tile[,] fallback = new Tile[1, 1];
         fallback[0, 0] = new Tile();
         return fallback;
@@ -283,261 +353,10 @@ public class CombatManager : CombatManagerInterface
         return false;
     }
 
-    /// <summary>
-    /// Helper to order inititives.
-    /// </summary>
-    private void RollInitiative(IReadOnlyList<ActionController> participants)
-    {
-        List<ActionController> turnOrder = new();
-        List<uint> initiativeValues = new();
-
-        // Insert all AC's in sorted turnOrder
-        foreach (ActionController ac in participants)
-        {
-            // Attempt to insert
-            int i;
-            uint initiative = ac.GetInitiative();
-            for (i = 0; i < turnOrder.Count; i++)
-            {
-                if (initiativeValues[i] < initiative)
-                {
-                    initiativeValues.Insert(i, initiative);
-                    turnOrder.Insert(i, ac);
-                    break;
-                }
-            }
-            // If no insertion, insert at end
-            if (i == initiativeValues.Count)
-            {
-                initiativeValues.Add(initiative);
-                turnOrder.Add(ac);
-            }
-        }
-        this.initiatives.Clear();
-        for (int index = 0; index < turnOrder.Count; index++)
-            initiatives.Add(turnOrder[index], initiativeValues[index]);
-
-        LogInitiative("Initiative Order", turnOrder);
-
-        // Clear TurnQueue and add by initiative
-        TurnQueue.Clear();
-        foreach (ActionController ac in turnOrder)
-            TurnQueue.Add(new TurnStep(ac));
-    }
-
-    private void LogInitiative(string heading, IReadOnlyList<ActionController> turnOrder)
-    {
-        string log = heading + ":\n";
-        for (int i = 0; i < turnOrder.Count; i++)
-        {
-            ActionController controller = turnOrder[i];
-            log +=
-                "  "
-                + (i + 1)
-                + ". "
-                + controller.gameObject.name
-                + " (Initiative: "
-                + initiatives[controller]
-                + ")\n";
-        }
-        CombatLog.GetInstance().Log(log);
-    }
-
-    private void InsertReinforcement(ActionController reinforcement, bool waitsForNextRound)
-    {
-        uint reinforcementInitiative = initiatives[reinforcement];
-        int insertionIndex = TurnQueue.Count;
-        for (int index = 0; index < TurnQueue.Count; index++)
-        {
-            ActionController candidate = TurnQueue[index].Player;
-            if (candidate == null)
-                continue;
-
-            bool candidateWaits = actedThisRound.Contains(candidate);
-            if (!waitsForNextRound && candidateWaits)
-            {
-                insertionIndex = index;
-                break;
-            }
-            if (waitsForNextRound != candidateWaits)
-                continue;
-            if (
-                !initiatives.TryGetValue(candidate, out uint candidateInitiative)
-                || reinforcementInitiative > candidateInitiative
-            )
-            {
-                insertionIndex = index;
-                break;
-            }
-        }
-
-        TurnQueue.Insert(insertionIndex, new TurnStep(reinforcement));
-    }
-
-    public override bool CheckForEndOfGame()
-    {
-        if (!combatActive)
-            return false;
-
-        List<string> teams = new();
-        // Check if a team has won yet.
-        foreach (ActionController combatant in activeCombatants.Where(CanTakeTurn))
-        {
-            Team component = combatant.GetComponent<Team>();
-            string team = component == null ? string.Empty : component.Name;
-            if (!string.IsNullOrWhiteSpace(team) && !teams.Contains(team))
-                teams.Add(team);
-        }
-        if (teams.Count < 2)
-        {
-            string winningTeam = teams.Count == 1 ? teams[0] : string.Empty;
-            if (winningTeam.Length > 0)
-                Debug.Log("Team " + winningTeam + " wins!");
-            else
-                Debug.LogWarning("Combat ended without a surviving team.");
-
-            Pf2eRulesEngine.EndEncounter(activeCombatants);
-            bool wasDungeonDirected = dungeonDirectedCombat;
-            StopCombatState();
-            if (wasDungeonDirected)
-            {
-                DungeonCombatEnded.Invoke(winningTeam);
-                if (!string.Equals(winningTeam, "players", StringComparison.OrdinalIgnoreCase))
-                {
-                    OnCombatOutcome.Invoke(false);
-                }
-            }
-            else
-            {
-                OnCombatEnd.Invoke(winningTeam);
-                if (winningTeam.Length > 0)
-                {
-                    OnCombatOutcome.Invoke(
-                        string.Equals(winningTeam, "players", StringComparison.OrdinalIgnoreCase)
-                    );
-                }
-            }
-            return true;
-        }
-        return false;
-    }
-
-    public override void NextTurn()
-    {
-        EnsureLegacyQueueState();
-        if (!combatActive)
-            return;
-        if (CheckForEndOfGame() || TurnQueue.Count == 0)
-            return;
-
-        ActionController[] eligible = activeCombatants.Where(CanTakeTurn).ToArray();
-        if (eligible.Length > 0 && eligible.All(actedThisRound.Contains))
-            actedThisRound.Clear();
-
-        int attempts = TurnQueue.Count;
-        while (attempts-- > 0)
-        {
-            // Take the next turn.
-            TurnStep e = TurnQueue[0];
-            TurnQueue.RemoveAt(0);
-            if (e.Player)
-            {
-                if (!activeCombatants.Contains(e.Player) || !CanTakeTurn(e.Player))
-                    continue;
-                if (actedThisRound.Contains(e.Player))
-                {
-                    TurnQueue.Add(e);
-                    continue;
-                }
-
-                TurnTaker = e.Player;
-                actedThisRound.Add(TurnTaker);
-                OnNextTurn.Invoke(TurnTaker.gameObject);
-                if (CanTakeTurn(e.Player))
-                    ApplyTurnStartAuras(TurnTaker);
-                if (CanTakeTurn(e.Player))
-                    e.Trigger();
-
-                if (activeCombatants.Contains(e.Player) && CanTakeTurn(e.Player))
-                    TurnQueue.Add(e);
-                else
-                    NextTurn();
-                return;
-            }
-
-            e.Trigger();
-            TurnQueue.Add(e);
-            return;
-        }
-    }
-
-    private void EnsureLegacyQueueState()
-    {
-        if (combatActive || Combatants.Count == 0 || TurnQueue.Count == 0)
-            return;
-
-        activeCombatants.Clear();
-        activeCombatants.AddRange(Combatants.Where(CanTakeTurn));
-        actedThisRound.Clear();
-        initiatives.Clear();
-        foreach (ActionController controller in activeCombatants)
-            initiatives[controller] = 0;
-        dungeonDirectedCombat = false;
-        combatActive = activeCombatants.Count > 0;
-    }
-
-    private void StopCombatState()
-    {
-        foreach (ActionController controller in activeCombatants)
-            controller.ResetEncounterTurnState();
-        if (healthRules != null)
-        {
-            healthRules.ReleaseOwnership();
-            healthRules = null;
-        }
-        activeCombatants.Clear();
-        initiatives.Clear();
-        actedThisRound.Clear();
-        TurnQueue.Clear();
-        TurnTaker = null;
-        combatActive = false;
-        dungeonDirectedCombat = false;
-        CombatActivityChanged.Invoke(false);
-    }
-
-    private static bool CanTakeTurn(ActionController actionController)
-    {
-        return actionController != null
-            && actionController.gameObject.activeSelf
-            && actionController.isActiveAndEnabled;
-    }
-
-    private void ApplyTurnStartAuras(ActionController acting)
-    {
-        if (acting == null)
-            return;
-
-        GridAPI grid = UnityEngine.Object.FindFirstObjectByType<GridAPI>();
-        GridAPIPrivate gridPrivate = grid as GridAPIPrivate;
-        if (gridPrivate == null)
-            return;
-
-        CreatureAuraResolver.ApplyTurnStartAuras(acting, activeCombatants, gridPrivate.GetTiles());
-    }
-
-    //added by Ryan Meyer 5/29/24, For cameraManager to get the positions of all tokens
-    public Vector3[] getPoistions()
-    {
-        IReadOnlyList<ActionController> positionedCombatants = combatActive
-            ? activeCombatants
-            : Combatants;
-        Vector3[] positions = new Vector3[positionedCombatants.Count];
-        int i = 0;
-        foreach (ActionController c in positionedCombatants)
-        {
-            positions[i] = c.gameObject.transform.position;
-            i++;
-        }
-        return positions;
-    }
+    // Camera projection for legacy callers.
+    public Vector3[] getPoistions() =>
+        (combatActive ? activeCombatants : Combatants)
+            .Where(controller => controller != null)
+            .Select(controller => controller.transform.position)
+            .ToArray();
 }

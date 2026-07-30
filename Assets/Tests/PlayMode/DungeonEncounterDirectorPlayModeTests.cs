@@ -326,9 +326,14 @@ public sealed class DungeonEncounterDirectorPlayModeTests
 
     private void Defeat(DungeonEncounterMember member)
     {
-        manager.Remove(member.GetComponent<ActionController>());
-        member.ReportDefeated();
-        member.gameObject.SetActive(false);
+        CreatureComponent creature = member.GetComponent<CreatureComponent>();
+        if (!manager.GetCombatants().Contains(member.gameObject))
+        {
+            member.ReportDefeated();
+            member.gameObject.SetActive(false);
+            return;
+        }
+        creature.ApplyFinalDamage(creature.hp, RuleSource.FromSlug("test-dungeon-defeat"));
     }
 
     private DungeonEncounterMember Member(string instanceId) =>

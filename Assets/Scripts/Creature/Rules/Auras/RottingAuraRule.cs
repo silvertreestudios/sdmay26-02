@@ -30,7 +30,7 @@ namespace Game.Creature.Rules
                 && !HasTrait(target, "construct");
         }
 
-        public IEnumerable<CreatureAuraEffectResult> Apply(CreatureAuraContext context)
+        internal CreatureAuraEffectResult Resolve(CreatureAuraContext context)
         {
             CreatureComponent source = context.SourceCreature;
             CreatureComponent target = context.TargetCreature;
@@ -46,11 +46,6 @@ namespace Game.Creature.Rules
                 target.resistances
             );
             DamageRoller.FinalizeDamageResolution(resolution);
-            target.ApplyFinalDamage(
-                Mathf.Max(0, resolution.TotalDamage),
-                RuleSource.FromSlug(RuleSlug)
-            );
-
             CreatureAuraEffectResult result = new()
             {
                 Source = context.SourceObject,
@@ -61,9 +56,25 @@ namespace Game.Creature.Rules
                 AppliedDamage = resolution.TotalDamage,
                 DamageResolution = resolution,
             };
-            LogAuraDamage(result);
+            return result;
+        }
+
+        /// <summary>
+        /// Preserves the legacy synchronous aura contract for callers outside an active encounter
+        /// dispatcher root.
+        /// </summary>
+        public IEnumerable<CreatureAuraEffectResult> Apply(CreatureAuraContext context)
+        {
+            CreatureAuraEffectResult result = Resolve(context);
+            context.TargetCreature.ApplyFinalDamage(
+                Mathf.Max(0, result.AppliedDamage),
+                RuleSource.FromSlug(RuleSlug)
+            );
+            Present(result);
             return new[] { result };
         }
+
+        internal static void Present(CreatureAuraEffectResult result) => LogAuraDamage(result);
 
         private static bool HasTrait(CreatureComponent creature, string trait)
         {

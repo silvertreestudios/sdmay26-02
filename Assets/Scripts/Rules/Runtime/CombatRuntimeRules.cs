@@ -9,14 +9,6 @@ namespace Game.Rules.Runtime
     public sealed class CombatantRulesState
     {
         /// <summary>Creates one immutable participant registration.</summary>
-        /// <param name="creature">The stable creature identity and controlling side.</param>
-        /// <param name="health">The participant's current authoritative health.</param>
-        /// <param name="position">The participant's current grid position.</param>
-        /// <param name="landSpeed">The participant's land Speed.</param>
-        /// <param name="spellSlots">The participant-owned spell-slot pools.</param>
-        /// <param name="ruleBindings">
-        /// The participant-owned rule bindings that are active when registration commits.
-        /// </param>
         public CombatantRulesState(
             CreatureState creature,
             HealthState health,
@@ -27,35 +19,11 @@ namespace Game.Rules.Runtime
         )
         {
             Creature = creature ?? throw new ArgumentNullException(nameof(creature));
-            if (ruleBindings == null)
-                throw new ArgumentNullException(nameof(ruleBindings));
-            if (spellSlots == null)
-                throw new ArgumentNullException(nameof(spellSlots));
-            if (spellSlots.Any(slot => slot.Owner != creature.Id))
-                throw new ArgumentException(
-                    "Initial spell-slot pools must be owned by the combatant.",
-                    nameof(spellSlots)
-                );
-            if (spellSlots.Select(slot => slot.Id).Distinct().Count() != spellSlots.Count)
-                throw new ArgumentException(
-                    "Initial spell-slot pools must have unique IDs.",
-                    nameof(spellSlots)
-                );
-            if (ruleBindings.Any(binding => binding == null || binding.Owner != creature.Id))
-                throw new ArgumentException(
-                    "Initial rule bindings must be non-null and owned by the combatant.",
-                    nameof(ruleBindings)
-                );
-            if (ruleBindings.Select(binding => binding.Id).Distinct().Count() != ruleBindings.Count)
-                throw new ArgumentException(
-                    "Initial rule bindings must have unique IDs.",
-                    nameof(ruleBindings)
-                );
+            SpellSlots = CopyOwned(spellSlots, creature.Id);
+            RuleBindings = CopyOwned(ruleBindings, creature.Id);
             Health = health;
             Position = position;
             LandSpeed = landSpeed;
-            SpellSlots = Array.AsReadOnly(spellSlots.ToArray());
-            RuleBindings = Array.AsReadOnly(ruleBindings.ToArray());
         }
 
         /// <summary>Gets the participant's stable identity and controlling side.</summary>
@@ -75,13 +43,42 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets participant-owned rule bindings activated by registration.</summary>
         public IReadOnlyList<ActiveRuleBinding> RuleBindings { get; }
+
+        private static IReadOnlyList<SpellSlotState> CopyOwned(
+            IReadOnlyList<SpellSlotState> values,
+            CreatureId owner
+        )
+        {
+            if (values == null)
+                throw new ArgumentNullException(nameof(values));
+            if (values.Any(value => value.Owner != owner))
+                throw new ArgumentException(
+                    "Every spell-slot pool must be owned by the combatant."
+                );
+            if (values.Select(value => value.Id).Distinct().Count() != values.Count)
+                throw new ArgumentException("Spell-slot pool IDs must be unique.");
+            return Array.AsReadOnly(values.ToArray());
+        }
+
+        private static IReadOnlyList<ActiveRuleBinding> CopyOwned(
+            IReadOnlyList<ActiveRuleBinding> values,
+            CreatureId owner
+        )
+        {
+            if (values == null)
+                throw new ArgumentNullException(nameof(values));
+            if (values.Any(value => value == null || value.Owner != owner))
+                throw new ArgumentException("Every rule binding must be owned by the combatant.");
+            if (values.Select(value => value.Id).Distinct().Count() != values.Count)
+                throw new ArgumentException("Rule binding IDs must be unique.");
+            return Array.AsReadOnly(values.ToArray());
+        }
     }
 
-    /// <summary>Registers a reinforcement without replacing the encounter rules store.</summary>
+    /// <summary>Registers a reinforcement in the existing authoritative rules store.</summary>
     public sealed class RegisterCombatantOp : IRuleOp<CombatRuntimeOutcome>
     {
         /// <summary>Creates a participant-registration request.</summary>
-        /// <param name="combatant">The complete immutable state to add.</param>
         public RegisterCombatantOp(CombatantRulesState combatant) =>
             Combatant = combatant ?? throw new ArgumentNullException(nameof(combatant));
 
@@ -89,102 +86,8 @@ namespace Game.Rules.Runtime
         public CombatantRulesState Combatant { get; }
     }
 
-    /// <summary>Starts one scheduled combat turn with an authoritative action count.</summary>
-    public sealed class BeginCombatTurnOp : IRuleOp<CombatRuntimeOutcome>
-    {
-        /// <summary>Creates a turn-start request.</summary>
-        /// <param name="actor">The creature receiving turn authority.</param>
-        /// <param name="actions">The non-negative action count after start-of-turn modifiers.</param>
-        public BeginCombatTurnOp(CreatureId actor, int actions)
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("A turn actor is required.", nameof(actor));
-            if (actions < 0)
-                throw new ArgumentOutOfRangeException(nameof(actions));
-            Actor = actor;
-            Actions = actions;
-        }
-
-        /// <summary>Gets the creature receiving turn authority.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the number of actions granted.</summary>
-        public int Actions { get; }
-    }
-
-    /// <summary>Ends one creature's scheduled combat turn.</summary>
-    public sealed class EndCombatTurnOp : IRuleOp<CombatRuntimeOutcome>
-    {
-        /// <summary>Creates a turn-end request.</summary>
-        /// <param name="actor">The creature losing turn authority.</param>
-        public EndCombatTurnOp(CreatureId actor)
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("A turn actor is required.", nameof(actor));
-            Actor = actor;
-        }
-
-        /// <summary>Gets the creature losing turn authority.</summary>
-        public CreatureId Actor { get; }
-    }
-
-    /// <summary>Spends actions for a legacy feature that has not moved to an action operation.</summary>
-    public sealed class SpendLegacyActionsOp : IRuleOp<CombatRuntimeOutcome>
-    {
-        /// <summary>Creates a legacy action-cost request.</summary>
-        /// <param name="actor">The creature paying the cost.</param>
-        /// <param name="amount">The positive number of actions to spend.</param>
-        public SpendLegacyActionsOp(CreatureId actor, int amount)
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("An action actor is required.", nameof(actor));
-            if (amount <= 0)
-                throw new ArgumentOutOfRangeException(nameof(amount));
-            Actor = actor;
-            Amount = amount;
-        }
-
-        /// <summary>Gets the creature paying the cost.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the positive action count to spend.</summary>
-        public int Amount { get; }
-    }
-
-    /// <summary>Publishes that a registered creature's initiative roll completed.</summary>
-    public sealed class InitiativeRolledOp : IRuleOp<CombatRuntimeOutcome>
-    {
-        /// <summary>Creates an initiative-roll notification.</summary>
-        /// <param name="actor">The creature whose initiative was rolled.</param>
-        public InitiativeRolledOp(CreatureId actor)
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("An initiative actor is required.", nameof(actor));
-            Actor = actor;
-        }
-
-        /// <summary>Gets the creature whose initiative was rolled.</summary>
-        public CreatureId Actor { get; }
-    }
-
-    /// <summary>Publishes that a registered creature is leaving encounter state.</summary>
-    public sealed class EncounterEndedOp : IRuleOp<CombatRuntimeOutcome>
-    {
-        /// <summary>Creates an encounter-end notification.</summary>
-        /// <param name="actor">The creature leaving the encounter.</param>
-        public EncounterEndedOp(CreatureId actor)
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("An encounter actor is required.", nameof(actor));
-            Actor = actor;
-        }
-
-        /// <summary>Gets the creature leaving the encounter.</summary>
-        public CreatureId Actor { get; }
-    }
-
-    /// <summary>Reports whether a combat-runtime state transition committed.</summary>
-    public sealed class CombatRuntimeOutcome
+    /// <summary>Reports whether one combatant registration committed.</summary>
+    public readonly struct CombatRuntimeOutcome
     {
         private CombatRuntimeOutcome(bool succeeded, string reason)
         {
@@ -192,96 +95,34 @@ namespace Game.Rules.Runtime
             Reason = reason;
         }
 
-        /// <summary>Gets whether the requested state transition committed.</summary>
+        /// <summary>Gets whether registration committed.</summary>
         public bool Succeeded { get; }
 
         /// <summary>Gets an empty string on success or the rejection reason.</summary>
         public string Reason { get; }
 
-        internal static CombatRuntimeOutcome Success { get; } =
+        internal static CombatRuntimeOutcome Success =>
             new CombatRuntimeOutcome(true, string.Empty);
 
-        internal static CombatRuntimeOutcome Rejected(string reason)
-        {
-            if (string.IsNullOrWhiteSpace(reason))
-                throw new ArgumentException("A rejection reason is required.", nameof(reason));
-            return new CombatRuntimeOutcome(false, reason);
-        }
+        internal static CombatRuntimeOutcome Rejected(string reason) =>
+            new CombatRuntimeOutcome(false, reason);
     }
 
-    /// <summary>Identifies the shared combat-state transition proven by a committed Fact.</summary>
-    public enum CombatRuntimeChangeKind
+    /// <summary>Proves that one combatant was added atomically to the shared store.</summary>
+    public sealed class CombatantRegisteredFact : RuleFact
     {
-        /// <summary>A new encounter participant was registered.</summary>
-        CombatantRegistered,
+        internal CombatantRegisteredFact(CreatureId creature) => Creature = creature;
 
-        /// <summary>A scheduled turn granted actions and reset transient movement state.</summary>
-        TurnBegan,
-
-        /// <summary>A scheduled turn cleared actions and transient movement state.</summary>
-        TurnEnded,
-
-        /// <summary>A legacy feature spent actions through the shared store.</summary>
-        LegacyActionsSpent,
-    }
-
-    /// <summary>Proves that one minimal shared combat-state transition committed.</summary>
-    public sealed class CombatRuntimeChangedFact : RuleFact
-    {
-        internal CombatRuntimeChangedFact(CreatureId creature, CombatRuntimeChangeKind kind)
-        {
-            if (creature.IsEmpty)
-                throw new ArgumentException("A changed creature is required.", nameof(creature));
-            Creature = creature;
-            Kind = kind;
-        }
-
-        /// <summary>Gets the participant whose registration, turn, or actions changed.</summary>
-        public CreatureId Creature { get; }
-
-        /// <summary>Gets the committed transition category.</summary>
-        public CombatRuntimeChangeKind Kind { get; }
-    }
-
-    /// <summary>Proves that a registered creature's initiative roll completed.</summary>
-    public sealed class InitiativeRolledFact : RuleFact
-    {
-        internal InitiativeRolledFact(CreatureId creature)
-        {
-            if (creature.IsEmpty)
-                throw new ArgumentException(
-                    "An initiative creature is required.",
-                    nameof(creature)
-                );
-            Creature = creature;
-        }
-
-        /// <summary>Gets the creature whose initiative was rolled.</summary>
+        /// <summary>Gets the registered combatant.</summary>
         public CreatureId Creature { get; }
     }
 
-    /// <summary>Proves that a registered creature is leaving encounter state.</summary>
-    public sealed class EncounterEndedFact : RuleFact
-    {
-        internal EncounterEndedFact(CreatureId creature)
-        {
-            if (creature.IsEmpty)
-                throw new ArgumentException("An encounter creature is required.", nameof(creature));
-            Creature = creature;
-        }
-
-        /// <summary>Gets the creature leaving encounter state.</summary>
-        public CreatureId Creature { get; }
-    }
-
-    /// <summary>Registers the minimum shared encounter-state transitions used by Unity.</summary>
+    /// <summary>Registers the same-store participant transition used before encounter joining.</summary>
     public static class CombatRuntimeRuleDispatcherExtensions
     {
-        private static readonly RuleSource Source = RuleSource.FromSlug("combat-runtime");
+        private static readonly RuleSource Source = RuleSource.FromSlug("combatant-registration");
 
-        /// <summary>Adds participant, turn-boundary, and legacy-cost operations.</summary>
-        /// <param name="builder">The dispatcher builder being composed.</param>
-        /// <returns>The supplied builder for fluent composition.</returns>
+        /// <summary>Adds atomic participant registration to a dispatcher composition.</summary>
         public static RuleDispatcherBuilder UseCombatRuntimeRules(
             this RuleDispatcherBuilder builder
         )
@@ -290,113 +131,51 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(builder));
             return builder
                 .RegisterHandler<RegisterCombatantOp, CombatRuntimeOutcome>(
-                    new CombatRuntimeRootHandler<RegisterCombatantOp>()
+                    new RegisterCombatantHandler()
                 )
-                .RegisterHandler<BeginCombatTurnOp, CombatRuntimeOutcome>(
-                    new CombatRuntimeRootHandler<BeginCombatTurnOp>()
-                )
-                .RegisterHandler<EndCombatTurnOp, CombatRuntimeOutcome>(
-                    new CombatRuntimeRootHandler<EndCombatTurnOp>()
-                )
-                .RegisterHandler<SpendLegacyActionsOp, CombatRuntimeOutcome>(
-                    new CombatRuntimeRootHandler<SpendLegacyActionsOp>()
-                )
-                .RegisterHandler<InitiativeRolledOp, CombatRuntimeOutcome>(
-                    new CombatRuntimeRootHandler<InitiativeRolledOp>()
-                )
-                .RegisterHandler<EncounterEndedOp, CombatRuntimeOutcome>(
-                    new CombatRuntimeRootHandler<EncounterEndedOp>()
-                )
-                .RegisterEngineReducer<CommitCombatRuntimeOp, CombatRuntimeOutcome>(
-                    new CommitCombatRuntimeReducer(),
+                .RegisterEngineReducer<CommitCombatantRegistrationOp, CombatRuntimeOutcome>(
+                    new RegisterCombatantReducer(),
                     Source
                 )
                 .UseMultipleAttackPenaltyRules();
         }
     }
 
-    internal sealed class CombatRuntimeRootHandler<TOp> : IOpHandler<TOp, CombatRuntimeOutcome>
-        where TOp : IRuleOp<CombatRuntimeOutcome>
+    internal sealed class RegisterCombatantHandler
+        : IOpHandler<RegisterCombatantOp, CombatRuntimeOutcome>
     {
         public async ValueTask<CombatRuntimeOutcome> Handle(
-            OpFrame<TOp> frame,
+            OpFrame<RegisterCombatantOp> frame,
             OpHandlerContext context
         )
         {
             OpResult<CombatRuntimeOutcome> result = await context.Dispatch(
-                new CommitCombatRuntimeOp(frame.Op)
+                new CommitCombatantRegistrationOp(frame.Op.Combatant)
             );
-            if (result is ResolvedOpResult<CombatRuntimeOutcome> resolved)
-                return resolved.Value;
-            throw new InvalidOperationException(
-                "A combat-runtime state transition did not resolve."
-            );
+            return result is ResolvedOpResult<CombatRuntimeOutcome> resolved
+                ? resolved.Value
+                : throw new InvalidOperationException("Combatant registration did not resolve.");
         }
     }
 
-    internal sealed class CommitCombatRuntimeOp : IRuleOp<CombatRuntimeOutcome>
+    internal sealed class CommitCombatantRegistrationOp : IRuleOp<CombatRuntimeOutcome>
     {
-        public CommitCombatRuntimeOp(IRuleOp<CombatRuntimeOutcome> requested) =>
-            Requested = requested ?? throw new ArgumentNullException(nameof(requested));
+        public CommitCombatantRegistrationOp(CombatantRulesState combatant) =>
+            Combatant = combatant;
 
-        public IRuleOp<CombatRuntimeOutcome> Requested { get; }
+        public CombatantRulesState Combatant { get; }
     }
 
-    internal sealed class CommitCombatRuntimeReducer
-        : IOpReducer<CommitCombatRuntimeOp, CombatRuntimeOutcome>
+    internal sealed class RegisterCombatantReducer
+        : IOpReducer<CommitCombatantRegistrationOp, CombatRuntimeOutcome>
     {
         public ReductionResult<CombatRuntimeOutcome> Reduce(
-            ReductionContext<CommitCombatRuntimeOp> context,
+            ReductionContext<CommitCombatantRegistrationOp> context,
             RulesStateDraft state,
             FactSink facts
         )
         {
-            CombatRuntimeOutcome outcome = context.Op.Requested switch
-            {
-                RegisterCombatantOp register => Register(register.Combatant, state),
-                BeginCombatTurnOp begin => BeginTurn(begin, state),
-                EndCombatTurnOp end => EndTurn(end.Actor, state),
-                SpendLegacyActionsOp spend => Spend(spend, state),
-                InitiativeRolledOp initiative => Notify(initiative.Actor, state),
-                EncounterEndedOp encounter => Notify(encounter.Actor, state),
-                _ => CombatRuntimeOutcome.Rejected("Unknown combat-runtime transition."),
-            };
-            if (outcome.Succeeded)
-                facts.Stage(CreateFact(context.Op.Requested));
-            return ReductionResult<CombatRuntimeOutcome>.Accept(outcome);
-        }
-
-        private static RuleFact CreateFact(IRuleOp<CombatRuntimeOutcome> requested) =>
-            requested switch
-            {
-                RegisterCombatantOp register => new CombatRuntimeChangedFact(
-                    register.Combatant.Creature.Id,
-                    CombatRuntimeChangeKind.CombatantRegistered
-                ),
-                BeginCombatTurnOp begin => new CombatRuntimeChangedFact(
-                    begin.Actor,
-                    CombatRuntimeChangeKind.TurnBegan
-                ),
-                EndCombatTurnOp end => new CombatRuntimeChangedFact(
-                    end.Actor,
-                    CombatRuntimeChangeKind.TurnEnded
-                ),
-                SpendLegacyActionsOp spend => new CombatRuntimeChangedFact(
-                    spend.Actor,
-                    CombatRuntimeChangeKind.LegacyActionsSpent
-                ),
-                InitiativeRolledOp initiative => new InitiativeRolledFact(initiative.Actor),
-                EncounterEndedOp encounter => new EncounterEndedFact(encounter.Actor),
-                _ => throw new InvalidOperationException(
-                    "A successful combat-runtime transition requires a known Fact payload."
-                ),
-            };
-
-        private static CombatRuntimeOutcome Register(
-            CombatantRulesState combatant,
-            RulesStateDraft state
-        )
-        {
+            CombatantRulesState combatant = context.Op.Combatant;
             CreatureId id = combatant.Creature.Id;
             if (
                 state.Creatures.Contains(id)
@@ -405,20 +184,11 @@ namespace Game.Rules.Runtime
                 || state.LandSpeeds.Contains(id)
                 || state.ActionEconomy.Contains(id)
                 || combatant.SpellSlots.Any(slot => state.SpellSlots.Contains(slot.Id))
+                || combatant.RuleBindings.Any(binding => state.RuleBindings.Contains(binding.Id))
             )
-            {
-                return CombatRuntimeOutcome.Rejected("The combatant is already registered.");
-            }
-
-            foreach (ActiveRuleBinding binding in combatant.RuleBindings)
-            {
-                if (state.RuleBindings.Contains(binding.Id))
-                {
-                    return CombatRuntimeOutcome.Rejected(
-                        "A combatant rule binding is already registered."
-                    );
-                }
-            }
+                return ReductionResult<CombatRuntimeOutcome>.Accept(
+                    CombatRuntimeOutcome.Rejected("The combatant is already registered.")
+                );
 
             state.Creatures.Set(id, combatant.Creature);
             state.Health.Set(id, combatant.Health);
@@ -430,60 +200,8 @@ namespace Game.Rules.Runtime
                 state.SpellSlots.Set(slot.Id, slot);
             foreach (ActiveRuleBinding binding in combatant.RuleBindings)
                 state.RuleBindings.Set(binding.Id, binding);
-            return CombatRuntimeOutcome.Success;
-        }
-
-        private static CombatRuntimeOutcome Notify(CreatureId actor, RulesStateDraft state) =>
-            state.Creatures.Contains(actor)
-                ? CombatRuntimeOutcome.Success
-                : CombatRuntimeOutcome.Rejected("The combatant is not registered.");
-
-        private static CombatRuntimeOutcome BeginTurn(BeginCombatTurnOp op, RulesStateDraft state)
-        {
-            if (!state.ActionEconomy.Contains(op.Actor))
-                return CombatRuntimeOutcome.Rejected("The turn actor is not registered.");
-
-            List<KeyValuePair<CreatureId, ActionEconomyState>> participants =
-                new List<KeyValuePair<CreatureId, ActionEconomyState>>();
-            foreach (KeyValuePair<CreatureId, ActionEconomyState> pair in state.ActionEconomy)
-                participants.Add(pair);
-            foreach (KeyValuePair<CreatureId, ActionEconomyState> participant in participants)
-            {
-                state.ActionEconomy.Set(
-                    participant.Key,
-                    new ActionEconomyState(0, participant.Value.ReactionAvailable)
-                );
-            }
-            state.MovementBudgets.Remove(op.Actor);
-            state.MultipleAttackPenalty.Set(op.Actor, new MultipleAttackPenaltyState(0));
-            state.ActionEconomy.Set(op.Actor, new ActionEconomyState(op.Actions, true));
-            return CombatRuntimeOutcome.Success;
-        }
-
-        private static CombatRuntimeOutcome EndTurn(CreatureId actor, RulesStateDraft state)
-        {
-            if (!state.ActionEconomy.TryGet(actor, out ActionEconomyState economy))
-                return CombatRuntimeOutcome.Rejected("The turn actor is not registered.");
-            state.ActionEconomy.Set(actor, new ActionEconomyState(0, economy.ReactionAvailable));
-            state.MovementBudgets.Remove(actor);
-            state.MultipleAttackPenalty.Set(actor, new MultipleAttackPenaltyState(0));
-            return CombatRuntimeOutcome.Success;
-        }
-
-        private static CombatRuntimeOutcome Spend(SpendLegacyActionsOp op, RulesStateDraft state)
-        {
-            if (!state.ActionEconomy.TryGet(op.Actor, out ActionEconomyState economy))
-                return CombatRuntimeOutcome.Rejected("The action actor is not registered.");
-            if (economy.ActionsRemaining < op.Amount)
-                return CombatRuntimeOutcome.Rejected("The actor cannot afford the action cost.");
-            state.ActionEconomy.Set(
-                op.Actor,
-                new ActionEconomyState(
-                    economy.ActionsRemaining - op.Amount,
-                    economy.ReactionAvailable
-                )
-            );
-            return CombatRuntimeOutcome.Success;
+            facts.Stage(new CombatantRegisteredFact(id));
+            return ReductionResult<CombatRuntimeOutcome>.Accept(CombatRuntimeOutcome.Success);
         }
     }
 }

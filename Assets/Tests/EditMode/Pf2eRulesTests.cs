@@ -372,15 +372,43 @@ public class Pf2eRulesTests
             ClassFeatName = "Raging Intimidation",
         };
         creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
+        DisableQuickTempered(creature.Prepared);
         return creature;
     }
 
-    private static UnityCombatRulesBridge CreateCombatRules(CreatureComponent creature)
+    private static void DisableQuickTempered(PreparedCharacter prepared)
+    {
+        prepared.OwnedItems.RemoveAll(item =>
+            string.Equals(
+                item.Item.Slug,
+                "quick-tempered",
+                System.StringComparison.OrdinalIgnoreCase
+            )
+        );
+        prepared.RollOptions.Remove("feat:quick-tempered");
+    }
+
+    private UnityCombatRulesBridge CreateCombatRules(CreatureComponent creature)
     {
         TestActionController controller = creature.gameObject.AddComponent<TestActionController>();
-        GridPrivate.Tile[,] tiles = new GridPrivate.Tile[1, 1];
+        GameObject opponentObject = new("Encounter Opponent");
+        created.Add(opponentObject);
+        Team opponentTeam = opponentObject.AddComponent<Team>();
+        opponentTeam.Name = "enemies";
+        CreatureComponent opponent = opponentObject.AddComponent<CreatureComponent>();
+        opponent.InitializeHealthBeforeEncounter(10, 10);
+        TestActionController opponentController =
+            opponentObject.AddComponent<TestActionController>();
+        creature.transform.position = Vector3.zero;
+        opponentObject.transform.position = Vector3.right;
+        GridPrivate.Tile[,] tiles = new GridPrivate.Tile[2, 1];
         tiles[0, 0] = new GridPrivate.Tile();
-        return UnityCombatRulesBridge.Create(new[] { controller }, tiles);
+        tiles[1, 0] = new GridPrivate.Tile();
+        return UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10)
+        );
     }
 
     private CreatureComponent CreatePreparedRogue()

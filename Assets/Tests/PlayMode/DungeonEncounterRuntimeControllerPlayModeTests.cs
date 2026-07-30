@@ -7,6 +7,7 @@ using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -394,14 +395,15 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         DungeonEncounterMember enemy = runtime
             .GetComponentsInChildren<DungeonEncounterMember>()
             .Single();
-        ActionController enemyController = enemy.GetComponent<ActionController>();
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(player.ActionPoints, Is.EqualTo(3u));
         player.IsTakingAction = true;
 
-        manager.Remove(enemyController);
-        enemy.ReportDefeated();
-        enemy.gameObject.SetActive(false);
+        CreatureComponent enemyCreature = enemy.GetComponent<CreatureComponent>();
+        enemyCreature.ApplyFinalDamage(
+            enemyCreature.hp,
+            RuleSource.FromSlug("test-final-action-defeat")
+        );
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(player.IsInDungeonExploration, Is.False);

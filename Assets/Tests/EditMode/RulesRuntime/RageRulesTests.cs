@@ -9,7 +9,10 @@ namespace Game.Tests.EditMode.RulesRuntime
     public sealed class RageRulesTests
     {
         private static readonly CreatureId Actor = new CreatureId("actor");
+        private static readonly CreatureId Enemy = new CreatureId("enemy");
         private static readonly PlayerId Party = new PlayerId("party");
+        private static readonly PlayerId Opposition = new PlayerId("opposition");
+        private static readonly EncounterId Encounter = new EncounterId("encounter");
 
         [Test]
         public void ActionProfilesKeepQuickTemperedTraitsDistinctFromRage()
@@ -144,25 +147,28 @@ namespace Game.Tests.EditMode.RulesRuntime
         public async Task InitiativeFactOwnsQuickTemperedRequirementsAndOneShot()
         {
             TestRageActorStateProvider allowedProvider = new TestRageActorStateProvider(
-                CreateActorState()
+                CreateActorState(ownsQuickTempered: true)
             );
             RuleDispatcher allowed = CreateDispatcher(allowedProvider);
             RuleDispatcher encumbered = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState(isEncumbered: true))
+                new TestRageActorStateProvider(
+                    CreateActorState(ownsQuickTempered: true, isEncumbered: true)
+                )
             );
             RuleDispatcher heavy = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState(wearsHeavyArmor: true))
+                new TestRageActorStateProvider(
+                    CreateActorState(ownsQuickTempered: true, wearsHeavyArmor: true)
+                )
             );
             RuleDispatcher armoredException = CreateDispatcher(
                 new TestRageActorStateProvider(
-                    CreateActorState(wearsHeavyArmor: true, hasInvulnerableRager: true)
+                    CreateActorState(
+                        ownsQuickTempered: true,
+                        wearsHeavyArmor: true,
+                        hasInvulnerableRager: true
+                    )
                 )
             );
-
-            await allowed.Dispatch(new InitiativeRolledOp(Actor));
-            await encumbered.Dispatch(new InitiativeRolledOp(Actor));
-            await heavy.Dispatch(new InitiativeRolledOp(Actor));
-            await armoredException.Dispatch(new InitiativeRolledOp(Actor));
 
             Assert.That(RageRules.IsRaging(allowed.Snapshot, Actor), Is.True);
             Assert.That(allowed.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
@@ -171,7 +177,6 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(RageRules.IsRaging(armoredException.Snapshot, Actor), Is.True);
 
             await allowed.Dispatch(new EndRageOp(Actor));
-            await allowed.Dispatch(new InitiativeRolledOp(Actor));
             Assert.That(
                 RageRules.IsRaging(allowed.Snapshot, Actor),
                 Is.False,
@@ -192,11 +197,20 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
 
-            OpResult<CombatRuntimeOutcome> result = await dispatcher.Dispatch(
-                new EncounterEndedOp(Actor)
+            OpResult<DamageOutcome> result = await dispatcher.Dispatch(
+                new ApplyDamageOp(
+                    Enemy,
+                    10,
+                    new HealthChangeOriginId("finish"),
+                    RuleSource.FromSlug("test")
+                )
             );
 
-            Assert.That(result, Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>());
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<DamageOutcome>>());
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Ended)
+            );
             Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
             Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.Zero);
             Assert.That(
@@ -213,10 +227,12 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
             RuleDispatcher dispatcher = CreateDispatcher(provider);
             await dispatcher.Dispatch(new RageActionOp(Actor));
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
 
             ResolvedOpResult<RageEndOutcome> ended = RequireResolved(
                 await dispatcher.Dispatch(new EndRageOp(Actor))
             );
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
             ResolvedOpResult<RageStartOutcome> restarted = RequireResolved(
                 await dispatcher.Dispatch(new RageActionOp(Actor))
             );
@@ -241,7 +257,9 @@ namespace Game.Tests.EditMode.RulesRuntime
             RageRules.DefineRuleBindings(registryBuilder);
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Actor, Party))
+                .SeedCreature(new CreatureState(Enemy, Opposition))
                 .SeedHealth(Actor, new HealthState(10, 10))
+                .SeedHealth(Enemy, new HealthState(10, 10))
                 .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
             foreach (
                 ActiveRuleBinding binding in RageRules.CreateInitialBindings(
@@ -253,18 +271,42 @@ namespace Game.Tests.EditMode.RulesRuntime
                 seed.SeedRuleBinding(binding);
             }
 
-            return new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
+            registryBuilder.AddOutcomeRule();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(seed),
+                new ScriptedRollService(10, 10)
+            )
                 .UseHealthRules()
                 .UseCombatRuntimeRules()
                 .UseActiveEffectRules(registryBuilder.Build())
+                .UseMovementBudgetResetRules()
+                .UseEncounterRules()
                 .UseActionLifecycle(definition)
                 .UseRageRules(definition)
                 .Build();
+            RequireResolved(
+                dispatcher
+                    .Dispatch(
+                        new StartEncounterOp(
+                            Encounter,
+                            Party,
+                            new[]
+                            {
+                                new EncounterParticipant(Actor, Party, 10),
+                                new EncounterParticipant(Enemy, Opposition, 0),
+                            }
+                        )
+                    )
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult()
+            );
+            return dispatcher;
         }
 
         private static RageActorState CreateActorState(
             bool ownsRage = true,
-            bool ownsQuickTempered = true,
+            bool ownsQuickTempered = false,
             bool isFatigued = false,
             bool isEncumbered = false,
             bool wearsHeavyArmor = false,

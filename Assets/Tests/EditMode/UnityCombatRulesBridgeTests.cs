@@ -206,6 +206,7 @@ public sealed class UnityCombatRulesBridgeTests
     public async Task CombatCompositionDispatchesDormantStrideThroughSharedState()
     {
         GameObject creatureObject = new GameObject("stride-creature");
+        GameObject opponentObject = new GameObject("stride-opponent");
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
@@ -213,12 +214,20 @@ public sealed class UnityCombatRulesBridgeTests
             creature.speed = 25;
             BridgeTestActionController controller =
                 creatureObject.AddComponent<BridgeTestActionController>();
-            GridPrivate.Tile[,] tiles = new GridPrivate.Tile[3, 1];
+            Team opponentTeam = opponentObject.AddComponent<Team>();
+            opponentTeam.Name = "enemies";
+            CreatureComponent opponent = opponentObject.AddComponent<CreatureComponent>();
+            opponent.InitializeHealthBeforeEncounter(10, 10);
+            BridgeTestActionController opponentController =
+                opponentObject.AddComponent<BridgeTestActionController>();
+            opponentObject.transform.position = new Vector3(3, 0, 0);
+            GridPrivate.Tile[,] tiles = new GridPrivate.Tile[4, 1];
             for (int x = 0; x < tiles.GetLength(0); x++)
                 tiles[x, 0] = new GridPrivate.Tile();
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-                new[] { controller },
-                tiles
+                new ActionController[] { controller, opponentController },
+                tiles,
+                new ScriptedRollService(20, 10)
             );
             CreatureId id = bridge.GetCreatureId(creature);
             bridge.BeginTurn(id, 3);
@@ -239,6 +248,7 @@ public sealed class UnityCombatRulesBridgeTests
         finally
         {
             Object.DestroyImmediate(creatureObject);
+            Object.DestroyImmediate(opponentObject);
         }
     }
 

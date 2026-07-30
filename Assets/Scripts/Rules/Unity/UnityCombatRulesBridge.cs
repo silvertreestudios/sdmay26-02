@@ -4,12 +4,14 @@ using System.Linq;
 using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
+using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Light;
 using Game.Rules.Unity.Spells;
 using Game.Rules.Unity.Strike;
 using Game.Strikes;
 using GridPrivate;
+using GridPublic;
 using UnityEngine;
 
 namespace Game.Rules.Unity
@@ -18,9 +20,8 @@ namespace Game.Rules.Unity
     /// Owns the authoritative rules store and Unity projections for one combat encounter.
     /// </summary>
     /// <remarks>
-    /// Combat initiative remains scheduled by <see cref="CombatManager"/>. This bridge owns only
-    /// the shared state required by rules-backed action slices: health, actions, positions,
-    /// land Speeds, movement budgets, and immutable topology snapshots.
+    /// The rules store owns encounter scheduling and the state required by rules-backed action
+    /// slices. Unity combat objects are hosts and post-commit projections of that state.
     /// </remarks>
     public sealed class UnityCombatRulesBridge
     {
@@ -41,10 +42,30 @@ namespace Game.Rules.Unity
         private readonly UnitySpellDefinitionCatalog spellCatalog;
         private readonly ISpellActionCatalog spellActionCatalog;
         private readonly IReadOnlyList<IDisposable> presentationResources;
+        private readonly Dictionary<OpId, Queue<Action>> encounterPresentationByRoot = new();
+        private readonly Dictionary<OpId, List<OpId>> encounterPresentationChildren = new();
+        private readonly HashSet<OpId> settledEncounterPresentationRoots = new();
+        private readonly EncounterRootSettlementObserver encounterSettlementObserver;
         private readonly bool supportsCombatActions;
         private readonly bool projectsActionPoints;
+        private readonly EncounterId encounterId = new EncounterId("unity-encounter-1");
         private long nextCreatureId;
         private long nextOriginId;
+        private int dispatchDepth;
+        private bool releaseRequested;
+        private bool ownershipReleased;
+
+        /// <summary>Raised after an exact authoritative turn begins.</summary>
+        public event Action<TurnIdentity> TurnBegan = delegate { };
+
+        /// <summary>Raised once after the encounter roster commits and before its first boundary.</summary>
+        public event Action EncounterStarted = delegate { };
+
+        /// <summary>Raised after an exact authoritative turn ends.</summary>
+        public event Action<TurnIdentity> TurnEnded = delegate { };
+
+        /// <summary>Raised once after the authoritative encounter outcome commits.</summary>
+        public event Action<EncounterOutcome> EncounterEnded = delegate { };
 
         private UnityCombatRulesBridge(IReadOnlyList<CreatureComponent> encounterCreatures)
         {
@@ -92,6 +113,13 @@ namespace Game.Rules.Unity
                 CombatantRegistration registration = CreateRegistration(controller);
                 AddRegistrationMaps(registration);
                 Seed(seed, registration.State);
+                if (!attachControllers)
+                {
+                    seed.SeedActionEconomy(
+                        registration.State.Creature.Id,
+                        new ActionEconomyState(1, false)
+                    );
+                }
             }
             strikeContext = new UnityStrikeContext(creatures, tiles, seed);
             spellAttackContext = new UnitySpellAttackContext(creatures, tiles);
@@ -102,6 +130,7 @@ namespace Game.Rules.Unity
             UnitySpellBookProvider spellBooks = new(creatures);
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
+            registryBuilder.AddOutcomeRule();
             foreach (
                 RuleDefinitionId definitionId in spellCatalog
                     .Definitions.SelectMany(definition => definition.Effects)
@@ -127,6 +156,14 @@ namespace Game.Rules.Unity
                 .UseCombatRuntimeRules()
                 .UseCheckResolution()
                 .UseActiveEffectRules(registry)
+                .UseEncounterRules(
+                    new IEncounterTurnStartAdapter[]
+                    {
+                        new SpellExpiryTurnStartAdapter(this),
+                        new RottingAuraTurnStartAdapter(this),
+                        new SlowedTurnStartAdapter(this),
+                    }
+                )
                 .UseActionLifecycle(actionCatalog)
                 .UseMovementRules(topologyProvider)
                 .UseStrideRules(strideDefinition)
@@ -149,6 +186,14 @@ namespace Game.Rules.Unity
             dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(effectPresentation);
             dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(effectPresentation);
             dispatcher.RegisterFactObserver<EncounterEndedFact>(effectPresentation);
+            EncounterProjectionObserver encounterProjection = new EncounterProjectionObserver(this);
+            encounterSettlementObserver = new EncounterRootSettlementObserver(this);
+            dispatcher.RegisterRootSettlementObserver(encounterSettlementObserver);
+            dispatcher.RegisterCausalTreeSettlementObserver(encounterSettlementObserver);
+            dispatcher.RegisterFactObserver<EncounterStartedFact>(encounterProjection);
+            dispatcher.RegisterFactObserver<TurnBeganFact>(encounterProjection);
+            dispatcher.RegisterFactObserver<TurnEndedFact>(encounterProjection);
+            dispatcher.RegisterFactObserver<EncounterEndedFact>(encounterProjection);
             if (attachControllers)
             {
                 UnityStrikePresentationObserver strikePresentation =
@@ -227,7 +272,6 @@ namespace Game.Rules.Unity
                 new RandomRollService()
             );
             bridge.strideFriendshipProvider.AllowFriendlyTraversal = false;
-            bridge.BeginTurn(bridge.GetCreatureId(controller), ActionCost.One.Amount);
             return bridge;
         }
 
@@ -314,6 +358,10 @@ namespace Game.Rules.Unity
             return id;
         }
 
+        /// <summary>Tries to resolve a registered rules creature to its Unity controller.</summary>
+        public bool TryGetController(CreatureId creature, out ActionController controller) =>
+            controllers.TryGetValue(creature, out controller);
+
         /// <summary>Gets authoritative health for one registered creature ID.</summary>
         /// <param name="creature">The encounter-stable creature identifier.</param>
         /// <returns>The latest committed health state.</returns>
@@ -336,21 +384,72 @@ namespace Game.Rules.Unity
             return economy.ActionsRemaining;
         }
 
-        /// <summary>Starts the controller's scheduled turn with its final action count.</summary>
-        /// <param name="creature">The registered creature receiving turn authority.</param>
-        /// <param name="actions">The action count after Unity-side start-of-turn modifiers.</param>
-        public void BeginTurn(CreatureId creature, int actions)
+        /// <summary>Checks exact current-turn authority for one registered creature.</summary>
+        public bool HasTurnAuthority(CreatureId creature) =>
+            Snapshot.Encounters.Any(pair =>
+                pair.Value.Phase == EncounterPhase.Active
+                && pair.Value.CurrentTurn.HasValue
+                && pair.Value.CurrentTurn.Value.Actor == creature
+            );
+
+        /// <summary>Starts initiative and advances to the first eligible turn.</summary>
+        /// <param name="protagonistTeamName">The registered team used for player-relative outcome.</param>
+        /// <returns>The authoritative state after start-turn causal work settles.</returns>
+        public EncounterState StartEncounter(string protagonistTeamName)
         {
-            RequireSuccess(DispatchNow(new BeginCombatTurnOp(creature, actions)));
-            SyncActionPoints(creature);
+            RequireCombatComposition();
+            if (
+                string.IsNullOrWhiteSpace(protagonistTeamName)
+                || !playerIds.TryGetValue(protagonistTeamName, out PlayerId protagonistTeam)
+            )
+                throw new ArgumentException(
+                    "The protagonist team must be registered in this composition.",
+                    nameof(protagonistTeamName)
+                );
+            return StartEncounter(protagonistTeam);
         }
 
-        /// <summary>Ends the controller's scheduled turn and clears transient movement state.</summary>
-        /// <param name="creature">The registered creature losing turn authority.</param>
+        /// <summary>Starts initiative for a registered protagonist team identity.</summary>
+        /// <param name="protagonistTeam">The registered player-relative protagonist team.</param>
+        /// <returns>The authoritative state after start-turn causal work settles.</returns>
+        public EncounterState StartEncounter(PlayerId protagonistTeam)
+        {
+            RequireCombatComposition();
+            if (
+                protagonistTeam.IsEmpty
+                || !Snapshot.Creatures.Any(pair => pair.Value.Player == protagonistTeam)
+            )
+                throw new ArgumentException(
+                    "The protagonist team must be registered in this composition.",
+                    nameof(protagonistTeam)
+                );
+            EncounterParticipant[] participants = controllers
+                .Select(pair => new EncounterParticipant(
+                    pair.Key,
+                    Snapshot.Creatures[pair.Key].Player,
+                    creatures[pair.Key].GetInitiative()
+                ))
+                .ToArray();
+            EncounterStartOutcome outcome = DispatchNow(
+                new StartEncounterOp(encounterId, protagonistTeam, participants)
+            );
+            SyncAllActionPoints();
+            return outcome.State;
+        }
+
+        /// <summary>Ends the exact current turn owned by a registered creature.</summary>
+        /// <param name="creature">The creature expected to own the current exact turn.</param>
         public void EndTurn(CreatureId creature)
         {
-            RequireSuccess(DispatchNow(new EndCombatTurnOp(creature)));
-            SyncActionPoints(creature);
+            EncounterState encounter = GetEncounter();
+            if (
+                encounter.Phase != EncounterPhase.Active
+                || !encounter.CurrentTurn.HasValue
+                || encounter.CurrentTurn.Value.Actor != creature
+            )
+                throw new InvalidOperationException("The creature does not own the active turn.");
+            DispatchNow(new EndTurnOp(encounter.CurrentTurn.Value));
+            SyncAllActionPoints();
         }
 
         /// <summary>Spends actions for a feature still using the legacy Unity action path.</summary>
@@ -358,8 +457,23 @@ namespace Game.Rules.Unity
         /// <param name="amount">The positive action count to spend.</param>
         public void SpendLegacyActions(CreatureId creature, int amount)
         {
-            RequireSuccess(DispatchNow(new SpendLegacyActionsOp(creature, amount)));
+            DispatchNow(new SpendLegacyActionsOp(creature, amount));
             SyncActionPoints(creature);
+        }
+
+        /// <summary>Suspends this encounter without deciding an outcome.</summary>
+        public void SuspendEncounter()
+        {
+            DispatchNow(new SuspendEncounterOp(encounterId));
+            SyncAllActionPoints();
+        }
+
+        /// <summary>Gets this composition's authoritative encounter state.</summary>
+        public EncounterState GetEncounter()
+        {
+            if (!Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter))
+                throw new InvalidOperationException("The encounter has not started.");
+            return encounter;
         }
 
         /// <summary>Dispatches one synchronous typed rules operation.</summary>
@@ -398,17 +512,43 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException("A reinforcement is already registered.");
 
             CombatantRegistration[] registrations = copied.Select(CreateRegistration).ToArray();
-            foreach (CombatantRegistration registration in registrations)
-            {
-                RequireSuccess(DispatchNow(new RegisterCombatantOp(registration.State)));
-                AddRegistrationMaps(registration);
-                StrikeCombatantRegistration strikeRegistration =
+            StrikeCombatantRegistration[] strikeRegistrations = registrations
+                .Select(registration =>
                     strikeContext.RegisterReinforcement(
                         registration.State.Creature.Id,
                         registration.Creature
-                    );
+                    )
+                )
+                .ToArray();
+            if (Snapshot.Encounters.Contains(encounterId))
+            {
+                DispatchNow(
+                    new JoinEncounterOp(
+                        encounterId,
+                        registrations.Select(registration => new EncounterJoinParticipant(
+                            new EncounterParticipant(
+                                registration.State.Creature.Id,
+                                registration.State.Creature.Player,
+                                registration.Creature.GetInitiative()
+                            ),
+                            registration.State
+                        ))
+                    )
+                );
+            }
+            else
+            {
+                foreach (CombatantRegistration registration in registrations)
+                {
+                    RequireSuccess(DispatchNow(new RegisterCombatantOp(registration.State)));
+                }
+            }
+            for (int index = 0; index < registrations.Length; index++)
+            {
+                CombatantRegistration registration = registrations[index];
+                AddRegistrationMaps(registration);
                 RequireResolved(
-                    DispatchResultNow(new RegisterStrikeCombatantOp(strikeRegistration))
+                    DispatchResultNow(new RegisterStrikeCombatantOp(strikeRegistrations[index]))
                 );
                 registration.Creature.AttachHealthRules(this, registration.State.Creature.Id);
                 registration.Controller.AttachCombatRules(this, registration.State.Creature.Id);
@@ -420,6 +560,7 @@ namespace Game.Rules.Unity
                 registration.Creature.InitializeRuntimeActions();
                 UnitySpellActionInstaller.Install(registration.Controller, spellActionCatalog);
             }
+            SyncAllActionPoints();
         }
 
         /// <summary>
@@ -433,6 +574,27 @@ namespace Game.Rules.Unity
         /// </remarks>
         internal void ReleaseOwnership()
         {
+            if (ownershipReleased)
+                return;
+            if (dispatchDepth > 0)
+            {
+                releaseRequested = true;
+                return;
+            }
+            CompleteReleaseOwnership();
+        }
+
+        private void CompleteReleaseOwnership()
+        {
+            if (ownershipReleased)
+                return;
+            ownershipReleased = true;
+            releaseRequested = false;
+            if (encounterSettlementObserver != null)
+            {
+                dispatcher.UnregisterRootSettlementObserver(encounterSettlementObserver);
+                dispatcher.UnregisterCausalTreeSettlementObserver(encounterSettlementObserver);
+            }
             foreach (IDisposable resource in presentationResources)
                 resource.Dispose();
 
@@ -661,6 +823,13 @@ namespace Game.Rules.Unity
             return new CreatureId($"combat-creature-{nextCreatureId}");
         }
 
+        private ActionController GetController(CreatureId creature)
+        {
+            if (!controllers.TryGetValue(creature, out ActionController controller))
+                throw new InvalidOperationException("The encounter controller is not registered.");
+            return controller;
+        }
+
         private HealthChangeOriginId AllocateOrigin(RuleSource source)
         {
             if (source.IsEmpty)
@@ -683,6 +852,7 @@ namespace Game.Rules.Unity
 
         private OpResult<TResult> DispatchResultNow<TResult>(IRuleOp<TResult> operation)
         {
+            dispatchDepth++;
             topologyProvider.BeginResolution();
             try
             {
@@ -698,7 +868,68 @@ namespace Game.Rules.Unity
             finally
             {
                 topologyProvider.EndResolution();
+                dispatchDepth--;
+                if (dispatchDepth == 0 && releaseRequested)
+                    CompleteReleaseOwnership();
             }
+        }
+
+        private void EnqueueEncounterPresentation(RuleFact fact, Action presentation)
+        {
+            if (fact == null || !fact.IsStamped)
+                throw new ArgumentException(
+                    "Encounter presentation requires a committed root-owned Fact.",
+                    nameof(fact)
+                );
+            if (presentation == null)
+                throw new ArgumentNullException(nameof(presentation));
+            if (
+                !encounterPresentationByRoot.TryGetValue(fact.RootOpId, out Queue<Action> callbacks)
+            )
+            {
+                callbacks = new Queue<Action>();
+                encounterPresentationByRoot.Add(fact.RootOpId, callbacks);
+            }
+            callbacks.Enqueue(presentation);
+        }
+
+        private void RecordSettledEncounterRoot(OpId root, OpId? parent)
+        {
+            if (!settledEncounterPresentationRoots.Add(root))
+                throw new InvalidOperationException(
+                    $"Encounter presentation root {root.Value} settled more than once."
+                );
+            if (!parent.HasValue)
+                return;
+            if (!encounterPresentationChildren.TryGetValue(parent.Value, out List<OpId> children))
+            {
+                children = new List<OpId>();
+                encounterPresentationChildren.Add(parent.Value, children);
+            }
+            children.Add(root);
+        }
+
+        private void DrainEncounterPresentationTree(OpId root)
+        {
+            if (encounterPresentationByRoot.TryGetValue(root, out Queue<Action> callbacks))
+            {
+                encounterPresentationByRoot.Remove(root);
+                while (callbacks.Count > 0)
+                    callbacks.Dequeue().Invoke();
+            }
+            if (encounterPresentationChildren.TryGetValue(root, out List<OpId> children))
+            {
+                foreach (OpId child in children)
+                {
+                    if (!settledEncounterPresentationRoots.Contains(child))
+                        throw new InvalidOperationException(
+                            $"Causal encounter presentation root {child.Value} did not settle."
+                        );
+                    DrainEncounterPresentationTree(child);
+                }
+            }
+            encounterPresentationChildren.Remove(root);
+            settledEncounterPresentationRoots.Remove(root);
         }
 
         private void SyncAllActionPoints()
@@ -978,6 +1209,177 @@ namespace Game.Rules.Unity
                         "Topology cannot change during a rules resolution."
                     );
                 current = replacement;
+            }
+        }
+
+        private sealed class SpellExpiryTurnStartAdapter : IEncounterTurnStartAdapter
+        {
+            private readonly UnityCombatRulesBridge owner;
+
+            public SpellExpiryTurnStartAdapter(UnityCombatRulesBridge owner) => this.owner = owner;
+
+            public ValueTask<TurnStartContribution> Apply(
+                EncounterTurnStartContext context,
+                TurnStartContribution current
+            )
+            {
+                SpellEffectController.ExpireAtStartOfTurn(
+                    owner.GetController(context.Actor).gameObject
+                );
+                return new ValueTask<TurnStartContribution>(current);
+            }
+        }
+
+        private sealed class RottingAuraTurnStartAdapter : IEncounterTurnStartAdapter
+        {
+            private readonly UnityCombatRulesBridge owner;
+
+            public RottingAuraTurnStartAdapter(UnityCombatRulesBridge owner) => this.owner = owner;
+
+            public async ValueTask<TurnStartContribution> Apply(
+                EncounterTurnStartContext context,
+                TurnStartContribution current
+            )
+            {
+                GridAPI grid = UnityEngine.Object.FindFirstObjectByType<GridAPI>();
+                if (grid is not GridAPIPrivate gridPrivate)
+                    return current;
+
+                EncounterState encounter = context.Snapshot.Encounters[context.Encounter];
+                ActionController actor = owner.GetController(context.Actor);
+                ActionController[] combatants = encounter
+                    .Roster.Where(entry =>
+                        context.Snapshot.Health.TryGet(entry.Creature, out HealthState health)
+                        && health.Current > 0
+                    )
+                    .Select(entry => owner.GetController(entry.Creature))
+                    .ToArray();
+                await CreatureAuraResolver.ApplyTurnStartAurasAwaited(
+                    actor,
+                    combatants,
+                    gridPrivate.GetTiles(),
+                    async (target, amount, source) =>
+                    {
+                        CreatureId targetId = owner.GetCreatureId(target);
+                        return await context.ApplyFinalDamage(
+                            targetId,
+                            amount,
+                            owner.AllocateOrigin(source),
+                            source
+                        );
+                    },
+                    target =>
+                    {
+                        CreatureId targetId = owner.GetCreatureId(target);
+                        return context.Snapshot.Health.TryGet(targetId, out HealthState health)
+                            && health.Current > 0;
+                    },
+                    result =>
+                    {
+                        RottingAuraRule.Present(result);
+                        return default;
+                    }
+                );
+                return current;
+            }
+        }
+
+        private sealed class SlowedTurnStartAdapter : IEncounterTurnStartAdapter
+        {
+            private readonly UnityCombatRulesBridge owner;
+
+            public SlowedTurnStartAdapter(UnityCombatRulesBridge owner) => this.owner = owner;
+
+            public ValueTask<TurnStartContribution> Apply(
+                EncounterTurnStartContext context,
+                TurnStartContribution current
+            ) =>
+                new ValueTask<TurnStartContribution>(
+                    new TurnStartContribution(
+                        checked((int)owner.GetController(context.Actor).CalculateTurnStartActions())
+                    )
+                );
+        }
+
+        private sealed class EncounterProjectionObserver
+            : IFactObserver<EncounterStartedFact>,
+                IFactObserver<TurnBeganFact>,
+                IFactObserver<TurnEndedFact>,
+                IFactObserver<EncounterEndedFact>
+        {
+            private readonly UnityCombatRulesBridge owner;
+
+            public EncounterProjectionObserver(UnityCombatRulesBridge owner) => this.owner = owner;
+
+            public ValueTask OnFactCommitted(
+                EncounterStartedFact fact,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                owner.EncounterStarted.Invoke();
+                return default;
+            }
+
+            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot currentSnapshot)
+            {
+                owner.EnqueueEncounterPresentation(
+                    fact,
+                    () =>
+                    {
+                        ActionController controller = owner.GetController(fact.Turn.Actor);
+                        controller.StartTurn();
+                        owner.TurnBegan.Invoke(fact.Turn);
+                    }
+                );
+                return default;
+            }
+
+            public ValueTask OnFactCommitted(TurnEndedFact fact, RulesSnapshot currentSnapshot)
+            {
+                owner.EnqueueEncounterPresentation(
+                    fact,
+                    () =>
+                    {
+                        owner.GetController(fact.Turn.Actor).ResetEncounterTurnState();
+                        owner.TurnEnded.Invoke(fact.Turn);
+                    }
+                );
+                return default;
+            }
+
+            public ValueTask OnFactCommitted(EncounterEndedFact fact, RulesSnapshot currentSnapshot)
+            {
+                owner.EnqueueEncounterPresentation(
+                    fact,
+                    () => owner.EncounterEnded.Invoke(fact.Outcome)
+                );
+                return default;
+            }
+        }
+
+        private sealed class EncounterRootSettlementObserver
+            : IRootSettlementObserver,
+                ICausalTreeSettlementObserver
+        {
+            private readonly UnityCombatRulesBridge owner;
+
+            public EncounterRootSettlementObserver(UnityCombatRulesBridge owner) =>
+                this.owner = owner;
+
+            public ValueTask OnRootSettled(
+                OpId rootId,
+                OpId? causalParentRootId,
+                RulesSnapshot snapshot
+            )
+            {
+                owner.RecordSettledEncounterRoot(rootId, causalParentRootId);
+                return default;
+            }
+
+            public ValueTask OnCausalTreeSettled(OpId rootId, RulesSnapshot snapshot)
+            {
+                owner.DrainEncounterPresentationTree(rootId);
+                return default;
             }
         }
 

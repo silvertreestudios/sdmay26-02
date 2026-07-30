@@ -139,12 +139,25 @@ public sealed class DungeonActorStateAdapterTests
     {
         sourceObject = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Torgrim");
         CreatureComponent sourceCreature = sourceObject.GetComponent<CreatureComponent>();
+        sourceCreature.Prepared.OwnedItems.RemoveAll(item =>
+            string.Equals(item.Item.Slug, "quick-tempered", StringComparison.OrdinalIgnoreCase)
+        );
+        sourceCreature.Prepared.RollOptions.Remove("feat:quick-tempered");
         sourceObject.AddComponent<Conditions>();
         DungeonPersistenceTestActionController sourceController =
             sourceObject.AddComponent<DungeonPersistenceTestActionController>();
+        effectSourceObject = new GameObject("Encounter Opponent");
+        Team opponentTeam = effectSourceObject.AddComponent<Team>();
+        opponentTeam.Name = "enemies";
+        CreatureComponent opponent = effectSourceObject.AddComponent<CreatureComponent>();
+        opponent.InitializeHealthBeforeEncounter(10, 10);
+        DungeonPersistenceTestActionController opponentController =
+            effectSourceObject.AddComponent<DungeonPersistenceTestActionController>();
+        effectSourceObject.transform.position = Vector3.right;
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new[] { sourceController },
-            CreateTiles()
+            new ActionController[] { sourceController, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(20, 10)
         );
         CreatureId actor = bridge.GetCreatureId(sourceCreature);
         bridge.BeginTurn(actor, 3);
@@ -255,8 +268,9 @@ public sealed class DungeonActorStateAdapterTests
 
     private static Tile[,] CreateTiles()
     {
-        Tile[,] tiles = new Tile[1, 1];
+        Tile[,] tiles = new Tile[2, 1];
         tiles[0, 0] = new Tile();
+        tiles[1, 0] = new Tile();
         return tiles;
     }
 

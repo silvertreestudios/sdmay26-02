@@ -721,9 +721,11 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             .Single(member => member.IsConfigured);
         Assert.That(manager.IsCombatActive, Is.True);
 
-        manager.Remove(enemy.GetComponent<ActionController>());
-        enemy.ReportDefeated();
-        enemy.gameObject.SetActive(false);
+        CreatureComponent enemyCreature = enemy.GetComponent<CreatureComponent>();
+        enemyCreature.ApplyFinalDamage(
+            enemyCreature.hp,
+            RuleSource.FromSlug("test-follower-recovery-defeat")
+        );
 
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(fixture.Runtime.IsExplorationActive, Is.True);

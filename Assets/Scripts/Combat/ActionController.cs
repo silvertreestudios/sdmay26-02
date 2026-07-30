@@ -13,6 +13,10 @@ public abstract class ActionController : MonoBehaviour
     protected List<EntityAction> Actions = new();
     protected List<EntityAction> Reactions = new();
     protected bool IsTurn = false;
+
+    [SerializeField]
+    private uint actionPoints;
+    private bool reacted;
     private UnityCombatRulesBridge combatRules;
     private CreatureId rulesCreatureId;
     public bool IsTakingAction { get; set; } = false;
@@ -21,11 +25,46 @@ public abstract class ActionController : MonoBehaviour
     public bool IsInDungeonExploration { get; private set; }
 
     /// <summary>Gets whether combat initiative currently grants this controller turn authority.</summary>
-    public bool HasTurnAuthority => IsTurn;
+    public bool HasTurnAuthority
+    {
+        get
+        {
+            if (combatRules == null || rulesCreatureId.IsEmpty)
+                return IsTurn;
+            return combatRules.HasTurnAuthority(rulesCreatureId);
+        }
+    }
 
-    [field: SerializeField]
-    public uint ActionPoints { get; set; }
-    public bool Reacted { get; set; }
+    /// <summary>Gets authoritative remaining actions while attached to encounter rules.</summary>
+    public uint ActionPoints
+    {
+        get =>
+            combatRules == null
+                ? actionPoints
+                : checked((uint)combatRules.GetActionsRemaining(rulesCreatureId));
+        set
+        {
+            if (combatRules == null)
+                actionPoints = value;
+        }
+    }
+
+    /// <summary>Gets whether the current encounter reaction has been spent.</summary>
+    public bool Reacted
+    {
+        get =>
+            combatRules == null
+                ? reacted
+                : combatRules.Snapshot.ActionEconomy.TryGet(
+                    rulesCreatureId,
+                    out ActionEconomyState economy
+                ) && !economy.ReactionAvailable;
+        set
+        {
+            if (combatRules == null)
+                reacted = value;
+        }
+    }
 
     /// <summary>
     /// Gets the rules-owned number of prior attacks for this controller's current turn.
@@ -49,7 +88,8 @@ public abstract class ActionController : MonoBehaviour
     /// </summary>
     public virtual void StartTurn()
     {
-        IsTurn = true;
+        if (combatRules == null)
+            IsTurn = true;
         Ref<uint> newActionPoints = new(3);
         ResetActionPointsEvent.Invoke(newActionPoints);
         if (combatRules == null)
@@ -58,10 +98,10 @@ public abstract class ActionController : MonoBehaviour
         }
         else
         {
-            combatRules.BeginTurn(rulesCreatureId, checked((int)newActionPoints.Value));
             SyncActionPointsFromRules();
         }
-        SpellEffectController.ExpireAtStartOfTurn(gameObject);
+        if (combatRules == null)
+            SpellEffectController.ExpireAtStartOfTurn(gameObject);
     }
 
     /// <summary>
@@ -74,12 +114,14 @@ public abstract class ActionController : MonoBehaviour
     /// </remarks>
     public virtual void ResetEncounterTurnState()
     {
-        if (combatRules != null)
-            combatRules.EndTurn(rulesCreatureId);
-        IsTurn = false;
+        if (combatRules == null)
+            IsTurn = false;
         IsTakingAction = false;
-        ActionPoints = 0;
-        Reacted = false;
+        if (combatRules == null)
+        {
+            ActionPoints = 0;
+            Reacted = false;
+        }
     }
 
     /// <summary>Spends actions through the encounter store when combat rules are attached.</summary>
@@ -100,19 +142,6 @@ public abstract class ActionController : MonoBehaviour
         }
         combatRules.SpendLegacyActions(rulesCreatureId, checked((int)amount));
         SyncActionPointsFromRules();
-    }
-
-    /// <summary>Clears authoritative turn state before the scheduler advances.</summary>
-    /// <returns>Whether this controller owned an idle turn that could be completed.</returns>
-    protected bool TryCompleteTurn()
-    {
-        if (!IsTurn || IsTakingAction)
-            return false;
-        if (combatRules != null)
-            combatRules.EndTurn(rulesCreatureId);
-        ActionPoints = 0;
-        IsTurn = false;
-        return true;
     }
 
     internal void AttachCombatRules(UnityCombatRulesBridge bridge, CreatureId creatureId)
@@ -137,21 +166,31 @@ public abstract class ActionController : MonoBehaviour
         if (!ReferenceEquals(combatRules, bridge))
             return;
 
+        actionPoints = checked((uint)combatRules.GetActionsRemaining(rulesCreatureId));
+        reacted =
+            combatRules.Snapshot.ActionEconomy.TryGet(
+                rulesCreatureId,
+                out ActionEconomyState economy
+            ) && !economy.ReactionAvailable;
         combatRules = null;
         rulesCreatureId = default;
     }
 
-    internal void SyncActionPointsFromRules()
-    {
-        if (combatRules != null)
-            ActionPoints = checked((uint)combatRules.GetActionsRemaining(rulesCreatureId));
-    }
+    internal void SyncActionPointsFromRules() { }
 
     internal bool TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId creatureId)
     {
         bridge = combatRules;
         creatureId = rulesCreatureId;
         return !IsInDungeonExploration && bridge != null && !creatureId.IsEmpty;
+    }
+
+    /// <summary>Calculates the legacy Slowed contribution without owning turn state.</summary>
+    internal uint CalculateTurnStartActions()
+    {
+        Ref<uint> contribution = new(3);
+        ResetActionPointsEvent.Invoke(contribution);
+        return contribution.Value;
     }
 
     /// <summary>Enables or disables movement-only authority between dungeon encounters.</summary>
@@ -206,7 +245,7 @@ public abstract class ActionController : MonoBehaviour
             return false;
         if (IsInDungeonExploration)
             return action.IsExplorationAction && action.IsAvailable(this);
-        return IsTurn && action.IsAvailable(this);
+        return HasTurnAuthority && action.IsAvailable(this);
     }
 
     /// <summary>Starts an action when this controller has authority in its current mode.</summary>

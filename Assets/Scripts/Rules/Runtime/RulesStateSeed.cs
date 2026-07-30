@@ -37,6 +37,32 @@ namespace Game.Rules.Runtime
             new Dictionary<BindingId, ActiveRuleBinding>();
         internal Dictionary<BindingId, FrequencyState> Frequencies { get; } =
             new Dictionary<BindingId, FrequencyState>();
+        internal Dictionary<EncounterId, EncounterState> Encounters { get; } =
+            new Dictionary<EncounterId, EncounterState>();
+        internal Dictionary<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; } =
+            new Dictionary<ActiveEffectId, ActiveEffectTimingState>();
+
+        /// <summary>Seeds an authoritative encounter state for deterministic fixtures.</summary>
+        /// <param name="value">The complete immutable encounter state.</param>
+        /// <returns>This seed so deterministic fixture composition can continue.</returns>
+        public RulesStateSeed SeedEncounter(EncounterState value)
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            Encounters[value.Id] = value;
+            return this;
+        }
+
+        /// <summary>Seeds an active-effect timing schedule for deterministic fixtures.</summary>
+        /// <param name="value">The complete effect timing schedule.</param>
+        /// <returns>This seed so deterministic fixture composition can continue.</returns>
+        public RulesStateSeed SeedActiveEffectTiming(ActiveEffectTimingState value)
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            ActiveEffectTimings[value.Effect] = value;
+            return this;
+        }
 
         public RulesStateSeed SeedCreature(CreatureState value)
         {

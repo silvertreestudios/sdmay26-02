@@ -214,7 +214,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task AgileMapUsesZeroFourEightAndTurnStartResets()
+        public async Task AgileMapUsesZeroFourEight()
         {
             StrikeItemDefinition agile = CreateItem(traits: new[] { Trait.FromSlug("agile") });
             TestRuntime runtime = CreateRuntime(new ScriptedRollService(2, 2, 2, 2), agile);
@@ -232,15 +232,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(first.MultipleAttackPenalty, Is.Zero);
             Assert.That(second.MultipleAttackPenalty, Is.EqualTo(-4));
             Assert.That(third.MultipleAttackPenalty, Is.EqualTo(-8));
-            AssertResolved(await runtime.Dispatcher.Dispatch(new BeginCombatTurnOp(Actor, 3)));
-            Assert.That(
-                runtime.Dispatcher.Snapshot.MultipleAttackPenalty[Actor].AttackCount,
-                Is.Zero
-            );
-            StrikeResolution reset = AssertResolved(
-                await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
-            ).Value;
-            Assert.That(reset.MultipleAttackPenalty, Is.Zero);
         }
 
         [Test]

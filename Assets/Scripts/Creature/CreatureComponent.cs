@@ -1087,18 +1087,23 @@ namespace Game.Creature
             defeated = true;
 
             var ac = gameObject.GetComponent<ActionController>();
-            if (ac != null && CombatManagerInterface.GetInstance() != null)
-                CombatManagerInterface.GetInstance().Remove(ac);
+            if (
+                ac != null
+                && CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager)
+            )
+                combatManager.Remove(ac);
 
             DungeonEncounterMember encounterMember =
                 gameObject.GetComponent<DungeonEncounterMember>();
             if (encounterMember != null && encounterMember.IsConfigured)
                 encounterMember.ReportDefeated();
 
-            GridAPI.GetInstance().DestroyToken(this.gameObject);
+            if (GridAPI.TryGetInstance(out GridAPI grid))
+                grid.DestroyToken(this.gameObject);
             DisableGameplayInteraction(ac);
             OnDeath.Invoke(gameObject); // Trigger the death event
-            CombatLog.GetInstance().Log("- " + this.gameObject.name + " was defeated!");
+            if (CombatLog.TryGetInstance(out CombatLogInterface combatLog))
+                combatLog.Log("- " + this.gameObject.name + " was defeated!");
 
             CreaturePresentation presentation = GetComponent<CreaturePresentation>();
             bool deathStarted =

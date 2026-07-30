@@ -559,7 +559,33 @@ namespace Game.Rules.Runtime.Tests
                     .SeedFocusPoints(Actor, new FocusPointState(2, 3))
                     .SeedAmmunition(new AmmunitionState(Ammunition, Actor, 5))
                     .SeedRuleBinding(binding)
-                    .SeedFrequency(Binding, new FrequencyState(4, 0))
+                    .SeedFrequency(
+                        Binding,
+                        new FrequencyState(new EncounterId("action-encounter"), 4, 0)
+                    )
+                    .SeedEncounter(
+                        new EncounterState(
+                            new EncounterId("action-encounter"),
+                            EncounterPhase.Active,
+                            new PlayerId("players"),
+                            new RoundNumber(4),
+                            new[]
+                            {
+                                new InitiativeEntry(
+                                    Actor,
+                                    new PlayerId("players"),
+                                    10,
+                                    0,
+                                    0,
+                                    RoundNumber.First
+                                ),
+                            },
+                            0,
+                            null,
+                            1,
+                            null
+                        )
+                    )
             );
         }
 

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -36,6 +38,99 @@ namespace Game.Rules.Runtime
             if (value < 0)
                 throw new ArgumentOutOfRangeException(parameterName);
             return value;
+        }
+    }
+
+    /// <summary>Identifies whether one entry in a health batch deals damage or restores health.</summary>
+    public enum HealthBatchChangeKind
+    {
+        /// <summary>Applies an already-final damage amount.</summary>
+        Damage,
+
+        /// <summary>Applies healing subject to maximum-HP clamping.</summary>
+        Healing,
+    }
+
+    /// <summary>Describes one ordered health change in a completed multi-target effect.</summary>
+    public sealed class HealthBatchChange
+    {
+        /// <summary>Gets whether this entry deals damage or restores health.</summary>
+        public HealthBatchChangeKind Kind { get; }
+
+        /// <summary>Gets the affected creature.</summary>
+        public CreatureId Target { get; }
+
+        /// <summary>Gets the non-negative final amount.</summary>
+        public int Amount { get; }
+
+        /// <summary>Gets the stable change identity.</summary>
+        public HealthChangeOriginId Origin { get; }
+
+        /// <summary>Gets the responsible rule source.</summary>
+        public RuleSource Source { get; }
+
+        /// <summary>Initializes one validated batch entry.</summary>
+        public HealthBatchChange(
+            HealthBatchChangeKind kind,
+            CreatureId target,
+            int amount,
+            HealthChangeOriginId origin,
+            RuleSource source
+        )
+        {
+            if (kind != HealthBatchChangeKind.Damage && kind != HealthBatchChangeKind.Healing)
+                throw new ArgumentOutOfRangeException(nameof(kind));
+            Kind = kind;
+            Target = HealthOperationValidation.RequireCreature(target);
+            Amount = HealthOperationValidation.RequireAmount(amount, nameof(amount));
+            Origin = HealthOperationValidation.RequireOrigin(origin);
+            Source = HealthOperationValidation.RequireSource(source);
+        }
+    }
+
+    /// <summary>Reports one ordered health-batch result.</summary>
+    public sealed class HealthBatchChangeOutcome
+    {
+        /// <summary>Gets the originating change.</summary>
+        public HealthBatchChange Change { get; }
+
+        /// <summary>Gets the applied amount.</summary>
+        public int Applied { get; }
+
+        internal HealthBatchChangeOutcome(HealthBatchChange change, int applied)
+        {
+            Change = change ?? throw new ArgumentNullException(nameof(change));
+            Applied = applied;
+        }
+    }
+
+    /// <summary>Reports the deterministic results of one completed health batch.</summary>
+    public sealed class HealthBatchOutcome
+    {
+        /// <summary>Gets results in request order.</summary>
+        public IReadOnlyList<HealthBatchChangeOutcome> Changes { get; }
+
+        internal HealthBatchOutcome(IEnumerable<HealthBatchChangeOutcome> changes) =>
+            Changes = Array.AsReadOnly(changes.ToArray());
+    }
+
+    /// <summary>Applies a completed multi-target health effect beneath one causal root.</summary>
+    public sealed class ApplyHealthBatchOp : IRuleOp<HealthBatchOutcome>
+    {
+        /// <summary>Gets the immutable ordered changes.</summary>
+        public IReadOnlyList<HealthBatchChange> Changes { get; }
+
+        /// <summary>Initializes a non-empty completed health-effect batch.</summary>
+        public ApplyHealthBatchOp(IEnumerable<HealthBatchChange> changes)
+        {
+            HealthBatchChange[] copied =
+                changes?.ToArray() ?? throw new ArgumentNullException(nameof(changes));
+            if (copied.Length == 0 || copied.Any(change => change == null))
+                throw new ArgumentException(
+                    "A health batch requires at least one non-null change.",
+                    nameof(changes)
+                );
+            Changes = Array.AsReadOnly(copied);
         }
     }
 
@@ -166,6 +261,25 @@ namespace Game.Rules.Runtime
             Origin = HealthOperationValidation.RequireOrigin(origin);
             Source = HealthOperationValidation.RequireSource(source);
         }
+    }
+
+    /// <summary>Commits durable defeat after zero-HP reactions have settled.</summary>
+    public sealed class FinalizeCreatureDefeatOp : IRuleOp<bool>
+    {
+        /// <summary>Gets the zero-HP creature to finalize.</summary>
+        public CreatureId Target { get; }
+
+        /// <summary>Initializes a settled defeat request.</summary>
+        public FinalizeCreatureDefeatOp(CreatureId target) =>
+            Target = HealthOperationValidation.RequireCreature(target);
+    }
+
+    internal sealed class CommitCreatureDefeatOp : IRuleOp<bool>
+    {
+        internal CreatureId Target { get; }
+
+        internal CommitCreatureDefeatOp(CreatureId target) =>
+            Target = HealthOperationValidation.RequireCreature(target);
     }
 
     /// <summary>Requests a non-stacking temporary Hit Point grant owned by one source.</summary>

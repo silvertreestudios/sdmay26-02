@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
@@ -19,6 +20,9 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(builder));
 
             return builder
+                .RegisterHandler<ApplyHealthBatchOp, HealthBatchOutcome>(
+                    new ApplyHealthBatchHandler()
+                )
                 .RegisterHandler<ApplyDamageOp, DamageOutcome>(new ApplyDamageHandler())
                 .RegisterReducer<CommitDamageOp, DamageOutcome>(
                     new CommitDamageReducer(),
@@ -27,6 +31,13 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<ApplyHealingOp, HealingOutcome>(new ApplyHealingHandler())
                 .RegisterReducer<CommitHealingOp, HealingOutcome>(
                     new CommitHealingReducer(),
+                    HealthReducerSource
+                )
+                .RegisterHandler<FinalizeCreatureDefeatOp, bool>(
+                    new FinalizeCreatureDefeatHandler()
+                )
+                .RegisterReducer<CommitCreatureDefeatOp, bool>(
+                    new CommitCreatureDefeatReducer(),
                     HealthReducerSource
                 )
                 .RegisterHandler<GrantTemporaryHitPointsOp, TemporaryHitPointsGrantOutcome>(
@@ -50,6 +61,64 @@ namespace Game.Rules.Runtime
                     CommitTemporaryHitPointImmunityOp,
                     TemporaryHitPointImmunityOutcome
                 >(new CommitTemporaryHitPointImmunityReducer(), HealthReducerSource);
+        }
+    }
+
+    internal sealed class ApplyHealthBatchHandler
+        : IOpHandler<ApplyHealthBatchOp, HealthBatchOutcome>
+    {
+        public async ValueTask<HealthBatchOutcome> Handle(
+            OpFrame<ApplyHealthBatchOp> frame,
+            OpHandlerContext context
+        )
+        {
+            foreach (HealthBatchChange change in frame.Op.Changes)
+            {
+                if (!context.Snapshot.Health.TryGet(change.Target, out HealthState health))
+                    throw new InvalidOperationException(
+                        $"Creature {change.Target.Value} has no authoritative health state."
+                    );
+                if (change.Kind == HealthBatchChangeKind.Healing && health.IsCommittedDefeated)
+                    throw new InvalidOperationException(
+                        $"Creature {change.Target.Value} has a committed defeat and cannot be healed."
+                    );
+            }
+
+            List<HealthBatchChangeOutcome> outcomes = new(frame.Op.Changes.Count);
+            foreach (HealthBatchChange change in frame.Op.Changes)
+            {
+                int applied;
+                if (change.Kind == HealthBatchChangeKind.Damage)
+                {
+                    DamageOutcome damage = await HealthHandlerResult.RequireResolved(
+                        context.Dispatch(
+                            new ApplyDamageOp(
+                                change.Target,
+                                change.Amount,
+                                change.Origin,
+                                change.Source
+                            )
+                        )
+                    );
+                    applied = damage.Applied;
+                }
+                else
+                {
+                    HealingOutcome healing = await HealthHandlerResult.RequireResolved(
+                        context.Dispatch(
+                            new ApplyHealingOp(
+                                change.Target,
+                                change.Amount,
+                                change.Origin,
+                                change.Source
+                            )
+                        )
+                    );
+                    applied = healing.Applied;
+                }
+                outcomes.Add(new HealthBatchChangeOutcome(change, applied));
+            }
+            return new HealthBatchOutcome(outcomes);
         }
     }
 
@@ -86,6 +155,17 @@ namespace Game.Rules.Runtime
                         frame.Op.Source
                     )
                 )
+            );
+    }
+
+    internal sealed class FinalizeCreatureDefeatHandler : IOpHandler<FinalizeCreatureDefeatOp, bool>
+    {
+        public async ValueTask<bool> Handle(
+            OpFrame<FinalizeCreatureDefeatOp> frame,
+            OpHandlerContext context
+        ) =>
+            await HealthHandlerResult.RequireResolved(
+                context.Dispatch(new CommitCreatureDefeatOp(frame.Op.Target))
             );
     }
 

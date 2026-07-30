@@ -41,10 +41,20 @@ public class MindlessController : AIActionController
     {
         if (GridAPI == null)
         {
-            RebindGrid((GridAPIPrivate)GridPublic.GridAPI.GetInstance());
+            if (
+                !GridPublic.GridAPI.TryGetInstance(out GridPublic.GridAPI activeGrid)
+                || !(activeGrid is GridAPIPrivate privateGrid)
+            )
+            {
+                base.StartTurn();
+                return;
+            }
+            RebindGrid(privateGrid);
         }
 
         base.StartTurn();
+        if (!isActiveAndEnabled)
+            return;
         turnSequence = StartCoroutine(ExecuteTurnSequence());
     }
 
@@ -152,15 +162,43 @@ public class MindlessController : AIActionController
 
         Vector3Int currentCell = Vector3Int.RoundToInt(transform.position);
         Pathfinder.Search(this.gameObject, currentCell);
-        string myTeam = this.gameObject.GetComponent<Team>().Name;
+        TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor);
+        Team actorTeam = GetComponent<Team>();
         int minDistance = int.MaxValue;
 
         foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
         {
-            if (
-                target == this.gameObject
-                || TeamRules.GetInstance().IsFriendly(myTeam, target.GetComponent<Team>().Name)
+            if (target == this.gameObject)
+                continue;
+            Team targetTeam = target.GetComponent<Team>();
+            bool friendly;
+            if (bridge != null && target.TryGetComponent(out CreatureComponent targetCreature))
+            {
+                CreatureId targetId = bridge.GetCreatureId(targetCreature);
+                friendly =
+                    bridge.Snapshot.Creatures[actor].Player
+                    == bridge.Snapshot.Creatures[targetId].Player;
+            }
+            else if (
+                actorTeam != null
+                && targetTeam != null
+                && TeamRules.TryGetInstance(out TeamRules teamRules)
             )
+            {
+                friendly = teamRules.IsFriendly(actorTeam.Name, targetTeam.Name);
+            }
+            else
+            {
+                friendly =
+                    actorTeam != null
+                    && targetTeam != null
+                    && string.Equals(
+                        actorTeam.Name,
+                        targetTeam.Name,
+                        StringComparison.OrdinalIgnoreCase
+                    );
+            }
+            if (friendly)
                 continue;
 
             Vector3Int targetCell = Vector3Int.RoundToInt(target.transform.position);

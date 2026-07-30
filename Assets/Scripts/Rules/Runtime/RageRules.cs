@@ -325,9 +325,13 @@ namespace Game.Rules.Runtime
         internal static readonly RuleSource Source = RuleSource.FromSlug("rage");
         internal static readonly RuleDefinitionId QuickTemperedRuleDefinitionId =
             new RuleDefinitionId("quick-tempered");
+        internal static readonly RuleDefinitionId LifecycleRuleDefinitionId = new RuleDefinitionId(
+            "rage-lifecycle"
+        );
         internal static readonly RuleSource QuickTemperedSource = RuleSource.FromSlug(
             "quick-tempered"
         );
+        internal static readonly RuleSource LifecycleSource = RuleSource.FromSlug("rage-lifecycle");
         private static readonly IReadOnlyList<ActiveRuleBinding> NoInitialBindings =
             Array.AsReadOnly(Array.Empty<ActiveRuleBinding>());
         private static readonly IReadOnlyList<string> ActiveRollOptions = Array.AsReadOnly(
@@ -371,21 +375,33 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("A Rage actor is required.", nameof(actor));
             if (state == null)
                 throw new ArgumentNullException(nameof(state));
-            if (!state.OwnsQuickTempered)
+            if (!state.OwnsRage)
                 return NoInitialBindings;
-            return Array.AsReadOnly(
-                new[]
-                {
+            List<ActiveRuleBinding> bindings = new List<ActiveRuleBinding>
+            {
+                new ActiveRuleBinding(
+                    new BindingId($"rage-lifecycle-{actor.Value}"),
+                    LifecycleRuleDefinitionId,
+                    actor,
+                    default,
+                    LifecycleSource,
+                    0
+                ),
+            };
+            if (state.OwnsQuickTempered)
+            {
+                bindings.Add(
                     new ActiveRuleBinding(
                         new BindingId($"quick-tempered-{actor.Value}"),
                         QuickTemperedRuleDefinitionId,
                         actor,
                         default,
                         QuickTemperedSource,
-                        0
-                    ),
-                }
-            );
+                        1
+                    )
+                );
+            }
+            return Array.AsReadOnly(bindings.ToArray());
         }
 
         /// <summary>Gets roll options contributed by the actor's active Rage.</summary>
@@ -437,8 +453,10 @@ namespace Game.Rules.Runtime
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
+            builder.Define(RageActionDefinition.EffectDefinitionId);
             builder
-                .Define(RageActionDefinition.EffectDefinitionId)
+                .Define(LifecycleRuleDefinitionId)
+                .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnExpirationListener())
                 .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnEncounterEndListener());
             builder
                 .Define(QuickTemperedRuleDefinitionId)
@@ -531,9 +549,13 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class QuickTemperedInitiativeListener : IRuleFactListener<InitiativeRolledFact>
+    internal sealed class QuickTemperedInitiativeListener
+        : IRuleFactListener<InitiativeBoundaryReachedFact>
     {
-        public async ValueTask OnFactCommitted(InitiativeRolledFact fact, FactContext context)
+        public async ValueTask OnFactCommitted(
+            InitiativeBoundaryReachedFact fact,
+            FactContext context
+        )
         {
             if (fact.Creature != context.Binding.Owner)
                 return;
@@ -549,10 +571,32 @@ namespace Game.Rules.Runtime
     {
         public async ValueTask OnFactCommitted(EncounterEndedFact fact, FactContext context)
         {
-            if (fact.Creature != context.Binding.Owner)
+            if (
+                !context.Snapshot.Encounters.TryGet(fact.Encounter, out EncounterState encounter)
+                || !encounter.Roster.Any(entry => entry.Creature == context.Binding.Owner)
+            )
                 return;
             await RageHandlerSupport.RequireResolved(
-                context.Dispatch(new EndRageOp(fact.Creature))
+                context.Dispatch(new EndRageOp(context.Binding.Owner))
+            );
+        }
+    }
+
+    internal sealed class EndRageOnExpirationListener : IRuleFactListener<ActiveEffectExpiredFact>
+    {
+        public async ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, FactContext context)
+        {
+            if (
+                fact.DefinitionId != RageActionDefinition.EffectDefinitionId
+                || !context.Snapshot.ActiveEffects.TryGet(
+                    fact.EffectId,
+                    out ActiveEffectInstance effect
+                )
+                || effect.SourceCreature != context.Binding.Owner
+            )
+                return;
+            await RageHandlerSupport.RequireResolved(
+                context.Dispatch(new EndRageOp(context.Binding.Owner))
             );
         }
     }
@@ -691,7 +735,37 @@ namespace Game.Rules.Runtime
                 )
                 .ToArray();
             if (effects.Length == 0)
-                return new RageEndOutcome(false);
+            {
+                if (
+                    !context.Snapshot.Health.TryGet(frame.Op.Actor, out HealthState health)
+                    || health.Temporary == 0
+                    || health.TemporarySource != RageRules.Source
+                )
+                    return new RageEndOutcome(false);
+
+                HealthChangeOriginId expiredOrigin = RageHandlerSupport.CreateHealthOrigin(
+                    frame.RootId
+                );
+                await RageHandlerSupport.RequireResolved(
+                    context.Dispatch(
+                        new RemoveTemporaryHitPointsOp(
+                            frame.Op.Actor,
+                            expiredOrigin,
+                            RageRules.Source
+                        )
+                    )
+                );
+                await RageHandlerSupport.RequireResolved(
+                    context.Dispatch(
+                        new AddTemporaryHitPointImmunityOp(
+                            frame.Op.Actor,
+                            expiredOrigin,
+                            RageRules.Source
+                        )
+                    )
+                );
+                return new RageEndOutcome(true);
+            }
             if (effects.Length != 1)
                 throw new InvalidOperationException(
                     "A creature cannot have multiple active Rages."
