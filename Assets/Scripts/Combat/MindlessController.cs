@@ -184,20 +184,22 @@ public class MindlessController : AIActionController
                 continue;
             Team targetTeam = target.GetComponent<Team>();
             bool friendly;
-            if (bridge != null && target.TryGetComponent(out CreatureComponent targetCreature))
+            if (
+                actorTeam != null
+                && targetTeam != null
+                && TeamRules.TryGetInstance(out TeamRules teamRules)
+                && teamRules.Contains(actorTeam.Name)
+                && teamRules.Contains(targetTeam.Name)
+            )
+            {
+                friendly = teamRules.IsFriendly(actorTeam.Name, targetTeam.Name);
+            }
+            else if (bridge != null && target.TryGetComponent(out CreatureComponent targetCreature))
             {
                 CreatureId targetId = bridge.GetCreatureId(targetCreature);
                 friendly =
                     bridge.Snapshot.Creatures[actor].Player
                     == bridge.Snapshot.Creatures[targetId].Player;
-            }
-            else if (
-                actorTeam != null
-                && targetTeam != null
-                && TeamRules.TryGetInstance(out TeamRules teamRules)
-            )
-            {
-                friendly = teamRules.IsFriendly(actorTeam.Name, targetTeam.Name);
             }
             else
             {

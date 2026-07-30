@@ -551,6 +551,51 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(first.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
+    /// <summary>Verifies legacy scenes derive protagonist identity from registration order.</summary>
+    [Test]
+    public void LegacyStartCombat_DerivesNonPlayersProtagonistTeam()
+    {
+        CombatantFixture first = CreateCombatant("First", "TeamA", 300);
+        CreateCombatant("Second", "TeamB", 200);
+
+        manager.StartCombat();
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        CreatureId firstId = bridge.GetCreatureId(first.Creature);
+        Assert.That(
+            bridge.GetEncounter().ProtagonistTeam,
+            Is.EqualTo(bridge.Snapshot.Creatures[firstId].Player)
+        );
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
+    }
+
+    /// <summary>Verifies a failed committed startup releases ownership so the host can retry.</summary>
+    [Test]
+    public void LegacyStartCombat_FailedPresentationDoesNotLeaveManagerActive()
+    {
+        CombatantFixture first = CreateCombatant("First", "TeamA", 300);
+        CombatantFixture second = CreateCombatant("Second", "TeamB", 200);
+        UnityAction failingPresentation = () =>
+            throw new InvalidOperationException("Synthetic encounter-start presentation failure.");
+        OnCombatStart.AddListener(failingPresentation);
+        try
+        {
+            Assert.Catch<Exception>(() => manager.StartCombat());
+            Assert.That(manager.IsCombatActive, Is.False);
+            AssertTransientTurnStateCleared(first.Controller);
+            AssertTransientTurnStateCleared(second.Controller);
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(failingPresentation);
+        }
+
+        Assert.DoesNotThrow(() => manager.StartCombat());
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
+    }
+
     /// <summary>Verifies legacy combat excludes registered controllers that cannot take turns.</summary>
     [Test]
     public void LegacyStartCombat_ExcludesDisabledAndInactiveControllers()
@@ -670,6 +715,53 @@ public sealed class DungeonEncounterCombatPlayModeTests
             Is.False,
             "The pre-invocation decision delay must retain authoritative turn ownership."
         );
+    }
+
+    /// <summary>
+    /// Verifies active encounter AI preserves directional TeamRules friendship for distinct teams.
+    /// </summary>
+    [Test]
+    public void MindlessDecision_ActiveEncounterIgnoresDirectionalFriendAndTargetsHostileTeam()
+    {
+        TeamRules teamRules = Create("Team Rules").AddComponent<TeamRules>();
+        teamRules.AddHostileTeam("AI");
+        teamRules.AddHostileTeam("Ally");
+        teamRules.AddHostileTeam("Players");
+        teamRules.OneWayFriendly("AI", "Ally");
+
+        GameObject actor = Create("Mindless Actor");
+        CreatureComponent actorCreature = actor.AddComponent<CreatureComponent>();
+        actorCreature.name = "Mindless Actor";
+        actorCreature.speed = 25;
+        actorCreature.InitializeHealthBeforeEncounter(10, 10);
+        actor.AddComponent<Conditions>();
+        MindlessController ai = actor.AddComponent<MindlessController>();
+        Team actorTeam = actor.AddComponent<Team>();
+        actorTeam.Name = "AI";
+        manager.AddCombatant(ai);
+
+        CombatantFixture ally = CreateCombatant("Directional Ally", "Ally", 0);
+        CombatantFixture hostile = CreateCombatant("Hostile Player", "Players", 0);
+        actor.transform.position = new Vector3(0, 0, 1);
+        ally.GameObject.transform.position = new Vector3(2, 0, 1);
+        hostile.GameObject.transform.position = new Vector3(4, 0, 1);
+        Tile[,] tiles = new Tile[5, 3];
+        for (int x = 0; x < tiles.GetLength(0); x++)
+        for (int z = 0; z < tiles.GetLength(1); z++)
+            tiles[x, z] = new Tile();
+        tiles[0, 1].Occupants.Add(actor);
+        tiles[2, 1].Occupants.Add(ally.GameObject);
+        tiles[4, 1].Occupants.Add(hostile.GameObject);
+        ai.RebindGrid(new MindlessTestGridBinding(tiles));
+        manager.StartDungeonCombat(
+            new ActionController[] { hostile.Controller, ai, ally.Controller }
+        );
+
+        ai.MindlessDecision();
+
+        Assert.That(teamRules.IsFriendly("AI", "Ally"), Is.True);
+        Assert.That(teamRules.IsFriendly("Ally", "AI"), Is.False);
+        Assert.That(ai.BestTarget, Is.SameAs(hostile.GameObject));
     }
 
     private CombatantFixture CreateCombatant(string name, string teamName, int initiative)
@@ -809,6 +901,30 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         public TestGridBinding()
         {
+            pathfinder = new Dijkstra(tiles);
+        }
+
+        public Tile[,] GetTiles() => tiles;
+
+        public bool[,] GetLineOfSightBlocks() => lineOfSightBlocks;
+
+        public IPathfinder GetPathfinder() => pathfinder;
+
+        public bool AddToken(GameObject token) => true;
+
+        public bool DestroyToken(GameObject token) => true;
+    }
+
+    private sealed class MindlessTestGridBinding : GridAPIPrivate
+    {
+        private readonly Tile[,] tiles;
+        private readonly bool[,] lineOfSightBlocks;
+        private readonly IPathfinder pathfinder;
+
+        public MindlessTestGridBinding(Tile[,] tiles)
+        {
+            this.tiles = tiles;
+            lineOfSightBlocks = new bool[tiles.GetLength(0), tiles.GetLength(1)];
             pathfinder = new Dijkstra(tiles);
         }
 

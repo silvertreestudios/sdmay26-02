@@ -32,6 +32,14 @@ namespace Game.Rules.Runtime
                     RuleLifecyclePhase.Prevention,
                     new EncounterEndValidationMiddleware()
                 )
+                .FactBatchListener(
+                    RuleLifecyclePhase.Observation,
+                    new EncounterInitiativeAssignmentsListener()
+                )
+                .FactListener(
+                    RuleLifecyclePhase.Observation,
+                    new EncounterInitiativeBoundaryListener()
+                )
                 .FactBatchListener(RuleLifecyclePhase.Observation, new EncounterOutcomeListener());
             return builder;
         }
@@ -74,6 +82,9 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<JoinEncounterOp, EncounterJoinOutcome>(new JoinEncounterHandler())
                 .RegisterHandler<AdvanceEncounterOp, EncounterAdvanceOutcome>(
                     new AdvanceEncounterHandler()
+                )
+                .RegisterHandler<BeginInitiativeTurnOp, EncounterAdvanceOutcome>(
+                    new BeginInitiativeTurnHandler()
                 )
                 .RegisterHandler<EndTurnOp, EncounterAdvanceOutcome>(new EndTurnHandler())
                 .RegisterHandler<SuspendEncounterOp, EncounterSuspensionOutcome>(
@@ -202,7 +213,7 @@ namespace Game.Rules.Runtime
                 .OrderByDescending(entry => entry.Total)
                 .ThenBy(entry => entry.RegistrationOrder)
                 .ToArray();
-            EncounterHandlerResults.Require(
+            EncounterStartOutcome started = EncounterHandlerResults.Require(
                 await context.Dispatch(
                     new CommitEncounterStartOp(
                         frame.Op.Encounter,
@@ -218,11 +229,7 @@ namespace Game.Rules.Runtime
                 ),
                 "initial initiative assignment"
             );
-            EncounterAdvanceOutcome advanced = EncounterHandlerResults.Require(
-                await context.Dispatch(new AdvanceEncounterOp(frame.Op.Encounter)),
-                "first turn advance"
-            );
-            return new EncounterStartOutcome(advanced.State);
+            return started;
         }
     }
 
@@ -315,69 +322,88 @@ namespace Game.Rules.Runtime
                 );
                 return new EncounterAdvanceOutcome(ended.State);
             }
-            int attempts = initial.Roster.Count;
-            while (attempts-- > 0)
+            InitiativeBoundaryOutcome boundary = EncounterHandlerResults.Require(
+                await context.Dispatch(new CommitInitiativeBoundaryOp(frame.Op.Encounter)),
+                "initiative boundary"
+            );
+            foreach (ActiveEffectTimingState timing in boundary.DueEffects)
             {
-                InitiativeBoundaryOutcome boundary = EncounterHandlerResults.Require(
-                    await context.Dispatch(new CommitInitiativeBoundaryOp(frame.Op.Encounter)),
-                    "initiative boundary"
-                );
-                foreach (ActiveEffectTimingState timing in boundary.DueEffects)
-                {
-                    if (
-                        !context.Snapshot.ActiveEffects.TryGet(
-                            timing.Effect,
-                            out ActiveEffectInstance effect
-                        )
-                        || effect.Status != ActiveEffectStatus.Active
+                if (
+                    !context.Snapshot.ActiveEffects.TryGet(
+                        timing.Effect,
+                        out ActiveEffectInstance effect
                     )
-                        continue;
-                    EncounterHandlerResults.Require(
-                        await context.Dispatch(
-                            new ExpireActiveEffectOp(
-                                effect.Id,
-                                timing.Binding,
-                                effect.EffectStateVersion,
-                                effect.Source
-                            )
-                        ),
-                        "timed effect expiration"
-                    );
-                }
-                if (boundary.Entry.EligibleFromRound.CompareTo(boundary.State.Round) > 0)
+                    || effect.Status != ActiveEffectStatus.Active
+                )
                     continue;
-                if (!EncounterEndValidation.IsLiving(context.Snapshot, boundary.Entry.Creature))
-                    continue;
-                TurnStartContribution contribution = EncounterHandlerResults.Require(
+                EncounterHandlerResults.Require(
                     await context.Dispatch(
-                        new TurnStartingOp(frame.Op.Encounter, boundary.Entry.Creature)
-                    ),
-                    "turn-start hook"
-                );
-                EncounterState latest = EncounterRuleRuntime.RequireEncounter(
-                    context.Snapshot,
-                    frame.Op.Encounter
-                );
-                if (!EncounterEndValidation.IsLiving(context.Snapshot, boundary.Entry.Creature))
-                {
-                    // The hook's zero-HP Fact still belongs to this outer root. Return without a
-                    // turn so its Reaction listeners settle before the encounter-owned
-                    // Observation listener decides the outcome or advances beyond this slot.
-                    return new EncounterAdvanceOutcome(latest);
-                }
-                return EncounterHandlerResults.Require(
-                    await context.Dispatch(
-                        new CommitTurnBeginOp(
-                            frame.Op.Encounter,
-                            boundary.Entry.Creature,
-                            contribution.Actions
+                        new ExpireActiveEffectOp(
+                            effect.Id,
+                            timing.Binding,
+                            effect.EffectStateVersion,
+                            effect.Source
                         )
                     ),
-                    "turn begin"
+                    "timed effect expiration"
                 );
             }
-            throw new InvalidOperationException(
-                "An active encounter had no eligible living slot and no outcome."
+            return new EncounterAdvanceOutcome(
+                EncounterRuleRuntime.RequireEncounter(context.Snapshot, frame.Op.Encounter)
+            );
+        }
+    }
+
+    internal sealed class BeginInitiativeTurnHandler
+        : IOpHandler<BeginInitiativeTurnOp, EncounterAdvanceOutcome>
+    {
+        public async ValueTask<EncounterAdvanceOutcome> Handle(
+            OpFrame<BeginInitiativeTurnOp> frame,
+            OpHandlerContext context
+        )
+        {
+            EncounterState encounter = EncounterRuleRuntime.RequireEncounter(
+                context.Snapshot,
+                frame.Op.Encounter
+            );
+            if (
+                encounter.Phase != EncounterPhase.Active
+                || encounter.CurrentTurn.HasValue
+                || encounter.Round != frame.Op.Round
+                || encounter.Cursor != frame.Op.Slot
+                || encounter.Roster[encounter.Cursor].Creature != frame.Op.Actor
+            )
+                throw new InvalidOperationException(
+                    "The reached initiative boundary is no longer current."
+                );
+            InitiativeEntry entry = encounter.Roster[encounter.Cursor];
+            if (
+                entry.EligibleFromRound.CompareTo(encounter.Round) > 0
+                || !EncounterEndValidation.IsLiving(context.Snapshot, entry.Creature)
+            )
+                throw new InvalidOperationException(
+                    "Only an eligible living initiative boundary can begin a turn."
+                );
+
+            TurnStartContribution contribution = EncounterHandlerResults.Require(
+                await context.Dispatch(new TurnStartingOp(frame.Op.Encounter, entry.Creature)),
+                "turn-start hook"
+            );
+            EncounterState latest = EncounterRuleRuntime.RequireEncounter(
+                context.Snapshot,
+                frame.Op.Encounter
+            );
+            if (!EncounterEndValidation.IsLiving(context.Snapshot, entry.Creature))
+            {
+                // The hook's zero-HP Fact belongs to this causal root. Return without a turn so
+                // its Reaction listeners settle before encounter Observation evaluates outcome.
+                return new EncounterAdvanceOutcome(latest);
+            }
+            return EncounterHandlerResults.Require(
+                await context.Dispatch(
+                    new CommitTurnBeginOp(frame.Op.Encounter, entry.Creature, contribution.Actions)
+                ),
+                "turn begin"
             );
         }
     }
@@ -665,6 +691,96 @@ namespace Game.Rules.Runtime
             EncounterHandlerResults.Require(
                 await context.Dispatch(new EvaluateEncounterOutcomeOp(encounter.Id)),
                 "encounter outcome evaluation"
+            );
+        }
+    }
+
+    internal sealed class EncounterInitiativeAssignmentsListener
+        : IRuleFactBatchListener<InitiativeAssignedFact>
+    {
+        public async ValueTask OnFactsCommitted(
+            CommittedFactBatch<InitiativeAssignedFact> batch,
+            FactContext context
+        )
+        {
+            EncounterId encounterId = batch.Facts[0].Encounter;
+            if (batch.Facts.Any(fact => fact.Encounter != encounterId))
+                throw new InvalidOperationException(
+                    "One initiative-assignment batch cannot span encounters."
+                );
+            EncounterState encounter = EncounterRuleRuntime.RequireEncounter(
+                context.Snapshot,
+                encounterId
+            );
+            if (
+                encounter.Phase != EncounterPhase.Active
+                || encounter.CurrentTurn.HasValue
+                || encounter.Cursor >= 0
+            )
+                return;
+            EncounterHandlerResults.Require(
+                await context.Dispatch(new AdvanceEncounterOp(encounter.Id)),
+                "first initiative boundary"
+            );
+        }
+    }
+
+    internal sealed class EncounterInitiativeBoundaryListener
+        : IRuleFactListener<InitiativeBoundaryReachedFact>
+    {
+        public async ValueTask OnFactCommitted(
+            InitiativeBoundaryReachedFact fact,
+            FactContext context
+        )
+        {
+            EncounterState encounter = EncounterRuleRuntime.RequireEncounter(
+                context.Snapshot,
+                fact.Encounter
+            );
+            if (encounter.Phase != EncounterPhase.Active || encounter.CurrentTurn.HasValue)
+                return;
+            if (
+                encounter.Cursor < 0
+                || encounter.Round != fact.Round
+                || encounter.Roster[encounter.Cursor].Creature != fact.Creature
+            )
+                throw new InvalidOperationException(
+                    "The committed initiative boundary no longer matches encounter state."
+                );
+
+            EncounterOutcome? outcome = EncounterRuleRuntime.Evaluate(context.Snapshot, encounter);
+            if (outcome.HasValue)
+            {
+                EncounterHandlerResults.Require(
+                    await context.Dispatch(new EndEncounterOp(encounter.Id, outcome.Value)),
+                    "initiative-boundary encounter outcome"
+                );
+                return;
+            }
+
+            InitiativeEntry entry = encounter.Roster[encounter.Cursor];
+            if (
+                entry.EligibleFromRound.CompareTo(encounter.Round) > 0
+                || !EncounterEndValidation.IsLiving(context.Snapshot, entry.Creature)
+            )
+            {
+                EncounterHandlerResults.Require(
+                    await context.Dispatch(new AdvanceEncounterOp(encounter.Id)),
+                    "skipped initiative boundary"
+                );
+                return;
+            }
+
+            EncounterHandlerResults.Require(
+                await context.Dispatch(
+                    new BeginInitiativeTurnOp(
+                        encounter.Id,
+                        encounter.Round,
+                        encounter.Cursor,
+                        entry.Creature
+                    )
+                ),
+                "initiative turn begin"
             );
         }
     }

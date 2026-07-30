@@ -156,8 +156,6 @@ namespace Game.Rules.Runtime.Tests
                         typeof(EncounterStartedFact),
                         typeof(InitiativeAssignedFact),
                         typeof(InitiativeAssignedFact),
-                        typeof(InitiativeBoundaryReachedFact),
-                        typeof(TurnBeganFact),
                     }
                 )
             );
@@ -452,11 +450,14 @@ namespace Game.Rules.Runtime.Tests
             RulesStateSeed seed = BaseSeed();
             seed.SeedHealth(Enemy, new HealthState(0, 10));
             RecordingTurnStartAdapter adapter = new RecordingTurnStartAdapter("hook");
+            CollectingFactObserver<InitiativeBoundaryReachedFact> boundaries =
+                new CollectingFactObserver<InitiativeBoundaryReachedFact>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 15, 10),
                 seed,
                 turnStartAdapters: new[] { adapter }
             );
+            dispatcher.RegisterFactObserver<InitiativeBoundaryReachedFact>(boundaries);
 
             EncounterState heroTurn = Resolved(
                 await dispatcher.Dispatch(
@@ -474,10 +475,8 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(state.CurrentTurn.Value.Actor, Is.EqualTo(Reinforcement));
             Assert.That(
-                advanced
-                    .Facts.OfType<InitiativeBoundaryReachedFact>()
-                    .Select(fact => fact.Creature),
-                Is.EqualTo(new[] { Enemy, Reinforcement })
+                boundaries.Facts.Select(fact => fact.Creature),
+                Is.EqualTo(new[] { Hero, Enemy, Reinforcement })
             );
             Assert.That(adapter.Actors, Is.EqualTo(new[] { Hero, Reinforcement }));
         }
@@ -1280,24 +1279,21 @@ namespace Game.Rules.Runtime.Tests
                 2
             );
             Resolved(await dispatcher.Dispatch(new CreateEffectWorkflowOp(effect, binding)));
+            InitiativeExpirationOrderObserver order = new InitiativeExpirationOrderObserver();
+            dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(order);
+            dispatcher.RegisterFactObserver<TurnBeganFact>(order);
 
             EncounterState enemyTurn = Resolved(
                 await dispatcher.Dispatch(new EndTurnOp(heroTurn.CurrentTurn.Value))
             ).Value.State;
-            OpResult<EncounterAdvanceOutcome> nextHero = await dispatcher.Dispatch(
-                new EndTurnOp(enemyTurn.CurrentTurn.Value)
-            );
+            await dispatcher.Dispatch(new EndTurnOp(enemyTurn.CurrentTurn.Value));
 
             Assert.That(
                 dispatcher.Snapshot.ActiveEffects[effectId].Status,
                 Is.EqualTo(ActiveEffectStatus.Expired)
             );
             Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
-            Type[] facts = nextHero.Facts.Select(fact => fact.GetType()).ToArray();
-            Assert.That(
-                Array.IndexOf(facts, typeof(ActiveEffectExpiredFact)),
-                Is.LessThan(Array.IndexOf(facts, typeof(TurnBeganFact)))
-            );
+            Assert.That(order.Order, Is.EqualTo(new[] { "turn", "expired", "turn" }));
         }
 
         [TestCase(false, false)]
@@ -1593,6 +1589,20 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class CollectingFactObserver<TFact> : IFactObserver<TFact>
+            where TFact : RuleFact
+        {
+            private readonly List<TFact> facts = new List<TFact>();
+
+            public IReadOnlyList<TFact> Facts => facts;
+
+            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            {
+                facts.Add(fact);
+                return default;
+            }
+        }
+
         private sealed class BlockingFactObserver<TFact> : IFactObserver<TFact>
             where TFact : RuleFact
         {
@@ -1660,6 +1670,27 @@ namespace Game.Rules.Runtime.Tests
             public ValueTask OnFactCommitted(EncounterEndedFact fact, RulesSnapshot snapshot)
             {
                 order.Add("ended");
+                return default;
+            }
+        }
+
+        private sealed class InitiativeExpirationOrderObserver
+            : IFactObserver<ActiveEffectExpiredFact>,
+                IFactObserver<TurnBeganFact>
+        {
+            private readonly List<string> order = new List<string>();
+
+            public IReadOnlyList<string> Order => order;
+
+            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            {
+                order.Add("expired");
+                return default;
+            }
+
+            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            {
+                order.Add("turn");
                 return default;
             }
         }

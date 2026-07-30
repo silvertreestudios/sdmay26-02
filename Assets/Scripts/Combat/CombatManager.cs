@@ -10,6 +10,7 @@ using UnityEngine;
 /// <summary>Hosts and projects the single rules-owned encounter lifecycle.</summary>
 public class CombatManager : CombatManagerInterface
 {
+    private const string DungeonProtagonistTeamName = "Players";
     protected List<ActionController> Combatants = new();
     private readonly List<ActionController> activeCombatants = new();
     private bool combatActive;
@@ -88,12 +89,23 @@ public class CombatManager : CombatManagerInterface
     }
 
     [ContextMenu("StartCombat")]
-    public override void StartCombat() =>
-        BeginCombat(Combatants.Where(CanTakeTurn).ToArray(), false);
+    public override void StartCombat()
+    {
+        ActionController[] participants = Combatants.Where(CanTakeTurn).ToArray();
+        BeginCombat(participants, false, FindFirstRegisteredTeamName(participants));
+    }
 
     /// <inheritdoc/>
-    public override void StartDungeonCombat(IReadOnlyList<ActionController> participants) =>
-        BeginCombat(participants, true);
+    public override void StartDungeonCombat(IReadOnlyList<ActionController> participants)
+    {
+        if (participants == null)
+            throw new ArgumentNullException(nameof(participants));
+        BeginCombat(
+            participants,
+            true,
+            FindRegisteredTeamName(participants, DungeonProtagonistTeamName)
+        );
+    }
 
     /// <inheritdoc/>
     public override void AddDungeonReinforcements(IReadOnlyList<ActionController> reinforcements)
@@ -180,7 +192,11 @@ public class CombatManager : CombatManagerInterface
             combatRules.RefreshTopology(tiles);
     }
 
-    private void BeginCombat(IReadOnlyList<ActionController> participants, bool dungeonDirected)
+    private void BeginCombat(
+        IReadOnlyList<ActionController> participants,
+        bool dungeonDirected,
+        string protagonistTeamName
+    )
     {
         if (participants == null)
             throw new ArgumentNullException(nameof(participants));
@@ -202,18 +218,75 @@ public class CombatManager : CombatManagerInterface
                 "Inactive or disabled controllers cannot begin combat."
             );
 
-        Pf2eRulesEngine.ApplyCombatStartRules(selected);
-        activeCombatants.Clear();
-        activeCombatants.AddRange(selected);
-        dungeonDirectedCombat = dungeonDirected;
-        encounterEnded = false;
-        pendingOutcomePresentation = null;
-        combatRules = UnityCombatRulesBridge.Create(activeCombatants, GetCurrentTilesOrFallback());
-        combatRules.EncounterStarted += PresentEncounterStarted;
-        combatRules.TurnBegan += PresentTurnBegan;
-        combatRules.EncounterEnded += PresentEncounterOutcome;
-        combatActive = true;
-        combatRules.StartEncounter("players");
+        try
+        {
+            activeCombatants.Clear();
+            activeCombatants.AddRange(selected);
+            Pf2eRulesEngine.ApplyCombatStartRules(selected);
+            dungeonDirectedCombat = dungeonDirected;
+            encounterEnded = false;
+            pendingOutcomePresentation = null;
+            combatRules = UnityCombatRulesBridge.Create(
+                activeCombatants,
+                GetCurrentTilesOrFallback()
+            );
+            combatRules.EncounterStarted += PresentEncounterStarted;
+            combatRules.TurnBegan += PresentTurnBegan;
+            combatRules.EncounterEnded += PresentEncounterOutcome;
+            combatActive = true;
+            combatRules.StartEncounter(protagonistTeamName);
+        }
+        catch
+        {
+            StopCombatState();
+            encounterEnded = false;
+            throw;
+        }
+    }
+
+    private static string FindFirstRegisteredTeamName(IReadOnlyList<ActionController> participants)
+    {
+        string firstRegisteredTeamName = string.Empty;
+        foreach (ActionController participant in participants)
+        {
+            Team team = participant == null ? null : participant.GetComponent<Team>();
+            if (team == null || string.IsNullOrWhiteSpace(team.Name))
+                continue;
+            if (
+                string.Equals(
+                    team.Name,
+                    DungeonProtagonistTeamName,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+                return team.Name;
+            if (string.IsNullOrEmpty(firstRegisteredTeamName))
+                firstRegisteredTeamName = team.Name;
+        }
+        if (!string.IsNullOrEmpty(firstRegisteredTeamName))
+            return firstRegisteredTeamName;
+        throw new InvalidOperationException(
+            "Legacy combat requires at least one participant with a registered team name."
+        );
+    }
+
+    private static string FindRegisteredTeamName(
+        IReadOnlyList<ActionController> participants,
+        string requiredTeamName
+    )
+    {
+        foreach (ActionController participant in participants)
+        {
+            Team team = participant == null ? null : participant.GetComponent<Team>();
+            if (
+                team != null
+                && string.Equals(team.Name, requiredTeamName, StringComparison.OrdinalIgnoreCase)
+            )
+                return team.Name;
+        }
+        throw new InvalidOperationException(
+            $"Dungeon combat requires a registered {requiredTeamName} participant."
+        );
     }
 
     private void PresentEncounterStarted()
