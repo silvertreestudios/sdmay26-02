@@ -327,6 +327,12 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the committed outcome after the encounter ends.</summary>
         public EncounterOutcome? Outcome { get; }
 
+        /// <summary>
+        /// Gets whether the current initiative boundary is committed but cannot publish turn
+        /// authority until all effects due at that boundary finish expiring.
+        /// </summary>
+        public bool IsInitiativeBoundaryPending { get; }
+
         /// <summary>Creates a validated immutable encounter snapshot.</summary>
         /// <param name="id">The stable encounter identity.</param>
         /// <param name="phase">The committed lifecycle phase.</param>
@@ -337,6 +343,10 @@ namespace Game.Rules.Runtime
         /// <param name="currentTurn">The exact open turn, when one exists.</param>
         /// <param name="nextTurnSequence">The next positive turn sequence.</param>
         /// <param name="outcome">The committed result for an ended encounter.</param>
+        /// <param name="isInitiativeBoundaryPending">
+        /// Whether <paramref name="cursor"/> identifies a boundary whose due effects must settle
+        /// before its <see cref="InitiativeBoundaryReachedFact"/> can publish.
+        /// </param>
         public EncounterState(
             EncounterId id,
             EncounterPhase phase,
@@ -346,7 +356,8 @@ namespace Game.Rules.Runtime
             int cursor,
             TurnIdentity? currentTurn,
             long nextTurnSequence,
-            EncounterOutcome? outcome
+            EncounterOutcome? outcome,
+            bool isInitiativeBoundaryPending = false
         )
         {
             if (id.IsEmpty || protagonistTeam.IsEmpty)
@@ -363,6 +374,14 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(cursor));
             if (nextTurnSequence <= 0)
                 throw new ArgumentOutOfRangeException(nameof(nextTurnSequence));
+            if (
+                isInitiativeBoundaryPending
+                && (phase != EncounterPhase.Active || cursor < 0 || currentTurn.HasValue)
+            )
+                throw new ArgumentException(
+                    "A pending initiative boundary requires an active encounter, a reached cursor, and no open turn.",
+                    nameof(isInitiativeBoundaryPending)
+                );
             Id = id;
             Phase = phase;
             ProtagonistTeam = protagonistTeam;
@@ -372,6 +391,7 @@ namespace Game.Rules.Runtime
             CurrentTurn = currentTurn;
             NextTurnSequence = nextTurnSequence;
             Outcome = outcome;
+            IsInitiativeBoundaryPending = isInitiativeBoundaryPending;
         }
 
         internal EncounterState Replace(
@@ -382,7 +402,8 @@ namespace Game.Rules.Runtime
             TurnIdentity? currentTurn = null,
             bool clearCurrentTurn = false,
             long? nextTurnSequence = null,
-            EncounterOutcome? outcome = null
+            EncounterOutcome? outcome = null,
+            bool? isInitiativeBoundaryPending = null
         ) =>
             new EncounterState(
                 Id,
@@ -393,7 +414,8 @@ namespace Game.Rules.Runtime
                 cursor ?? Cursor,
                 clearCurrentTurn ? (TurnIdentity?)null : currentTurn ?? CurrentTurn,
                 nextTurnSequence ?? NextTurnSequence,
-                outcome ?? Outcome
+                outcome ?? Outcome,
+                isInitiativeBoundaryPending ?? IsInitiativeBoundaryPending
             );
 
         /// <inheritdoc/>
@@ -407,23 +429,29 @@ namespace Game.Rules.Runtime
             && CurrentTurn == other.CurrentTurn
             && NextTurnSequence == other.NextTurnSequence
             && Outcome == other.Outcome
+            && IsInitiativeBoundaryPending == other.IsInitiativeBoundaryPending
             && roster.SequenceEqual(other.roster);
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is EncounterState other && Equals(other);
 
         /// <inheritdoc/>
-        public override int GetHashCode() =>
-            HashCode.Combine(
-                Id,
-                Phase,
-                ProtagonistTeam,
-                Round,
-                Cursor,
-                CurrentTurn,
-                NextTurnSequence,
-                Outcome
-            );
+        public override int GetHashCode()
+        {
+            HashCode hash = new HashCode();
+            hash.Add(Id);
+            hash.Add(Phase);
+            hash.Add(ProtagonistTeam);
+            hash.Add(Round);
+            hash.Add(Cursor);
+            hash.Add(CurrentTurn);
+            hash.Add(NextTurnSequence);
+            hash.Add(Outcome);
+            hash.Add(IsInitiativeBoundaryPending);
+            foreach (InitiativeEntry entry in roster)
+                hash.Add(entry);
+            return hash.ToHashCode();
+        }
     }
 
     /// <summary>

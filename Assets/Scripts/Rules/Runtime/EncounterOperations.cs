@@ -486,6 +486,27 @@ namespace Game.Rules.Runtime
         public CommitInitiativeBoundaryOp(EncounterId encounter) => Encounter = encounter;
     }
 
+    internal sealed class CommitInitiativeBoundaryPublicationOp : IRuleOp<EncounterAdvanceOutcome>
+    {
+        public EncounterId Encounter { get; }
+        public RoundNumber Round { get; }
+        public int Slot { get; }
+        public CreatureId Actor { get; }
+
+        public CommitInitiativeBoundaryPublicationOp(
+            EncounterId encounter,
+            RoundNumber round,
+            int slot,
+            CreatureId actor
+        )
+        {
+            Encounter = encounter;
+            Round = round;
+            Slot = slot;
+            Actor = actor;
+        }
+    }
+
     internal sealed class BeginInitiativeTurnOp : IRuleOp<EncounterAdvanceOutcome>
     {
         public EncounterId Encounter { get; }

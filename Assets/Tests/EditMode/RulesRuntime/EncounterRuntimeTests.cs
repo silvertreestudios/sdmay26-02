@@ -1270,7 +1270,7 @@ namespace Game.Rules.Runtime.Tests
                         Encounter,
                         firstBindingId,
                         Hero,
-                        0,
+                        1,
                         false,
                         1
                     )
@@ -1281,7 +1281,7 @@ namespace Game.Rules.Runtime.Tests
                         Encounter,
                         secondBindingId,
                         Hero,
-                        0,
+                        1,
                         false,
                         2
                     )
@@ -1306,7 +1306,10 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Snapshot.ActiveEffectTimings[secondId].RemainingBoundaries,
                 Is.Zero
             );
-            Assert.That(dispatcher.Snapshot.Encounters[Encounter], Is.EqualTo(awaitingBoundary));
+            EncounterState pending = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(pending.Cursor, Is.Zero);
+            Assert.That(pending.CurrentTurn, Is.Null);
+            Assert.That(pending.IsInitiativeBoundaryPending, Is.True);
 
             Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
 
@@ -1318,6 +1321,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(
                 dispatcher.Snapshot.Encounters[Encounter].CurrentTurn.Value.Actor,
                 Is.EqualTo(Hero)
+            );
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].IsInitiativeBoundaryPending,
+                Is.False
             );
             Assert.That(observer.Calls, Is.EqualTo(2));
         }

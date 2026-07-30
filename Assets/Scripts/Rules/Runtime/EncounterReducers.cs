@@ -399,9 +399,9 @@ namespace Game.Rules.Runtime
                 )
             )
                 return ReductionResult<InitiativeBoundaryOutcome>.Reject(rejection);
-            if (encounter.CurrentTurn.HasValue)
+            if (encounter.CurrentTurn.HasValue || encounter.IsInitiativeBoundaryPending)
                 return ReductionResult<InitiativeBoundaryOutcome>.Reject(
-                    "The current turn must end before initiative advances."
+                    "The current turn or pending initiative boundary must settle before initiative advances."
                 );
             int cursor = encounter.Cursor + 1;
             RoundNumber round = encounter.Round;
@@ -414,7 +414,8 @@ namespace Game.Rules.Runtime
             EncounterState updated = encounter.Replace(
                 round: round,
                 cursor: cursor,
-                clearCurrentTurn: true
+                clearCurrentTurn: true,
+                isInitiativeBoundaryPending: true
             );
             state.Encounters.Set(updated.Id, updated);
             List<ActiveEffectTimingState> due = new List<ActiveEffectTimingState>();
@@ -452,9 +453,48 @@ namespace Game.Rules.Runtime
                         );
                 }
             );
-            facts.Stage(new InitiativeBoundaryReachedFact(encounter.Id, round, entry.Creature));
+            facts.Stage(new InitiativeBoundaryPendingFact(encounter.Id, round, entry.Creature));
             return ReductionResult<InitiativeBoundaryOutcome>.Accept(
                 new InitiativeBoundaryOutcome(updated, entry, Array.AsReadOnly(due.ToArray()))
+            );
+        }
+    }
+
+    internal sealed class CommitInitiativeBoundaryPublicationReducer
+        : IOpReducer<CommitInitiativeBoundaryPublicationOp, EncounterAdvanceOutcome>
+    {
+        public ReductionResult<EncounterAdvanceOutcome> Reduce(
+            ReductionContext<CommitInitiativeBoundaryPublicationOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            if (
+                !EncounterReduction.TryGetActive(
+                    state,
+                    context.Op.Encounter,
+                    out EncounterState encounter,
+                    out string rejection
+                )
+            )
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(rejection);
+            if (
+                !encounter.IsInitiativeBoundaryPending
+                || encounter.CurrentTurn.HasValue
+                || encounter.Round != context.Op.Round
+                || encounter.Cursor != context.Op.Slot
+                || encounter.Roster[encounter.Cursor].Creature != context.Op.Actor
+            )
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "Only the exact pending initiative boundary can publish."
+                );
+            EncounterState updated = encounter.Replace(isInitiativeBoundaryPending: false);
+            state.Encounters.Set(updated.Id, updated);
+            facts.Stage(
+                new InitiativeBoundaryReachedFact(updated.Id, updated.Round, context.Op.Actor)
+            );
+            return ReductionResult<EncounterAdvanceOutcome>.Accept(
+                new EncounterAdvanceOutcome(updated)
             );
         }
     }
@@ -479,6 +519,7 @@ namespace Game.Rules.Runtime
                 return ReductionResult<EncounterAdvanceOutcome>.Reject(rejection);
             if (
                 encounter.CurrentTurn.HasValue
+                || encounter.IsInitiativeBoundaryPending
                 || encounter.Roster[encounter.Cursor].Creature != context.Op.Actor
             )
                 return ReductionResult<EncounterAdvanceOutcome>.Reject(
@@ -582,7 +623,8 @@ namespace Game.Rules.Runtime
             ClearTurnResources(state, encounter);
             EncounterState updated = encounter.Replace(
                 phase: EncounterPhase.Suspended,
-                clearCurrentTurn: true
+                clearCurrentTurn: true,
+                isInitiativeBoundaryPending: false
             );
             state.Encounters.Set(updated.Id, updated);
             state.RuleBindings.Remove(EncounterRuleRuntime.OutcomeBindingId(updated.Id));
@@ -627,7 +669,8 @@ namespace Game.Rules.Runtime
             EncounterState updated = encounter.Replace(
                 phase: EncounterPhase.Ended,
                 clearCurrentTurn: true,
-                outcome: actual
+                outcome: actual,
+                isInitiativeBoundaryPending: false
             );
             state.Encounters.Set(updated.Id, updated);
             state.RuleBindings.Remove(EncounterRuleRuntime.OutcomeBindingId(updated.Id));

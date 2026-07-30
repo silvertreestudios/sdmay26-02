@@ -46,6 +46,32 @@ namespace Game.Rules.Runtime.Tests
         private static readonly RuleSource Other = RuleSource.FromSlug("other-temp-hp");
 
         [Test]
+        public void HealthBatchRejectsRepeatedTargetBeforeDispatch()
+        {
+            HealthBatchChange damage = new HealthBatchChange(
+                HealthBatchChangeKind.Damage,
+                Creature,
+                10,
+                new HealthChangeOriginId("batch-lethal"),
+                Strike
+            );
+            HealthBatchChange healing = new HealthBatchChange(
+                HealthBatchChangeKind.Healing,
+                Creature,
+                1,
+                new HealthChangeOriginId("batch-healing"),
+                RuleSource.FromSlug("heal")
+            );
+
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new ApplyHealthBatchOp(new[] { damage, healing })
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("changes"));
+            Assert.That(error.Message, Does.Contain("cannot repeat a target"));
+        }
+
+        [Test]
         public void HealthCompositionCompletesSynchronouslyWithSynchronousCallbacks()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new HealthState(10, 10));

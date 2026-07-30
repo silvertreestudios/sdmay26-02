@@ -114,13 +114,15 @@ namespace Game.Rules.Runtime
             Changes = Array.AsReadOnly(changes.ToArray());
     }
 
-    /// <summary>Applies a completed multi-target health effect beneath one causal root.</summary>
+    /// <summary>
+    /// Applies one ordered health change per unique target beneath one causal root.
+    /// </summary>
     public sealed class ApplyHealthBatchOp : IRuleOp<HealthBatchOutcome>
     {
         /// <summary>Gets the immutable ordered changes.</summary>
         public IReadOnlyList<HealthBatchChange> Changes { get; }
 
-        /// <summary>Initializes a non-empty completed health-effect batch.</summary>
+        /// <summary>Initializes a non-empty completed health-effect batch with unique targets.</summary>
         public ApplyHealthBatchOp(IEnumerable<HealthBatchChange> changes)
         {
             HealthBatchChange[] copied =
@@ -128,6 +130,11 @@ namespace Game.Rules.Runtime
             if (copied.Length == 0 || copied.Any(change => change == null))
                 throw new ArgumentException(
                     "A health batch requires at least one non-null change.",
+                    nameof(changes)
+                );
+            if (copied.Select(change => change.Target).Distinct().Count() != copied.Length)
+                throw new ArgumentException(
+                    "A health batch cannot repeat a target.",
                     nameof(changes)
                 );
             Changes = Array.AsReadOnly(copied);
