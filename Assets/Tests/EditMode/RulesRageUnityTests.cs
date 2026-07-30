@@ -44,19 +44,23 @@ public sealed class RulesRageUnityTests
     public void RageListenersOwnQuickTemperedCleanupOneShotAndLaterRageCost()
     {
         CreatureComponent creature = CreateBarbarian();
+        SetTeam(creature.gameObject, "players");
         creature.gameObject.AddComponent<Conditions>();
         RageTestActionController controller =
             creature.gameObject.AddComponent<RageTestActionController>();
+        CreatureComponent opponent = CreateBarbarian();
+        SetTeam(opponent.gameObject, "enemies");
+        RageTestActionController opponentController =
+            opponent.gameObject.AddComponent<RageTestActionController>();
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new[] { controller },
-            CreateTiles()
+            new ActionController[] { controller, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(20, 10)
         );
         CreatureId actor = bridge.GetCreatureId(creature);
-        bridge.BeginTurn(actor, 3);
+        EncounterState encounter = bridge.StartEncounter("players");
 
-        OpResult<CombatRuntimeOutcome> initiative = bridge.Dispatch(new InitiativeRolledOp(actor));
-
-        Assert.That(initiative, Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>());
+        Assert.That(encounter.CurrentTurn.Value.Actor, Is.EqualTo(actor));
         Assert.That(RageRules.IsRaging(bridge.Snapshot, actor), Is.True);
         Assert.That(controller.ActionPoints, Is.EqualTo(3));
         Assert.That(creature.tempHp, Is.EqualTo(creature.level + creature.conMod));
@@ -67,14 +71,10 @@ public sealed class RulesRageUnityTests
         );
 
         OpResult<RageEndOutcome> ended = bridge.Dispatch(new EndRageOp(actor));
-        OpResult<CombatRuntimeOutcome> repeatedTrigger = bridge.Dispatch(
-            new InitiativeRolledOp(actor)
-        );
         OpResult<RageStartOutcome> ordinary = bridge.Dispatch(new RageActionOp(actor));
 
         Assert.That(ended, Is.TypeOf<ResolvedOpResult<RageEndOutcome>>());
         Assert.That(((ResolvedOpResult<RageEndOutcome>)ended).Value.Ended, Is.True);
-        Assert.That(repeatedTrigger, Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>());
         Assert.That(ordinary, Is.TypeOf<ResolvedOpResult<RageStartOutcome>>());
         Assert.That(controller.ActionPoints, Is.EqualTo(2));
         Assert.That(creature.tempHp, Is.Zero);
@@ -85,31 +85,29 @@ public sealed class RulesRageUnityTests
     public void LowercaseImportedConditionsBlockRageAndQuickTempered()
     {
         CreatureComponent fatiguedCreature = CreateBarbarian();
+        SetTeam(fatiguedCreature.gameObject, "players");
         Conditions fatiguedConditions = fatiguedCreature.gameObject.AddComponent<Conditions>();
         fatiguedConditions.Add("fatigued", new ConditionSource());
         RageTestActionController fatiguedController =
             fatiguedCreature.gameObject.AddComponent<RageTestActionController>();
         CreatureComponent encumberedCreature = CreateBarbarian();
+        SetTeam(encumberedCreature.gameObject, "enemies");
         Conditions encumberedConditions = encumberedCreature.gameObject.AddComponent<Conditions>();
         encumberedConditions.Add("encumbered", new ConditionSource());
         RageTestActionController encumberedController =
             encumberedCreature.gameObject.AddComponent<RageTestActionController>();
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { fatiguedController, encumberedController },
-            CreateTiles()
+            CreateTiles(),
+            new ScriptedRollService(20, 10)
         );
         CreatureId fatiguedActor = bridge.GetCreatureId(fatiguedCreature);
         CreatureId encumberedActor = bridge.GetCreatureId(encumberedCreature);
-        bridge.BeginTurn(fatiguedActor, 3);
-        bridge.BeginTurn(encumberedActor, 3);
+        bridge.StartEncounter("players");
 
         Assert.That(
             bridge.Dispatch(new RageActionOp(fatiguedActor)),
             Is.TypeOf<InvalidOpResult<RageStartOutcome>>()
-        );
-        Assert.That(
-            bridge.Dispatch(new InitiativeRolledOp(encumberedActor)),
-            Is.TypeOf<ResolvedOpResult<CombatRuntimeOutcome>>()
         );
         Assert.That(RageRules.IsRaging(bridge.Snapshot, encumberedActor), Is.False);
     }
@@ -128,6 +126,12 @@ public sealed class RulesRageUnityTests
         Tile[,] tiles = new Tile[1, 1];
         tiles[0, 0] = new Tile();
         return tiles;
+    }
+
+    private static void SetTeam(GameObject creature, string name)
+    {
+        Team team = creature.AddComponent<Team>();
+        team.Name = name;
     }
 
     private sealed class RageTestActionController : ActionController

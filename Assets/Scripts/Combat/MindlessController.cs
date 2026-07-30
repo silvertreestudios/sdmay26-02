@@ -34,17 +34,28 @@ public class MindlessController : AIActionController
         new Vector3Int(-1, 0, -1),
     };
 
-    /// <summary>
-    /// Starts this creature's turn
-    /// </summary>
+    /// <summary>Starts this creature's committed turn on the encounter-bound grid.</summary>
     public override void StartTurn()
     {
         if (GridAPI == null)
         {
-            RebindGrid((GridAPIPrivate)GridPublic.GridAPI.GetInstance());
+            if (
+                !GridPublic.GridAPI.TryGetInstance(out GridPublic.GridAPI activeGrid)
+                || !(activeGrid is GridAPIPrivate privateGrid)
+            )
+                throw new InvalidOperationException(
+                    "A committed AI turn requires the encounter's compatible grid binding."
+                );
+            RebindGrid(privateGrid);
         }
+        if (Tiles == null || Pathfinder == null)
+            throw new InvalidOperationException(
+                "A committed AI turn requires initialized topology and pathfinding."
+            );
 
         base.StartTurn();
+        if (!isActiveAndEnabled)
+            return;
         turnSequence = StartCoroutine(ExecuteTurnSequence());
     }
 
@@ -74,7 +85,7 @@ public class MindlessController : AIActionController
 
     internal bool CanRebindGrid()
     {
-        return !IsTurn && !IsTakingAction;
+        return !HasTurnAuthority && !IsTakingAction;
     }
 
     private IEnumerator ExecuteTurnSequence()
@@ -152,15 +163,24 @@ public class MindlessController : AIActionController
 
         Vector3Int currentCell = Vector3Int.RoundToInt(transform.position);
         Pathfinder.Search(this.gameObject, currentCell);
-        string myTeam = this.gameObject.GetComponent<Team>().Name;
+        if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor))
+            throw new InvalidOperationException(
+                "A committed AI decision requires complete encounter rules."
+            );
+        CreatureState actorState = bridge.Snapshot.Creatures[actor];
         int minDistance = int.MaxValue;
 
         foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
         {
-            if (
-                target == this.gameObject
-                || TeamRules.GetInstance().IsFriendly(myTeam, target.GetComponent<Team>().Name)
-            )
+            if (target == this.gameObject)
+                continue;
+            if (!target.TryGetComponent(out CreatureComponent targetCreature))
+                throw new InvalidOperationException(
+                    "Every active encounter target requires a creature mapping."
+                );
+            CreatureId targetId = bridge.GetCreatureId(targetCreature);
+            bool friendly = actorState.Player == bridge.Snapshot.Creatures[targetId].Player;
+            if (friendly)
                 continue;
 
             Vector3Int targetCell = Vector3Int.RoundToInt(target.transform.position);
@@ -241,9 +261,13 @@ public class MindlessController : AIActionController
     private EntityAction BestLegalStrike()
     {
         if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor))
-            return null;
+            throw new InvalidOperationException(
+                "A rules-native AI strike decision requires active combat rules authority."
+            );
         if (!CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager))
-            return null;
+            throw new InvalidOperationException(
+                "A rules-native AI strike decision requires an active combat manager."
+            );
         EntityAction bestAction = null;
         GameObject bestTarget = null;
         float bestDamage = 0;

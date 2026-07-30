@@ -7,6 +7,7 @@ using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -29,6 +30,7 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         DestroyExistingRuntime();
         randomState = UnityEngine.Random.state;
         UnityEngine.Random.InitState(158);
+        Track(new GameObject("Minimal Combat Grid")).AddComponent<MinimalCombatGrid>();
     }
 
     /// <summary>Destroys every synthetic runtime object and restores random state.</summary>
@@ -161,6 +163,9 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
     [UnityTest]
     public IEnumerator FloorResetDetachesSuspendedSurvivorsFromGridAndCombatManager()
     {
+        MinimalCombatGrid minimalGrid = Object.FindFirstObjectByType<MinimalCombatGrid>();
+        Assert.That(minimalGrid, Is.Not.Null);
+        Object.DestroyImmediate(minimalGrid.gameObject);
         Track(new GameObject("Test Combat Log")).AddComponent<RuntimeTestCombatLog>();
         Track(new GameObject("Team Rules")).AddComponent<TeamRules>();
         TrackingCombatManager manager = Track(new GameObject("Combat Manager"))
@@ -394,19 +399,24 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         DungeonEncounterMember enemy = runtime
             .GetComponentsInChildren<DungeonEncounterMember>()
             .Single();
-        ActionController enemyController = enemy.GetComponent<ActionController>();
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(player.ActionPoints, Is.EqualTo(3u));
         player.IsTakingAction = true;
 
-        manager.Remove(enemyController);
-        enemy.ReportDefeated();
-        enemy.gameObject.SetActive(false);
+        CreatureComponent enemyCreature = enemy.GetComponent<CreatureComponent>();
+        enemyCreature.ApplyFinalDamage(
+            enemyCreature.hp,
+            RuleSource.FromSlug("test-final-action-defeat")
+        );
 
-        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            manager.IsCombatActive,
+            Is.False,
+            "Typed encounter authority ends before deferred outcome presentation drains."
+        );
         Assert.That(player.IsInDungeonExploration, Is.False);
+        Assert.That(player.HasTurnAuthority, Is.False);
 
-        player.ActionPoints -= 3;
         player.IsTakingAction = false;
         Assert.That(manager.CheckForEndOfGame(), Is.True);
 

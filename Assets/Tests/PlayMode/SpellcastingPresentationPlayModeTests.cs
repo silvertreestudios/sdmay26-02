@@ -102,6 +102,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         CreatureComponent noncaster = CreateCreature("Noncaster", 1, prepared: false);
         TestActionController noncasterController =
             noncaster.gameObject.AddComponent<TestActionController>();
+        noncaster.gameObject.AddComponent<Team>().Name = "enemies";
         yield return null;
         Tile[,] tiles = CreateTiles(3);
         Occupy(tiles, initial.gameObject);
@@ -111,24 +112,16 @@ public sealed class SpellcastingPresentationPlayModeTests
             new ActionController[] { initialController, noncasterController },
             tiles
         );
+        bridge.StartEncounter("players");
 
         Assert.That(LightActions(initialController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(initialController, "divine-lance"), Has.Count.EqualTo(1));
         Assert.That(LightActions(noncasterController), Is.Empty);
         Assert.That(RulesActions(noncasterController, "divine-lance"), Is.Empty);
         Assert.That(
-            initialController
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "divine-lance"),
-            Is.False
-        );
-        Assert.That(
-            initialController
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "shield"),
-            Is.True
+            initialController.GetActions().OfType<CastSpellAction>(),
+            Is.Empty,
+            "Encounter composition must remove Shield and every other legacy spell action."
         );
 
         CreatureComponent reinforcement = CreateCreature("Reinforcement", 2, prepared: true);
@@ -143,25 +136,91 @@ public sealed class SpellcastingPresentationPlayModeTests
             reinforcementId,
             reinforcement.Prepared.SpellBook
         );
-        UnitySpellActionInstaller.Install(reinforcementController, repeatCatalog);
-        UnitySpellActionInstaller.Install(reinforcementController, repeatCatalog);
+        UnitySpellActionInstaller.Install(reinforcementController, reinforcementId, repeatCatalog);
+        UnitySpellActionInstaller.Install(reinforcementController, reinforcementId, repeatCatalog);
 
         Assert.That(LightActions(reinforcementController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(reinforcementController, "divine-lance"), Has.Count.EqualTo(1));
         Assert.That(
-            reinforcementController
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "divine-lance"),
-            Is.False
+            reinforcementController.GetActions().OfType<CastSpellAction>(),
+            Is.Empty,
+            "Reinforcement composition must remove Shield and every other legacy spell action."
         );
-        Assert.That(
-            reinforcementController
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "shield"),
-            Is.True
+    }
+
+    [Test]
+    public void PreparedSpellMissingCatalogDefinitionFailsInstallation()
+    {
+        CreatureComponent caster = CreateCreature("Missing Definition Caster", 0, prepared: false);
+        TestActionController controller = caster.gameObject.AddComponent<TestActionController>();
+        CreatureId owner = new("missing-definition-caster");
+        SpellReference missing = Reference("missing-prepared-spell");
+        ISpellBook book = new PreparedSpellBook(
+            new[] { PreparedSpellEntry.Cantrip(missing) },
+            Array.Empty<PreparedSpellSlotPool>(),
+            7
         );
+        TestSpellActionCatalog catalog = new(UnitySpellDefinitionCatalog.Load(), owner, book);
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellActionInstaller.Install(controller, owner, catalog)
+        );
+
+        Assert.That(error.Message, Does.Contain(missing.ToString()));
+        Assert.That(error.Message, Does.Contain("no catalog definition"));
+    }
+
+    [Test]
+    public void SpellBookProviderRequiresMappingButAllowsMappedNoncaster()
+    {
+        CreatureId missing = new("missing-spellbook-creature");
+        CreatureId nullMapped = new("null-spellbook-creature");
+        CreatureId noncasterId = new("mapped-noncaster");
+        CreatureComponent noncaster = CreateCreature("Mapped Noncaster", 0, prepared: false);
+        Dictionary<CreatureId, CreatureComponent> creatures = new()
+        {
+            [nullMapped] = null,
+            [noncasterId] = noncaster,
+        };
+        UnitySpellBookProvider provider = new(creatures);
+
+        InvalidOperationException missingError = Assert.Throws<InvalidOperationException>(() =>
+            provider.GetSpellBook(missing)
+        );
+        InvalidOperationException nullError = Assert.Throws<InvalidOperationException>(() =>
+            provider.GetSpellBook(nullMapped)
+        );
+
+        Assert.That(missingError.Message, Does.Contain(missing.Value));
+        Assert.That(nullError.Message, Does.Contain(nullMapped.Value));
+        Assert.That(provider.GetSpellBook(noncasterId), Is.SameAs(EmptySpellBook.Instance));
+    }
+
+    [Test]
+    public void InstalledSpellActionRequiresDefinitionButDetachedAvailabilityIsFalse()
+    {
+        CreatureComponent caster = CreateCreature("Detached Rules Caster", 0, prepared: false);
+        TestActionController controller = caster.gameObject.AddComponent<TestActionController>();
+        CreatureId owner = new("detached-rules-caster");
+        SpellReference light = Reference("light");
+        ISpellBook book = new PreparedSpellBook(
+            new[] { PreparedSpellEntry.Cantrip(light) },
+            Array.Empty<PreparedSpellSlotPool>(),
+            7
+        );
+        TestSpellActionCatalog catalog = new(UnitySpellDefinitionCatalog.Load(), owner, book);
+        UnitySpellActionInstaller.Install(controller, owner, catalog);
+        RulesCastSpellAction action = LightActions(controller).Single();
+
+        catalog.RemoveDefinitions();
+
+        Assert.That(action.IsAvailable(controller), Is.False);
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+        {
+            _ = action.ActionName;
+        });
+        Assert.That(error.Message, Does.Contain(light.ToString()));
+        Assert.That(error.Message, Does.Contain("no longer has a catalog definition"));
     }
 
     [UnityTest]
@@ -192,7 +251,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnsupportedSpellActionCatalog catalog = new(definition, owner, book);
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-            UnitySpellActionInstaller.Install(controller, catalog)
+            UnitySpellActionInstaller.Install(controller, owner, catalog)
         );
 
         Assert.That(error.Message, Does.Contain("no supported effect or attack"));
@@ -204,13 +263,23 @@ public sealed class SpellcastingPresentationPlayModeTests
         CreatureComponent cleric = CreateCreature("Casting Cleric", 0, prepared: true);
         InstallCoroutineRunner();
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Light Opponent", 1, prepared: false);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
         yield return null;
-        Tile[,] tiles = CreateTiles(1);
+        Tile[,] tiles = CreateTiles(2);
         Occupy(tiles, cleric.gameObject);
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(new[] { controller }, tiles);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10)
+        );
         RulesCastSpellAction light = LightActions(controller).Single();
+        CreatureId actor = bridge.GetCreatureId(controller);
 
-        bridge.BeginTurn(bridge.GetCreatureId(controller), 1);
+        bridge.BeginTurn(actor, 3);
+        bridge.SpendEncounterActions(actor, 2);
         controller.IsTakingAction = true;
         light.Invoke(cleric.gameObject);
         yield return null;
@@ -219,7 +288,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(controller.IsTakingAction, Is.False);
         Assert.That(VisualLights(cleric), Is.Empty);
 
-        bridge.BeginTurn(bridge.GetCreatureId(controller), 3);
+        bridge.BeginTurn(actor, 3);
         gameplayCommitCount = 0;
         OnGameplayStateCommitted.AddListener(CountGameplayCommit);
         controller.IsTakingAction = true;
@@ -265,7 +334,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(10, 2, 3, 1)
+            new ScriptedRollService(20, 10, 10, 2, 3, 1)
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         CreatureId actor = bridge.GetCreatureId(cleric);
@@ -338,7 +407,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(20)
+            new ScriptedRollService(20, 10, 20)
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         grid.Target = target.gameObject;
@@ -369,14 +438,22 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
         TestActionController clericController =
             cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent registeredOpponent = CreateCreature(
+            "Registered Opponent",
+            2,
+            prepared: false
+        );
+        TestActionController opponentController =
+            registeredOpponent.gameObject.AddComponent<TestActionController>();
         yield return null;
-        Tile[,] tiles = CreateTiles(2);
+        Tile[,] tiles = CreateTiles(3);
         Occupy(tiles, cleric.gameObject);
         Occupy(tiles, unregisteredTarget.gameObject);
+        Occupy(tiles, registeredOpponent.gameObject);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new ActionController[] { clericController },
+            new ActionController[] { clericController, opponentController },
             tiles,
-            new ScriptedRollService(20)
+            new ScriptedRollService(20, 10, 20)
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         CreatureId actor = bridge.GetCreatureId(cleric);
@@ -667,6 +744,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         private readonly UnitySpellDefinitionCatalog definitions;
         private readonly CreatureId owner;
         private readonly ISpellBook book;
+        private bool definitionsAvailable = true;
 
         public TestSpellActionCatalog(
             UnitySpellDefinitionCatalog definitions,
@@ -685,10 +763,18 @@ public sealed class SpellcastingPresentationPlayModeTests
         public bool TryGetSpell(
             SpellReference reference,
             out Game.Rules.Runtime.SpellDefinition definition
-        ) => definitions.TryGetSpell(reference, out definition);
+        )
+        {
+            if (definitionsAvailable)
+                return definitions.TryGetSpell(reference, out definition);
+            definition = null;
+            return false;
+        }
 
         public ISpellBook GetSpellBook(CreatureId creature) =>
             creature == owner ? book : EmptySpellBook.Instance;
+
+        public void RemoveDefinitions() => definitionsAvailable = false;
     }
 
     private sealed class UnsupportedSpellActionCatalog : ISpellActionCatalog

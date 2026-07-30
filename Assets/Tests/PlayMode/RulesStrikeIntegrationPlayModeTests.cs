@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -64,13 +65,18 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         CreatureComponent actorCreature = CreateCreature("Actor", "players", 20, 10);
         TestActionController controller =
             actorCreature.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Opponent", "enemies", 20, 10);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
         Place(actorCreature.gameObject, 0);
-        Tile[,] tiles = CreateTiles(1);
+        Place(opponent.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
         Occupy(tiles, actorCreature.gameObject);
+        Occupy(tiles, opponent.gameObject);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new[] { controller },
+            new ActionController[] { controller, opponentController },
             tiles,
-            new ScriptedRollService()
+            new ScriptedRollService(20, 10)
         );
         CreatureId actor = bridge.GetCreatureId(actorCreature);
         bridge.BeginTurn(actor, 3);
@@ -139,7 +145,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { actorController, hitController, defeatController },
             tiles,
-            new ScriptedRollService(10, 4, 10, 4)
+            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4)
         );
         AttackStartObserver attackStart = new(sharedAnimation);
         GetDispatcher(bridge)
@@ -221,14 +227,19 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         );
         TestActionController targetController =
             friendlyTarget.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Opponent", "presentation-enemies", 20, 10);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
         Place(actor.gameObject, 0);
         Place(friendlyTarget.gameObject, 1);
-        Tile[,] tiles = CreateTiles(2);
+        Place(opponent.gameObject, 2);
+        Tile[,] tiles = CreateTiles(3);
         Occupy(tiles, actor.gameObject);
         Occupy(tiles, friendlyTarget.gameObject);
-        ScriptedRollService rolls = new(20, 4);
+        Occupy(tiles, opponent.gameObject);
+        ScriptedRollService rolls = new(20, 15, 10, 20, 4);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new ActionController[] { actorController, targetController },
+            new ActionController[] { actorController, targetController, opponentController },
             tiles,
             rolls
         );
@@ -273,20 +284,24 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator BestLegalStrikeWithoutCombatManagerReturnsNoAction()
+    public IEnumerator BestLegalStrikeWithoutCombatManagerThrows()
     {
         CreatureComponent actor = CreateCreature("Actor", "strike-test-ai", 20, 10);
         actor.gameObject.SetActive(false);
         MindlessController ai = actor.gameObject.AddComponent<MindlessController>();
-        Tile[,] tiles = CreateTiles(1);
+        CreatureComponent opponent = CreateCreature("Opponent", "strike-test-target", 20, 10);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        Place(actor.gameObject, 0);
+        Place(opponent.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
         Occupy(tiles, actor.gameObject);
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-            new ActionController[] { ai },
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge.Create(
+            new ActionController[] { ai, opponentController },
             tiles,
-            new ScriptedRollService()
+            new ScriptedRollService(20, 10)
         );
-        CreatureId actorId = bridge.GetCreatureId(actor);
-        bridge.BeginTurn(actorId, 3);
         Assert.That(CombatManagerInterface.TryGetInstance(out _), Is.False);
         MethodInfo bestLegalStrike = typeof(MindlessController).GetMethod(
             "BestLegalStrike",
@@ -294,10 +309,34 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         );
         Assert.That(bestLegalStrike, Is.Not.Null);
 
-        EntityAction selected = (EntityAction)
-            bestLegalStrike.Invoke(ai, System.Array.Empty<object>());
+        TargetInvocationException error = Assert.Throws<TargetInvocationException>(() =>
+            bestLegalStrike.Invoke(ai, System.Array.Empty<object>())
+        );
 
-        Assert.That(selected, Is.Null);
+        Assert.That(error.InnerException, Is.TypeOf<InvalidOperationException>());
+        Assert.That(error.InnerException.Message, Does.Contain("active combat manager"));
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator BestLegalStrikeWithoutCombatRulesThrows()
+    {
+        InstallCombatManager();
+        CreatureComponent actor = CreateCreature("Detached Actor", "strike-test-ai", 20, 10);
+        actor.gameObject.SetActive(false);
+        MindlessController ai = actor.gameObject.AddComponent<MindlessController>();
+        MethodInfo bestLegalStrike = typeof(MindlessController).GetMethod(
+            "BestLegalStrike",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(bestLegalStrike, Is.Not.Null);
+
+        TargetInvocationException error = Assert.Throws<TargetInvocationException>(() =>
+            bestLegalStrike.Invoke(ai, System.Array.Empty<object>())
+        );
+
+        Assert.That(error.InnerException, Is.TypeOf<InvalidOperationException>());
+        Assert.That(error.InnerException.Message, Does.Contain("combat rules authority"));
         yield return null;
     }
 
@@ -305,7 +344,9 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     public IEnumerator BestLegalStrikeWithoutLegacyTeamsSelectsRulesLegalTarget()
     {
         InstallCombatManager();
+        MinimalCombatGrid grid = InstallMinimalCombatGrid();
         CreatureComponent actor = CreateCreature("Actor", "strike-test-ai", 20, 10);
+        actor.gameObject.SetActive(false);
         MindlessController ai = actor.gameObject.AddComponent<MindlessController>();
         CreatureComponent target = CreateCreature("Target", "strike-test-target", 20, 10);
         TestActionController targetController =
@@ -313,13 +354,13 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         Object.DestroyImmediate(target.GetComponent<Team>());
         Place(actor.gameObject, 0);
         Place(target.gameObject, 1);
-        Tile[,] tiles = CreateTiles(2);
+        Tile[,] tiles = grid.GetTiles();
         Occupy(tiles, actor.gameObject);
         Occupy(tiles, target.gameObject);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { ai, targetController },
             tiles,
-            new ScriptedRollService()
+            new ScriptedRollService(20, 10)
         );
         CreatureId actorId = bridge.GetCreatureId(actor);
         bridge.BeginTurn(actorId, 3);
@@ -337,8 +378,6 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             (List<ActionController>)activeCombatantsField.GetValue(manager);
         activeCombatants.Add(ai);
         activeCombatants.Add(targetController);
-        manager.AddEvent(new TurnStep(ai));
-        manager.AddEvent(new TurnStep(targetController));
         Assert.That(TeamRules.TryGetInstance(out _), Is.False);
         Assert.That(target.GetComponent<Team>(), Is.Null);
         MethodInfo bestLegalStrike = typeof(MindlessController).GetMethod(
@@ -388,7 +427,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { ai, targetController },
             tiles,
-            new ScriptedRollService(10, 4)
+            new ScriptedRollService(20, 10, 10, 4)
         );
         CreatureId actor = bridge.GetCreatureId(archer);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -446,7 +485,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(10, 2, 10, 2, 2, 10, 2, 2, 10)
+            new ScriptedRollService(20, 10, 10, 2, 10, 2, 2, 10, 2, 2, 10)
         );
         CreatureId actor = bridge.GetCreatureId(cleric);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -587,6 +626,15 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         GameObject gameObject = new("Strike PlayMode Selecting Grid");
         created.Add(gameObject);
         return gameObject.AddComponent<SelectingGridApi>();
+    }
+
+    private MinimalCombatGrid InstallMinimalCombatGrid()
+    {
+        if (GridAPI.TryGetInstance(out GridAPI activeGrid))
+            Object.DestroyImmediate(activeGrid.gameObject);
+        GameObject gameObject = new("Strike PlayMode Minimal Combat Grid");
+        created.Add(gameObject);
+        return gameObject.AddComponent<MinimalCombatGrid>();
     }
 
     private void CountGameplayCommit() => gameplayCommitCount++;
@@ -772,8 +820,11 @@ public sealed class RulesStrikeScenePlayModeTests : PlayModeBase
             )
         );
         ActionController controller = lena.GetComponent<ActionController>();
-        controller.StartTurn();
-        OnNextTurn.Invoke(lena);
+        CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
+        int remainingTurns = combatManager.GetCombatants().Count + 1;
+        while (combatManager.WhosTurn() != lena && remainingTurns-- > 0)
+            combatManager.NextTurn();
+        Assert.That(combatManager.WhosTurn(), Is.SameAs(lena));
         Button shortbow = null;
         yield return WaitUntilWithTimeout(
             timeout,

@@ -14,7 +14,7 @@ namespace Game.Rules.Unity.Light
         : IFactObserver<ActiveEffectCreatedFact>,
             IFactObserver<ActiveEffectExpiredFact>,
             IFactObserver<ActiveEffectRemovedFact>,
-            IFactObserver<EncounterEndedFact>,
+            IFactObserver<EncounterOutcomeCommittedFact>,
             IDisposable
     {
         private readonly RuleDefinitionId presentedDefinition;
@@ -126,20 +126,12 @@ namespace Game.Rules.Unity.Light
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(EncounterEndedFact fact, RulesSnapshot currentSnapshot)
+        public ValueTask OnFactCommitted(
+            EncounterOutcomeCommittedFact fact,
+            RulesSnapshot currentSnapshot
+        )
         {
-            List<ActiveEffectId> owned = new();
-            foreach (KeyValuePair<ActiveEffectId, GameObject> pair in visuals)
-            {
-                if (pair.Value == null)
-                    owned.Add(pair.Key);
-                else if (
-                    creatures.TryGetValue(fact.Creature, out CreatureComponent owner)
-                    && owner != null
-                    && pair.Value.transform.IsChildOf(owner.transform)
-                )
-                    owned.Add(pair.Key);
-            }
+            List<ActiveEffectId> owned = new(visuals.Keys);
             foreach (ActiveEffectId effect in owned)
                 Remove(effect);
             return default;

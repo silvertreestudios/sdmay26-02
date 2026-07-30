@@ -13,6 +13,12 @@ public class Pf2eRulesTests
 {
     private readonly List<GameObject> created = new();
 
+    private static GridPrivate.Tile[,] CreateTiles() =>
+        new[,]
+        {
+            { new GridPrivate.Tile() },
+        };
+
     [TearDown]
     public void TearDown()
     {
@@ -110,7 +116,10 @@ public class Pf2eRulesTests
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
 
         Assert.That(zombie.GetComponent<Conditions>().Contains("Slowed"), Is.True);
-        actionController.StartTurn();
+        Team team = zombie.AddComponent<Team>();
+        team.Name = "Players";
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
+        bridge.StartEncounter("Players");
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
     }
 
@@ -126,7 +135,10 @@ public class Pf2eRulesTests
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
 
-        actionController.StartTurn();
+        Team team = zombie.AddComponent<Team>();
+        team.Name = "Players";
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
+        bridge.StartEncounter("Players");
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
     }
 
@@ -372,15 +384,43 @@ public class Pf2eRulesTests
             ClassFeatName = "Raging Intimidation",
         };
         creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
+        DisableQuickTempered(creature.Prepared);
         return creature;
     }
 
-    private static UnityCombatRulesBridge CreateCombatRules(CreatureComponent creature)
+    private static void DisableQuickTempered(PreparedCharacter prepared)
+    {
+        prepared.OwnedItems.RemoveAll(item =>
+            string.Equals(
+                item.Item.Slug,
+                "quick-tempered",
+                System.StringComparison.OrdinalIgnoreCase
+            )
+        );
+        prepared.RollOptions.Remove("feat:quick-tempered");
+    }
+
+    private UnityCombatRulesBridge CreateCombatRules(CreatureComponent creature)
     {
         TestActionController controller = creature.gameObject.AddComponent<TestActionController>();
-        GridPrivate.Tile[,] tiles = new GridPrivate.Tile[1, 1];
+        GameObject opponentObject = new("Encounter Opponent");
+        created.Add(opponentObject);
+        Team opponentTeam = opponentObject.AddComponent<Team>();
+        opponentTeam.Name = "enemies";
+        CreatureComponent opponent = opponentObject.AddComponent<CreatureComponent>();
+        opponent.InitializeHealthBeforeEncounter(10, 10);
+        TestActionController opponentController =
+            opponentObject.AddComponent<TestActionController>();
+        creature.transform.position = Vector3.zero;
+        opponentObject.transform.position = Vector3.right;
+        GridPrivate.Tile[,] tiles = new GridPrivate.Tile[2, 1];
         tiles[0, 0] = new GridPrivate.Tile();
-        return UnityCombatRulesBridge.Create(new[] { controller }, tiles);
+        tiles[1, 0] = new GridPrivate.Tile();
+        return UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10)
+        );
     }
 
     private CreatureComponent CreatePreparedRogue()
@@ -450,6 +490,19 @@ public class Pf2eRulesTests
             ItemSlug = "dogslicer",
             WeaponCategory = "martial",
         };
+    }
+
+    private UnityCombatRulesBridge CreateActiveEncounter(ActionController protagonist)
+    {
+        protagonist.GetComponent<CreatureComponent>().initiative = 100;
+        GameObject opposition = new("Rules Test Opposition");
+        created.Add(opposition);
+        CreatureComponent creature = opposition.AddComponent<CreatureComponent>();
+        creature.InitializeHealthBeforeEncounter(1, 1);
+        Team team = opposition.AddComponent<Team>();
+        team.Name = "Enemies";
+        TestActionController controller = opposition.AddComponent<TestActionController>();
+        return UnityCombatRulesBridge.Create(new[] { protagonist, controller }, CreateTiles());
     }
 
     private sealed class TestActionController : ActionController

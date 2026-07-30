@@ -520,6 +520,10 @@ namespace Game.Rules.Runtime
                 || economy.ActionsRemaining < 1
             )
                 return ActionAvailability.Unavailable("The actor does not have an action.");
+            if (!snapshot.MultipleAttackPenalty.Contains(actor))
+                return ActionAvailability.Unavailable(
+                    "The actor has no multiple-attack-penalty state."
+                );
             if (
                 !snapshot.Equipment.TryGet(item.Item, out EquipmentState equipment)
                 || equipment.Holder != actor
@@ -970,12 +974,16 @@ namespace Game.Rules.Runtime
                 frame.Op.Target,
                 legal
             );
-            int priorAttacks = context.Snapshot.MultipleAttackPenalty.TryGet(
-                frame.Op.Actor,
-                out MultipleAttackPenaltyState map
+            if (
+                !context.Snapshot.MultipleAttackPenalty.TryGet(
+                    frame.Op.Actor,
+                    out MultipleAttackPenaltyState map
+                )
             )
-                ? map.AttackCount
-                : 0;
+                throw new InvalidOperationException(
+                    "The strike actor has no authoritative multiple-attack-penalty state."
+                );
+            int priorAttacks = map.AttackCount;
             int mapPenalty = MultipleAttackPenaltyResolver.Resolve(priorAttacks, item.IsAgile);
             return await Resolve(frame, item, data, legal, mapPenalty, context);
         }

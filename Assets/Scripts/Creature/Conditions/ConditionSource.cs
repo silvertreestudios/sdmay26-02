@@ -52,23 +52,3 @@ public class Equipment : ConditionSource
     }
 }
 */
-/*
-public class Spell : ConditionSource
-{
-    public string Name;
-    Condition c;
-
-    public void Apply(List<GameObject> g)
-    {
-        Conditions c = g.GetComponent<Conditions>();
-        c.Add(this, condition)
-
-        int conditionDuration = 5; // Insert in turn queue right now. will not execute until the 6th attempt
-        UnityAction callback = () => {
-            c.Remove(this, condition);
-        };
-        TurnStep ts = new TurnStep(callback, conditionDuration);
-        CombatManager.Add(Turnstep);
-    }
-}
-*/

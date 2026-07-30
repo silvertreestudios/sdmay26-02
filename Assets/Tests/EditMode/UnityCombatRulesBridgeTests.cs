@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Game.Combat.Spells;
 using Game.Creature;
+using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -12,23 +16,304 @@ using Object = UnityEngine.Object;
 public sealed class UnityCombatRulesBridgeTests
 {
     [Test]
+    public void EncounterModulesPreserveOrderAcrossSharedCombatantPreparation()
+    {
+        GameObject firstObject = new GameObject("module-order-first");
+        GameObject secondObject = new GameObject("module-order-second");
+        CompositeLifetime firstLifetime = new CompositeLifetime();
+        CompositeLifetime secondLifetime = new CompositeLifetime();
+        try
+        {
+            CreatureComponent firstCreature = firstObject.AddComponent<CreatureComponent>();
+            CreatureComponent secondCreature = secondObject.AddComponent<CreatureComponent>();
+            BridgeTestActionController first =
+                firstObject.AddComponent<BridgeTestActionController>();
+            BridgeTestActionController second =
+                secondObject.AddComponent<BridgeTestActionController>();
+            List<string> order = new List<string>();
+            RecordingEncounterModule alpha = new RecordingEncounterModule("alpha", order);
+            RecordingEncounterModule beta = new RecordingEncounterModule("beta", order);
+            UnityEncounterComposition composition = new UnityEncounterComposition(
+                new IUnityEncounterModule[] { alpha, beta }
+            );
+
+            composition.PrepareCombatant(
+                new UnityCombatantEnrollmentBuilder(
+                    first,
+                    firstCreature,
+                    new CreatureState(
+                        new CreatureId("initial"),
+                        new PlayerId("module-order-player")
+                    ),
+                    new HealthState(1, 1),
+                    new GridPosition(0, 0, 0),
+                    new GridDistance(0),
+                    firstLifetime
+                )
+            );
+            composition.PrepareCombatant(
+                new UnityCombatantEnrollmentBuilder(
+                    second,
+                    secondCreature,
+                    new CreatureState(
+                        new CreatureId("reinforcement"),
+                        new PlayerId("module-order-player")
+                    ),
+                    new HealthState(1, 1),
+                    new GridPosition(1, 0, 0),
+                    new GridDistance(0),
+                    secondLifetime
+                )
+            );
+            IReadOnlyList<IEncounterTurnStartAdapter> adapters =
+                composition.CreateTurnStartAdapters();
+            composition.RefreshTopology(CreateTiles(1));
+
+            Assert.That(
+                order,
+                Is.EqualTo(
+                    new[]
+                    {
+                        "alpha:initial",
+                        "beta:initial",
+                        "alpha:reinforcement",
+                        "beta:reinforcement",
+                        "alpha:topology",
+                        "beta:topology",
+                    }
+                )
+            );
+            Assert.That(adapters, Is.EqualTo(new[] { alpha.Adapter, beta.Adapter }));
+        }
+        finally
+        {
+            secondLifetime.Dispose();
+            firstLifetime.Dispose();
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    [Test]
+    public void InitialAndReinforcementEnrollmentUseTheSameFeatureOwnedBaseState()
+    {
+        GameObject initialObject = new GameObject("feature-state-initial");
+        GameObject anchorObject = new GameObject("feature-state-anchor");
+        GameObject reinforcementObject = new GameObject("feature-state-reinforcement");
+        try
+        {
+            BridgeTestActionController initial = ConfigureCombatant(
+                initialObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Players",
+                new Vector3Int(2, 0, 0)
+            );
+            ConfigureFeatureState(initialObject.GetComponent<CreatureComponent>());
+            ConfigureFeatureState(reinforcementObject.GetComponent<CreatureComponent>());
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { initial, anchor },
+                CreateTiles(3)
+            );
+            bridge.StartEncounter("Players");
+
+            bridge.RegisterCombatants(new ActionController[] { reinforcement });
+
+            CreatureId initialId = bridge.GetCreatureId(initial);
+            CreatureId reinforcementId = bridge.GetCreatureId(reinforcement);
+            AssertFeatureState(bridge.Snapshot, initialId);
+            AssertFeatureState(bridge.Snapshot, reinforcementId);
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(initialObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void ReleaseAttemptsCleanupAndEveryCallbackThenReportsFailuresInStableOrder()
+    {
+        GameObject combatantObject = new GameObject("release-failures");
+        try
+        {
+            BridgeTestActionController controller = ConfigureCombatant(
+                combatantObject,
+                "Players",
+                Vector3Int.zero
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { controller },
+                CreateTiles(1)
+            );
+            List<string> order = new List<string>();
+            InvalidOperationException firstCleanupFailure = new InvalidOperationException(
+                "first cleanup"
+            );
+            NotSupportedException secondCleanupFailure = new NotSupportedException(
+                "second cleanup"
+            );
+            ApplicationException firstCallbackFailure = new ApplicationException("first callback");
+            ArgumentException thirdCallbackFailure = new ArgumentException("third callback");
+            TrackingDisposable firstCleanup = new TrackingDisposable(
+                () => order.Add("cleanup-1"),
+                firstCleanupFailure
+            );
+            TrackingDisposable secondCleanup = new TrackingDisposable(
+                () => order.Add("cleanup-2"),
+                secondCleanupFailure
+            );
+            bridge.OwnEncounterResource(firstCleanup);
+            bridge.OwnEncounterResource(secondCleanup);
+            Action callbacks = () =>
+            {
+                order.Add("callback-1");
+                throw firstCallbackFailure;
+            };
+            callbacks += () => order.Add("callback-2");
+            callbacks += () =>
+            {
+                order.Add("callback-3");
+                throw thirdCallbackFailure;
+            };
+
+            AggregateException error = Assert.Throws<AggregateException>(() =>
+                bridge.ReleaseOwnership(callbacks)
+            );
+
+            Assert.That(
+                order,
+                Is.EqualTo(
+                    new[] { "cleanup-2", "cleanup-1", "callback-1", "callback-2", "callback-3" }
+                )
+            );
+            Assert.That(
+                error.InnerExceptions,
+                Is.EqualTo(
+                    new Exception[]
+                    {
+                        secondCleanupFailure,
+                        firstCleanupFailure,
+                        firstCallbackFailure,
+                        thirdCallbackFailure,
+                    }
+                )
+            );
+            Assert.That(firstCleanup.DisposeCount, Is.EqualTo(1));
+            Assert.That(secondCleanup.DisposeCount, Is.EqualTo(1));
+            List<string> immediateOrder = new List<string>();
+            InvalidOperationException firstImmediateFailure = new InvalidOperationException(
+                "first immediate callback"
+            );
+            NotImplementedException thirdImmediateFailure = new NotImplementedException(
+                "third immediate callback"
+            );
+            Action immediateCallbacks = () =>
+            {
+                immediateOrder.Add("immediate-1");
+                throw firstImmediateFailure;
+            };
+            immediateCallbacks += () => immediateOrder.Add("immediate-2");
+            immediateCallbacks += () =>
+            {
+                immediateOrder.Add("immediate-3");
+                throw thirdImmediateFailure;
+            };
+
+            AggregateException immediateError = Assert.Throws<AggregateException>(() =>
+                bridge.ReleaseOwnership(immediateCallbacks)
+            );
+
+            Assert.That(
+                immediateOrder,
+                Is.EqualTo(new[] { "immediate-1", "immediate-2", "immediate-3" })
+            );
+            Assert.That(
+                immediateError.InnerExceptions,
+                Is.EqualTo(new Exception[] { firstImmediateFailure, thirdImmediateFailure })
+            );
+            Assert.That(firstCleanup.DisposeCount, Is.EqualTo(1));
+            Assert.That(secondCleanup.DisposeCount, Is.EqualTo(1));
+            Assert.That(order, Has.Count.EqualTo(5));
+            Assert.DoesNotThrow(() => bridge.ReleaseOwnership());
+        }
+        finally
+        {
+            Object.DestroyImmediate(combatantObject);
+        }
+    }
+
+    [Test]
+    public void ReleasePreservesSingleFailureIdentityAndRemainsIdempotent()
+    {
+        GameObject combatantObject = new GameObject("release-single-failure");
+        try
+        {
+            BridgeTestActionController controller = ConfigureCombatant(
+                combatantObject,
+                "Players",
+                Vector3Int.zero
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { controller },
+                CreateTiles(1)
+            );
+            InvalidOperationException failure = new InvalidOperationException("single callback");
+            int invocationCount = 0;
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                bridge.ReleaseOwnership(() =>
+                {
+                    invocationCount++;
+                    throw failure;
+                })
+            );
+
+            Assert.That(error, Is.SameAs(failure));
+            ApplicationException immediateFailure = new ApplicationException(
+                "single immediate callback"
+            );
+            ApplicationException immediateError = Assert.Throws<ApplicationException>(() =>
+                bridge.ReleaseOwnership(() => throw immediateFailure)
+            );
+            Assert.That(immediateError, Is.SameAs(immediateFailure));
+            Assert.DoesNotThrow(() => bridge.ReleaseOwnership());
+            Assert.That(invocationCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            Object.DestroyImmediate(combatantObject);
+        }
+    }
+
+    [Test]
     public void BridgeRejectsEmptyEncounterWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityCombatRulesBridge.CreateHealthTestComposition(Array.Empty<CreatureComponent>())
+            UnityCombatRulesBridge.Create(Array.Empty<ActionController>(), CreateTiles(1))
         );
 
-        StringAssert.Contains("requires at least one creature", error.Message);
+        StringAssert.Contains("requires at least one controller", error.Message);
     }
 
     [Test]
     public void BridgeRejectsNullEncounterCreatureWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityCombatRulesBridge.CreateHealthTestComposition(new CreatureComponent[] { null })
+            UnityCombatRulesBridge.Create(new ActionController[] { null }, CreateTiles(1))
         );
 
-        StringAssert.Contains("cannot contain a null creature", error.Message);
+        StringAssert.Contains("cannot contain a null controller", error.Message);
     }
 
     [Test]
@@ -54,6 +339,355 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void DetachedControllerProjectsNeutralCombatStateAndRejectsPositiveAuthority()
+    {
+        GameObject creatureObject = new GameObject("detached-controller");
+        try
+        {
+            creatureObject
+                .AddComponent<CreatureComponent>()
+                .InitializeHealthBeforeEncounter(10, 10);
+            BridgeTestActionController controller =
+                creatureObject.AddComponent<BridgeTestActionController>();
+
+            Assert.That(controller.HasTurnAuthority, Is.False);
+            Assert.That(controller.ActionPoints, Is.Zero);
+            Assert.That(controller.Reacted, Is.False);
+            Assert.That(controller.StrikePenalty, Is.Zero);
+            Assert.DoesNotThrow(() => controller.SpendActions(0));
+            Assert.Throws<InvalidOperationException>(() => controller.SpendActions(1));
+            Assert.Throws<InvalidOperationException>(() => controller.StartTurn());
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
+    public void TurnAuthorityIsUnavailableBeforeStartAndExactAfterStart()
+    {
+        GameObject firstObject = new GameObject("first");
+        GameObject secondObject = new GameObject("second");
+        try
+        {
+            BridgeTestActionController first = ConfigureCombatant(
+                firstObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController second = ConfigureCombatant(
+                secondObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, second },
+                CreateTiles(2)
+            );
+            CreatureId firstId = bridge.GetCreatureId(first);
+            CreatureId secondId = bridge.GetCreatureId(second);
+
+            Assert.That(bridge.HasTurnAuthority(firstId), Is.False);
+            Assert.That(bridge.HasTurnAuthority(secondId), Is.False);
+
+            EncounterState encounter = bridge.StartEncounter("Players");
+
+            Assert.That(encounter.CurrentTurn.HasValue, Is.True);
+            Assert.That(
+                bridge.HasTurnAuthority(firstId),
+                Is.EqualTo(encounter.CurrentTurn.Value.Actor == firstId)
+            );
+            Assert.That(
+                bridge.HasTurnAuthority(secondId),
+                Is.EqualTo(encounter.CurrentTurn.Value.Actor == secondId)
+            );
+        }
+        finally
+        {
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    [Test]
+    public void FailedCompetingOwnerCompositionLeavesCandidateDetachedAndAllowsRetry()
+    {
+        GameObject firstObject = new GameObject("owned-controller");
+        GameObject candidateObject = new GameObject("candidate-controller");
+        try
+        {
+            CreatureComponent firstCreature = firstObject.AddComponent<CreatureComponent>();
+            CreatureComponent candidateCreature = candidateObject.AddComponent<CreatureComponent>();
+            firstCreature.InitializeHealthBeforeEncounter(10, 10);
+            candidateCreature.InitializeHealthBeforeEncounter(10, 10);
+            BridgeTestActionController first =
+                firstObject.AddComponent<BridgeTestActionController>();
+            BridgeTestActionController candidate =
+                candidateObject.AddComponent<BridgeTestActionController>();
+            Team firstTeam = firstObject.AddComponent<Team>();
+            Team candidateTeam = candidateObject.AddComponent<Team>();
+            firstTeam.Name = "Players";
+            candidateTeam.Name = "Enemies";
+            UnityCombatRulesBridge owner = UnityCombatRulesBridge.Create(
+                new ActionController[] { first },
+                CreateTiles(2)
+            );
+
+            Assert.Throws<InvalidOperationException>(() =>
+                UnityCombatRulesBridge.Create(
+                    new ActionController[] { candidate, first },
+                    CreateTiles(2)
+                )
+            );
+            Assert.That(candidate.ActionPoints, Is.Zero);
+            Assert.That(candidate.HasTurnAuthority, Is.False);
+            Assert.That(candidateCreature.Health, Is.EqualTo(new HealthState(10, 10)));
+
+            owner.ReleaseOwnership();
+            UnityCombatRulesBridge retry = UnityCombatRulesBridge.Create(
+                new ActionController[] { candidate, first },
+                CreateTiles(2)
+            );
+
+            Assert.That(retry.GetCreatureId(candidate), Is.Not.EqualTo(default(CreatureId)));
+            retry.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(candidateObject);
+        }
+    }
+
+    [Test]
+    public void FailedInstallationPreflightLeavesEveryCandidateDetachedAndAllowsRetry()
+    {
+        GameObject firstObject = new GameObject("installation-first");
+        GameObject throwerObject = new GameObject("installation-thrower");
+        try
+        {
+            CreatureComponent firstCreature = firstObject.AddComponent<CreatureComponent>();
+            CreatureComponent throwerCreature = throwerObject.AddComponent<CreatureComponent>();
+            firstCreature.InitializeHealthBeforeEncounter(10, 10);
+            throwerCreature.InitializeHealthBeforeEncounter(8, 8);
+            BridgeTestActionController first =
+                firstObject.AddComponent<BridgeTestActionController>();
+            BridgeTestActionController thrower =
+                throwerObject.AddComponent<BridgeTestActionController>();
+            Team firstTeam = firstObject.AddComponent<Team>();
+            Team throwerTeam = throwerObject.AddComponent<Team>();
+            firstTeam.Name = "Players";
+            throwerTeam.Name = "Enemies";
+            thrower.GetActionsEvent.AddListener(_ =>
+                throw new InvalidOperationException("Injected action installation failure.")
+            );
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                UnityCombatRulesBridge.Create(
+                    new ActionController[] { first, thrower },
+                    CreateTiles(2)
+                )
+            );
+
+            Assert.That(error.Message, Does.Contain("Injected action installation failure"));
+            Assert.That(first.ActionPoints, Is.Zero);
+            Assert.That(first.HasTurnAuthority, Is.False);
+            Assert.That(thrower.ActionPoints, Is.Zero);
+            Assert.That(thrower.HasTurnAuthority, Is.False);
+            Assert.That(firstCreature.Health, Is.EqualTo(new HealthState(10, 10)));
+            Assert.That(throwerCreature.Health, Is.EqualTo(new HealthState(8, 8)));
+
+            thrower.GetActionsEvent.RemoveAllListeners();
+            UnityCombatRulesBridge retry = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, thrower },
+                CreateTiles(2)
+            );
+
+            Assert.That(retry.GetCreatureId(first).Value, Is.EqualTo("combat-creature-1"));
+            Assert.That(retry.GetCreatureId(thrower).Value, Is.EqualTo("combat-creature-2"));
+            retry.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(throwerObject);
+        }
+    }
+
+    [Test]
+    public void MixedControllerAttachmentThrowsInsteadOfProjectingDetachedState()
+    {
+        GameObject ownerObject = new GameObject("attachment-owner");
+        GameObject mixedObject = new GameObject("mixed-controller");
+        try
+        {
+            CreatureComponent ownerCreature = ownerObject.AddComponent<CreatureComponent>();
+            ownerCreature.InitializeHealthBeforeEncounter(10, 10);
+            BridgeTestActionController ownerController =
+                ownerObject.AddComponent<BridgeTestActionController>();
+            Team team = ownerObject.AddComponent<Team>();
+            team.Name = "Players";
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { ownerController },
+                CreateTiles(1)
+            );
+            mixedObject.AddComponent<CreatureComponent>().InitializeHealthBeforeEncounter(10, 10);
+            BridgeTestActionController mixed =
+                mixedObject.AddComponent<BridgeTestActionController>();
+            FieldInfo bridgeField = typeof(ActionController).GetField(
+                "combatRules",
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
+            Assert.That(bridgeField, Is.Not.Null);
+            bridgeField.SetValue(mixed, bridge);
+
+            Assert.Throws<InvalidOperationException>(() => mixed.TryGetCombatRules(out _, out _));
+            Assert.Throws<InvalidOperationException>(() => _ = mixed.ActionPoints);
+        }
+        finally
+        {
+            Object.DestroyImmediate(ownerObject);
+            Object.DestroyImmediate(mixedObject);
+        }
+    }
+
+    [Test]
+    public void ReinforcementCompetingOwnerLeavesStoreUnchangedAndRetrySucceeds()
+    {
+        GameObject hostObject = new GameObject("reinforcement-host");
+        GameObject anchorObject = new GameObject("reinforcement-anchor");
+        GameObject reinforcementObject = new GameObject("reinforcement");
+        try
+        {
+            CreatureComponent hostCreature = hostObject.AddComponent<CreatureComponent>();
+            CreatureComponent anchorCreature = anchorObject.AddComponent<CreatureComponent>();
+            CreatureComponent reinforcementCreature =
+                reinforcementObject.AddComponent<CreatureComponent>();
+            hostCreature.InitializeHealthBeforeEncounter(10, 10);
+            anchorCreature.InitializeHealthBeforeEncounter(10, 10);
+            reinforcementCreature.InitializeHealthBeforeEncounter(10, 10);
+            BridgeTestActionController host = hostObject.AddComponent<BridgeTestActionController>();
+            BridgeTestActionController anchor =
+                anchorObject.AddComponent<BridgeTestActionController>();
+            BridgeTestActionController reinforcement =
+                reinforcementObject.AddComponent<BridgeTestActionController>();
+            Team hostTeam = hostObject.AddComponent<Team>();
+            Team anchorTeam = anchorObject.AddComponent<Team>();
+            Team reinforcementTeam = reinforcementObject.AddComponent<Team>();
+            hostTeam.Name = "Players";
+            anchorTeam.Name = "Enemies";
+            reinforcementTeam.Name = "Enemies";
+            UnityCombatRulesBridge encounter = UnityCombatRulesBridge.Create(
+                new ActionController[] { host, anchor },
+                CreateTiles(3)
+            );
+            encounter.StartEncounter("Players");
+            UnityCombatRulesBridge competing = UnityCombatRulesBridge.Create(
+                new ActionController[] { reinforcement },
+                CreateTiles(2)
+            );
+            RulesSnapshot before = encounter.Snapshot;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                encounter.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+
+            Assert.That(encounter.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                encounter.GetEncounter().Roster.Select(entry => entry.Creature),
+                Is.EqualTo(before.Encounters.Single().Value.Roster.Select(entry => entry.Creature))
+            );
+            competing.ReleaseOwnership();
+
+            Assert.DoesNotThrow(() =>
+                encounter.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+            Assert.That(encounter.GetEncounter().Roster, Has.Count.EqualTo(3));
+            Assert.That(
+                encounter.GetCreatureId(reinforcement).Value,
+                Is.EqualTo("combat-creature-3")
+            );
+            encounter.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void ReinforcementInstallationFailureLeavesStoreAndOwnershipUnchangedForRetry()
+    {
+        GameObject hostObject = new GameObject("failure-host");
+        GameObject anchorObject = new GameObject("failure-anchor");
+        GameObject reinforcementObject = new GameObject("failure-reinforcement");
+        try
+        {
+            CreatureComponent hostCreature = hostObject.AddComponent<CreatureComponent>();
+            CreatureComponent anchorCreature = anchorObject.AddComponent<CreatureComponent>();
+            CreatureComponent reinforcementCreature =
+                reinforcementObject.AddComponent<CreatureComponent>();
+            hostCreature.InitializeHealthBeforeEncounter(10, 10);
+            anchorCreature.InitializeHealthBeforeEncounter(10, 10);
+            reinforcementCreature.InitializeHealthBeforeEncounter(7, 7);
+            BridgeTestActionController host = hostObject.AddComponent<BridgeTestActionController>();
+            BridgeTestActionController anchor =
+                anchorObject.AddComponent<BridgeTestActionController>();
+            BridgeTestActionController reinforcement =
+                reinforcementObject.AddComponent<BridgeTestActionController>();
+            Team hostTeam = hostObject.AddComponent<Team>();
+            Team anchorTeam = anchorObject.AddComponent<Team>();
+            Team reinforcementTeam = reinforcementObject.AddComponent<Team>();
+            hostTeam.Name = "Players";
+            anchorTeam.Name = "Enemies";
+            reinforcementTeam.Name = "Enemies";
+            UnityCombatRulesBridge encounter = UnityCombatRulesBridge.Create(
+                new ActionController[] { host, anchor },
+                CreateTiles(3)
+            );
+            encounter.StartEncounter("Players");
+            RulesSnapshot before = encounter.Snapshot;
+            reinforcement.GetActionsEvent.AddListener(_ =>
+                throw new InvalidOperationException("Injected reinforcement installation failure.")
+            );
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                encounter.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+
+            Assert.That(error.Message, Does.Contain("Injected reinforcement installation failure"));
+            Assert.That(encounter.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                encounter.GetEncounter().Roster.Select(entry => entry.Creature),
+                Is.EqualTo(before.Encounters.Single().Value.Roster.Select(entry => entry.Creature))
+            );
+            Assert.That(reinforcement.ActionPoints, Is.Zero);
+            Assert.That(reinforcement.HasTurnAuthority, Is.False);
+            Assert.That(reinforcementCreature.Health, Is.EqualTo(new HealthState(7, 7)));
+
+            reinforcement.GetActionsEvent.RemoveAllListeners();
+            Assert.DoesNotThrow(() =>
+                encounter.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+            Assert.That(encounter.GetEncounter().Roster, Has.Count.EqualTo(3));
+            Assert.That(
+                encounter.GetCreatureId(reinforcement).Value,
+                Is.EqualTo("combat-creature-3")
+            );
+            encounter.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
     public void BridgeOwnsHealthAndProjectsCommittedFactsBackToComponents()
     {
         GameObject firstObject = new GameObject("first");
@@ -64,9 +698,7 @@ public sealed class UnityCombatRulesBridgeTests
             CreatureComponent second = secondObject.AddComponent<CreatureComponent>();
             first.InitializeHealthBeforeEncounter(10, 12);
             second.InitializeHealthBeforeEncounter(7, 7);
-            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateHealthTestComposition(
-                new[] { first, second }
-            );
+            UnityCombatRulesBridge bridge = CreateBridge(first, second);
 
             CreatureId firstId = bridge.GetCreatureId(first);
             CreatureId secondId = bridge.GetCreatureId(second);
@@ -112,9 +744,7 @@ public sealed class UnityCombatRulesBridgeTests
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateHealthTestComposition(
-                new[] { creature }
-            );
+            UnityCombatRulesBridge bridge = CreateBridge(creature);
             CreatureId id = bridge.GetCreatureId(creature);
             RuleSource rage = RuleSource.FromSlug("rage");
 
@@ -146,9 +776,7 @@ public sealed class UnityCombatRulesBridgeTests
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateHealthTestComposition(
-                new[] { creature }
-            );
+            UnityCombatRulesBridge bridge = CreateBridge(creature);
             InvalidOperationException expected = new InvalidOperationException(
                 "completed observer failure"
             );
@@ -180,9 +808,7 @@ public sealed class UnityCombatRulesBridgeTests
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
             creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateHealthTestComposition(
-                new[] { creature }
-            );
+            UnityCombatRulesBridge bridge = CreateBridge(creature);
             GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
 
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
@@ -206,6 +832,7 @@ public sealed class UnityCombatRulesBridgeTests
     public async Task CombatCompositionDispatchesDormantStrideThroughSharedState()
     {
         GameObject creatureObject = new GameObject("stride-creature");
+        GameObject opponentObject = new GameObject("stride-opponent");
         try
         {
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
@@ -213,12 +840,20 @@ public sealed class UnityCombatRulesBridgeTests
             creature.speed = 25;
             BridgeTestActionController controller =
                 creatureObject.AddComponent<BridgeTestActionController>();
-            GridPrivate.Tile[,] tiles = new GridPrivate.Tile[3, 1];
+            Team opponentTeam = opponentObject.AddComponent<Team>();
+            opponentTeam.Name = "enemies";
+            CreatureComponent opponent = opponentObject.AddComponent<CreatureComponent>();
+            opponent.InitializeHealthBeforeEncounter(10, 10);
+            BridgeTestActionController opponentController =
+                opponentObject.AddComponent<BridgeTestActionController>();
+            opponentObject.transform.position = new Vector3(3, 0, 0);
+            GridPrivate.Tile[,] tiles = new GridPrivate.Tile[4, 1];
             for (int x = 0; x < tiles.GetLength(0); x++)
                 tiles[x, 0] = new GridPrivate.Tile();
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-                new[] { controller },
-                tiles
+                new ActionController[] { controller, opponentController },
+                tiles,
+                new ScriptedRollService(20, 10)
             );
             CreatureId id = bridge.GetCreatureId(creature);
             bridge.BeginTurn(id, 3);
@@ -239,6 +874,7 @@ public sealed class UnityCombatRulesBridgeTests
         finally
         {
             Object.DestroyImmediate(creatureObject);
+            Object.DestroyImmediate(opponentObject);
         }
     }
 
@@ -253,7 +889,6 @@ public sealed class UnityCombatRulesBridgeTests
             creature.speed = 25;
             BridgeTestActionController controller =
                 creatureObject.AddComponent<BridgeTestActionController>();
-            controller.ActionPoints = 7;
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
                 controller,
                 CreateTiles(3)
@@ -280,8 +915,8 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(bridge.Snapshot.ActionEconomy[id].ActionsRemaining, Is.Zero);
             Assert.That(
                 controller.ActionPoints,
-                Is.EqualTo(7),
-                "Exploration Stride must not overwrite the controller's combat AP projection."
+                Is.Zero,
+                "A detached exploration controller must project neutral combat AP."
             );
         }
         finally
@@ -480,6 +1115,73 @@ public sealed class UnityCombatRulesBridgeTests
         return tiles;
     }
 
+    private static UnityCombatRulesBridge CreateBridge(params CreatureComponent[] creatures)
+    {
+        ActionController[] controllers = creatures
+            .Select(creature =>
+            {
+                BridgeTestActionController controller =
+                    creature.GetComponent<BridgeTestActionController>()
+                    ?? creature.gameObject.AddComponent<BridgeTestActionController>();
+                Team team =
+                    creature.GetComponent<Team>() ?? creature.gameObject.AddComponent<Team>();
+                team.Name = "Test Team";
+                return (ActionController)controller;
+            })
+            .ToArray();
+        return UnityCombatRulesBridge.Create(
+            controllers,
+            CreateTiles(Math.Max(1, controllers.Length))
+        );
+    }
+
+    private static void ConfigureFeatureState(CreatureComponent creature)
+    {
+        PreparedCharacter prepared = new PreparedCharacter(new CharacterBuild())
+        {
+            SpellBook = new PreparedSpellBook(
+                Array.Empty<PreparedSpellEntry>(),
+                new[] { new PreparedSpellSlotPool(new SpellSlotPoolId("module-owned-rank-1"), 2) },
+                0
+            ),
+        };
+        Assert.That(
+            Pf2eItem.TryParse(
+                "test-rage",
+                "{\"name\":\"Rage\",\"type\":\"action\",\"system\":{\"slug\":\"rage\"}}",
+                out Pf2eItem rage
+            ),
+            Is.True
+        );
+        prepared.AddOwnedItem(rage);
+        creature.Prepared = prepared;
+    }
+
+    private static void AssertFeatureState(RulesSnapshot snapshot, CreatureId creature)
+    {
+        Assert.That(
+            snapshot.SpellSlots.Select(pair => pair.Value).Where(slot => slot.Owner == creature),
+            Is.EqualTo(
+                new[]
+                {
+                    new SpellSlotState(
+                        new SpellSlotPoolId($"{creature.Value}:module-owned-rank-1"),
+                        creature,
+                        2,
+                        2
+                    ),
+                }
+            )
+        );
+        Assert.That(
+            snapshot
+                .RuleBindings.Select(pair => pair.Value)
+                .Where(binding => binding.Owner == creature)
+                .Select(binding => binding.DefinitionId.Value),
+            Does.Contain("rage-lifecycle")
+        );
+    }
+
     private static TeamRules InitializeTeamRules(GameObject owner)
     {
         TeamRules rules = owner.AddComponent<TeamRules>();
@@ -535,8 +1237,62 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
+    private sealed class RecordingEncounterModule
+        : IUnityEncounterTurnStartModule,
+            IUnityEncounterTopologyModule,
+            IUnityCombatantEnrollmentModule
+    {
+        private readonly string name;
+        private readonly IList<string> order;
+
+        public RecordingEncounterModule(string name, IList<string> order)
+        {
+            this.name = name;
+            this.order = order;
+            Adapter = new RecordingTurnStartAdapter();
+        }
+
+        public IEncounterTurnStartAdapter Adapter { get; }
+
+        public IEncounterTurnStartAdapter CreateTurnStartAdapter() => Adapter;
+
+        public void RefreshTopology(GridPrivate.Tile[,] tiles) => order.Add($"{name}:topology");
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) =>
+            order.Add($"{name}:{builder.CreatureId.Value}");
+    }
+
+    private sealed class RecordingTurnStartAdapter : IEncounterTurnStartAdapter
+    {
+        public ValueTask<TurnStartContribution> Apply(
+            EncounterTurnStartContext context,
+            TurnStartContribution current
+        ) => new ValueTask<TurnStartContribution>(current);
+    }
+
     private sealed class BridgeTestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class TrackingDisposable : IDisposable
+    {
+        private readonly Action onDispose;
+        private readonly Exception failure;
+
+        public TrackingDisposable(Action onDispose, Exception failure)
+        {
+            this.onDispose = onDispose;
+            this.failure = failure;
+        }
+
+        public int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            DisposeCount++;
+            onDispose();
+            throw failure;
+        }
     }
 }

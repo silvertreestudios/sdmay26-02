@@ -34,31 +34,7 @@ namespace Game.Creature.Rules
         }
 
         /// <summary>
-        /// Runs encounter-cleanup rule hooks for each combatant; action-specific details stay in their own rule classes.
-        /// </summary>
-        /// <param name="combatants">The combatants leaving encounter state.</param>
-        public static void EndEncounter(IEnumerable<ActionController> combatants)
-        {
-            if (combatants == null)
-                return;
-
-            foreach (ActionController controller in combatants)
-            {
-                if (
-                    controller != null
-                    && controller.TryGetCombatRules(
-                        out UnityCombatRulesBridge bridge,
-                        out CreatureId creature
-                    )
-                )
-                {
-                    bridge.Dispatch(new EncounterEndedOp(creature));
-                }
-            }
-        }
-
-        /// <summary>
-        /// Imports passive abilities and publishes combat-start facts for each registered combatant.
+        /// Imports passive abilities before the encounter composition captures initial bindings.
         /// </summary>
         /// <param name="combatants">The combatants entering encounter state.</param>
         public static void ApplyCombatStartRules(IEnumerable<ActionController> combatants)
@@ -73,16 +49,6 @@ namespace Game.Creature.Rules
                     continue;
 
                 ApplyImportedPassiveAbilities(controller, creature);
-
-                if (
-                    controller.TryGetCombatRules(
-                        out UnityCombatRulesBridge bridge,
-                        out CreatureId rulesCreature
-                    )
-                )
-                {
-                    bridge.Dispatch(new InitiativeRolledOp(rulesCreature));
-                }
             }
         }
 

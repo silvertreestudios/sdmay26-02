@@ -30,14 +30,11 @@ public abstract class AIActionController : ActionController
     [ContextMenu("End Turn")]
     public override void EndTurn()
     {
-        if (TryCompleteTurn())
+        if (HasTurnAuthority && !IsTakingAction)
         {
             Debug.Log("Turn End: " + this.gameObject.name);
             CombatLog.GetInstance().Log("- " + this.gameObject.name + " ended their turn.");
-            // Clean up turn state
-            // I.E. UI, etc
-            CombatManagerInterface.GetInstance().NextTurn();
-            OnGameplayStateCommitted.Invoke();
+            CombatManagerInterface.GetInstance().EndCurrentTurn(this);
         }
     }
 

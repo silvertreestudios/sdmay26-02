@@ -5,6 +5,8 @@ using System.Reflection;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
+using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
@@ -30,6 +32,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         UnityEngine.Random.InitState(158);
 
         Create("TestCombatLog").AddComponent<TestCombatLog>();
+        Create("Default Test Grid").AddComponent<TestGridAPI>();
         manager = Create("CombatManager").AddComponent<CombatManager>();
     }
 
@@ -70,7 +73,39 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
     }
 
-    /// <summary>Verifies removing the active controller clears its stale turn-owner reference.</summary>
+    /// <summary>Verifies an active typed roster never suppresses a missing Unity mapping.</summary>
+    [Test]
+    public void ActiveRosterMissingControllerMappingThrowsInvariant()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        FieldInfo bridgeField = typeof(CombatManager).GetField(
+            "combatRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(bridgeField, Is.Not.Null);
+        UnityCombatRulesBridge bridge = (UnityCombatRulesBridge)bridgeField.GetValue(manager);
+        CreatureId enemyId = bridge.GetCreatureId(enemy.Controller);
+        FieldInfo controllersField = typeof(UnityCombatRulesBridge).GetField(
+            "controllers",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(controllersField, Is.Not.Null);
+        System.Collections.IDictionary mappings = (System.Collections.IDictionary)
+            controllersField.GetValue(bridge);
+        mappings.Remove(enemyId);
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => manager.GetCombatants());
+        }
+        finally
+        {
+            mappings.Add(enemyId, enemy.Controller);
+        }
+    }
+
+    /// <summary>Verifies host removal does not mutate the authoritative active roster.</summary>
     [Test]
     public void Remove_CurrentTurnOwnerClearsReferenceWithoutReentrantAdvance()
     {
@@ -82,10 +117,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         manager.Remove(current.Controller);
 
-        Assert.That(manager.WhosTurn(), Is.Null);
+        Assert.That(manager.WhosTurn(), Is.SameAs(current.GameObject));
         Assert.That(
             manager.GetCombatants(),
-            Is.EquivalentTo(new[] { next.GameObject, ally.GameObject })
+            Is.EquivalentTo(new[] { current.GameObject, next.GameObject, ally.GameObject })
         );
         Assert.That(next.Controller.StartTurnCount, Is.Zero);
 
@@ -111,19 +146,84 @@ public sealed class DungeonEncounterCombatPlayModeTests
             TestGridAPI grid = Create("Test GridAPI").AddComponent<TestGridAPI>();
             CombatantFixture player = CreateCombatant("Player", "Players", 100);
             CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+            CombatantFixture survivingEnemy = CreateCombatant("Surviving Enemy", "Enemies", -100);
             DungeonEncounterMember member = enemy.GameObject.AddComponent<DungeonEncounterMember>();
-            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            int deathCalls = 0;
+            UnityAction<GameObject> deathListener = defeated =>
+            {
+                if (defeated == enemy.GameObject)
+                    deathCalls++;
+            };
+            OnDeath.AddListener(deathListener);
+            try
+            {
+                manager.StartDungeonCombat(
+                    new[] { player.Controller, enemy.Controller, survivingEnemy.Controller }
+                );
 
-            Assert.DoesNotThrow(() =>
-                enemy.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-lethal-damage"))
+                Assert.DoesNotThrow(() =>
+                    enemy.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("test-lethal-damage"))
+                );
+                Assert.DoesNotThrow(() =>
+                    enemy.Creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-repeated-damage"))
+                );
+
+                Assert.That(member.IsConfigured, Is.False);
+                Assert.That(member.DefeatWasReported, Is.False);
+                Assert.That(deathCalls, Is.EqualTo(1));
+                Assert.That(grid.DestroyedTokens, Contains.Item(enemy.GameObject));
+                Assert.That(enemy.Controller.enabled, Is.False);
+                Assert.That(enemy.GameObject.activeSelf, Is.False);
+                Assert.That(manager.GetCombatants(), Has.No.Member(enemy.GameObject));
+            }
+            finally
+            {
+                OnDeath.RemoveListener(deathListener);
+            }
+        }
+        finally
+        {
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    /// <summary>Verifies camera framing excludes defeated roster slots retained for timing.</summary>
+    [Test]
+    public void getPoistions_ActiveCombatReturnsOnlyLivingEncounterParticipants()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        Assert.That(singletonField, Is.Not.Null);
+        object previousGrid = singletonField.GetValue(null);
+        try
+        {
+            singletonField.SetValue(null, null);
+            Create("Test GridAPI").AddComponent<TestGridAPI>();
+            CombatantFixture player = CreateCombatant("Player", "Players", 100);
+            CombatantFixture defeated = CreateCombatant("Defeated Enemy", "Enemies", 50);
+            CombatantFixture survivor = CreateCombatant("Surviving Enemy", "Enemies", 0);
+            player.GameObject.transform.position = new Vector3(1f, 0f, 1f);
+            defeated.GameObject.transform.position = new Vector3(9f, 0f, 9f);
+            survivor.GameObject.transform.position = new Vector3(2f, 0f, 2f);
+            manager.StartDungeonCombat(
+                new[] { player.Controller, defeated.Controller, survivor.Controller }
             );
 
-            Assert.That(member.IsConfigured, Is.False);
-            Assert.That(member.DefeatWasReported, Is.False);
-            Assert.That(grid.DestroyedTokens, Contains.Item(enemy.GameObject));
-            Assert.That(enemy.Controller.enabled, Is.False);
-            Assert.That(enemy.GameObject.activeSelf, Is.False);
-            Assert.That(manager.GetCombatants(), Has.No.Member(enemy.GameObject));
+            defeated.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("camera-framing-test"));
+
+            Assert.That(
+                manager.getPoistions(),
+                Is.EquivalentTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        survivor.GameObject.transform.position,
+                    }
+                )
+            );
+            Assert.That(defeated.GameObject.activeSelf, Is.False);
         }
         finally
         {
@@ -182,6 +282,31 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(reinforcement.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
+    /// <summary>Verifies disabled and inactive controllers cannot join an active encounter.</summary>
+    [Test]
+    public void AddDungeonReinforcements_RejectsDisabledAndInactiveControllers()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        CombatantFixture reinforcement = CreateCombatant("Reinforcement", "Enemies", 50);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+
+        reinforcement.Controller.enabled = false;
+        Assert.Throws<InvalidOperationException>(() =>
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller })
+        );
+
+        reinforcement.Controller.enabled = true;
+        reinforcement.GameObject.SetActive(false);
+        Assert.Throws<InvalidOperationException>(() =>
+            manager.AddDungeonReinforcements(new[] { reinforcement.Controller })
+        );
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EquivalentTo(new[] { player.GameObject, enemy.GameObject })
+        );
+    }
+
     /// <summary>Verifies suspension resets turn economy without changing durable creature state.</summary>
     [Test]
     public void SuspendDungeonCombat_ClearsTurnStateAndPreservesCreatureState()
@@ -195,11 +320,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Conditions.Add("Off-Guard", preservedSource);
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-        player.Controller.ActionPoints = 2;
-        player.Controller.Reacted = true;
         player.Controller.IsTakingAction = true;
-        enemy.Controller.ActionPoints = 1;
-        enemy.Controller.Reacted = true;
         enemy.Controller.IsTakingAction = true;
 
         manager.SuspendDungeonCombat();
@@ -262,9 +383,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            enemy.GameObject.SetActive(false);
-
-            Assert.That(manager.CheckForEndOfGame(), Is.True);
+            enemy.Creature.ApplyFinalDamage(enemy.Creature.hp, RuleSource.FromSlug("test-victory"));
 
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
             Assert.That(winner, Is.EqualTo("Players"));
@@ -277,6 +396,120 @@ public sealed class DungeonEncounterCombatPlayModeTests
             manager.DungeonCombatEnded -= dungeonEndListener;
             OnCombatEnd.RemoveListener(legacyEndListener);
             OnCombatOutcome.RemoveListener(legacyOutcomeListener);
+        }
+    }
+
+    /// <summary>
+    /// Verifies every completion channel observes inactive combat and cannot strand ended rules
+    /// ownership when a callback throws.
+    /// </summary>
+    [TestCase("DungeonCombatEnded")]
+    [TestCase("LegacyCombatEnded")]
+    [TestCase("LegacyCombatOutcome")]
+    public void ThrowingCompletionCallback_ReleasesCombatBeforePropagating(string channel)
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        Action<string> dungeonEndListener = _ => ThrowFromCompletionCallback();
+        UnityAction<string> legacyEndListener = _ => ThrowFromCompletionCallback();
+        UnityAction<bool> legacyOutcomeListener = _ => ThrowFromCompletionCallback();
+
+        switch (channel)
+        {
+            case "DungeonCombatEnded":
+                manager.DungeonCombatEnded += dungeonEndListener;
+                break;
+            case "LegacyCombatEnded":
+                OnCombatEnd.AddListener(legacyEndListener);
+                break;
+            case "LegacyCombatOutcome":
+                OnCombatOutcome.AddListener(legacyOutcomeListener);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(channel), channel, null);
+        }
+
+        try
+        {
+            if (channel == "DungeonCombatEnded")
+                manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            else
+                manager.StartCombat();
+
+            CombatantFixture nextPlayer = CreateCombatant("Next Player", "Players", 100);
+            CombatantFixture nextEnemy = CreateCombatant("Next Enemy", "Enemies", 0);
+
+            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+                enemy.Creature.ApplyFinalDamage(
+                    enemy.Creature.hp,
+                    RuleSource.FromSlug("test-throwing-completion")
+                )
+            );
+
+            Assert.That(exception.Message, Is.EqualTo("Completion callback failed."));
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.DoesNotThrow(() =>
+                manager.StartDungeonCombat(new[] { nextPlayer.Controller, nextEnemy.Controller })
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            manager.DungeonCombatEnded -= dungeonEndListener;
+            OnCombatEnd.RemoveListener(legacyEndListener);
+            OnCombatOutcome.RemoveListener(legacyOutcomeListener);
+        }
+
+        void ThrowFromCompletionCallback()
+        {
+            Assert.That(manager.IsCombatActive, Is.False);
+            throw new InvalidOperationException("Completion callback failed.");
+        }
+    }
+
+    /// <summary>
+    /// Verifies completion callbacks can synchronously begin a new encounter without delayed
+    /// cleanup from the ended bridge clearing the replacement encounter.
+    /// </summary>
+    [Test]
+    public void DungeonCompletionCallback_CanSynchronouslyStartNextEncounter()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        CombatantFixture nextPlayer = CreateCombatant("Next Player", "Players", 100);
+        CombatantFixture nextEnemy = CreateCombatant("Next Enemy", "Enemies", 0);
+        UnityCombatRulesBridge endedBridge = null;
+        UnityCombatRulesBridge restartedBridge = null;
+        Action<string> listener = _ =>
+        {
+            Assert.That(manager.IsCombatActive, Is.False);
+            manager.StartDungeonCombat(new[] { nextPlayer.Controller, nextEnemy.Controller });
+            restartedBridge = GetCombatRules(manager);
+        };
+        manager.DungeonCombatEnded += listener;
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            endedBridge = GetCombatRules(manager);
+
+            enemy.Creature.ApplyFinalDamage(
+                enemy.Creature.hp,
+                RuleSource.FromSlug("test-synchronous-restart")
+            );
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(restartedBridge, Is.Not.Null);
+            Assert.That(restartedBridge, Is.Not.SameAs(endedBridge));
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EquivalentTo(new[] { nextPlayer.GameObject, nextEnemy.GameObject })
+            );
+            Assert.That(manager.CheckForEndOfGame(), Is.False);
+        }
+        finally
+        {
+            manager.DungeonCombatEnded -= listener;
         }
     }
 
@@ -305,9 +538,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
         try
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-            player.GameObject.SetActive(false);
+            player.Creature.ApplyFinalDamage(
+                player.Creature.hp,
+                RuleSource.FromSlug("test-defeat")
+            );
 
-            Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
             Assert.That(winner, Is.EqualTo("Enemies"));
             Assert.That(lossCalls, Is.EqualTo(1));
@@ -316,6 +551,94 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             manager.DungeonCombatEnded -= dungeonEndListener;
             OnCombatOutcome.RemoveListener(outcomeListener);
+        }
+    }
+
+    /// <summary>Verifies defeat reports the living opposition team rather than an earlier dead team.</summary>
+    [Test]
+    public void DungeonDefeat_ReportsLivingOppositionAcrossMultipleTeams()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture fallenOpposition = CreateCombatant("Fallen Opposition", "Fallen Foes", 50);
+        CombatantFixture livingOpposition = CreateCombatant("Living Opposition", "Living Foes", 0);
+        string winner = string.Empty;
+        Action<string> listener = winningTeam => winner = winningTeam;
+        manager.DungeonCombatEnded += listener;
+
+        try
+        {
+            manager.StartDungeonCombat(
+                new[]
+                {
+                    player.Controller,
+                    fallenOpposition.Controller,
+                    livingOpposition.Controller,
+                }
+            );
+            fallenOpposition.Creature.ApplyFinalDamage(
+                fallenOpposition.Creature.hp,
+                RuleSource.FromSlug("test-first-opposition-defeat")
+            );
+            player.Creature.ApplyFinalDamage(
+                player.Creature.hp,
+                RuleSource.FromSlug("test-player-defeat")
+            );
+
+            Assert.That(winner, Is.EqualTo("Living Foes"));
+        }
+        finally
+        {
+            manager.DungeonCombatEnded -= listener;
+        }
+    }
+
+    /// <summary>Verifies an all-zero player defeat rejects a fabricated presentation winner.</summary>
+    [Test]
+    public void DungeonDefeat_AllZeroRosterFailsPresentationAndReleasesOwnership()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        string winner = "not-reported";
+        Action<string> listener = winningTeam => winner = winningTeam;
+        manager.DungeonCombatEnded += listener;
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            UnityCombatRulesBridge bridge = GetCombatRules(manager);
+            CreatureId playerId = bridge.GetCreatureId(player.Controller);
+            CreatureId enemyId = bridge.GetCreatureId(enemy.Controller);
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                bridge.Dispatch(
+                    new ApplyHealthBatchOp(
+                        new[]
+                        {
+                            new HealthBatchChange(
+                                HealthBatchChangeKind.Damage,
+                                playerId,
+                                player.Creature.hp,
+                                new HealthChangeOriginId("test-all-zero-player"),
+                                RuleSource.FromSlug("test-all-zero")
+                            ),
+                            new HealthBatchChange(
+                                HealthBatchChangeKind.Damage,
+                                enemyId,
+                                enemy.Creature.hp,
+                                new HealthChangeOriginId("test-all-zero-enemy"),
+                                RuleSource.FromSlug("test-all-zero")
+                            ),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(error.Message, Does.Contain("living opposition team"));
+            Assert.That(winner, Is.EqualTo("not-reported"));
+            Assert.That(manager.IsCombatActive, Is.False);
+        }
+        finally
+        {
+            manager.DungeonCombatEnded -= listener;
         }
     }
 
@@ -330,8 +653,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
         TestEntityAction attack = new("Strike", 1, () => attackCalls++);
         player.Controller.AddAction(movement);
         player.Controller.AddAction(attack);
-        player.Controller.ActionPoints = 2;
-        player.Controller.Reacted = true;
         player.Controller.SetDungeonExploration(true);
 
         player.Controller.TakeAction(movement);
@@ -340,8 +661,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         Assert.That(movementCalls, Is.EqualTo(2));
         Assert.That(attackCalls, Is.Zero);
-        Assert.That(player.Controller.ActionPoints, Is.EqualTo(2));
-        Assert.That(player.Controller.Reacted, Is.True);
+        Assert.That(player.Controller.ActionPoints, Is.Zero);
+        Assert.That(player.Controller.Reacted, Is.False);
         Assert.That(player.Controller.StrikePenalty, Is.Zero);
         Assert.That(player.Controller.HasTurnAuthority, Is.False);
 
@@ -367,6 +688,221 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
         Assert.That(first.Controller.StartTurnCount, Is.EqualTo(1));
+    }
+
+    /// <summary>Verifies legacy scenes derive protagonist identity from registration order.</summary>
+    [Test]
+    public void LegacyStartCombat_DerivesNonPlayersProtagonistTeam()
+    {
+        CombatantFixture first = CreateCombatant("First", "TeamA", 300);
+        CreateCombatant("Second", "TeamB", 200);
+
+        manager.StartCombat();
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        CreatureId firstId = bridge.GetCreatureId(first.Creature);
+        Assert.That(
+            bridge.GetEncounter().ProtagonistTeam,
+            Is.EqualTo(bridge.Snapshot.Creatures[firstId].Player)
+        );
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
+    }
+
+    /// <summary>Verifies a failed committed startup releases ownership so the host can retry.</summary>
+    [Test]
+    public void LegacyStartCombat_FailedPresentationDoesNotLeaveManagerActive()
+    {
+        CombatantFixture first = CreateCombatant("First", "TeamA", 300);
+        CombatantFixture second = CreateCombatant("Second", "TeamB", 200);
+        UnityAction failingPresentation = () =>
+            throw new InvalidOperationException("Synthetic encounter-start presentation failure.");
+        OnCombatStart.AddListener(failingPresentation);
+        try
+        {
+            Assert.Catch<Exception>(() => manager.StartCombat());
+            Assert.That(manager.IsCombatActive, Is.False);
+            AssertTransientTurnStateCleared(first.Controller);
+            AssertTransientTurnStateCleared(second.Controller);
+        }
+        finally
+        {
+            OnCombatStart.RemoveListener(failingPresentation);
+        }
+
+        Assert.DoesNotThrow(() => manager.StartCombat());
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
+    }
+
+    /// <summary>Verifies legacy combat excludes registered controllers that cannot take turns.</summary>
+    [Test]
+    public void LegacyStartCombat_ExcludesDisabledAndInactiveControllers()
+    {
+        CombatantFixture activePlayer = CreateCombatant("Active Player", "Players", 300);
+        CombatantFixture activeEnemy = CreateCombatant("Active Enemy", "Enemies", 250);
+        CombatantFixture disabled = CreateCombatant("Disabled", "Enemies", 200);
+        CombatantFixture inactive = CreateCombatant("Inactive", "Enemies", 100);
+        disabled.Controller.enabled = false;
+        inactive.GameObject.SetActive(false);
+
+        manager.StartCombat();
+
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EqualTo(new[] { activePlayer.GameObject, activeEnemy.GameObject })
+        );
+        Assert.That(manager.WhosTurn(), Is.SameAs(activePlayer.GameObject));
+        Assert.That(disabled.Controller.StartTurnCount, Is.Zero);
+        Assert.That(inactive.Controller.StartTurnCount, Is.Zero);
+    }
+
+    /// <summary>Verifies explicit dungeon starts reject disabled and inactive participants.</summary>
+    [Test]
+    public void StartDungeonCombat_RejectsDisabledAndInactiveParticipants()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+
+        enemy.Controller.enabled = false;
+        Assert.Throws<InvalidOperationException>(() =>
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller })
+        );
+
+        enemy.Controller.enabled = true;
+        enemy.GameObject.SetActive(false);
+        Assert.Throws<InvalidOperationException>(() =>
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller })
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    /// <summary>Verifies combat startup without compatible topology fails without retaining authority.</summary>
+    [UnityTest]
+    public IEnumerator MindlessController_WithoutGridRejectsCombatStartupCleanly()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        Assert.That(singletonField, Is.Not.Null);
+        object previousGrid = singletonField.GetValue(null);
+        try
+        {
+            singletonField.SetValue(null, null);
+            GameObject aiObject = Create("Gridless AI");
+            CreatureComponent aiCreature = aiObject.AddComponent<CreatureComponent>();
+            aiCreature.name = "Gridless AI";
+            aiCreature.initiative = 200;
+            aiCreature.InitializeHealthBeforeEncounter(10, 10);
+            Team aiTeam = aiObject.AddComponent<Team>();
+            aiTeam.Name = "Enemies";
+            MindlessController ai = aiObject.AddComponent<MindlessController>();
+            CombatantFixture player = CreateCombatant("Player", "Players", 100);
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                manager.StartDungeonCombat(new ActionController[] { ai, player.Controller })
+            );
+
+            Assert.That(error.Message, Does.Contain("initialized compatible grid"));
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.That(manager.WhosTurn(), Is.Null);
+            Assert.That(ai.HasTurnAuthority, Is.False);
+            Assert.That(player.Controller.HasTurnAuthority, Is.False);
+            yield break;
+        }
+        finally
+        {
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
+    /// <summary>
+    /// Verifies an authoritative AI turn rejects grid replacement during its startup and decision
+    /// delays, before an action marks itself in progress.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator MindlessController_AuthoritativeTurnRejectsRebindDuringDelays()
+    {
+        GameObject aiObject = Create("Delayed AI");
+        CreatureComponent aiCreature = aiObject.AddComponent<CreatureComponent>();
+        aiCreature.name = "Delayed AI";
+        aiCreature.initiative = 200;
+        aiCreature.InitializeHealthBeforeEncounter(10, 10);
+        Team aiTeam = aiObject.AddComponent<Team>();
+        aiTeam.Name = "Enemies";
+        DelayedDecisionMindlessController ai =
+            aiObject.AddComponent<DelayedDecisionMindlessController>();
+        ai.Configure(new TestGridBinding(), new TestEntityAction("Delayed Decision", 1, () => { }));
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+
+        manager.StartDungeonCombat(new ActionController[] { ai, player.Controller });
+
+        Assert.That(ai.HasTurnAuthority, Is.True);
+        Assert.That(ai.IsTakingAction, Is.False);
+        Assert.That(
+            ai.CanRebindGrid(),
+            Is.False,
+            "The initial coroutine yield must retain authoritative turn ownership."
+        );
+
+        yield return new WaitUntil(() => ai.DecisionCount == 1);
+
+        Assert.That(ai.HasTurnAuthority, Is.True);
+        Assert.That(ai.IsTakingAction, Is.False);
+        Assert.That(
+            ai.CanRebindGrid(),
+            Is.False,
+            "The pre-invocation decision delay must retain authoritative turn ownership."
+        );
+    }
+
+    /// <summary>
+    /// Verifies active encounter AI preserves directional TeamRules friendship for distinct teams.
+    /// </summary>
+    [Test]
+    public void MindlessDecision_ActiveEncounterUsesTypedPlayerIdentityInsteadOfTeamRules()
+    {
+        TeamRules teamRules = Create("Team Rules").AddComponent<TeamRules>();
+        teamRules.AddHostileTeam("AI");
+        teamRules.AddHostileTeam("Ally");
+        teamRules.AddHostileTeam("Players");
+        teamRules.OneWayFriendly("AI", "Ally");
+
+        GameObject actor = Create("Mindless Actor");
+        CreatureComponent actorCreature = actor.AddComponent<CreatureComponent>();
+        actorCreature.name = "Mindless Actor";
+        actorCreature.speed = 25;
+        actorCreature.InitializeHealthBeforeEncounter(10, 10);
+        actor.AddComponent<Conditions>();
+        MindlessController ai = actor.AddComponent<MindlessController>();
+        Team actorTeam = actor.AddComponent<Team>();
+        actorTeam.Name = "AI";
+        manager.AddCombatant(ai);
+
+        CombatantFixture ally = CreateCombatant("Directional Ally", "Ally", 0);
+        CombatantFixture hostile = CreateCombatant("Hostile Player", "Players", 0);
+        actor.transform.position = new Vector3(0, 0, 1);
+        ally.GameObject.transform.position = new Vector3(2, 0, 1);
+        hostile.GameObject.transform.position = new Vector3(4, 0, 1);
+        Tile[,] tiles = new Tile[5, 3];
+        for (int x = 0; x < tiles.GetLength(0); x++)
+        for (int z = 0; z < tiles.GetLength(1); z++)
+            tiles[x, z] = new Tile();
+        tiles[0, 1].Occupants.Add(actor);
+        tiles[2, 1].Occupants.Add(ally.GameObject);
+        tiles[4, 1].Occupants.Add(hostile.GameObject);
+        ai.RebindGrid(new MindlessTestGridBinding(tiles));
+        manager.StartDungeonCombat(
+            new ActionController[] { hostile.Controller, ai, ally.Controller }
+        );
+
+        ai.MindlessDecision();
+
+        Assert.That(teamRules.IsFriendly("AI", "Ally"), Is.True);
+        Assert.That(teamRules.IsFriendly("Ally", "AI"), Is.False);
+        Assert.That(ai.BestTarget, Is.SameAs(ally.GameObject));
     }
 
     private CombatantFixture CreateCombatant(string name, string teamName, int initiative)
@@ -425,6 +961,16 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(controller.HasTurnAuthority, Is.False);
     }
 
+    private static UnityCombatRulesBridge GetCombatRules(CombatManager combatManager)
+    {
+        FieldInfo field = typeof(CombatManager).GetField(
+            "combatRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (UnityCombatRulesBridge)field.GetValue(combatManager);
+    }
+
     private sealed class CombatantFixture
     {
         public CombatantFixture(
@@ -458,13 +1004,80 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         public override void EndTurn()
         {
-            if (!IsTurn)
+            if (!HasTurnAuthority)
                 return;
 
-            IsTurn = false;
             IsTakingAction = false;
             CombatManagerInterface.GetInstance().NextTurn();
         }
+    }
+
+    private sealed class DelayedDecisionMindlessController : MindlessController
+    {
+        private EntityAction decision;
+
+        public int DecisionCount { get; private set; }
+
+        public void Configure(GridAPIPrivate grid, EntityAction nextDecision)
+        {
+            RebindGrid(grid);
+            decision = nextDecision;
+        }
+
+        protected override EntityAction SelectNextAction()
+        {
+            DecisionCount++;
+            return decision;
+        }
+    }
+
+    private sealed class TestGridBinding : GridAPIPrivate
+    {
+        private readonly Tile[,] tiles =
+        {
+            { new Tile() },
+        };
+        private readonly bool[,] lineOfSightBlocks = new bool[1, 1];
+        private readonly IPathfinder pathfinder;
+
+        public TestGridBinding()
+        {
+            pathfinder = new Dijkstra(tiles);
+        }
+
+        public Tile[,] GetTiles() => tiles;
+
+        public bool[,] GetLineOfSightBlocks() => lineOfSightBlocks;
+
+        public IPathfinder GetPathfinder() => pathfinder;
+
+        public bool AddToken(GameObject token) => true;
+
+        public bool DestroyToken(GameObject token) => true;
+    }
+
+    private sealed class MindlessTestGridBinding : GridAPIPrivate
+    {
+        private readonly Tile[,] tiles;
+        private readonly bool[,] lineOfSightBlocks;
+        private readonly IPathfinder pathfinder;
+
+        public MindlessTestGridBinding(Tile[,] tiles)
+        {
+            this.tiles = tiles;
+            lineOfSightBlocks = new bool[tiles.GetLength(0), tiles.GetLength(1)];
+            pathfinder = new Dijkstra(tiles);
+        }
+
+        public Tile[,] GetTiles() => tiles;
+
+        public bool[,] GetLineOfSightBlocks() => lineOfSightBlocks;
+
+        public IPathfinder GetPathfinder() => pathfinder;
+
+        public bool AddToken(GameObject token) => true;
+
+        public bool DestroyToken(GameObject token) => true;
     }
 
     private sealed class TestEntityAction : EntityAction
@@ -526,9 +1139,30 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public override List<string> GetMessages() => new(messages);
     }
 
-    private sealed class TestGridAPI : GridAPI
+    private sealed class TestGridAPI : GridAPI, GridAPIPrivate
     {
+        private readonly Tile[,] tiles =
+        {
+            { new Tile() },
+        };
+        private readonly bool[,] lineOfSightBlocks = new bool[1, 1];
+        private IPathfinder pathfinder;
+
         public List<GameObject> DestroyedTokens { get; } = new();
+
+        protected override void Awake()
+        {
+            base.Awake();
+            pathfinder = new Dijkstra(tiles);
+        }
+
+        public Tile[,] GetTiles() => tiles;
+
+        public bool[,] GetLineOfSightBlocks() => lineOfSightBlocks;
+
+        public IPathfinder GetPathfinder() => pathfinder;
+
+        public bool AddToken(GameObject token) => true;
 
         public override IEnumerator SelectStridePath(
             GameObject character,
