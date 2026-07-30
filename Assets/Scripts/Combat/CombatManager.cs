@@ -88,7 +88,8 @@ public class CombatManager : CombatManagerInterface
     }
 
     [ContextMenu("StartCombat")]
-    public override void StartCombat() => BeginCombat(Combatants.ToArray(), false);
+    public override void StartCombat() =>
+        BeginCombat(Combatants.Where(CanTakeTurn).ToArray(), false);
 
     /// <inheritdoc/>
     public override void StartDungeonCombat(IReadOnlyList<ActionController> participants) =>
@@ -114,6 +115,10 @@ public class CombatManager : CombatManagerInterface
             throw new ArgumentException(
                 "Reinforcements must be new, registered, unique controllers.",
                 nameof(reinforcements)
+            );
+        if (additions.Any(controller => !CanTakeTurn(controller)))
+            throw new InvalidOperationException(
+                "Inactive or disabled controllers cannot join combat."
             );
 
         Pf2eRulesEngine.ApplyCombatStartRules(additions);
@@ -192,6 +197,10 @@ public class CombatManager : CombatManagerInterface
                 "Combat requires registered, unique, non-null participants.",
                 nameof(participants)
             );
+        if (selected.Any(controller => !CanTakeTurn(controller)))
+            throw new InvalidOperationException(
+                "Inactive or disabled controllers cannot begin combat."
+            );
 
         Pf2eRulesEngine.ApplyCombatStartRules(selected);
         activeCombatants.Clear();
@@ -257,7 +266,7 @@ public class CombatManager : CombatManagerInterface
     private void CompleteEncounterOutcomePresentation(EncounterOutcome outcome)
     {
         bool playerWon = outcome == EncounterOutcome.PlayerVictory;
-        string winningTeam = playerWon ? FindProtagonistTeam() : FindLivingNonPlayerTeam();
+        string winningTeam = playerWon ? FindProtagonistTeam() : FindLivingOppositionTeam();
         bool wasDungeonDirected = dungeonDirectedCombat;
 
         if (wasDungeonDirected)
@@ -269,16 +278,23 @@ public class CombatManager : CombatManagerInterface
         StopCombatState();
     }
 
-    private string FindLivingNonPlayerTeam()
+    private string FindLivingOppositionTeam()
     {
-        foreach (ActionController controller in activeCombatants)
+        if (combatRules == null)
+            return string.Empty;
+        EncounterState encounter = combatRules.GetEncounter();
+        foreach (InitiativeEntry entry in encounter.Roster)
         {
-            Team team = controller == null ? null : controller.GetComponent<Team>();
             if (
-                team != null
-                && !string.IsNullOrWhiteSpace(team.Name)
-                && !string.Equals(team.Name, "players", StringComparison.OrdinalIgnoreCase)
+                entry.Team == encounter.ProtagonistTeam
+                || !combatRules.Snapshot.Health.TryGet(entry.Creature, out HealthState health)
+                || !health.IsLiving
+                || !combatRules.TryGetController(entry.Creature, out ActionController controller)
+                || controller == null
             )
+                continue;
+            Team team = controller.GetComponent<Team>();
+            if (team != null && !string.IsNullOrWhiteSpace(team.Name))
                 return team.Name;
         }
         return string.Empty;
@@ -352,6 +368,9 @@ public class CombatManager : CombatManagerInterface
         tiles = new Tile[0, 0];
         return false;
     }
+
+    private static bool CanTakeTurn(ActionController controller) =>
+        controller != null && controller.gameObject.activeSelf && controller.isActiveAndEnabled;
 
     // Camera projection for legacy callers.
     public Vector3[] getPoistions() =>

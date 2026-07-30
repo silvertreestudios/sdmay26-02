@@ -238,7 +238,6 @@ namespace Game.Rules.Runtime.Tests
                     Source
                 )
             );
-            await dispatcher.Dispatch(new FinalizeCreatureDefeatOp(Enemy));
 
             InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
                 async () =>
@@ -678,6 +677,44 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task NonterminalDefeatCommitsOnceAndReleasesAuthoritativePosition()
+        {
+            RulesStateSeed seed = BaseSeed().SeedPosition(Enemy, new GridPosition(2, 0, 1));
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10, 5), seed);
+            CountingFactObserver<CreatureDefeatCommittedFact> committed =
+                new CountingFactObserver<CreatureDefeatCommittedFact>();
+            dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(committed);
+            await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0),
+                    new EncounterParticipant(Reinforcement, Enemies, 0)
+                )
+            );
+
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(Enemy, 10, new HealthChangeOriginId("nonterminal-defeat"), Source)
+            );
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(
+                    Enemy,
+                    1,
+                    new HealthChangeOriginId("repeated-zero-damage"),
+                    Source
+                )
+            );
+
+            HealthState health = dispatcher.Snapshot.Health[Enemy];
+            EncounterState encounter = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(health.Current, Is.Zero);
+            Assert.That(health.IsCommittedDefeated, Is.True);
+            Assert.That(dispatcher.Snapshot.Positions.Contains(Enemy), Is.False);
+            Assert.That(committed.Calls, Is.EqualTo(1));
+            Assert.That(encounter.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(encounter.Outcome, Is.Null);
+        }
+
+        [Test]
         public async Task HigherInitiativeReinforcementWaitsUntilNextRound()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(15, 10, 20));
@@ -756,6 +793,8 @@ namespace Game.Rules.Runtime.Tests
                     BaseSeed()
                         .SeedHealth(Hero, new HealthState(1, 10))
                         .SeedHealth(Enemy, new HealthState(1, 10))
+                        .SeedPosition(Hero, new GridPosition(0, 0, 0))
+                        .SeedPosition(Enemy, new GridPosition(1, 0, 0))
                 );
                 await dispatcher.Dispatch(
                     Start(
@@ -796,6 +835,10 @@ namespace Game.Rules.Runtime.Tests
                 );
                 Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.Zero);
                 Assert.That(dispatcher.Snapshot.Health[Enemy].Current, Is.Zero);
+                Assert.That(dispatcher.Snapshot.Health[Hero].IsCommittedDefeated, Is.True);
+                Assert.That(dispatcher.Snapshot.Health[Enemy].IsCommittedDefeated, Is.True);
+                Assert.That(dispatcher.Snapshot.Positions.Contains(Hero), Is.False);
+                Assert.That(dispatcher.Snapshot.Positions.Contains(Enemy), Is.False);
                 Assert.That(settled.Phase, Is.EqualTo(EncounterPhase.Ended));
                 Assert.That(settled.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
                 Assert.That(
@@ -818,6 +861,7 @@ namespace Game.Rules.Runtime.Tests
             registryBuilder.Define(definition).FactListener(RuleLifecyclePhase.Reaction, rescue);
             RuleRegistry registry = registryBuilder.Build();
             RulesStateSeed seed = BaseSeed()
+                .SeedPosition(Hero, new GridPosition(0, 0, 0))
                 .SeedRuleBinding(
                     new ActiveRuleBinding(
                         new BindingId("rescue-binding"),
@@ -833,6 +877,9 @@ namespace Game.Rules.Runtime.Tests
                 seed,
                 registry
             );
+            CountingFactObserver<CreatureDefeatCommittedFact> committed =
+                new CountingFactObserver<CreatureDefeatCommittedFact>();
+            dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(committed);
             await dispatcher.Dispatch(
                 Start(
                     new EncounterParticipant(Hero, Players, 0),
@@ -847,6 +894,9 @@ namespace Game.Rules.Runtime.Tests
             EncounterState state = dispatcher.Snapshot.Encounters[Encounter];
             Assert.That(rescue.Calls, Is.EqualTo(1));
             Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.EqualTo(1));
+            Assert.That(dispatcher.Snapshot.Health[Hero].IsCommittedDefeated, Is.False);
+            Assert.That(dispatcher.Snapshot.Positions.Contains(Hero), Is.True);
+            Assert.That(committed.Calls, Is.Zero);
             Assert.That(state.Phase, Is.EqualTo(EncounterPhase.Active));
             Assert.That(state.Outcome, Is.Null);
         }

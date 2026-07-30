@@ -980,7 +980,7 @@ namespace Game.Rules.Unity
         {
             HealthProjectionObserver observer = new HealthProjectionObserver(creatures);
             dispatcher.RegisterFactObserver<HealthFact>(observer);
-            dispatcher.RegisterFactObserver<CreatureReducedToZeroFact>(observer);
+            dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(observer);
         }
 
         private void AttachCreatures()
@@ -1403,7 +1403,7 @@ namespace Game.Rules.Unity
 
         private sealed class HealthProjectionObserver
             : IFactObserver<HealthFact>,
-                IFactObserver<CreatureReducedToZeroFact>
+                IFactObserver<CreatureDefeatCommittedFact>
         {
             private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
 
@@ -1427,7 +1427,7 @@ namespace Game.Rules.Unity
             }
 
             public ValueTask OnFactCommitted(
-                CreatureReducedToZeroFact fact,
+                CreatureDefeatCommittedFact fact,
                 RulesSnapshot currentSnapshot
             )
             {

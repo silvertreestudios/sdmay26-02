@@ -13,6 +13,8 @@ using UnityEngine.TestTools;
 public class ClericSpellcastingPlayModeTests : PlayModeBase
 {
     private GameObject clericObject;
+    private GameObject combatManagerObject;
+    private GameObject opponentObject;
     private ActionController clericController;
 
     [TearDown]
@@ -27,6 +29,10 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
 
         if (clericObject != null)
             Object.Destroy(clericObject);
+        if (combatManagerObject != null)
+            Object.Destroy(combatManagerObject);
+        if (opponentObject != null)
+            Object.Destroy(opponentObject);
 
         Pf2eItemCatalog.ResetForTests();
     }
@@ -136,17 +142,38 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
     [UnityTest]
     public IEnumerator SuccessfulSelfDefeatingSpellKeepsDeathAnimationUntilDeactivation()
     {
+        GameManager automaticCombat = Object.FindFirstObjectByType<GameManager>();
+        Assert.That(automaticCombat, Is.Not.Null);
+        automaticCombat.StopAllCoroutines();
+        automaticCombat.enabled = false;
+        CombatManagerInterface existingCombatManager =
+            Object.FindFirstObjectByType<CombatManagerInterface>();
+        Assert.That(existingCombatManager, Is.Not.Null);
+        Object.DestroyImmediate(existingCombatManager.gameObject);
+        combatManagerObject = new GameObject("Self-Defeating Spell Combat Manager");
+        CombatManagerInterface combatManager = combatManagerObject.AddComponent<CombatManager>();
+
         clericObject = new GameObject("Self-Defeating Animated Caster");
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
         cleric.level = 1;
+        cleric.initiative = 100;
         cleric.InitializeHealthBeforeEncounter(1, 1);
-        Game.Rules.Unity.UnityCombatRulesBridge.CreateHealthTestComposition(new[] { cleric });
         cleric.wisMod = 4;
         cleric.Build = new CharacterBuild { ClassName = "Cleric" };
         cleric.Prepared = Pf2eCharacterPreparer.Prepare(cleric, cleric.Build);
         clericObject.AddComponent<Team>().Name = "players";
         PlayerActionController controller = clericObject.AddComponent<PlayerActionController>();
         clericController = controller;
+
+        opponentObject = new GameObject("Self-Defeating Spell Opponent");
+        CreatureComponent opponent = opponentObject.AddComponent<CreatureComponent>();
+        opponent.name = "Self-Defeating Spell Opponent";
+        opponent.initiative = -100;
+        opponent.InitializeHealthBeforeEncounter(10, 10);
+        opponentObject.AddComponent<Team>().Name = "enemies";
+        TestActionController opponentController =
+            opponentObject.AddComponent<TestActionController>();
+        combatManager.AddCombatant(opponentController);
 
         GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
             "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab"
@@ -161,12 +188,13 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         PreparedSpell shield = cleric.Prepared.Spellcasting.PreparedSpells.First(spell =>
             spell.Slug == "shield"
         );
-        controller.StartTurn();
+        combatManager.StartDungeonCombat(new ActionController[] { controller, opponentController });
+        Assert.That(combatManager.WhosTurn(), Is.SameAs(clericObject));
         SpellCastContext context = new(
             clericObject,
             shield,
             1,
-            spendActions: true,
+            spendActions: false,
             new SelfDefeatingSpellDefinition()
         );
 
@@ -265,5 +293,10 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         }
 
         public bool AppliesMultipleAttackPenalty(SpellCastContext context) => false;
+    }
+
+    private sealed class TestActionController : ActionController
+    {
+        public override void EndTurn() { }
     }
 }

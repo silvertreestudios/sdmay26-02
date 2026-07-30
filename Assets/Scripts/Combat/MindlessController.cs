@@ -35,7 +35,8 @@ public class MindlessController : AIActionController
     };
 
     /// <summary>
-    /// Starts this creature's turn
+    /// Starts this creature's turn, completing it on the next frame when no compatible grid is
+    /// available.
     /// </summary>
     public override void StartTurn()
     {
@@ -47,6 +48,8 @@ public class MindlessController : AIActionController
             )
             {
                 base.StartTurn();
+                if (isActiveAndEnabled)
+                    turnSequence = StartCoroutine(CompleteTurnWithoutGrid());
                 return;
             }
             RebindGrid(privateGrid);
@@ -142,6 +145,15 @@ public class MindlessController : AIActionController
     /// rules-progress guard owned by the turn loop.
     /// </remarks>
     protected virtual EntityAction SelectNextAction() => MindlessDecision();
+
+    private IEnumerator CompleteTurnWithoutGrid()
+    {
+        // Turn-start projection is still closing its rules boundary. Advance on the next frame so
+        // the fallback completion opens a separate, non-reentrant encounter root.
+        yield return null;
+        turnSequence = null;
+        EndTurn();
+    }
 
     private void CancelTurnSequence()
     {

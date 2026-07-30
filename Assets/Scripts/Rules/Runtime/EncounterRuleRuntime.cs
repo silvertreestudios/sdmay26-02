@@ -32,7 +32,7 @@ namespace Game.Rules.Runtime
                     RuleLifecyclePhase.Prevention,
                     new EncounterEndValidationMiddleware()
                 )
-                .FactListener(RuleLifecyclePhase.Observation, new EncounterOutcomeListener());
+                .FactBatchListener(RuleLifecyclePhase.Observation, new EncounterOutcomeListener());
             return builder;
         }
 
@@ -610,10 +610,28 @@ namespace Game.Rules.Runtime
             );
     }
 
-    internal sealed class EncounterOutcomeListener : IRuleFactListener<CreatureReducedToZeroFact>
+    internal sealed class EncounterOutcomeListener
+        : IRuleFactBatchListener<CreatureReducedToZeroFact>
     {
-        public async ValueTask OnFactCommitted(CreatureReducedToZeroFact fact, FactContext context)
+        public async ValueTask OnFactsCommitted(
+            CommittedFactBatch<CreatureReducedToZeroFact> batch,
+            FactContext context
+        )
         {
+            // Observation runs after every Reaction listener for these Facts. Commit defeat only
+            // after those reactions have had their chance to restore each creature above zero.
+            foreach (CreatureReducedToZeroFact fact in batch.Facts)
+            {
+                if (
+                    !context.Snapshot.Health.TryGet(fact.Creature, out HealthState health)
+                    || health.Current > 0
+                )
+                    continue;
+                EncounterHandlerResults.Require(
+                    await context.Dispatch(new FinalizeCreatureDefeatOp(fact.Creature)),
+                    "creature defeat finalization"
+                );
+            }
             EncounterState encounter = context
                 .Snapshot.Encounters.FirstOrDefault(pair =>
                     pair.Value.Phase == EncounterPhase.Active
@@ -621,7 +639,10 @@ namespace Game.Rules.Runtime
                 .Value;
             if (encounter == null)
                 return;
-            await context.Dispatch(new EvaluateEncounterOutcomeOp(encounter.Id));
+            EncounterHandlerResults.Require(
+                await context.Dispatch(new EvaluateEncounterOutcomeOp(encounter.Id)),
+                "encounter outcome evaluation"
+            );
         }
     }
 }
