@@ -208,6 +208,45 @@ namespace Game.Rules.Runtime
                 1,
                 null
             );
+            List<ActiveEffectTimingState> adoptedTimings = new List<ActiveEffectTimingState>();
+            HashSet<CreatureId> rosterCreatures = new HashSet<CreatureId>(
+                context.Op.Roster.Select(entry => entry.Creature)
+            );
+            foreach (
+                ActiveEffectInstance effect in state
+                    .ActiveEffects.Select(pair => pair.Value)
+                    .Where(effect =>
+                        effect.Status == ActiveEffectStatus.Active
+                        && effect.Duration.Kind != EffectDurationKind.Indefinite
+                        && rosterCreatures.Contains(effect.SourceCreature)
+                    )
+                    .OrderBy(effect => effect.Id.Value, StringComparer.Ordinal)
+            )
+            {
+                if (state.ActiveEffectTimings.Contains(effect.Id))
+                    return ReductionResult<EncounterStartOutcome>.Reject(
+                        $"Active effect {effect.Id.Value} already has encounter timing."
+                    );
+                ActiveRuleBinding[] bindings = state
+                    .RuleBindings.Select(pair => pair.Value)
+                    .Where(binding =>
+                        binding.IsEnabled
+                        && binding.EffectId.HasValue
+                        && binding.EffectId.Value == effect.Id
+                    )
+                    .ToArray();
+                if (
+                    bindings.Length != 1
+                    || bindings[0].DefinitionId != effect.DefinitionId
+                    || bindings[0].Source != effect.Source
+                )
+                    return ReductionResult<EncounterStartOutcome>.Reject(
+                        $"Active effect {effect.Id.Value} requires one matching enabled binding."
+                    );
+                adoptedTimings.Add(
+                    ActiveEffectTimingState.ForEncounter(effect, bindings[0], encounter)
+                );
+            }
             state.Encounters.Set(encounter.Id, encounter);
             state.RuleBindings.Set(
                 outcomeBindingId,
@@ -220,6 +259,8 @@ namespace Game.Rules.Runtime
                     0
                 )
             );
+            foreach (ActiveEffectTimingState timing in adoptedTimings)
+                state.ActiveEffectTimings.Set(timing.Effect, timing);
             foreach (InitiativeEntry entry in encounter.Roster)
             {
                 state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
@@ -665,6 +706,14 @@ namespace Game.Rules.Runtime
                 )
             )
                 return ReductionResult<EncounterEndOutcome>.Reject(rejection);
+            foreach (InitiativeEntry entry in encounter.Roster)
+            {
+                if (
+                    state.Health.TryGet(entry.Creature, out HealthState health)
+                    && health.Current == 0
+                )
+                    HealthDefeatState.Commit(state, entry.Creature, facts);
+            }
             CommitEncounterSuspendReducer.ClearTurnResources(state, encounter);
             EncounterState updated = encounter.Replace(
                 phase: EncounterPhase.Ended,

@@ -150,22 +150,9 @@ namespace Game.Rules.Runtime
                         return ReductionResult<ActiveEffectCreationOutcome>.Reject(
                             "The effect source is not in the active encounter roster."
                         );
-                    int boundaries =
-                        effect.Duration.Kind == EffectDurationKind.Rounds ? effect.Duration.Amount
-                        : effect.Duration.Kind == EffectDurationKind.Minutes
-                            ? checked(effect.Duration.Amount * 10)
-                        : 0;
                     state.ActiveEffectTimings.Set(
                         effect.Id,
-                        new ActiveEffectTimingState(
-                            effect.Id,
-                            encounter.Id,
-                            binding.Id,
-                            effect.SourceCreature,
-                            boundaries,
-                            effect.Duration.Kind == EffectDurationKind.Encounter,
-                            binding.CreationOrder
-                        )
+                        ActiveEffectTimingState.ForEncounter(effect, binding, encounter)
                     );
                 }
             }

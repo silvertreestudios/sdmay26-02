@@ -517,6 +517,28 @@ namespace Game.Rules.Runtime
             CreationOrder = creationOrder;
         }
 
+        internal static ActiveEffectTimingState ForEncounter(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            EncounterState encounter
+        )
+        {
+            int boundaries =
+                effect.Duration.Kind == EffectDurationKind.Rounds ? effect.Duration.Amount
+                : effect.Duration.Kind == EffectDurationKind.Minutes
+                    ? checked(effect.Duration.Amount * 10)
+                : 0;
+            return new ActiveEffectTimingState(
+                effect.Id,
+                encounter.Id,
+                binding.Id,
+                effect.SourceCreature,
+                boundaries,
+                effect.Duration.Kind == EffectDurationKind.Encounter,
+                binding.CreationOrder
+            );
+        }
+
         internal ActiveEffectTimingState WithRemaining(int remaining) =>
             new ActiveEffectTimingState(
                 Effect,

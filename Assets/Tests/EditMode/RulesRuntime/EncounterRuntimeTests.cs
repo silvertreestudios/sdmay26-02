@@ -1061,6 +1061,57 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task EncounterEndFinalizesZeroCreatureAfterOutcomeBindingRemoval()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("lethal-cascade-reaction");
+            LethalCascadeListener cascade = new LethalCascadeListener(Hero, Enemy);
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition).FactListener(RuleLifecyclePhase.Reaction, cascade);
+            RuleRegistry registry = registryBuilder.Build();
+            RulesStateSeed seed = BaseSeed()
+                .SeedPosition(Hero, new GridPosition(0, 0, 0))
+                .SeedPosition(Enemy, new GridPosition(1, 0, 0))
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        new BindingId("lethal-cascade-binding"),
+                        definition,
+                        Hero,
+                        null,
+                        Source,
+                        1
+                    )
+                );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                seed,
+                registry
+            );
+            CountingFactObserver<CreatureDefeatCommittedFact> committed =
+                new CountingFactObserver<CreatureDefeatCommittedFact>();
+            dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(committed);
+            await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0)
+                )
+            );
+
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(Hero, 10, new HealthChangeOriginId("cascade-trigger"), Source)
+            );
+
+            EncounterState ended = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(cascade.Calls, Is.EqualTo(1));
+            Assert.That(ended.Phase, Is.EqualTo(EncounterPhase.Ended));
+            Assert.That(ended.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
+            Assert.That(dispatcher.Snapshot.Health[Hero].IsCommittedDefeated, Is.True);
+            Assert.That(dispatcher.Snapshot.Health[Enemy].IsCommittedDefeated, Is.True);
+            Assert.That(dispatcher.Snapshot.Positions.Contains(Hero), Is.False);
+            Assert.That(dispatcher.Snapshot.Positions.Contains(Enemy), Is.False);
+            Assert.That(committed.Calls, Is.EqualTo(2));
+        }
+
+        [Test]
         public async Task IncorrectEndOutcomePreservesEncounterEffectAndSuccessfulEndExpiresItFirst()
         {
             RuleDefinitionId definition = new RuleDefinitionId("encounter-duration-effect");
@@ -1147,6 +1198,80 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
             Assert.That(dispatcher.Snapshot.RuleBindings[bindingId].IsEnabled, Is.False);
             Assert.That(endFacts.Order, Is.EqualTo(new[] { "expired", "ended" }));
+        }
+
+        [TestCase(EffectDurationKind.Rounds, 2, false)]
+        [TestCase(EffectDurationKind.Minutes, 10, false)]
+        [TestCase(EffectDurationKind.Encounter, 0, true)]
+        public async Task StartAdoptsFinitePrecombatEffect(
+            EffectDurationKind kind,
+            int expectedBoundaries,
+            bool expiresWithEncounter
+        )
+        {
+            EffectDuration duration;
+            switch (kind)
+            {
+                case EffectDurationKind.Rounds:
+                    duration = EffectDuration.Rounds(2);
+                    break;
+                case EffectDurationKind.Minutes:
+                    duration = EffectDuration.Minutes(1);
+                    break;
+                case EffectDurationKind.Encounter:
+                    duration = EffectDuration.Encounter;
+                    break;
+                default:
+                    throw new AssertionException($"Unsupported test duration {kind}.");
+            }
+            RuleDefinitionId definition = new RuleDefinitionId(
+                $"precombat-{kind.ToString().ToLowerInvariant()}"
+            );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                BaseSeed(),
+                registry,
+                true
+            );
+            ActiveEffectId effectId = new ActiveEffectId($"precombat-effect-{kind}");
+            BindingId bindingId = new BindingId($"precombat-binding-{kind}");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Enemy,
+                Source,
+                duration,
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Enemy,
+                effectId,
+                Source,
+                1
+            );
+
+            Resolved(await dispatcher.Dispatch(new CreateEffectWorkflowOp(effect, binding)));
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+
+            ActiveEffectTimingState timing = dispatcher.Snapshot.ActiveEffectTimings[effectId];
+            Assert.That(timing.Encounter, Is.EqualTo(Encounter));
+            Assert.That(timing.Binding, Is.EqualTo(bindingId));
+            Assert.That(timing.RemainingBoundaries, Is.EqualTo(expectedBoundaries));
+            Assert.That(timing.ExpiresWithEncounter, Is.EqualTo(expiresWithEncounter));
         }
 
         [Test]
@@ -1556,6 +1681,39 @@ namespace Game.Rules.Runtime.Tests
                         fact.Creature,
                         1,
                         new HealthChangeOriginId("rescue-heal"),
+                        Source
+                    )
+                );
+            }
+        }
+
+        private sealed class LethalCascadeListener : IRuleFactListener<CreatureReducedToZeroFact>
+        {
+            private readonly CreatureId trigger;
+            private readonly CreatureId target;
+
+            public LethalCascadeListener(CreatureId trigger, CreatureId target)
+            {
+                this.trigger = trigger;
+                this.target = target;
+            }
+
+            public int Calls { get; private set; }
+
+            public async ValueTask OnFactCommitted(
+                CreatureReducedToZeroFact fact,
+                FactContext context
+            )
+            {
+                if (fact.Creature != trigger)
+                    return;
+                Calls++;
+                HealthState health = context.Snapshot.Health[target];
+                await context.Dispatch(
+                    new ApplyDamageOp(
+                        target,
+                        health.Current + health.Temporary,
+                        new HealthChangeOriginId("lethal-cascade"),
                         Source
                     )
                 );
