@@ -1021,6 +1021,8 @@ namespace Game.Rules.Runtime.Tests
             RulesStateSeed seed = BaseSeed()
                 .SeedHealth(Hero, new HealthState(0, 10))
                 .SeedHealth(Enemy, new HealthState(0, 10))
+                .SeedActionEconomy(Hero, new ActionEconomyState(0, false))
+                .SeedMultipleAttackPenalty(Hero, new MultipleAttackPenaltyState(0))
                 .SeedEncounter(active);
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
 
@@ -1030,6 +1032,69 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(ended.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
             Assert.That(Enum.GetNames(typeof(EncounterOutcome)), Does.Not.Contain("Draw"));
+        }
+
+        [Test]
+        public void OutcomeEvaluationRejectsRosterParticipantMissingHealthWithoutCommit()
+        {
+            EncounterState active = ActiveTurnEncounter();
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedHealth(Hero, new HealthState(10, 10))
+                .SeedEncounter(active);
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new EvaluateEncounterOutcomeOp(Encounter))
+            );
+
+            Assert.That(error.Message, Does.Contain("no authoritative health state"));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(dispatcher.Snapshot.Encounters[Encounter], Is.EqualTo(active));
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void TurnEndRejectsMissingRequiredTurnSliceWithoutCommit(bool omitActionEconomy)
+        {
+            EncounterState active = ActiveTurnEncounter();
+            RulesStateSeed seed = BaseSeed().SeedEncounter(active);
+            if (omitActionEconomy)
+                seed.SeedMultipleAttackPenalty(Hero, new MultipleAttackPenaltyState(0));
+            else
+                seed.SeedActionEconomy(Hero, new ActionEconomyState(3, true));
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new EndTurnOp(active.CurrentTurn.Value))
+            );
+
+            Assert.That(error.Message, Does.Contain("no authoritative"));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(dispatcher.Snapshot.Encounters[Encounter], Is.EqualTo(active));
+        }
+
+        [Test]
+        public void LegacyMapRejectsMissingMapSliceWithoutCommit()
+        {
+            EncounterState active = ActiveTurnEncounter();
+            RulesStateSeed seed = BaseSeed()
+                .SeedEncounter(active)
+                .SeedActionEconomy(Hero, new ActionEconomyState(3, true));
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new IncrementLegacyMapOp(Hero))
+            );
+
+            Assert.That(error.Message, Does.Contain("multiple-attack-penalty"));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(dispatcher.Snapshot.MultipleAttackPenalty.Contains(Hero), Is.False);
         }
 
         [Test]
@@ -1414,6 +1479,19 @@ namespace Game.Rules.Runtime.Tests
 
         private static StartEncounterOp Start(params EncounterParticipant[] participants) =>
             new StartEncounterOp(Encounter, Players, participants);
+
+        private static EncounterState ActiveTurnEncounter() =>
+            new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
+                0,
+                new TurnIdentity(Encounter, new TurnId(1), Hero, RoundNumber.First, 0),
+                2,
+                null
+            );
 
         private static InitiativeEntry Entry(
             CreatureId creature,

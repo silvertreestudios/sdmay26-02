@@ -241,8 +241,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             new[] { new Vector3Int(1, 0, 1), new Vector3Int(0, 0, 1) },
             configurePartyBeforeInitialization: party =>
             {
-                party[0].SeedTurnState(true, 2, true);
-                party[1].SeedTurnState(false, 1, false);
                 expectedPartyStates = party
                     .Select(controller => new ControllerState(controller))
                     .ToArray();
@@ -529,7 +527,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         RuntimeFixture fixture = CreateRuntimeFixture(
             new[] { new Vector3Int(2, 0, 2) },
             doors: new[] { zDoor, aDoor },
-            configurePartyBeforeInitialization: party => party[0].SeedTurnState(false, 2, true)
+            configurePartyBeforeInitialization: _ => { }
         );
         List<string> opened = new();
         fixture.Runtime.DoorOpened += opened.Add;
@@ -560,11 +558,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         RuntimeFixture fixture = CreateRuntimeFixture(
             new[] { new Vector3Int(1, 0, 1), new Vector3Int(4, 0, 2) },
             doors: new[] { followerDoor },
-            configurePartyBeforeInitialization: party =>
-            {
-                party[0].SeedTurnState(false, 2, true);
-                party[1].SeedTurnState(false, 1, true);
-            }
+            configurePartyBeforeInitialization: _ => { }
         );
         uint leaderActions = fixture.Party[0].Controller.ActionPoints;
         uint followerActions = fixture.Party[1].Controller.ActionPoints;
@@ -1344,13 +1338,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     private sealed class TestActionController : ActionController
     {
         internal int StartTurnCount { get; private set; }
-
-        internal void SeedTurnState(bool hasTurnAuthority, uint actionPoints, bool reacted)
-        {
-            IsTurn = hasTurnAuthority;
-            ActionPoints = actionPoints;
-            Reacted = reacted;
-        }
 
         /// <inheritdoc/>
         public override void StartTurn()

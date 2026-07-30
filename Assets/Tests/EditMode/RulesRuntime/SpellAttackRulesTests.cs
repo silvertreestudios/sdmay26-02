@@ -16,6 +16,33 @@ namespace Game.Rules.Runtime.Tests
         private static readonly PlayerId Enemies = new("enemies");
         private static readonly SpellReference DivineLance = new(new SpellId("divine-lance"), 1);
         private static readonly SpellActionVariant TwoActions = new(2);
+
+        [Test]
+        public async Task SpellAttackRejectsMissingMapBeforeActionCostsCommit()
+        {
+            InMemoryRulesStore store = CreateStore(seedMap: false);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                new TestResolutionDataProvider(Data(15), ActionValidationResult.Valid),
+                new ScriptedRollService(20, 4, 4)
+            );
+            RulesSnapshot before = store.Snapshot;
+
+            OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(Cast(Target));
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<CastSpellOutcome>)result).Reason,
+                Does.Contain("multiple-attack-penalty")
+            );
+            Assert.That(store.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(store.Snapshot.Health[Target], Is.EqualTo(before.Health[Target]));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor],
+                Is.EqualTo(before.ActionEconomy[Actor])
+            );
+        }
+
         private static readonly RuleDefinitionId InterruptionDefinition = new(
             "spell-attack-interruption"
         );
@@ -286,7 +313,8 @@ namespace Game.Rules.Runtime.Tests
         private static InMemoryRulesStore CreateStore(
             ActiveRuleBinding binding = null,
             IEnumerable<Modifier> snapshotModifiers = null,
-            int priorAttacks = 0
+            int priorAttacks = 0,
+            bool seedMap = true
         )
         {
             RulesStateSeed seed = new RulesStateSeed()
@@ -308,8 +336,9 @@ namespace Game.Rules.Runtime.Tests
                         new Dictionary<Skill, int>(),
                         snapshotModifiers ?? Array.Empty<Modifier>()
                     )
-                )
-                .SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(priorAttacks));
+                );
+            if (seedMap)
+                seed.SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(priorAttacks));
             if (binding != null)
                 seed.SeedRuleBinding(binding);
             return new InMemoryRulesStore(seed);

@@ -38,6 +38,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         UnityEngine.Random.InitState(158);
 
         combatLog = Track(new GameObject("TestCombatLog")).AddComponent<RecordingCombatLog>();
+        Track(new GameObject("Minimal Combat Grid")).AddComponent<MinimalCombatGrid>();
         manager = Track(new GameObject("CombatManager")).AddComponent<CombatManager>();
         player = CreateCombatant("Player", "Players", 100);
         manager.AddCombatant(player);
@@ -184,8 +185,6 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             survivor.GetComponent<DirectorTestActionController>();
         survivorCreature.ApplyFinalDamage(6, RuleSource.FromSlug("test-survivor-damage"));
         survivor.transform.position = new Vector3(4f, 0f, 3f);
-        survivorController.ActionPoints = 2;
-        survivorController.Reacted = true;
         survivorController.IsTakingAction = false;
 
         DungeonEncounterSuspensionResult suspension = director.EvaluatePartyRegions(

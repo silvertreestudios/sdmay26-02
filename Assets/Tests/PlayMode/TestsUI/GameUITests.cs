@@ -365,13 +365,6 @@ namespace TestsUI
             Assert.IsNotNull(actionController, "Current combatant has no ActionController.");
 
             List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
-            foreach (GameObject combatant in combatants)
-            {
-                ActionController combatantActionController =
-                    combatant.GetComponent<ActionController>();
-                if (combatantActionController != null)
-                    combatantActionController.ActionPoints = 0;
-            }
 
             Conditions conditions =
                 player.GetComponent<Conditions>() ?? player.AddComponent<Conditions>();

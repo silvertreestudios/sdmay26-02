@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.DungeonGeneration;
@@ -691,12 +690,7 @@ public sealed class ProceduralDungeonScenePlayModeTests
         GameObject controllerObject = new("Pending Inactive AI");
         controllerObject.SetActive(false);
         MindlessController controller = controllerObject.AddComponent<MindlessController>();
-        FieldInfo isTurn = typeof(ActionController).GetField(
-            "IsTurn",
-            BindingFlags.Instance | BindingFlags.NonPublic
-        );
-        Assert.That(isTurn, Is.Not.Null);
-        isTurn.SetValue(controller, true);
+        controller.IsTakingAction = true;
 
         Assert.That(
             map.TryPopulateJson(

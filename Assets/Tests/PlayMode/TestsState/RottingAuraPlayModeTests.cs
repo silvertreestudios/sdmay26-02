@@ -59,55 +59,6 @@ namespace TestsState
         }
 
         [UnityTest]
-        public IEnumerator RottingAuraUsesSceneGridForVisualCellsAndDamage()
-        {
-            yield return base.Setup();
-            GridBase grid = Object.FindFirstObjectByType<GridBase>();
-            Assert.IsNotNull(grid);
-            Tile[,] tiles = grid.GetTiles();
-            FindAdjacentOpenCells(tiles, out Vector3Int zombieCell, out Vector3Int targetCell);
-
-            GameObject zombie = CreatureJsonConverter.CreateFromFile(
-                "DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura"
-            );
-            cleanup.Add(zombie);
-            TestActionController zombieController = zombie.AddComponent<TestActionController>();
-            MoveCombatant(tiles, zombie, zombieCell);
-
-            GameObject target = CreateTarget("wounded target", 8, 12);
-            TestActionController targetController = target.GetComponent<TestActionController>();
-            MoveCombatant(tiles, target, targetCell);
-            UnityCombatRulesBridge.CreateHealthTestComposition(
-                new CreatureComponent[]
-                {
-                    zombie.GetComponent<CreatureComponent>(),
-                    targetController.GetComponent<CreatureComponent>(),
-                }
-            );
-
-            AuraGridVisuals auraVisuals = grid.GetComponent<AuraGridVisuals>();
-            if (auraVisuals == null)
-                auraVisuals = grid.gameObject.AddComponent<AuraGridVisuals>();
-            auraVisuals.Refresh();
-
-            Assert.That(auraVisuals.CurrentCells, Does.Contain(zombieCell));
-            Assert.That(auraVisuals.CurrentCells, Does.Contain(targetCell));
-            Assert.That(auraVisuals.CurrentParticleRadii, Has.Count.EqualTo(1));
-            Assert.That(auraVisuals.CurrentParticleRadii[0], Is.EqualTo(2f).Within(0.001f));
-
-            List<CreatureAuraEffectResult> results = CreatureAuraResolver.ApplyTurnStartAuras(
-                targetController,
-                new[] { zombieController, targetController },
-                tiles,
-                new FixedDiceRoller(4)
-            );
-
-            Assert.AreEqual(1, results.Count);
-            Assert.AreEqual(4, results[0].AppliedDamage);
-            Assert.AreEqual(4, target.GetComponent<CreatureComponent>().hp);
-        }
-
-        [UnityTest]
         public IEnumerator CombatManagerAppliesRottingAuraBeforeStartTurnAndSkipsEventSteps()
         {
             yield return base.Setup();

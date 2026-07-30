@@ -30,7 +30,8 @@ namespace Game.Creature.Rules
                 && !HasTrait(target, "construct");
         }
 
-        internal CreatureAuraEffectResult Resolve(CreatureAuraContext context)
+        /// <summary>Calculates one aura damage result without mutating health or presentation.</summary>
+        public CreatureAuraEffectResult Resolve(CreatureAuraContext context)
         {
             CreatureComponent source = context.SourceCreature;
             CreatureComponent target = context.TargetCreature;
@@ -57,21 +58,6 @@ namespace Game.Creature.Rules
                 DamageResolution = resolution,
             };
             return result;
-        }
-
-        /// <summary>
-        /// Preserves the legacy synchronous aura contract for callers outside an active encounter
-        /// dispatcher root.
-        /// </summary>
-        public IEnumerable<CreatureAuraEffectResult> Apply(CreatureAuraContext context)
-        {
-            CreatureAuraEffectResult result = Resolve(context);
-            context.TargetCreature.ApplyFinalDamage(
-                Mathf.Max(0, result.AppliedDamage),
-                RuleSource.FromSlug(RuleSlug)
-            );
-            Present(result);
-            return new[] { result };
         }
 
         internal static void Present(CreatureAuraEffectResult result) => LogAuraDamage(result);

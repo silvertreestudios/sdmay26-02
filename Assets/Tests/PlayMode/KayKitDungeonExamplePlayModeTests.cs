@@ -474,7 +474,7 @@ public sealed class KayKitDungeonExamplePlayModeTests
                 );
             }
 
-            Assert.That(manager.CheckForEndOfGame(), Is.True);
+            Assert.That(manager.IsCombatActive, Is.False);
             Assert.That(playerVictory, Is.True);
             Assert.That(outcomeCount, Is.EqualTo(1));
             Assert.That(

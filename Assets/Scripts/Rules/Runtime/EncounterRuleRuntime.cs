@@ -425,6 +425,14 @@ namespace Game.Rules.Runtime
                 || encounter.CurrentTurn.Value != frame.Op.Turn
             )
                 throw new InvalidOperationException("The turn identity or actor is stale.");
+            if (!context.Snapshot.ActionEconomy.Contains(frame.Op.Turn.Actor))
+                throw new InvalidOperationException(
+                    "The turn actor has no authoritative action-economy state."
+                );
+            if (!context.Snapshot.MultipleAttackPenalty.Contains(frame.Op.Turn.Actor))
+                throw new InvalidOperationException(
+                    "The turn actor has no authoritative multiple-attack-penalty state."
+                );
             EncounterHandlerResults.Require(
                 await context.Dispatch(new TurnEndingOp(frame.Op.Turn)),
                 "turn-end hook"

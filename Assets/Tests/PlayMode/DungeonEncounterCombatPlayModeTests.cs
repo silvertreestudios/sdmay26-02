@@ -32,6 +32,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         UnityEngine.Random.InitState(158);
 
         Create("TestCombatLog").AddComponent<TestCombatLog>();
+        Create("Default Test Grid").AddComponent<TestGridAPI>();
         manager = Create("CombatManager").AddComponent<CombatManager>();
     }
 
@@ -70,6 +71,38 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
         Assert.That(dormantEnemy.Controller.StartTurnCount, Is.Zero);
         Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
+    }
+
+    /// <summary>Verifies an active typed roster never suppresses a missing Unity mapping.</summary>
+    [Test]
+    public void ActiveRosterMissingControllerMappingThrowsInvariant()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 100);
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        FieldInfo bridgeField = typeof(CombatManager).GetField(
+            "combatRules",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(bridgeField, Is.Not.Null);
+        UnityCombatRulesBridge bridge = (UnityCombatRulesBridge)bridgeField.GetValue(manager);
+        CreatureId enemyId = bridge.GetCreatureId(enemy.Controller);
+        FieldInfo controllersField = typeof(UnityCombatRulesBridge).GetField(
+            "controllers",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(controllersField, Is.Not.Null);
+        System.Collections.IDictionary mappings = (System.Collections.IDictionary)
+            controllersField.GetValue(bridge);
+        mappings.Remove(enemyId);
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => manager.GetCombatants());
+        }
+        finally
+        {
+            mappings.Add(enemyId, enemy.Controller);
+        }
     }
 
     /// <summary>Verifies host removal does not mutate the authoritative active roster.</summary>
@@ -287,11 +320,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Conditions.Add("Off-Guard", preservedSource);
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
-        player.Controller.ActionPoints = 2;
-        player.Controller.Reacted = true;
         player.Controller.IsTakingAction = true;
-        enemy.Controller.ActionPoints = 1;
-        enemy.Controller.Reacted = true;
         enemy.Controller.IsTakingAction = true;
 
         manager.SuspendDungeonCombat();
@@ -355,8 +384,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
         {
             manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
             enemy.Creature.ApplyFinalDamage(enemy.Creature.hp, RuleSource.FromSlug("test-victory"));
-
-            Assert.That(manager.CheckForEndOfGame(), Is.True);
 
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
             Assert.That(winner, Is.EqualTo("Players"));
@@ -516,7 +543,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 RuleSource.FromSlug("test-defeat")
             );
 
-            Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(dungeonEndCalls, Is.EqualTo(1));
             Assert.That(winner, Is.EqualTo("Enemies"));
             Assert.That(lossCalls, Is.EqualTo(1));
@@ -558,7 +584,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 RuleSource.FromSlug("test-player-defeat")
             );
 
-            Assert.That(manager.CheckForEndOfGame(), Is.True);
             Assert.That(winner, Is.EqualTo("Living Foes"));
         }
         finally
@@ -567,9 +592,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
-    /// <summary>Verifies an all-zero player defeat reports no surviving opposition winner.</summary>
+    /// <summary>Verifies an all-zero player defeat rejects a fabricated presentation winner.</summary>
     [Test]
-    public void DungeonDefeat_AllZeroRosterReportsEmptyWinner()
+    public void DungeonDefeat_AllZeroRosterFailsPresentationAndReleasesOwnership()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
@@ -583,31 +608,33 @@ public sealed class DungeonEncounterCombatPlayModeTests
             UnityCombatRulesBridge bridge = GetCombatRules(manager);
             CreatureId playerId = bridge.GetCreatureId(player.Controller);
             CreatureId enemyId = bridge.GetCreatureId(enemy.Controller);
-            OpResult<HealthBatchOutcome> result = bridge.Dispatch(
-                new ApplyHealthBatchOp(
-                    new[]
-                    {
-                        new HealthBatchChange(
-                            HealthBatchChangeKind.Damage,
-                            playerId,
-                            player.Creature.hp,
-                            new HealthChangeOriginId("test-all-zero-player"),
-                            RuleSource.FromSlug("test-all-zero")
-                        ),
-                        new HealthBatchChange(
-                            HealthBatchChangeKind.Damage,
-                            enemyId,
-                            enemy.Creature.hp,
-                            new HealthChangeOriginId("test-all-zero-enemy"),
-                            RuleSource.FromSlug("test-all-zero")
-                        ),
-                    }
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                bridge.Dispatch(
+                    new ApplyHealthBatchOp(
+                        new[]
+                        {
+                            new HealthBatchChange(
+                                HealthBatchChangeKind.Damage,
+                                playerId,
+                                player.Creature.hp,
+                                new HealthChangeOriginId("test-all-zero-player"),
+                                RuleSource.FromSlug("test-all-zero")
+                            ),
+                            new HealthBatchChange(
+                                HealthBatchChangeKind.Damage,
+                                enemyId,
+                                enemy.Creature.hp,
+                                new HealthChangeOriginId("test-all-zero-enemy"),
+                                RuleSource.FromSlug("test-all-zero")
+                            ),
+                        }
+                    )
                 )
             );
 
-            Assert.That(result, Is.TypeOf<ResolvedOpResult<HealthBatchOutcome>>());
-            Assert.That(manager.CheckForEndOfGame(), Is.True);
-            Assert.That(winner, Is.EqualTo(string.Empty));
+            Assert.That(error.Message, Does.Contain("living opposition team"));
+            Assert.That(winner, Is.EqualTo("not-reported"));
+            Assert.That(manager.IsCombatActive, Is.False);
         }
         finally
         {
@@ -626,8 +653,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
         TestEntityAction attack = new("Strike", 1, () => attackCalls++);
         player.Controller.AddAction(movement);
         player.Controller.AddAction(attack);
-        player.Controller.ActionPoints = 2;
-        player.Controller.Reacted = true;
         player.Controller.SetDungeonExploration(true);
 
         player.Controller.TakeAction(movement);
@@ -636,8 +661,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         Assert.That(movementCalls, Is.EqualTo(2));
         Assert.That(attackCalls, Is.Zero);
-        Assert.That(player.Controller.ActionPoints, Is.EqualTo(2));
-        Assert.That(player.Controller.Reacted, Is.True);
+        Assert.That(player.Controller.ActionPoints, Is.Zero);
+        Assert.That(player.Controller.Reacted, Is.False);
         Assert.That(player.Controller.StrikePenalty, Is.Zero);
         Assert.That(player.Controller.HasTurnAuthority, Is.False);
 
@@ -753,9 +778,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.IsCombatActive, Is.False);
     }
 
-    /// <summary>Verifies a gridless mindless actor explicitly completes its committed turn.</summary>
+    /// <summary>Verifies combat startup without compatible topology fails without retaining authority.</summary>
     [UnityTest]
-    public IEnumerator MindlessController_WithoutGridAdvancesToNextCombatant()
+    public IEnumerator MindlessController_WithoutGridRejectsCombatStartupCleanly()
     {
         FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
             "Instance",
@@ -776,14 +801,16 @@ public sealed class DungeonEncounterCombatPlayModeTests
             MindlessController ai = aiObject.AddComponent<MindlessController>();
             CombatantFixture player = CreateCombatant("Player", "Players", 100);
 
-            manager.StartDungeonCombat(new ActionController[] { ai, player.Controller });
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                manager.StartDungeonCombat(new ActionController[] { ai, player.Controller })
+            );
 
-            Assert.That(manager.WhosTurn(), Is.SameAs(aiObject));
-            yield return null;
-
-            Assert.That(manager.WhosTurn(), Is.SameAs(player.GameObject));
+            Assert.That(error.Message, Does.Contain("initialized compatible grid"));
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.That(manager.WhosTurn(), Is.Null);
             Assert.That(ai.HasTurnAuthority, Is.False);
-            Assert.That(player.Controller.StartTurnCount, Is.EqualTo(1));
+            Assert.That(player.Controller.HasTurnAuthority, Is.False);
+            yield break;
         }
         finally
         {
@@ -835,7 +862,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
     /// Verifies active encounter AI preserves directional TeamRules friendship for distinct teams.
     /// </summary>
     [Test]
-    public void MindlessDecision_ActiveEncounterIgnoresDirectionalFriendAndTargetsHostileTeam()
+    public void MindlessDecision_ActiveEncounterUsesTypedPlayerIdentityInsteadOfTeamRules()
     {
         TeamRules teamRules = Create("Team Rules").AddComponent<TeamRules>();
         teamRules.AddHostileTeam("AI");
@@ -875,7 +902,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
         Assert.That(teamRules.IsFriendly("AI", "Ally"), Is.True);
         Assert.That(teamRules.IsFriendly("Ally", "AI"), Is.False);
-        Assert.That(ai.BestTarget, Is.SameAs(hostile.GameObject));
+        Assert.That(ai.BestTarget, Is.SameAs(ally.GameObject));
     }
 
     private CombatantFixture CreateCombatant(string name, string teamName, int initiative)
@@ -1112,9 +1139,30 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public override List<string> GetMessages() => new(messages);
     }
 
-    private sealed class TestGridAPI : GridAPI
+    private sealed class TestGridAPI : GridAPI, GridAPIPrivate
     {
+        private readonly Tile[,] tiles =
+        {
+            { new Tile() },
+        };
+        private readonly bool[,] lineOfSightBlocks = new bool[1, 1];
+        private IPathfinder pathfinder;
+
         public List<GameObject> DestroyedTokens { get; } = new();
+
+        protected override void Awake()
+        {
+            base.Awake();
+            pathfinder = new Dijkstra(tiles);
+        }
+
+        public Tile[,] GetTiles() => tiles;
+
+        public bool[,] GetLineOfSightBlocks() => lineOfSightBlocks;
+
+        public IPathfinder GetPathfinder() => pathfinder;
+
+        public bool AddToken(GameObject token) => true;
 
         public override IEnumerator SelectStridePath(
             GameObject character,

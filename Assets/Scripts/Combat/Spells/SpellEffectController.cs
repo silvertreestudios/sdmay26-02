@@ -212,6 +212,13 @@ namespace Game.Combat.Spells
 
         public static void ExpireAtStartOfTurn(GameObject creature)
         {
+            ActionController actionController =
+                creature != null ? creature.GetComponent<ActionController>() : null;
+            if (actionController != null && actionController.TryGetCombatRules(out _, out _))
+                throw new InvalidOperationException(
+                    "Encounter spell-effect expiry requires typed active-effect timing."
+                );
+
             SpellEffectController ownController = null;
             if (creature != null && creature.TryGetComponent(out ownController))
                 ownController.ExpireForTurnStart(creature);
@@ -227,6 +234,11 @@ namespace Game.Combat.Spells
         {
             if (effect == null)
                 return;
+            ActionController actionController = GetComponent<ActionController>();
+            if (actionController != null && actionController.TryGetCombatRules(out _, out _))
+                throw new InvalidOperationException(
+                    "Encounter spell effects require typed active-effect operations."
+                );
             ActiveSpellEffect existing = effects.Find(effect.Matches);
             if (existing == null)
                 effects.Add(effect);

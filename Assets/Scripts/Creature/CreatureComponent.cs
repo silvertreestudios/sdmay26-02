@@ -1186,6 +1186,17 @@ namespace Game.Creature
 
         internal void AttachHealthRules(UnityCombatRulesBridge bridge, CreatureId creatureId)
         {
+            ValidateHealthRulesAttachment(bridge, creatureId);
+            healthRules = bridge;
+            healthCreatureId = creatureId;
+            ProjectCommittedHealth(bridge.GetHealth(creatureId));
+        }
+
+        internal void ValidateHealthRulesAttachment(
+            UnityCombatRulesBridge bridge,
+            CreatureId creatureId
+        )
+        {
             if (bridge == null)
                 throw new ArgumentNullException(nameof(bridge));
             if (creatureId.IsEmpty)
@@ -1193,9 +1204,14 @@ namespace Game.Creature
                     "A health creature ID is required.",
                     nameof(creatureId)
                 );
-            healthRules = bridge;
-            healthCreatureId = creatureId;
-            ProjectCommittedHealth(bridge.GetHealth(creatureId));
+            if ((healthRules == null) != healthCreatureId.IsEmpty)
+                throw new InvalidOperationException(
+                    "Health rules attachment is structurally incomplete."
+                );
+            if (healthRules != null)
+                throw new InvalidOperationException(
+                    "The creature is already owned by a rules composition."
+                );
         }
 
         /// <summary>

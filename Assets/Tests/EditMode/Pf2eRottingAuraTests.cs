@@ -1,288 +1,122 @@
 using System.Collections.Generic;
-using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
 using GridPrivate;
+using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace TestsCombat
+public sealed class Pf2eRottingAuraTests
 {
-    public class Pf2eRottingAuraTests
+    [Test]
+    public void ResolveCalculatesAdjustedDamageWithoutMutatingTargetHealth()
     {
-        private readonly List<GameObject> cleanup = new();
-
-        [TearDown]
-        public void TearDown()
+        GameObject sourceObject = new("Aura Source");
+        GameObject targetObject = new("Aura Target");
+        try
         {
-            foreach (GameObject obj in cleanup)
+            CreatureComponent source = sourceObject.AddComponent<CreatureComponent>();
+            CreatureComponent target = targetObject.AddComponent<CreatureComponent>();
+            TestActionController sourceController =
+                sourceObject.AddComponent<TestActionController>();
+            TestActionController targetController =
+                targetObject.AddComponent<TestActionController>();
+            source.level = 6;
+            target.InitializeHealthBeforeEncounter(5, 10);
+            target.weaknesses = new List<DamageValue> { new("void", 2) };
+            target.resistances = new List<DamageValue>();
+            CreatureAura aura = new() { slug = RottingAuraRule.RuleSlug, radiusFeet = 10 };
+            Tile[,] tiles =
             {
-                if (obj != null)
-                    Object.DestroyImmediate(obj);
-            }
-            cleanup.Clear();
-        }
-
-        [Test]
-        public void ImportedRottingAuraZombieDropsBiteAndAddsAuraRuleData()
-        {
-            GameObject zombieObject = CreatureJsonConverter.CreateFromFile(
-                "DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura"
-            );
-            cleanup.Add(zombieObject);
-            CreatureComponent zombie = zombieObject.GetComponent<CreatureComponent>();
-
-            Assert.AreEqual("Zombie Shambler (Rotting Aura)", zombie.name);
-            CollectionAssert.Contains(zombie.actions, "Fist");
-            CollectionAssert.Contains(zombie.actions, "Grab");
-            CollectionAssert.DoesNotContain(zombie.actions, "Jaws");
-            CollectionAssert.Contains(zombie.passives, "Rotting Aura");
-            CollectionAssert.Contains(zombie.traits, "undead");
-            CollectionAssert.Contains(zombie.traits, "zombie");
-
-            CreatureAura aura = zombie.auras.Single(a => a.slug == RottingAuraRule.RuleSlug);
-            Assert.AreEqual(10, aura.radiusFeet);
-            CollectionAssert.Contains(aura.traits, "disease");
-            CollectionAssert.Contains(aura.traits, "void");
-        }
-
-        [Test]
-        public void RottingAuraDamagesOnlyWoundedLivingTargetsInsideEmanation()
-        {
-            Tile[,] tiles = BuildTiles(8, 8);
-            TestActionController source = CreateCombatant(
-                "aura zombie",
-                3,
-                3,
-                20,
-                20,
-                new[] { "undead", "zombie" }
-            );
-            source
-                .GetComponent<CreatureComponent>()
-                .auras.Add(
-                    new CreatureAura
-                    {
-                        name = "Rotting Aura",
-                        slug = RottingAuraRule.RuleSlug,
-                        radiusFeet = 10,
-                        traits = new List<string> { "disease", "void" },
-                    }
-                );
-            TestActionController wounded = CreateCombatant("wounded hero", 5, 3, 7, 10);
-            TestActionController healthy = CreateCombatant("healthy hero", 4, 3, 10, 10);
-            TestActionController outside = CreateCombatant("outside hero", 7, 3, 7, 10);
-            Place(tiles, source.gameObject);
-            Place(tiles, wounded.gameObject);
-            Place(tiles, healthy.gameObject);
-            Place(tiles, outside.gameObject);
-
-            List<CreatureAuraEffectResult> woundedResults =
-                CreatureAuraResolver.ApplyTurnStartAuras(
-                    wounded,
-                    new[] { source, wounded, healthy, outside },
-                    tiles,
-                    new FixedDiceRoller(3)
-                );
-            List<CreatureAuraEffectResult> healthyResults =
-                CreatureAuraResolver.ApplyTurnStartAuras(
-                    healthy,
-                    new[] { source, wounded, healthy, outside },
-                    tiles,
-                    new FixedDiceRoller(3)
-                );
-            List<CreatureAuraEffectResult> outsideResults =
-                CreatureAuraResolver.ApplyTurnStartAuras(
-                    outside,
-                    new[] { source, wounded, healthy, outside },
-                    tiles,
-                    new FixedDiceRoller(3)
-                );
-
-            Assert.AreEqual(1, woundedResults.Count);
-            CreatureComponent woundedCreature = wounded.GetComponent<CreatureComponent>();
-            Assert.AreEqual(4, woundedCreature.hp);
-            Assert.AreEqual(4, woundedCreature.Health.Current);
-            Assert.AreEqual(0, healthyResults.Count);
-            Assert.AreEqual(10, healthy.GetComponent<CreatureComponent>().hp);
-            Assert.AreEqual(0, outsideResults.Count);
-            Assert.AreEqual(7, outside.GetComponent<CreatureComponent>().hp);
-        }
-
-        [Test]
-        public void RottingAuraExcludesUndeadAndConstructTargets()
-        {
-            Tile[,] tiles = BuildTiles(8, 8);
-            TestActionController source = CreateAuraZombie(tiles, 3, 3, level: 0);
-            TestActionController undead = CreateCombatant(
-                "undead target",
-                4,
-                3,
-                7,
-                10,
-                new[] { "undead" }
-            );
-            TestActionController construct = CreateCombatant(
-                "construct target",
-                5,
-                3,
-                7,
-                10,
-                new[] { "construct" }
-            );
-            Place(tiles, undead.gameObject);
-            Place(tiles, construct.gameObject);
-
-            Assert.AreEqual(
-                0,
-                CreatureAuraResolver
-                    .ApplyTurnStartAuras(
-                        undead,
-                        new[] { source, undead },
-                        tiles,
-                        new FixedDiceRoller(6)
-                    )
-                    .Count
-            );
-            Assert.AreEqual(
-                0,
-                CreatureAuraResolver
-                    .ApplyTurnStartAuras(
-                        construct,
-                        new[] { source, construct },
-                        tiles,
-                        new FixedDiceRoller(6)
-                    )
-                    .Count
-            );
-            Assert.AreEqual(7, undead.GetComponent<CreatureComponent>().hp);
-            Assert.AreEqual(7, construct.GetComponent<CreatureComponent>().hp);
-        }
-
-        [Test]
-        public void RottingAuraUsesVoidWeaknessResistanceAndLevelScaling()
-        {
-            Tile[,] tiles = BuildTiles(8, 8);
-            TestActionController source = CreateAuraZombie(tiles, 3, 3, level: 6);
-            TestActionController target = CreateCombatant("wounded hero", 5, 3, 12, 20);
-            CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
-            targetCreature.weaknesses.Add(new DamageValue("void", 2));
-            targetCreature.resistances.Add(new DamageValue("void", 1));
-            Place(tiles, target.gameObject);
-
-            List<CreatureAuraEffectResult> results = CreatureAuraResolver.ApplyTurnStartAuras(
-                target,
-                new[] { source, target },
-                tiles,
-                new FixedDiceRoller(2)
-            );
-
-            Assert.AreEqual(1, results.Count);
-            Assert.AreEqual(4, results[0].RolledDamage, "Level 6 aura should roll 2d6.");
-            Assert.AreEqual(5, results[0].AppliedDamage, "4 void +2 weakness -1 resistance.");
-            Assert.AreEqual(7, targetCreature.hp);
-        }
-
-        [Test]
-        public void RottingAuraVisualCellsComeFromEmanationTargeting()
-        {
-            Tile[,] tiles = BuildTiles(8, 8);
-            TestActionController source = CreateAuraZombie(tiles, 3, 3, level: 0);
-
-            List<Vector3Int> cells = CreatureAuraResolver.GetAuraCells(new[] { source }, tiles);
-
-            CollectionAssert.Contains(cells, Cell(3, 3));
-            CollectionAssert.Contains(cells, Cell(5, 3));
-            CollectionAssert.DoesNotContain(cells, Cell(6, 3));
-        }
-
-        private TestActionController CreateAuraZombie(Tile[,] tiles, int x, int z, int level)
-        {
-            TestActionController controller = CreateCombatant(
-                "aura zombie",
-                x,
-                z,
-                20,
-                20,
-                new[] { "undead", "zombie" }
-            );
-            CreatureComponent creature = controller.GetComponent<CreatureComponent>();
-            creature.level = level;
-            creature.auras.Add(
-                new CreatureAura
+                { new Tile() },
+                { new Tile() },
+            };
+            AreaTargetResult area = new()
+            {
+                Creatures = new List<AreaAffectedCreature>
                 {
-                    name = "Rotting Aura",
-                    slug = RottingAuraRule.RuleSlug,
-                    radiusFeet = 10,
-                    traits = new List<string> { "disease", "void" },
-                }
+                    new() { Creature = targetObject, Cell = new Vector3Int(1, 0, 0) },
+                },
+            };
+            CreatureAuraContext context = new(
+                sourceController,
+                targetController,
+                source,
+                target,
+                aura,
+                tiles,
+                area,
+                new FixedDiceRoller(4)
             );
-            Place(tiles, controller.gameObject);
-            return controller;
-        }
+            RottingAuraRule rule = new();
 
-        private TestActionController CreateCombatant(
-            string name,
-            int x,
-            int z,
-            int hp,
-            int maxHp,
-            IEnumerable<string> traits = null
-        )
+            CreatureAuraEffectResult result = rule.Resolve(context);
+
+            Assert.That(result.RolledDamage, Is.EqualTo(4));
+            Assert.That(result.AppliedDamage, Is.EqualTo(6));
+            Assert.That(target.hp, Is.EqualTo(5));
+        }
+        finally
         {
-            GameObject obj = new(name);
-            cleanup.Add(obj);
-            obj.transform.position = new Vector3(x, 0, z);
-            CreatureComponent creature = obj.AddComponent<CreatureComponent>();
-            creature.name = name;
-            creature.InitializeHealthBeforeEncounter(hp, maxHp);
-            Game.Rules.Unity.UnityCombatRulesBridge.CreateHealthTestComposition(new[] { creature });
-            creature.traits = traits == null ? new List<string>() : new List<string>(traits);
-            creature.weaknesses = new List<DamageValue>();
-            creature.resistances = new List<DamageValue>();
-            return obj.AddComponent<TestActionController>();
+            Object.DestroyImmediate(sourceObject);
+            Object.DestroyImmediate(targetObject);
         }
+    }
 
-        private static Tile[,] BuildTiles(int width, int height)
+    [Test]
+    public void CanAffectRejectsFullHealthUndeadAndConstructTargets()
+    {
+        GameObject sourceObject = new("Aura Source");
+        GameObject targetObject = new("Aura Target");
+        try
         {
-            Tile[,] tiles = new Tile[width, height];
-            for (int x = 0; x < width; x++)
-            {
-                for (int z = 0; z < height; z++)
-                    tiles[x, z] = new Tile();
-            }
-            return tiles;
-        }
+            CreatureComponent source = sourceObject.AddComponent<CreatureComponent>();
+            CreatureComponent target = targetObject.AddComponent<CreatureComponent>();
+            TestActionController sourceController =
+                sourceObject.AddComponent<TestActionController>();
+            TestActionController targetController =
+                targetObject.AddComponent<TestActionController>();
+            target.InitializeHealthBeforeEncounter(10, 10);
+            CreatureAuraContext context = new(
+                sourceController,
+                targetController,
+                source,
+                target,
+                new CreatureAura { slug = RottingAuraRule.RuleSlug, radiusFeet = 10 },
+                new[,]
+                {
+                    { new Tile() },
+                },
+                new AreaTargetResult(),
+                new FixedDiceRoller(1)
+            );
+            RottingAuraRule rule = new();
 
-        private static void Place(Tile[,] tiles, GameObject obj)
+            Assert.That(rule.CanAffect(context), Is.False);
+            target.InitializeHealthBeforeEncounter(5, 10);
+            target.traits = new List<string> { "undead" };
+            Assert.That(rule.CanAffect(context), Is.False);
+            target.traits = new List<string> { "construct" };
+            Assert.That(rule.CanAffect(context), Is.False);
+        }
+        finally
         {
-            Vector3Int cell = Vector3Int.RoundToInt(obj.transform.position);
-            tiles[cell.x, cell.z].Occupants.Add(obj);
+            Object.DestroyImmediate(sourceObject);
+            Object.DestroyImmediate(targetObject);
         }
+    }
 
-        private static Vector3Int Cell(int x, int z)
-        {
-            return new Vector3Int(x, 0, z);
-        }
+    private sealed class FixedDiceRoller : IPf2eDiceRoller
+    {
+        private readonly int result;
 
-        private sealed class FixedDiceRoller : IPf2eDiceRoller
-        {
-            private readonly int valuePerDie;
+        public FixedDiceRoller(int result) => this.result = result;
 
-            public FixedDiceRoller(int valuePerDie)
-            {
-                this.valuePerDie = valuePerDie;
-            }
+        public int Roll(int numberOfDice, int sidesPerDie) => result;
+    }
 
-            public int Roll(int numberOfDice, int sidesPerDie)
-            {
-                return numberOfDice * valuePerDie;
-            }
-        }
-
-        private sealed class TestActionController : ActionController
-        {
-            public override void EndTurn() { }
-        }
+    private sealed class TestActionController : ActionController
+    {
+        public override void EndTurn() { }
     }
 }

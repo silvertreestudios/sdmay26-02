@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -367,28 +368,6 @@ public sealed class RulesStrikeUnityTests
             unattachedCreature.gameObject.AddComponent<TestActionController>();
         Assert.That(unattached.StrikePenalty, Is.Zero);
 
-        CreatureComponent healthOnlyCreature = CreateCreature("Health Only", "heroes", 20, 10);
-        TestActionController healthOnly =
-            healthOnlyCreature.gameObject.AddComponent<TestActionController>();
-        UnityCombatRulesBridge healthOnlyBridge =
-            UnityCombatRulesBridge.CreateHealthTestComposition(new[] { healthOnlyCreature });
-        FieldInfo combatRulesField = typeof(ActionController).GetField(
-            "combatRules",
-            BindingFlags.Instance | BindingFlags.NonPublic
-        );
-        FieldInfo rulesCreatureIdField = typeof(ActionController).GetField(
-            "rulesCreatureId",
-            BindingFlags.Instance | BindingFlags.NonPublic
-        );
-        Assert.That(combatRulesField, Is.Not.Null);
-        Assert.That(rulesCreatureIdField, Is.Not.Null);
-        combatRulesField.SetValue(healthOnly, healthOnlyBridge);
-        rulesCreatureIdField.SetValue(
-            healthOnly,
-            healthOnlyBridge.GetCreatureId(healthOnlyCreature)
-        );
-        Assert.That(healthOnly.StrikePenalty, Is.Zero);
-
         CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
         TestActionController attached = attacker.gameObject.AddComponent<TestActionController>();
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
@@ -401,30 +380,8 @@ public sealed class RulesStrikeUnityTests
         Assert.That(attached.StrikePenalty, Is.Zero);
         RequireResolved(bridge.Dispatch(new AdvanceMultipleAttackPenaltyOp(actor)));
         Assert.That(attached.StrikePenalty, Is.EqualTo(1));
-        attached.SetDungeonExploration(true);
-        Assert.That(attached.StrikePenalty, Is.Zero);
-        attached.SetDungeonExploration(false);
+        Assert.Throws<InvalidOperationException>(() => attached.SetDungeonExploration(true));
         Assert.That(attached.StrikePenalty, Is.EqualTo(1));
-
-        CreatureComponent target = CreateCreature("Legacy Target", "enemies", 20, 10);
-        StrikeResolutionContext legacyContext = StrikeResolutionContext.FromRequest(
-            new StrikeResolutionRequest
-            {
-                Attacker = attacker.gameObject,
-                Target = target.gameObject,
-                Profile = new StrikeProfile(new List<Dice>(), new List<DamageValue>()),
-            }
-        );
-        System.Type adjustmentType = typeof(StrikeResolutionPipeline).Assembly.GetType(
-            "MultipleAttackAndRangePenaltyAdjustment"
-        );
-        Assert.That(adjustmentType, Is.Not.Null);
-        IStrikeAdjustment adjustment = (IStrikeAdjustment)
-            System.Activator.CreateInstance(adjustmentType);
-
-        adjustment.Apply(legacyContext);
-
-        Assert.That(legacyContext.MultipleAttackPenalty, Is.EqualTo(5));
     }
 
     [Test]

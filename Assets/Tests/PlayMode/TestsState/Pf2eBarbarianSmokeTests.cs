@@ -10,12 +10,18 @@ public class Pf2eBarbarianSmokeTests
 {
     private readonly List<GameObject> created = new();
 
+    [SetUp]
+    public void SetUp()
+    {
+        Create("Minimal Combat Grid").AddComponent<MinimalCombatGrid>();
+    }
+
     [TearDown]
     public void TearDown()
     {
         foreach (GameObject go in created)
             if (go != null)
-                Object.Destroy(go);
+                Object.DestroyImmediate(go);
         created.Clear();
         OnCombatStart.RemoveAllListeners();
         OnCombatEnd.RemoveAllListeners();

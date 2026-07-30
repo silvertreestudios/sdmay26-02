@@ -332,6 +332,10 @@ namespace Game.Rules.Runtime
                 return ActionValidationResult.Invalid("The spell reference is unknown.");
             if (spell.Attacks.Count == 0)
                 return ActionValidationResult.Valid;
+            if (!snapshot.MultipleAttackPenalty.Contains(frame.Op.Actor))
+                return ActionValidationResult.Invalid(
+                    "The caster has no multiple-attack-penalty state."
+                );
             if (
                 spell.Attacks.Count != 1
                 || spell.Attacks[0].Target is not OneCreatureSpellAttackTarget

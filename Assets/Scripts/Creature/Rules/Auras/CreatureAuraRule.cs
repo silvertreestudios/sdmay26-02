@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Game.Creature;
 using GridPrivate;
 using GridPublic;
@@ -35,7 +34,6 @@ namespace Game.Creature.Rules
         CreatureAuraTiming Timing { get; }
         bool HasVisual(CreatureAura aura);
         bool CanAffect(CreatureAuraContext context);
-        IEnumerable<CreatureAuraEffectResult> Apply(CreatureAuraContext context);
     }
 
     public sealed class CreatureAuraEffectResult

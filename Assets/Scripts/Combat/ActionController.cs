@@ -1,10 +1,8 @@
 using System.Collections.Generic;
-using Game.Combat.Spells;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Strikes;
-using NUnit.Framework;
 using UnityEngine;
 
 public abstract class ActionController : MonoBehaviour
@@ -12,11 +10,6 @@ public abstract class ActionController : MonoBehaviour
     // Fields
     protected List<EntityAction> Actions = new();
     protected List<EntityAction> Reactions = new();
-    protected bool IsTurn = false;
-
-    [SerializeField]
-    private uint actionPoints;
-    private bool reacted;
     private UnityCombatRulesBridge combatRules;
     private CreatureId rulesCreatureId;
     public bool IsTakingAction { get; set; } = false;
@@ -29,50 +22,29 @@ public abstract class ActionController : MonoBehaviour
     {
         get
         {
-            if (combatRules == null || rulesCreatureId.IsEmpty)
-                return IsTurn;
+            if (!TryGetAttachedCombatRules(out _, out _))
+                return false;
             return combatRules.HasTurnAuthority(rulesCreatureId);
         }
     }
 
     /// <summary>Gets authoritative remaining actions while attached to encounter rules.</summary>
-    public uint ActionPoints
-    {
-        get =>
-            combatRules == null
-                ? actionPoints
-                : checked((uint)combatRules.GetActionsRemaining(rulesCreatureId));
-        set
-        {
-            if (combatRules == null)
-                actionPoints = value;
-        }
-    }
+    public uint ActionPoints =>
+        TryGetAttachedCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
+            ? checked((uint)bridge.GetActionsRemaining(actor))
+            : 0;
 
     /// <summary>Gets whether the current encounter reaction has been spent.</summary>
-    public bool Reacted
-    {
-        get =>
-            combatRules == null
-                ? reacted
-                : combatRules.Snapshot.ActionEconomy.TryGet(
-                    rulesCreatureId,
-                    out ActionEconomyState economy
-                ) && !economy.ReactionAvailable;
-        set
-        {
-            if (combatRules == null)
-                reacted = value;
-        }
-    }
+    public bool Reacted =>
+        TryGetAttachedCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
+        && !bridge.GetActionEconomy(actor).ReactionAvailable;
 
     /// <summary>
     /// Gets the rules-owned number of prior attacks for this controller's current turn.
     /// </summary>
     public uint StrikePenalty =>
-        TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
-        && bridge.Snapshot.MultipleAttackPenalty.TryGet(actor, out MultipleAttackPenaltyState state)
-            ? checked((uint)state.AttackCount)
+        TryGetAttachedCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
+            ? checked((uint)bridge.GetMultipleAttackPenalty(actor).AttackCount)
             : 0;
 
     //Events
@@ -88,20 +60,7 @@ public abstract class ActionController : MonoBehaviour
     /// </summary>
     public virtual void StartTurn()
     {
-        if (combatRules == null)
-            IsTurn = true;
-        Ref<uint> newActionPoints = new(3);
-        ResetActionPointsEvent.Invoke(newActionPoints);
-        if (combatRules == null)
-        {
-            ActionPoints = newActionPoints.Value;
-        }
-        else
-        {
-            SyncActionPointsFromRules();
-        }
-        if (combatRules == null)
-            SpellEffectController.ExpireAtStartOfTurn(gameObject);
+        RequireCombatRules();
     }
 
     /// <summary>
@@ -114,14 +73,7 @@ public abstract class ActionController : MonoBehaviour
     /// </remarks>
     public virtual void ResetEncounterTurnState()
     {
-        if (combatRules == null)
-            IsTurn = false;
         IsTakingAction = false;
-        if (combatRules == null)
-        {
-            ActionPoints = 0;
-            Reacted = false;
-        }
     }
 
     /// <summary>Spends actions through the encounter store when combat rules are attached.</summary>
@@ -133,27 +85,40 @@ public abstract class ActionController : MonoBehaviour
     {
         if (amount == 0)
             return;
-        if (amount > ActionPoints)
+        (UnityCombatRulesBridge bridge, CreatureId actor) = RequireCombatRules();
+        if (amount > checked((uint)bridge.GetActionsRemaining(actor)))
             throw new System.InvalidOperationException("The controller cannot afford this action.");
-        if (combatRules == null)
-        {
-            ActionPoints -= amount;
-            return;
-        }
-        combatRules.SpendLegacyActions(rulesCreatureId, checked((int)amount));
-        SyncActionPointsFromRules();
+        bridge.SpendLegacyActions(actor, checked((int)amount));
     }
 
     internal void AttachCombatRules(UnityCombatRulesBridge bridge, CreatureId creatureId)
     {
-        combatRules = bridge ?? throw new System.ArgumentNullException(nameof(bridge));
+        ValidateCombatRulesAttachment(bridge, creatureId);
+        combatRules = bridge;
+        rulesCreatureId = creatureId;
+    }
+
+    internal void ValidateCombatRulesAttachment(
+        UnityCombatRulesBridge bridge,
+        CreatureId creatureId
+    )
+    {
+        if (bridge == null)
+            throw new System.ArgumentNullException(nameof(bridge));
         if (creatureId.IsEmpty)
             throw new System.ArgumentException(
                 "A rules creature ID is required.",
                 nameof(creatureId)
             );
-        rulesCreatureId = creatureId;
-        SyncActionPointsFromRules();
+        EnsureAttachmentInvariant();
+        if (combatRules != null)
+            throw new System.InvalidOperationException(
+                "The controller is already owned by a rules composition."
+            );
+        if (IsInDungeonExploration)
+            throw new System.InvalidOperationException(
+                "A controller cannot attach to combat rules while exploration is enabled."
+            );
     }
 
     /// <summary>Releases encounter action ownership when it still belongs to the given bridge.</summary>
@@ -166,23 +131,20 @@ public abstract class ActionController : MonoBehaviour
         if (!ReferenceEquals(combatRules, bridge))
             return;
 
-        actionPoints = checked((uint)combatRules.GetActionsRemaining(rulesCreatureId));
-        reacted =
-            combatRules.Snapshot.ActionEconomy.TryGet(
-                rulesCreatureId,
-                out ActionEconomyState economy
-            ) && !economy.ReactionAvailable;
         combatRules = null;
         rulesCreatureId = default;
     }
 
-    internal void SyncActionPointsFromRules() { }
-
     internal bool TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId creatureId)
     {
-        bridge = combatRules;
-        creatureId = rulesCreatureId;
-        return !IsInDungeonExploration && bridge != null && !creatureId.IsEmpty;
+        if (IsInDungeonExploration)
+        {
+            EnsureAttachmentInvariant();
+            bridge = null;
+            creatureId = default;
+            return false;
+        }
+        return TryGetAttachedCombatRules(out bridge, out creatureId);
     }
 
     /// <summary>Calculates the legacy Slowed contribution without owning turn state.</summary>
@@ -206,7 +168,40 @@ public abstract class ActionController : MonoBehaviour
     /// </remarks>
     public void SetDungeonExploration(bool enabled)
     {
+        EnsureAttachmentInvariant();
+        if (enabled && combatRules != null)
+            throw new System.InvalidOperationException(
+                "Exploration cannot be enabled while combat rules are attached."
+            );
         IsInDungeonExploration = enabled;
+    }
+
+    private bool TryGetAttachedCombatRules(
+        out UnityCombatRulesBridge bridge,
+        out CreatureId creatureId
+    )
+    {
+        EnsureAttachmentInvariant();
+        bridge = combatRules;
+        creatureId = rulesCreatureId;
+        return bridge != null;
+    }
+
+    private (UnityCombatRulesBridge Bridge, CreatureId Actor) RequireCombatRules()
+    {
+        if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId creatureId))
+            throw new System.InvalidOperationException(
+                "A committed combat turn requires a complete rules attachment."
+            );
+        return (bridge, creatureId);
+    }
+
+    private void EnsureAttachmentInvariant()
+    {
+        if ((combatRules == null) != rulesCreatureId.IsEmpty)
+            throw new System.InvalidOperationException(
+                "Combat rules attachment is structurally incomplete."
+            );
     }
 
     public abstract void EndTurn();

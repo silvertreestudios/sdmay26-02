@@ -219,22 +219,62 @@ namespace Game.Strikes
             UnityStrikeContext strikeContext
         )
         {
+            Prepare(controller, actor, strikeContext).Apply();
+        }
+
+        /// <summary>Prepares every fallible action-list read and Strike action construction.</summary>
+        internal static UnityStrikeActionInstallationPlan Prepare(
+            ActionController controller,
+            CreatureId actor,
+            UnityStrikeContext strikeContext
+        )
+        {
             if (controller == null)
                 throw new ArgumentNullException(nameof(controller));
             if (strikeContext == null)
                 throw new ArgumentNullException(nameof(strikeContext));
 
+            List<EntityAction> removals = new();
             foreach (EntityAction action in controller.GetActions())
             {
                 if (action is RulesStrikeAction || action is RulesReloadWeaponAction)
-                    controller.RemoveAction(action);
+                    removals.Add(action);
             }
+            List<EntityAction> additions = new();
             foreach (StrikeItemDefinition item in strikeContext.GetItems(actor))
             {
-                controller.AddAction(new RulesStrikeAction(item, strikeContext));
+                additions.Add(new RulesStrikeAction(item, strikeContext));
                 if (item.ReloadActions > 0)
-                    controller.AddAction(new RulesReloadWeaponAction(item));
+                    additions.Add(new RulesReloadWeaponAction(item));
             }
+            return new UnityStrikeActionInstallationPlan(controller, removals, additions);
+        }
+    }
+
+    /// <summary>Applies a fully prepared Strike action-list reconciliation without recomputing it.</summary>
+    internal sealed class UnityStrikeActionInstallationPlan
+    {
+        private readonly ActionController controller;
+        private readonly IReadOnlyList<EntityAction> removals;
+        private readonly IReadOnlyList<EntityAction> additions;
+
+        internal UnityStrikeActionInstallationPlan(
+            ActionController controller,
+            IReadOnlyList<EntityAction> removals,
+            IReadOnlyList<EntityAction> additions
+        )
+        {
+            this.controller = controller;
+            this.removals = removals;
+            this.additions = additions;
+        }
+
+        internal void Apply()
+        {
+            foreach (EntityAction action in removals)
+                controller.RemoveAction(action);
+            foreach (EntityAction action in additions)
+                controller.AddAction(action);
         }
     }
 }

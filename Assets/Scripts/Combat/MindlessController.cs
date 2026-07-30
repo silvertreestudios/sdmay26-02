@@ -34,10 +34,7 @@ public class MindlessController : AIActionController
         new Vector3Int(-1, 0, -1),
     };
 
-    /// <summary>
-    /// Starts this creature's turn, completing it on the next frame when no compatible grid is
-    /// available.
-    /// </summary>
+    /// <summary>Starts this creature's committed turn on the encounter-bound grid.</summary>
     public override void StartTurn()
     {
         if (GridAPI == null)
@@ -46,14 +43,15 @@ public class MindlessController : AIActionController
                 !GridPublic.GridAPI.TryGetInstance(out GridPublic.GridAPI activeGrid)
                 || !(activeGrid is GridAPIPrivate privateGrid)
             )
-            {
-                base.StartTurn();
-                if (isActiveAndEnabled)
-                    turnSequence = StartCoroutine(CompleteTurnWithoutGrid());
-                return;
-            }
+                throw new InvalidOperationException(
+                    "A committed AI turn requires the encounter's compatible grid binding."
+                );
             RebindGrid(privateGrid);
         }
+        if (Tiles == null || Pathfinder == null)
+            throw new InvalidOperationException(
+                "A committed AI turn requires initialized topology and pathfinding."
+            );
 
         base.StartTurn();
         if (!isActiveAndEnabled)
@@ -146,15 +144,6 @@ public class MindlessController : AIActionController
     /// </remarks>
     protected virtual EntityAction SelectNextAction() => MindlessDecision();
 
-    private IEnumerator CompleteTurnWithoutGrid()
-    {
-        // Turn-start projection is still closing its rules boundary. Advance on the next frame so
-        // the fallback completion opens a separate, non-reentrant encounter root.
-        yield return null;
-        turnSequence = null;
-        EndTurn();
-    }
-
     private void CancelTurnSequence()
     {
         if (turnSequence == null)
@@ -174,44 +163,23 @@ public class MindlessController : AIActionController
 
         Vector3Int currentCell = Vector3Int.RoundToInt(transform.position);
         Pathfinder.Search(this.gameObject, currentCell);
-        TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor);
-        Team actorTeam = GetComponent<Team>();
+        if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor))
+            throw new InvalidOperationException(
+                "A committed AI decision requires complete encounter rules."
+            );
+        CreatureState actorState = bridge.Snapshot.Creatures[actor];
         int minDistance = int.MaxValue;
 
         foreach (GameObject target in CombatManagerInterface.GetInstance().GetCombatants())
         {
             if (target == this.gameObject)
                 continue;
-            Team targetTeam = target.GetComponent<Team>();
-            bool friendly;
-            if (
-                actorTeam != null
-                && targetTeam != null
-                && TeamRules.TryGetInstance(out TeamRules teamRules)
-                && teamRules.Contains(actorTeam.Name)
-                && teamRules.Contains(targetTeam.Name)
-            )
-            {
-                friendly = teamRules.IsFriendly(actorTeam.Name, targetTeam.Name);
-            }
-            else if (bridge != null && target.TryGetComponent(out CreatureComponent targetCreature))
-            {
-                CreatureId targetId = bridge.GetCreatureId(targetCreature);
-                friendly =
-                    bridge.Snapshot.Creatures[actor].Player
-                    == bridge.Snapshot.Creatures[targetId].Player;
-            }
-            else
-            {
-                friendly =
-                    actorTeam != null
-                    && targetTeam != null
-                    && string.Equals(
-                        actorTeam.Name,
-                        targetTeam.Name,
-                        StringComparison.OrdinalIgnoreCase
-                    );
-            }
+            if (!target.TryGetComponent(out CreatureComponent targetCreature))
+                throw new InvalidOperationException(
+                    "Every active encounter target requires a creature mapping."
+                );
+            CreatureId targetId = bridge.GetCreatureId(targetCreature);
+            bool friendly = actorState.Player == bridge.Snapshot.Creatures[targetId].Player;
             if (friendly)
                 continue;
 

@@ -44,7 +44,7 @@ public class PlayerActionController : ActionController
     [ContextMenu("Test Invoke Stride")]
     public void TestStride()
     {
-        if (!IsTurn)
+        if (!HasTurnAuthority)
         {
             Debug.LogWarning("Cannot use Stride - it's not this character's turn!");
             return;

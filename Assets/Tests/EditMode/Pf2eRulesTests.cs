@@ -13,6 +13,12 @@ public class Pf2eRulesTests
 {
     private readonly List<GameObject> created = new();
 
+    private static GridPrivate.Tile[,] CreateTiles() =>
+        new[,]
+        {
+            { new GridPrivate.Tile() },
+        };
+
     [TearDown]
     public void TearDown()
     {
@@ -110,7 +116,10 @@ public class Pf2eRulesTests
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
 
         Assert.That(zombie.GetComponent<Conditions>().Contains("Slowed"), Is.True);
-        actionController.StartTurn();
+        Team team = zombie.AddComponent<Team>();
+        team.Name = "Players";
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
+        bridge.StartEncounter("Players");
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
     }
 
@@ -126,7 +135,10 @@ public class Pf2eRulesTests
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
         Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
 
-        actionController.StartTurn();
+        Team team = zombie.AddComponent<Team>();
+        team.Name = "Players";
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
+        bridge.StartEncounter("Players");
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
     }
 
@@ -478,6 +490,19 @@ public class Pf2eRulesTests
             ItemSlug = "dogslicer",
             WeaponCategory = "martial",
         };
+    }
+
+    private UnityCombatRulesBridge CreateActiveEncounter(ActionController protagonist)
+    {
+        protagonist.GetComponent<CreatureComponent>().initiative = 100;
+        GameObject opposition = new("Rules Test Opposition");
+        created.Add(opposition);
+        CreatureComponent creature = opposition.AddComponent<CreatureComponent>();
+        creature.InitializeHealthBeforeEncounter(1, 1);
+        Team team = opposition.AddComponent<Team>();
+        team.Name = "Enemies";
+        TestActionController controller = opposition.AddComponent<TestActionController>();
+        return UnityCombatRulesBridge.Create(new[] { protagonist, controller }, CreateTiles());
     }
 
     private sealed class TestActionController : ActionController

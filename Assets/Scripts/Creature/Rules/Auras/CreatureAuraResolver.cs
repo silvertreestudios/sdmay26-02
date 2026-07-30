@@ -11,51 +11,8 @@ namespace Game.Creature.Rules
 {
     public static class CreatureAuraResolver
     {
-        /// <summary>
-        /// Resolves the legacy synchronous aura path when no encounter dispatcher root owns the
-        /// boundary.
-        /// </summary>
-        public static List<CreatureAuraEffectResult> ApplyTurnStartAuras(
-            ActionController acting,
-            IEnumerable<ActionController> combatants,
-            Tile[,] tiles,
-            IPf2eDiceRoller diceRoller = null
-        ) =>
-            ApplyTurnStartAurasAsync(acting, combatants, tiles, diceRoller)
-                .AsTask()
-                .GetAwaiter()
-                .GetResult();
-
-        /// <summary>Resolves turn-start auras and awaits every authoritative health mutation.</summary>
-        /// <param name="acting">The creature whose initiative boundary was reached.</param>
-        /// <param name="combatants">The encounter roster that may contribute auras.</param>
-        /// <param name="tiles">The current grid used to evaluate aura emanations.</param>
-        /// <param name="diceRoller">An optional deterministic dice source.</param>
-        /// <returns>All aura effects applied in deterministic roster order.</returns>
-        public static ValueTask<List<CreatureAuraEffectResult>> ApplyTurnStartAurasAsync(
-            ActionController acting,
-            IEnumerable<ActionController> combatants,
-            Tile[,] tiles,
-            IPf2eDiceRoller diceRoller = null
-        ) =>
-            ApplyTurnStartAurasAwaited(
-                acting,
-                combatants,
-                tiles,
-                (target, damage, source) =>
-                    new ValueTask<DamageOutcome>(target.ApplyFinalDamage(damage, source)),
-                target => target != null && target.hp > 0,
-                result =>
-                {
-                    RottingAuraRule.Present(result);
-                    return default;
-                },
-                diceRoller
-            );
-
-        // This adapter preserves the existing Unity aura calculation and presentation while its
-        // health write remains a nested, awaited child of the encounter's active dispatcher root.
-        // The aura vertical removes this seam when aura effects become native rules operations.
+        // The encounter turn-start adapter is the sole mutation root. Aura calculation and
+        // presentation remain feature-owned while health commits through the active dispatcher.
         internal static async ValueTask<List<CreatureAuraEffectResult>> ApplyTurnStartAurasAwaited(
             ActionController acting,
             IEnumerable<ActionController> combatants,
@@ -104,18 +61,18 @@ namespace Game.Creature.Rules
                 );
                 if (!instance.Rule.CanAffect(context))
                     continue;
-                if (instance.Rule is RottingAuraRule rottingAura)
-                {
-                    CreatureAuraEffectResult result = rottingAura.Resolve(context);
-                    await applyDamage(
-                        targetCreature,
-                        Math.Max(0, result.AppliedDamage),
-                        RuleSource.FromSlug(RottingAuraRule.RuleSlug)
+                if (instance.Rule is not RottingAuraRule rottingAura)
+                    throw new InvalidOperationException(
+                        $"Aura rule '{instance.Rule.Slug}' has no encounter resolver."
                     );
-                    await presentResult(result);
-                    results.Add(result);
-                    continue;
-                }
+                CreatureAuraEffectResult result = rottingAura.Resolve(context);
+                await applyDamage(
+                    targetCreature,
+                    Math.Max(0, result.AppliedDamage),
+                    RuleSource.FromSlug(RottingAuraRule.RuleSlug)
+                );
+                await presentResult(result);
+                results.Add(result);
             }
             return results;
         }

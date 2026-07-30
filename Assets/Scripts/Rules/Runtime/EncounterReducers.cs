@@ -9,11 +9,23 @@ namespace Game.Rules.Runtime
         internal const string OutcomeMismatch =
             "The requested outcome does not match authoritative health and teams.";
 
-        internal static bool IsLiving(RulesSnapshot snapshot, CreatureId creature) =>
-            snapshot.Health.TryGet(creature, out HealthState health) && health.Current > 0;
+        internal static bool IsLiving(RulesSnapshot snapshot, CreatureId creature)
+        {
+            if (!snapshot.Health.TryGet(creature, out HealthState health))
+                throw new InvalidOperationException(
+                    $"Encounter participant {creature.Value} has no authoritative health state."
+                );
+            return health.Current > 0;
+        }
 
-        internal static bool IsLiving(RulesStateDraft state, CreatureId creature) =>
-            state.Health.TryGet(creature, out HealthState health) && health.Current > 0;
+        internal static bool IsLiving(RulesStateDraft state, CreatureId creature)
+        {
+            if (!state.Health.TryGet(creature, out HealthState health))
+                throw new InvalidOperationException(
+                    $"Encounter participant {creature.Value} has no authoritative health state."
+                );
+            return health.Current > 0;
+        }
 
         internal static bool TryValidate(
             RulesSnapshot snapshot,
@@ -513,12 +525,14 @@ namespace Game.Rules.Runtime
                 return ReductionResult<EncounterAdvanceOutcome>.Reject(
                     "The turn identity or actor is stale."
                 );
-            ActionEconomyState economy = state.ActionEconomy.TryGet(
-                requested.Actor,
-                out ActionEconomyState current
-            )
-                ? current
-                : new ActionEconomyState(0, false);
+            if (!state.ActionEconomy.TryGet(requested.Actor, out ActionEconomyState economy))
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "The turn actor has no authoritative action-economy state."
+                );
+            if (!state.MultipleAttackPenalty.Contains(requested.Actor))
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "The turn actor has no authoritative multiple-attack-penalty state."
+                );
             state.ActionEconomy.Set(
                 requested.Actor,
                 new ActionEconomyState(0, economy.ReactionAvailable)
@@ -680,12 +694,16 @@ namespace Game.Rules.Runtime
                     "The actor does not own an active current turn."
                 );
 
-            int count = state.MultipleAttackPenalty.TryGet(
-                context.Op.Actor,
-                out MultipleAttackPenaltyState current
+            if (
+                !state.MultipleAttackPenalty.TryGet(
+                    context.Op.Actor,
+                    out MultipleAttackPenaltyState current
+                )
             )
-                ? checked(current.AttackCount + 1)
-                : 1;
+                return ReductionResult<LegacyMapOutcome>.Reject(
+                    "The actor has no authoritative multiple-attack-penalty state."
+                );
+            int count = checked(current.AttackCount + 1);
             state.MultipleAttackPenalty.Set(
                 context.Op.Actor,
                 new MultipleAttackPenaltyState(count)

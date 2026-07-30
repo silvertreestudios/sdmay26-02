@@ -143,8 +143,8 @@ public sealed class SpellcastingPresentationPlayModeTests
             reinforcementId,
             reinforcement.Prepared.SpellBook
         );
-        UnitySpellActionInstaller.Install(reinforcementController, repeatCatalog);
-        UnitySpellActionInstaller.Install(reinforcementController, repeatCatalog);
+        UnitySpellActionInstaller.Install(reinforcementController, reinforcementId, repeatCatalog);
+        UnitySpellActionInstaller.Install(reinforcementController, reinforcementId, repeatCatalog);
 
         Assert.That(LightActions(reinforcementController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(reinforcementController, "divine-lance"), Has.Count.EqualTo(1));
@@ -192,7 +192,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnsupportedSpellActionCatalog catalog = new(definition, owner, book);
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-            UnitySpellActionInstaller.Install(controller, catalog)
+            UnitySpellActionInstaller.Install(controller, owner, catalog)
         );
 
         Assert.That(error.Message, Does.Contain("no supported effect or attack"));

@@ -103,6 +103,26 @@ namespace Game.Rules.Unity.Strike
             return new StrikeCombatantRegistration(actor, equipment, pools);
         }
 
+        /// <summary>Rolls back provisional Unity Strike mappings for a failed reinforcement join.</summary>
+        /// <param name="actor">The reinforcement whose uncommitted mappings are removed.</param>
+        internal void UnregisterReinforcement(CreatureId actor)
+        {
+            if (!actorItems.TryGetValue(actor, out List<ItemId> items))
+                return;
+            foreach (ItemId item in items)
+            {
+                if (
+                    definitions.TryGetValue(item, out StrikeItemDefinition definition)
+                    && definition.Ammunition is RequiredStrikeAmmunitionRequirement required
+                )
+                    ammunition.Remove(required.Pool);
+                definitions.Remove(item);
+                itemOwners.Remove(item);
+                weapons.Remove(item);
+            }
+            actorItems.Remove(actor);
+        }
+
         /// <inheritdoc/>
         public StrikeItemDefinition GetStrikeItem(ItemId item)
         {
