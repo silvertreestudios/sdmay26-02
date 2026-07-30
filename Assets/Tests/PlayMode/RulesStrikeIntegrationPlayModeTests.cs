@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -283,7 +284,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator BestLegalStrikeWithoutCombatManagerReturnsNoAction()
+    public IEnumerator BestLegalStrikeWithoutCombatManagerThrows()
     {
         CreatureComponent actor = CreateCreature("Actor", "strike-test-ai", 20, 10);
         actor.gameObject.SetActive(false);
@@ -296,13 +297,11 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         Tile[,] tiles = CreateTiles(2);
         Occupy(tiles, actor.gameObject);
         Occupy(tiles, opponent.gameObject);
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+        UnityCombatRulesBridge.Create(
             new ActionController[] { ai, opponentController },
             tiles,
             new ScriptedRollService(20, 10)
         );
-        CreatureId actorId = bridge.GetCreatureId(actor);
-        bridge.BeginTurn(actorId, 3);
         Assert.That(CombatManagerInterface.TryGetInstance(out _), Is.False);
         MethodInfo bestLegalStrike = typeof(MindlessController).GetMethod(
             "BestLegalStrike",
@@ -310,10 +309,34 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         );
         Assert.That(bestLegalStrike, Is.Not.Null);
 
-        EntityAction selected = (EntityAction)
-            bestLegalStrike.Invoke(ai, System.Array.Empty<object>());
+        TargetInvocationException error = Assert.Throws<TargetInvocationException>(() =>
+            bestLegalStrike.Invoke(ai, System.Array.Empty<object>())
+        );
 
-        Assert.That(selected, Is.Null);
+        Assert.That(error.InnerException, Is.TypeOf<InvalidOperationException>());
+        Assert.That(error.InnerException.Message, Does.Contain("active combat manager"));
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator BestLegalStrikeWithoutCombatRulesThrows()
+    {
+        InstallCombatManager();
+        CreatureComponent actor = CreateCreature("Detached Actor", "strike-test-ai", 20, 10);
+        actor.gameObject.SetActive(false);
+        MindlessController ai = actor.gameObject.AddComponent<MindlessController>();
+        MethodInfo bestLegalStrike = typeof(MindlessController).GetMethod(
+            "BestLegalStrike",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(bestLegalStrike, Is.Not.Null);
+
+        TargetInvocationException error = Assert.Throws<TargetInvocationException>(() =>
+            bestLegalStrike.Invoke(ai, System.Array.Empty<object>())
+        );
+
+        Assert.That(error.InnerException, Is.TypeOf<InvalidOperationException>());
+        Assert.That(error.InnerException.Message, Does.Contain("combat rules authority"));
         yield return null;
     }
 
@@ -321,7 +344,9 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     public IEnumerator BestLegalStrikeWithoutLegacyTeamsSelectsRulesLegalTarget()
     {
         InstallCombatManager();
+        MinimalCombatGrid grid = InstallMinimalCombatGrid();
         CreatureComponent actor = CreateCreature("Actor", "strike-test-ai", 20, 10);
+        actor.gameObject.SetActive(false);
         MindlessController ai = actor.gameObject.AddComponent<MindlessController>();
         CreatureComponent target = CreateCreature("Target", "strike-test-target", 20, 10);
         TestActionController targetController =
@@ -329,7 +354,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         Object.DestroyImmediate(target.GetComponent<Team>());
         Place(actor.gameObject, 0);
         Place(target.gameObject, 1);
-        Tile[,] tiles = CreateTiles(2);
+        Tile[,] tiles = grid.GetTiles();
         Occupy(tiles, actor.gameObject);
         Occupy(tiles, target.gameObject);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
@@ -601,6 +626,15 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         GameObject gameObject = new("Strike PlayMode Selecting Grid");
         created.Add(gameObject);
         return gameObject.AddComponent<SelectingGridApi>();
+    }
+
+    private MinimalCombatGrid InstallMinimalCombatGrid()
+    {
+        if (GridAPI.TryGetInstance(out GridAPI activeGrid))
+            Object.DestroyImmediate(activeGrid.gameObject);
+        GameObject gameObject = new("Strike PlayMode Minimal Combat Grid");
+        created.Add(gameObject);
+        return gameObject.AddComponent<MinimalCombatGrid>();
     }
 
     private void CountGameplayCommit() => gameplayCommitCount++;

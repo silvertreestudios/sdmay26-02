@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Game.Combat.Spells
 {
-    /// <summary>Reads required spellbooks from encounter-owned creature mappings.</summary>
+    /// <summary>Reads spellbooks from required encounter-owned creature mappings.</summary>
     public sealed class UnitySpellBookProvider : ISpellBookProvider
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
@@ -22,21 +22,32 @@ namespace Game.Combat.Spells
         ) => this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
 
         /// <inheritdoc/>
-        public ISpellBook GetSpellBook(CreatureId creature) =>
-            creatures.TryGetValue(creature, out CreatureComponent value) && value != null
-                ? value.Prepared?.SpellBook ?? EmptySpellBook.Instance
-                : EmptySpellBook.Instance;
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the encounter creature has no live Unity mapping.
+        /// </exception>
+        public ISpellBook GetSpellBook(CreatureId creature)
+        {
+            if (!creatures.TryGetValue(creature, out CreatureComponent value) || value == null)
+                throw new InvalidOperationException(
+                    $"Encounter creature '{creature.Value}' has no live Unity mapping for its spellbook."
+                );
+            return value.Prepared?.SpellBook ?? EmptySpellBook.Instance;
+        }
     }
 
-    /// <summary>Idempotently reconciles rules-native spell actions on one encounter controller.</summary>
+    /// <summary>
+    /// Idempotently replaces legacy spell actions with rules-native actions on one encounter
+    /// controller.
+    /// </summary>
     public static class UnitySpellActionInstaller
     {
         /// <summary>
         /// Installs exactly one rules action for every prepared, generically supported definition.
         /// </summary>
         /// <remarks>
-        /// Encounter composition removes legacy entries for definitions represented by typed
-        /// actions. Legacy entries remain only for definitions without a typed operation.
+        /// Encounter composition exclusively uses the typed rules path. Every legacy spell action
+        /// is removed, so unsupported or unmigrated prepared spells are absent rather than exposed
+        /// through the legacy implementation.
         /// </remarks>
         /// <param name="controller">The caster whose action list is reconciled.</param>
         /// <param name="actor">The caster's encounter-stable rules identity.</param>
@@ -64,15 +75,10 @@ namespace Game.Combat.Spells
             );
             CreatureComponent creature = controller.GetComponent<CreatureComponent>();
             List<EntityAction> currentActions = controller.GetActions();
-            List<EntityAction> removals = new();
-            HashSet<(string Slug, int Rank)> typedSpells = desired
-                .Select(entry => (entry.Spell.Spell.Value, entry.Spell.Rank))
-                .ToHashSet();
-            foreach (CastSpellAction legacy in currentActions.OfType<CastSpellAction>())
-            {
-                if (typedSpells.Contains((legacy.Spell.Slug, legacy.Spell.Rank)))
-                    removals.Add(legacy);
-            }
+            List<EntityAction> removals = currentActions
+                .OfType<CastSpellAction>()
+                .Cast<EntityAction>()
+                .ToList();
 
             Dictionary<
                 (SpellReference Spell, SpellActionVariant Variant),
@@ -146,7 +152,9 @@ namespace Game.Combat.Spells
                         out Game.Rules.Runtime.SpellDefinition definition
                     )
                 )
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Prepared spell '{reference}' for encounter creature '{actor.Value}' has no catalog definition."
+                    );
                 if (definition.Effects.Count == 0 && definition.Attacks.Count == 0)
                     throw new InvalidOperationException(
                         $"Prepared rules-native spell '{reference}' has no supported effect or attack."

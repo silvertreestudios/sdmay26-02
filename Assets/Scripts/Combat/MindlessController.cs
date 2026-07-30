@@ -261,9 +261,13 @@ public class MindlessController : AIActionController
     private EntityAction BestLegalStrike()
     {
         if (!TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor))
-            return null;
+            throw new InvalidOperationException(
+                "A rules-native AI strike decision requires active combat rules authority."
+            );
         if (!CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager))
-            return null;
+            throw new InvalidOperationException(
+                "A rules-native AI strike decision requires an active combat manager."
+            );
         EntityAction bestAction = null;
         GameObject bestTarget = null;
         float bestDamage = 0;

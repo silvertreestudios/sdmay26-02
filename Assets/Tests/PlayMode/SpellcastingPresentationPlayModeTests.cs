@@ -117,18 +117,9 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(LightActions(noncasterController), Is.Empty);
         Assert.That(RulesActions(noncasterController, "divine-lance"), Is.Empty);
         Assert.That(
-            initialController
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "divine-lance"),
-            Is.False
-        );
-        Assert.That(
-            initialController
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "shield"),
-            Is.True
+            initialController.GetActions().OfType<CastSpellAction>(),
+            Is.Empty,
+            "Encounter composition must remove Shield and every other legacy spell action."
         );
 
         CreatureComponent reinforcement = CreateCreature("Reinforcement", 2, prepared: true);
@@ -149,19 +140,85 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(LightActions(reinforcementController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(reinforcementController, "divine-lance"), Has.Count.EqualTo(1));
         Assert.That(
-            reinforcementController
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "divine-lance"),
-            Is.False
+            reinforcementController.GetActions().OfType<CastSpellAction>(),
+            Is.Empty,
+            "Reinforcement composition must remove Shield and every other legacy spell action."
         );
-        Assert.That(
-            reinforcementController
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "shield"),
-            Is.True
+    }
+
+    [Test]
+    public void PreparedSpellMissingCatalogDefinitionFailsInstallation()
+    {
+        CreatureComponent caster = CreateCreature("Missing Definition Caster", 0, prepared: false);
+        TestActionController controller = caster.gameObject.AddComponent<TestActionController>();
+        CreatureId owner = new("missing-definition-caster");
+        SpellReference missing = Reference("missing-prepared-spell");
+        ISpellBook book = new PreparedSpellBook(
+            new[] { PreparedSpellEntry.Cantrip(missing) },
+            Array.Empty<PreparedSpellSlotPool>(),
+            7
         );
+        TestSpellActionCatalog catalog = new(UnitySpellDefinitionCatalog.Load(), owner, book);
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellActionInstaller.Install(controller, owner, catalog)
+        );
+
+        Assert.That(error.Message, Does.Contain(missing.ToString()));
+        Assert.That(error.Message, Does.Contain("no catalog definition"));
+    }
+
+    [Test]
+    public void SpellBookProviderRequiresMappingButAllowsMappedNoncaster()
+    {
+        CreatureId missing = new("missing-spellbook-creature");
+        CreatureId nullMapped = new("null-spellbook-creature");
+        CreatureId noncasterId = new("mapped-noncaster");
+        CreatureComponent noncaster = CreateCreature("Mapped Noncaster", 0, prepared: false);
+        Dictionary<CreatureId, CreatureComponent> creatures = new()
+        {
+            [nullMapped] = null,
+            [noncasterId] = noncaster,
+        };
+        UnitySpellBookProvider provider = new(creatures);
+
+        InvalidOperationException missingError = Assert.Throws<InvalidOperationException>(() =>
+            provider.GetSpellBook(missing)
+        );
+        InvalidOperationException nullError = Assert.Throws<InvalidOperationException>(() =>
+            provider.GetSpellBook(nullMapped)
+        );
+
+        Assert.That(missingError.Message, Does.Contain(missing.Value));
+        Assert.That(nullError.Message, Does.Contain(nullMapped.Value));
+        Assert.That(provider.GetSpellBook(noncasterId), Is.SameAs(EmptySpellBook.Instance));
+    }
+
+    [Test]
+    public void InstalledSpellActionRequiresDefinitionButDetachedAvailabilityIsFalse()
+    {
+        CreatureComponent caster = CreateCreature("Detached Rules Caster", 0, prepared: false);
+        TestActionController controller = caster.gameObject.AddComponent<TestActionController>();
+        CreatureId owner = new("detached-rules-caster");
+        SpellReference light = Reference("light");
+        ISpellBook book = new PreparedSpellBook(
+            new[] { PreparedSpellEntry.Cantrip(light) },
+            Array.Empty<PreparedSpellSlotPool>(),
+            7
+        );
+        TestSpellActionCatalog catalog = new(UnitySpellDefinitionCatalog.Load(), owner, book);
+        UnitySpellActionInstaller.Install(controller, owner, catalog);
+        RulesCastSpellAction action = LightActions(controller).Single();
+
+        catalog.RemoveDefinitions();
+
+        Assert.That(action.IsAvailable(controller), Is.False);
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+        {
+            _ = action.ActionName;
+        });
+        Assert.That(error.Message, Does.Contain(light.ToString()));
+        Assert.That(error.Message, Does.Contain("no longer has a catalog definition"));
     }
 
     [UnityTest]
@@ -685,6 +742,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         private readonly UnitySpellDefinitionCatalog definitions;
         private readonly CreatureId owner;
         private readonly ISpellBook book;
+        private bool definitionsAvailable = true;
 
         public TestSpellActionCatalog(
             UnitySpellDefinitionCatalog definitions,
@@ -703,10 +761,18 @@ public sealed class SpellcastingPresentationPlayModeTests
         public bool TryGetSpell(
             SpellReference reference,
             out Game.Rules.Runtime.SpellDefinition definition
-        ) => definitions.TryGetSpell(reference, out definition);
+        )
+        {
+            if (definitionsAvailable)
+                return definitions.TryGetSpell(reference, out definition);
+            definition = null;
+            return false;
+        }
 
         public ISpellBook GetSpellBook(CreatureId creature) =>
             creature == owner ? book : EmptySpellBook.Instance;
+
+        public void RemoveDefinitions() => definitionsAvailable = false;
     }
 
     private sealed class UnsupportedSpellActionCatalog : ISpellActionCatalog
