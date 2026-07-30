@@ -76,6 +76,7 @@ namespace Game.Rules.Runtime
                     nameof(turnStartAdapters)
                 );
             return builder
+                .UseMovementBudgetResetRules()
                 .RegisterHandler<StartEncounterOp, EncounterStartOutcome>(
                     new StartEncounterHandler()
                 )
@@ -408,6 +409,11 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException(
                     "Only an eligible living initiative boundary can begin a turn."
                 );
+
+            EncounterHandlerResults.Require(
+                await context.Dispatch(new ResetMovementBudgetOp(entry.Creature)),
+                "turn-start movement reset"
+            );
 
             TurnStartContribution contribution = EncounterHandlerResults.Require(
                 await context.Dispatch(new TurnStartingOp(frame.Op.Encounter, entry.Creature)),

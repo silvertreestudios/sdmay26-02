@@ -182,7 +182,21 @@ namespace Game.Rules.Runtime
                     return ReductionResult<EncounterStartOutcome>.Reject(
                         $"Creature {entry.Creature.Value} has no authoritative health state."
                     );
+                if (
+                    state.Creatures.TryGet(entry.Creature, out CreatureState creature)
+                    && creature.Player != entry.Team
+                )
+                    return ReductionResult<EncounterStartOutcome>.Reject(
+                        $"Creature {entry.Creature.Value} has a team that conflicts with its authoritative creature state."
+                    );
             }
+            BindingId outcomeBindingId = EncounterRuleRuntime.OutcomeBindingId(
+                context.Op.Encounter
+            );
+            if (state.RuleBindings.Contains(outcomeBindingId))
+                return ReductionResult<EncounterStartOutcome>.Reject(
+                    $"Rule binding {outcomeBindingId.Value} is already registered."
+                );
             EncounterState encounter = new EncounterState(
                 context.Op.Encounter,
                 EncounterPhase.Active,
@@ -196,9 +210,9 @@ namespace Game.Rules.Runtime
             );
             state.Encounters.Set(encounter.Id, encounter);
             state.RuleBindings.Set(
-                EncounterRuleRuntime.OutcomeBindingId(encounter.Id),
+                outcomeBindingId,
                 new ActiveRuleBinding(
-                    EncounterRuleRuntime.OutcomeBindingId(encounter.Id),
+                    outcomeBindingId,
                     EncounterRuleRuntime.OutcomeDefinitionId,
                     encounter.Roster[0].Creature,
                     null,

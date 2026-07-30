@@ -102,6 +102,62 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task CommitStartReducerRejectsTeamConflictWithoutMutation()
+        {
+            RulesStateSeed seed = BaseSeed()
+                .SeedCreature(new CreatureState(Hero, Enemies))
+                .SeedCreature(new CreatureState(Enemy, Enemies));
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
+            InitiativeEntry[] roster = { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) };
+
+            OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitEncounterStartWorkflowOp(
+                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+                )
+            );
+            OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<EncounterStartOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<EncounterStartOutcome>)result).Reason,
+                Does.Contain("conflicts with its authoritative creature state")
+            );
+            Assert.That(dispatcher.Snapshot.Encounters.Contains(Encounter), Is.False);
+        }
+
+        [Test]
+        public async Task CommitStartReducerRejectsOutcomeBindingCollisionWithoutMutation()
+        {
+            BindingId bindingId = EncounterRuleRuntime.OutcomeBindingId(Encounter);
+            ActiveRuleBinding existing = new ActiveRuleBinding(
+                bindingId,
+                EncounterRuleRuntime.OutcomeDefinitionId,
+                Enemy,
+                null,
+                Source,
+                99
+            );
+            RulesStateSeed seed = BaseSeed().SeedRuleBinding(existing);
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
+            InitiativeEntry[] roster = { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) };
+
+            OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitEncounterStartWorkflowOp(
+                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+                )
+            );
+            OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<EncounterStartOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<EncounterStartOutcome>)result).Reason,
+                Does.Contain("already registered")
+            );
+            Assert.That(dispatcher.Snapshot.Encounters.Contains(Encounter), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings[bindingId], Is.EqualTo(existing));
+        }
+
+        [Test]
         public async Task StartAcceptsMixedAndSingleProtagonistTeamRosters()
         {
             RuleDispatcher mixedDispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
@@ -163,7 +219,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task ExactEndTurnResetsActionsMapAndMovementThenWrapsRoundOnce()
+        public async Task TurnStartClearsStaleMovementThenEndTurnResetsActionsMapAndWrapsRoundOnce()
         {
             MovementBudgetState budget = new MovementBudgetState(
                 new MovementBudgetId(new OpId(99)),
@@ -186,6 +242,8 @@ namespace Game.Rules.Runtime.Tests
                     )
                 )
             ).Value.State;
+            Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
+            Assert.That(movementResets.Calls, Is.EqualTo(1));
 
             EncounterState enemyTurn = Resolved(
                 await dispatcher.Dispatch(new EndTurnOp(started.CurrentTurn.Value))
@@ -201,6 +259,32 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(new ActionEconomyState(3, true))
             );
             Assert.That(dispatcher.Snapshot.MultipleAttackPenalty[Hero].AttackCount, Is.Zero);
+            Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
+            Assert.That(movementResets.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task ActiveTurnEndClearsCurrentMovementBudget()
+        {
+            EncounterState active = ActiveTurnEncounter();
+            MovementBudgetState budget = new MovementBudgetState(
+                new MovementBudgetId(new OpId(99)),
+                Hero,
+                new GridDistance(15),
+                DiagonalMovementPhase.NextCostsTenFeet
+            );
+            RulesStateSeed seed = BaseSeed()
+                .SeedEncounter(active)
+                .SeedActionEconomy(Hero, new ActionEconomyState(3, true))
+                .SeedMultipleAttackPenalty(Hero, new MultipleAttackPenaltyState(1))
+                .SeedMovementBudget(Hero, budget);
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
+            CountingFactObserver<MovementBudgetResetFact> movementResets =
+                new CountingFactObserver<MovementBudgetResetFact>();
+            dispatcher.RegisterFactObserver<MovementBudgetResetFact>(movementResets);
+
+            Resolved(await dispatcher.Dispatch(new EndTurnOp(active.CurrentTurn.Value)));
+
             Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
             Assert.That(movementResets.Calls, Is.EqualTo(1));
         }
@@ -459,21 +543,9 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task DefeatedActiveActorClosesThroughFullEndTurnLifecycleOnce()
         {
-            MovementBudgetState budget = new MovementBudgetState(
-                new MovementBudgetId(new OpId(99)),
-                Hero,
-                new GridDistance(10),
-                DiagonalMovementPhase.NextCostsFiveFeet
-            );
-            RuleDispatcher dispatcher = CreateDispatcher(
-                new ScriptedRollService(20, 10),
-                BaseSeed().SeedMovementBudget(Hero, budget)
-            );
-            CountingFactObserver<MovementBudgetResetFact> movementResets =
-                new CountingFactObserver<MovementBudgetResetFact>();
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
             CountingFactObserver<TurnEndedFact> turnsEnded =
                 new CountingFactObserver<TurnEndedFact>();
-            dispatcher.RegisterFactObserver<MovementBudgetResetFact>(movementResets);
             dispatcher.RegisterFactObserver<TurnEndedFact>(turnsEnded);
             await dispatcher.Dispatch(
                 Start(
@@ -490,7 +562,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(state.Phase, Is.EqualTo(EncounterPhase.Ended));
             Assert.That(state.Outcome, Is.EqualTo(EncounterOutcome.PlayerDefeat));
             Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
-            Assert.That(movementResets.Calls, Is.EqualTo(1));
             Assert.That(turnsEnded.Calls, Is.EqualTo(1));
             Assert.That(
                 dispatcher.Trace.OrderedFrames.Count(frame => frame.OpType == typeof(EndTurnOp)),
@@ -1442,7 +1513,6 @@ namespace Game.Rules.Runtime.Tests
                 .UseRuleRegistry(selected)
                 .UseHealthRules()
                 .UseActiveEffectRules(selected)
-                .UseMovementBudgetResetRules()
                 .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>());
             builder.RegisterHandler<
                 CommitEncounterStartWorkflowOp,
