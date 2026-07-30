@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace Game.Rules.Runtime
@@ -51,6 +52,42 @@ namespace Game.Rules.Runtime
 
             Count = count;
             Sides = sides;
+        }
+
+        /// <summary>Parses a plain positive <c>NdS</c> expression without modifiers.</summary>
+        /// <param name="value">The candidate expression, such as <c>2d4</c>.</param>
+        /// <param name="expression">The parsed expression when successful.</param>
+        /// <returns>
+        /// <see langword="true"/> only when both the die count and die size are positive integers.
+        /// </returns>
+        public static bool TryParse(string value, out DiceExpression expression)
+        {
+            expression = default;
+            string normalized = value?.Trim() ?? string.Empty;
+            int separator = normalized.IndexOf('d');
+            if (separator < 0)
+                separator = normalized.IndexOf('D');
+            if (
+                separator <= 0
+                || separator != normalized.LastIndexOfAny(new[] { 'd', 'D' })
+                || !int.TryParse(
+                    normalized.Substring(0, separator),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int count
+                )
+                || !int.TryParse(
+                    normalized.Substring(separator + 1),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int sides
+                )
+                || count <= 0
+                || sides <= 0
+            )
+                return false;
+            expression = new DiceExpression(count, sides);
+            return true;
         }
 
         /// <inheritdoc/>

@@ -294,7 +294,8 @@ namespace Game.Rules.Runtime.Tests
                 new[]
                 {
                     new SpellEffectDirective(EffectDefinition, EffectDuration.Indefinite, "self"),
-                }
+                },
+                Array.Empty<SpellAttackDefinition>()
             );
 
             public TestCatalog(ISpellBook book) => this.book = book;

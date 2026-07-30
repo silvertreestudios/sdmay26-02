@@ -13,7 +13,6 @@ namespace Game.Rules.Runtime.Tests
     {
         private static readonly CreatureId Actor = new CreatureId("check-actor");
         private static readonly CreatureId Target = new CreatureId("check-target");
-        private static readonly ItemId Weapon = new ItemId("check-weapon");
         private static readonly RuleSource ExistingStatus = RuleSource.FromSlug("existing-status");
         private static readonly RuleSource MiddlewareSource = RuleSource.FromSlug(
             "middleware-status"
@@ -171,7 +170,7 @@ namespace Game.Rules.Runtime.Tests
             );
 
             ModifierCollection modifiers = RequireResolved(result).Value;
-            Assert.That(modifiers.Total, Is.EqualTo(9));
+            Assert.That(modifiers.Total, Is.EqualTo(2));
             Assert.That(
                 modifiers.Applied.Select(modifier => modifier.Source),
                 Does.Contain(ExistingStatus)
@@ -181,6 +180,124 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(new[] { MiddlewareSource })
             );
             Assert.That(modifiers.Suppressed.Single().Value, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task AttackCheckCombinesCopiedInitialCurrentAndMiddlewareCandidatesOnce()
+        {
+            List<Modifier> initialModifiers = new()
+            {
+                Modifier.Untyped(7, RuleSource.FromSlug("feature-base"), Statistic.AttackRoll),
+                Modifier.Untyped(
+                    -5,
+                    RuleSource.FromSlug("multiple-attack-penalty"),
+                    Statistic.AttackRoll
+                ),
+                new Modifier(
+                    2,
+                    ModifierType.Circumstance,
+                    RuleSource.FromSlug("unity-captured"),
+                    Statistic.AttackRoll
+                ),
+            };
+            ActiveRuleBinding binding = new(
+                new BindingId("attack-check-modifier-binding"),
+                MiddlewareDefinition,
+                Actor,
+                new ActiveEffectId("attack-check-modifier-effect"),
+                MiddlewareSource,
+                0
+            );
+            RuleRegistryBuilder registry = new();
+            registry
+                .Define(MiddlewareDefinition)
+                .Middleware(RuleLifecyclePhase.Transformation, new AttackStatusMiddleware());
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(
+                    CreateSeed(
+                            new[] { Modifier.StatusBonus(2, ExistingStatus, Statistic.AttackRoll) }
+                        )
+                        .SeedRuleBinding(binding)
+                ),
+                new ScriptedRollService(10)
+            )
+                .RegisterHandler<AttackCheckWorkflowOp, CheckOutcome>(
+                    new AttackCheckWorkflowHandler(initialModifiers)
+                )
+                .UseCheckResolution()
+                .UseRuleRegistry(registry.Build())
+                .Build();
+
+            CheckOutcome outcome = RequireResolved(
+                await dispatcher.Dispatch(new AttackCheckWorkflowOp())
+            ).Value;
+
+            Assert.That(outcome.Modifiers.Total, Is.EqualTo(6));
+            Assert.That(outcome.Total, Is.EqualTo(16));
+            Assert.That(outcome.Degree, Is.EqualTo(DegreeOfSuccess.Success));
+            Assert.That(outcome.Modifiers.Candidates, Has.Count.EqualTo(5));
+            Assert.That(
+                outcome
+                    .Modifiers.Candidates.GroupBy(modifier => modifier.Source)
+                    .All(group => group.Count() == 1),
+                Is.True
+            );
+            Assert.That(
+                outcome.Modifiers.Suppressed.Select(modifier => modifier.Source),
+                Is.EqualTo(new[] { MiddlewareSource })
+            );
+        }
+
+        [Test]
+        public void AttackCheckCopiesInitialModifierCandidates()
+        {
+            List<Modifier> candidates = new()
+            {
+                Modifier.Untyped(3, RuleSource.FromSlug("initial"), Statistic.AttackRoll),
+            };
+            AttackCheckOp operation = new(
+                Actor,
+                Target,
+                candidates,
+                15,
+                CheckSource.From(new OpId(1))
+            );
+
+            candidates.Add(
+                Modifier.Untyped(
+                    100,
+                    RuleSource.FromSlug("late-caller-mutation"),
+                    Statistic.AttackRoll
+                )
+            );
+
+            Assert.That(operation.InitialModifiers, Has.Count.EqualTo(1));
+            Assert.That(operation.InitialModifiers.Single().Value, Is.EqualTo(3));
+        }
+
+        [TestCase(20, 21, DegreeOfSuccess.Success)]
+        [TestCase(1, 10, DegreeOfSuccess.CriticalFailure)]
+        public async Task AttackCheckAppliesNaturalRollDegreeAdjustment(
+            int naturalRoll,
+            int difficultyClass,
+            DegreeOfSuccess expected
+        )
+        {
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
+                new ScriptedRollService(naturalRoll)
+            )
+                .RegisterHandler<AttackCheckWorkflowOp, CheckOutcome>(
+                    new AttackCheckWorkflowHandler(Array.Empty<Modifier>(), difficultyClass)
+                )
+                .UseCheckResolution()
+                .Build();
+
+            CheckOutcome outcome = RequireResolved(
+                await dispatcher.Dispatch(new AttackCheckWorkflowOp())
+            ).Value;
+
+            Assert.That(outcome.Degree, Is.EqualTo(expected));
         }
 
         [Test]
@@ -207,6 +324,20 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(externalError.Message, Does.Contain("nested-only"));
             Assert.That(externalRolls.Remaining, Is.EqualTo(1));
 
+            AttackCheckOp externalAttack = new(
+                Actor,
+                Target,
+                Array.Empty<Modifier>(),
+                15,
+                CheckSource.From(new OpId(1))
+            );
+            InvalidOperationException externalAttackError =
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await externalDispatcher.Dispatch(externalAttack)
+                );
+            Assert.That(externalAttackError.Message, Does.Contain("nested-only"));
+            Assert.That(externalRolls.Remaining, Is.EqualTo(1));
+
             ScriptedRollService untrustedRolls = new ScriptedRollService(10);
             RuleDispatcher untrustedDispatcher = new RuleDispatcherBuilder(
                 new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
@@ -225,6 +356,25 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(sourceError.Message, Does.Contain("is not an ancestor"));
             Assert.That(untrustedRolls.Remaining, Is.EqualTo(1));
+
+            ScriptedRollService untrustedAttackRolls = new(10);
+            RuleDispatcher untrustedAttackDispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(CreateSeed(Array.Empty<Modifier>())),
+                untrustedAttackRolls,
+                new SequentialOpIdProvider(30)
+            )
+                .RegisterHandler<UntrustedAttackCheckWorkflowOp, CheckOutcome>(
+                    new UntrustedAttackCheckWorkflowHandler()
+                )
+                .UseCheckResolution()
+                .Build();
+
+            InvalidOperationException attackSourceError =
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await untrustedAttackDispatcher.Dispatch(new UntrustedAttackCheckWorkflowOp())
+                );
+            Assert.That(attackSourceError.Message, Does.Contain("is not an ancestor"));
+            Assert.That(untrustedAttackRolls.Remaining, Is.EqualTo(1));
         }
 
         [Test]
@@ -359,10 +509,39 @@ namespace Game.Rules.Runtime.Tests
             ) =>
                 RequireResolved(
                     await context.Dispatch(
-                        new CollectAttackModifiersOp(
+                        new CollectAttackModifiersOp(Actor, Target, CheckSource.From(frame.Id))
+                    )
+                ).Value;
+        }
+
+        private sealed class AttackCheckWorkflowOp : IRuleOp<CheckOutcome> { }
+
+        private sealed class AttackCheckWorkflowHandler
+            : IOpHandler<AttackCheckWorkflowOp, CheckOutcome>
+        {
+            private readonly IReadOnlyList<Modifier> initialModifiers;
+            private readonly int difficultyClass;
+
+            public AttackCheckWorkflowHandler(
+                IEnumerable<Modifier> initialModifiers,
+                int difficultyClass = 15
+            )
+            {
+                this.initialModifiers = initialModifiers.ToArray();
+                this.difficultyClass = difficultyClass;
+            }
+
+            public async ValueTask<CheckOutcome> Handle(
+                OpFrame<AttackCheckWorkflowOp> frame,
+                OpHandlerContext context
+            ) =>
+                RequireResolved(
+                    await context.Dispatch(
+                        new AttackCheckOp(
                             Actor,
                             Target,
-                            Weapon,
+                            initialModifiers,
+                            difficultyClass,
                             CheckSource.From(frame.Id)
                         )
                     )
@@ -405,6 +584,28 @@ namespace Game.Rules.Runtime.Tests
                         new SkillCheckOp(
                             Actor,
                             Skill.Acrobatics,
+                            15,
+                            CheckSource.From(new OpId(999))
+                        )
+                    )
+                ).Value;
+        }
+
+        private sealed class UntrustedAttackCheckWorkflowOp : IRuleOp<CheckOutcome> { }
+
+        private sealed class UntrustedAttackCheckWorkflowHandler
+            : IOpHandler<UntrustedAttackCheckWorkflowOp, CheckOutcome>
+        {
+            public async ValueTask<CheckOutcome> Handle(
+                OpFrame<UntrustedAttackCheckWorkflowOp> frame,
+                OpHandlerContext context
+            ) =>
+                RequireResolved(
+                    await context.Dispatch(
+                        new AttackCheckOp(
+                            Actor,
+                            Target,
+                            Array.Empty<Modifier>(),
                             15,
                             CheckSource.From(new OpId(999))
                         )

@@ -32,7 +32,7 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
     }
 
     [UnityTest]
-    public IEnumerator ClericWithPlayerControllerGetsOnlyLegacyNonLightActionsBeforeComposition()
+    public IEnumerator ClericGetsOnlyUnmigratedLegacySpellActionsBeforeComposition()
     {
         clericObject = new GameObject("PlayMode Cleric");
         CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
@@ -47,6 +47,10 @@ public class ClericSpellcastingPlayModeTests : PlayModeBase
         yield return null;
 
         Assert.That(controller.GetActions().Any(action => action.ActionName == "Light"), Is.False);
+        Assert.That(
+            controller.GetActions().Any(action => action.ActionName == "Divine Lance"),
+            Is.False
+        );
         Assert.That(controller.GetActions().Any(action => action.ActionName == "Shield"), Is.True);
 
         controller.StartTurn();

@@ -299,6 +299,7 @@ namespace Game.Rules.Runtime
         private readonly IReadOnlyList<SpellActionVariant> variants;
         private readonly IReadOnlyList<Trait> traits;
         private readonly IReadOnlyList<SpellEffectDirective> effects;
+        private readonly IReadOnlyList<SpellAttackDefinition> attacks;
 
         /// <summary>Creates an immutable, data-backed spell definition.</summary>
         /// <param name="id">The stable spell identity shared with prepared spellbooks.</param>
@@ -307,13 +308,15 @@ namespace Game.Rules.Runtime
         /// <param name="variants">The supported one-to-three-action casting variants.</param>
         /// <param name="traits">The rules traits frozen into the action profile.</param>
         /// <param name="effects">Generic active effects created when the cast resolves.</param>
+        /// <param name="attacks">Generic spell attacks resolved when the cast completes.</param>
         public SpellDefinition(
             SpellId id,
             string displayName,
             int minimumRank,
             IEnumerable<SpellActionVariant> variants,
             IEnumerable<Trait> traits,
-            IEnumerable<SpellEffectDirective> effects
+            IEnumerable<SpellEffectDirective> effects,
+            IEnumerable<SpellAttackDefinition> attacks
         )
         {
             if (id.IsEmpty)
@@ -344,6 +347,14 @@ namespace Game.Rules.Runtime
                     "Effect directives cannot contain null.",
                     nameof(effects)
                 );
+            this.attacks = new ReadOnlyCollection<SpellAttackDefinition>(
+                (attacks ?? throw new ArgumentNullException(nameof(attacks))).ToArray()
+            );
+            if (this.attacks.Any(attack => attack == null))
+                throw new ArgumentException(
+                    "Attack directives cannot contain null.",
+                    nameof(attacks)
+                );
         }
 
         /// <summary>Gets the stable spell identity.</summary>
@@ -363,6 +374,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets generic active effects created by a resolved cast.</summary>
         public IReadOnlyList<SpellEffectDirective> Effects => effects;
+
+        /// <summary>Gets generic spell attacks resolved by this definition.</summary>
+        public IReadOnlyList<SpellAttackDefinition> Attacks => attacks;
     }
 
     /// <summary>Resolves generic spell definitions by exact cast reference.</summary>

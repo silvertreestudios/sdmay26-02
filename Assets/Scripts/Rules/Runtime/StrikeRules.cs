@@ -42,70 +42,12 @@ namespace Game.Rules.Runtime
         public ItemId Pool { get; }
     }
 
-    /// <summary>Describes one immutable typed damage contribution to a Strike.</summary>
-    public sealed class StrikeDamageComponent
-    {
-        /// <summary>Creates a dice contribution.</summary>
-        public StrikeDamageComponent(int dice, int sides, string damageType, string source)
-        {
-            if (dice <= 0)
-                throw new ArgumentOutOfRangeException(nameof(dice));
-            if (sides <= 0)
-                throw new ArgumentOutOfRangeException(nameof(sides));
-            if (string.IsNullOrWhiteSpace(damageType))
-                throw new ArgumentException("A damage type is required.", nameof(damageType));
-            if (string.IsNullOrWhiteSpace(source))
-                throw new ArgumentException("A damage source is required.", nameof(source));
-            Dice = dice;
-            Sides = sides;
-            DamageType = damageType.Trim();
-            Source = source.Trim();
-        }
-
-        /// <summary>Gets the number of dice.</summary>
-        public int Dice { get; }
-
-        /// <summary>Gets the die size.</summary>
-        public int Sides { get; }
-
-        /// <summary>Gets the damage type.</summary>
-        public string DamageType { get; }
-
-        /// <summary>Gets the rule or item source.</summary>
-        public string Source { get; }
-    }
-
-    /// <summary>Describes one immutable flat damage contribution.</summary>
-    public sealed class StrikeFlatDamage
-    {
-        /// <summary>Creates a flat damage contribution.</summary>
-        public StrikeFlatDamage(int amount, string damageType, string source)
-        {
-            if (string.IsNullOrWhiteSpace(damageType))
-                throw new ArgumentException("A damage type is required.", nameof(damageType));
-            if (string.IsNullOrWhiteSpace(source))
-                throw new ArgumentException("A damage source is required.", nameof(source));
-            Amount = amount;
-            DamageType = damageType.Trim();
-            Source = source.Trim();
-        }
-
-        /// <summary>Gets the signed damage amount.</summary>
-        public int Amount { get; }
-
-        /// <summary>Gets the damage type.</summary>
-        public string DamageType { get; }
-
-        /// <summary>Gets the rule or item source.</summary>
-        public string Source { get; }
-    }
-
     /// <summary>Defines one encounter-stable weapon or unarmed Strike entry.</summary>
     public sealed class StrikeItemDefinition
     {
         private readonly IReadOnlyList<Trait> traits;
-        private readonly IReadOnlyList<StrikeDamageComponent> damageDice;
-        private readonly IReadOnlyList<StrikeFlatDamage> flatDamage;
+        private readonly IReadOnlyList<TypedDamageDice> damageDice;
+        private readonly IReadOnlyList<TypedFlatDamage> flatDamage;
 
         /// <summary>Creates a complete immutable Strike item definition.</summary>
         public StrikeItemDefinition(
@@ -116,8 +58,8 @@ namespace Game.Rules.Runtime
             string category,
             IEnumerable<Trait> traits,
             int attackModifier,
-            IEnumerable<StrikeDamageComponent> damageDice,
-            IEnumerable<StrikeFlatDamage> flatDamage,
+            IEnumerable<TypedDamageDice> damageDice,
+            IEnumerable<TypedFlatDamage> flatDamage,
             int reachFeet,
             int rangeIncrementFeet,
             int reloadActions,
@@ -149,8 +91,8 @@ namespace Game.Rules.Runtime
             Trait[] copiedTraits = traits.Distinct().ToArray();
             if (copiedTraits.Any(trait => trait.IsEmpty))
                 throw new ArgumentException("Strike traits cannot be empty.", nameof(traits));
-            StrikeDamageComponent[] copiedDice = damageDice.ToArray();
-            StrikeFlatDamage[] copiedFlats = flatDamage.ToArray();
+            TypedDamageDice[] copiedDice = damageDice.ToArray();
+            TypedFlatDamage[] copiedFlats = flatDamage.ToArray();
             if (copiedDice.Any(component => component == null))
                 throw new ArgumentException("Strike dice cannot contain null.", nameof(damageDice));
             if (copiedFlats.Any(component => component == null))
@@ -201,10 +143,10 @@ namespace Game.Rules.Runtime
         public int AttackModifier { get; }
 
         /// <summary>Gets the base damage dice.</summary>
-        public IReadOnlyList<StrikeDamageComponent> DamageDice => damageDice;
+        public IReadOnlyList<TypedDamageDice> DamageDice => damageDice;
 
         /// <summary>Gets the base flat damage.</summary>
-        public IReadOnlyList<StrikeFlatDamage> FlatDamage => flatDamage;
+        public IReadOnlyList<TypedFlatDamage> FlatDamage => flatDamage;
 
         /// <summary>Gets melee reach in feet.</summary>
         public int ReachFeet { get; }
@@ -226,7 +168,7 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the mean base damage used by tactical selection.</summary>
         public double AverageDamage =>
-            damageDice.Sum(component => component.Dice * (component.Sides + 1) / 2.0)
+            damageDice.Sum(component => component.Dice.Count * (component.Dice.Sides + 1) / 2.0)
             + flatDamage.Sum(component => component.Amount);
     }
 
@@ -319,44 +261,23 @@ namespace Game.Rules.Runtime
         );
     }
 
-    /// <summary>Describes a weakness or resistance for one damage type.</summary>
-    public sealed class StrikeDefenseAdjustment
-    {
-        /// <summary>Creates a typed defense amount.</summary>
-        public StrikeDefenseAdjustment(string damageType, int amount)
-        {
-            if (string.IsNullOrWhiteSpace(damageType))
-                throw new ArgumentException("A damage type is required.", nameof(damageType));
-            if (amount < 0)
-                throw new ArgumentOutOfRangeException(nameof(amount));
-            DamageType = damageType.Trim();
-            Amount = amount;
-        }
-
-        /// <summary>Gets the damage type.</summary>
-        public string DamageType { get; }
-
-        /// <summary>Gets the non-negative adjustment.</summary>
-        public int Amount { get; }
-    }
-
     /// <summary>Contains immutable Unity-extracted values needed by pure Strike calculation.</summary>
     public sealed class StrikeResolutionData
     {
         private readonly IReadOnlyList<Modifier> attackModifiers;
-        private readonly IReadOnlyList<StrikeDamageComponent> damageDice;
-        private readonly IReadOnlyList<StrikeFlatDamage> flatDamage;
-        private readonly IReadOnlyList<StrikeDefenseAdjustment> weaknesses;
-        private readonly IReadOnlyList<StrikeDefenseAdjustment> resistances;
+        private readonly IReadOnlyList<TypedDamageDice> damageDice;
+        private readonly IReadOnlyList<TypedFlatDamage> flatDamage;
+        private readonly IReadOnlyList<TypedDefenseAdjustment> weaknesses;
+        private readonly IReadOnlyList<TypedDefenseAdjustment> resistances;
 
         /// <summary>Creates one frozen resolution-data snapshot.</summary>
         public StrikeResolutionData(
             int armorClass,
             IEnumerable<Modifier> attackModifiers,
-            IEnumerable<StrikeDamageComponent> damageDice,
-            IEnumerable<StrikeFlatDamage> flatDamage,
-            IEnumerable<StrikeDefenseAdjustment> weaknesses,
-            IEnumerable<StrikeDefenseAdjustment> resistances
+            IEnumerable<TypedDamageDice> damageDice,
+            IEnumerable<TypedFlatDamage> flatDamage,
+            IEnumerable<TypedDefenseAdjustment> weaknesses,
+            IEnumerable<TypedDefenseAdjustment> resistances
         )
         {
             if (armorClass <= 0)
@@ -387,16 +308,16 @@ namespace Game.Rules.Runtime
         public IReadOnlyList<Modifier> AttackModifiers => attackModifiers;
 
         /// <summary>Gets prepared extra damage dice.</summary>
-        public IReadOnlyList<StrikeDamageComponent> DamageDice => damageDice;
+        public IReadOnlyList<TypedDamageDice> DamageDice => damageDice;
 
         /// <summary>Gets prepared flat damage contributions.</summary>
-        public IReadOnlyList<StrikeFlatDamage> FlatDamage => flatDamage;
+        public IReadOnlyList<TypedFlatDamage> FlatDamage => flatDamage;
 
         /// <summary>Gets target weaknesses.</summary>
-        public IReadOnlyList<StrikeDefenseAdjustment> Weaknesses => weaknesses;
+        public IReadOnlyList<TypedDefenseAdjustment> Weaknesses => weaknesses;
 
         /// <summary>Gets target resistances.</summary>
-        public IReadOnlyList<StrikeDefenseAdjustment> Resistances => resistances;
+        public IReadOnlyList<TypedDefenseAdjustment> Resistances => resistances;
 
         private static IReadOnlyList<T> Copy<T>(IEnumerable<T> values, string parameterName)
             where T : class
@@ -439,22 +360,6 @@ namespace Game.Rules.Runtime
         );
     }
 
-    /// <summary>Contains one final typed damage amount.</summary>
-    public sealed class StrikeDamagePart
-    {
-        internal StrikeDamagePart(string damageType, int amount)
-        {
-            DamageType = damageType;
-            Amount = amount;
-        }
-
-        /// <summary>Gets the damage type.</summary>
-        public string DamageType { get; }
-
-        /// <summary>Gets the final non-negative amount.</summary>
-        public int Amount { get; }
-    }
-
     /// <summary>Contains the deterministic attack and damage result for one resolved Strike.</summary>
     public sealed class StrikeResolution
     {
@@ -467,7 +372,7 @@ namespace Game.Rules.Runtime
             int coverBonus,
             bool offGuard,
             DegreeOfSuccess degree,
-            IReadOnlyList<StrikeDamagePart> damage,
+            IReadOnlyList<TypedDamagePart> damage,
             int finalDamage
         )
         {
@@ -508,7 +413,7 @@ namespace Game.Rules.Runtime
         public DegreeOfSuccess Degree { get; }
 
         /// <summary>Gets final damage by type after defenses.</summary>
-        public IReadOnlyList<StrikeDamagePart> Damage { get; }
+        public IReadOnlyList<TypedDamagePart> Damage { get; }
 
         /// <summary>Gets final damage submitted to the sole HP write path.</summary>
         public int FinalDamage { get; }
@@ -1042,7 +947,7 @@ namespace Game.Rules.Runtime
             this.resolutionData = resolutionData;
         }
 
-        public ValueTask<StrikeResolution> Handle(
+        public async ValueTask<StrikeResolution> Handle(
             OpFrame<ResolveStrikeOp> frame,
             OpHandlerContext context
         )
@@ -1072,17 +977,16 @@ namespace Game.Rules.Runtime
                 ? map.AttackCount
                 : 0;
             int mapPenalty = MultipleAttackPenaltyResolver.Resolve(priorAttacks, item.IsAgile);
-            StrikeResolution resolution = Resolve(item, data, legal, mapPenalty, context.Rolls);
-
-            return new ValueTask<StrikeResolution>(resolution);
+            return await Resolve(frame, item, data, legal, mapPenalty, context);
         }
 
-        private static StrikeResolution Resolve(
+        private static async ValueTask<StrikeResolution> Resolve(
+            OpFrame<ResolveStrikeOp> frame,
             StrikeItemDefinition item,
             StrikeResolutionData data,
             LegalStrikeTargetingOutcome targeting,
             int mapPenalty,
-            IRollService rolls
+            OpHandlerContext context
         )
         {
             List<Modifier> attackCandidates = new List<Modifier>
@@ -1104,30 +1008,32 @@ namespace Game.Rules.Runtime
                 ),
             };
             attackCandidates.AddRange(data.AttackModifiers);
-            ModifierCollection attack = new ModifierCollection(
-                Statistic.AttackRoll,
-                attackCandidates
-            );
             int armorClass = data.ArmorClass;
-            RollResult attackRoll = rolls.Roll(DiceExpressions.D20);
-            int total = checked(attackRoll.Total + attack.Total);
-            DegreeOfSuccess degree = DegreeOfSuccessResolver.Resolve(
-                attackRoll.Values[0],
-                total,
-                armorClass
+            OpResult<CheckOutcome> attackResult = await context.Dispatch(
+                new AttackCheckOp(
+                    frame.Op.Actor,
+                    frame.Op.Target,
+                    attackCandidates,
+                    armorClass,
+                    CheckSource.From(frame.Id)
+                )
             );
+            if (attackResult is not ResolvedOpResult<CheckOutcome> resolvedAttack)
+                throw new InvalidOperationException("Strike attack check did not resolve.");
+            CheckOutcome attack = resolvedAttack.Value;
+            DegreeOfSuccess degree = attack.Degree;
             bool hit =
                 degree == DegreeOfSuccess.Success || degree == DegreeOfSuccess.CriticalSuccess;
-            IReadOnlyList<StrikeDamagePart> damage = Array.Empty<StrikeDamagePart>();
+            IReadOnlyList<TypedDamagePart> damage = Array.Empty<TypedDamagePart>();
             int finalDamage = 0;
             if (hit)
             {
-                damage = ResolveDamage(item, data, degree, rolls);
+                damage = ResolveDamage(item, data, degree, context.Rolls);
                 finalDamage = damage.Sum(part => part.Amount);
             }
             return new StrikeResolution(
-                attackRoll,
-                attack.Total,
+                attack.Roll,
+                attack.Modifiers.Total,
                 mapPenalty,
                 targeting.RangePenalty,
                 armorClass,
@@ -1139,80 +1045,51 @@ namespace Game.Rules.Runtime
             );
         }
 
-        private static IReadOnlyList<StrikeDamagePart> ResolveDamage(
+        private static IReadOnlyList<TypedDamagePart> ResolveDamage(
             StrikeItemDefinition item,
             StrikeResolutionData data,
             DegreeOfSuccess degree,
             IRollService rolls
         )
         {
-            List<StrikeDamageComponent> dice = item.DamageDice.Concat(data.DamageDice).ToList();
+            List<TypedDamageDice> dice = item.DamageDice.Concat(data.DamageDice).ToList();
             int deadlySides = FindTraitDie(item.Traits, "deadly-d");
             int fatalSides = FindTraitDie(item.Traits, "fatal-d");
             if (
                 degree == DegreeOfSuccess.CriticalSuccess
                 && fatalSides > 0
-                && dice[0].Sides < fatalSides
+                && dice[0].Dice.Sides < fatalSides
             )
             {
-                StrikeDamageComponent primary = dice[0];
-                dice[0] = new StrikeDamageComponent(
-                    primary.Dice,
-                    fatalSides,
+                TypedDamageDice primary = dice[0];
+                dice[0] = new TypedDamageDice(
+                    new DiceExpression(primary.Dice.Count, fatalSides),
                     primary.DamageType,
                     primary.Source
                 );
             }
 
-            Dictionary<string, int> amounts = new Dictionary<string, int>(
-                StringComparer.OrdinalIgnoreCase
+            int criticalTraitSides = fatalSides > 0 ? fatalSides : deadlySides;
+            IReadOnlyList<TypedDamageDice> criticalOnlyDice =
+                degree == DegreeOfSuccess.CriticalSuccess && criticalTraitSides > 0
+                    ? new[]
+                    {
+                        new TypedDamageDice(
+                            new DiceExpression(1, criticalTraitSides),
+                            dice[0].DamageType,
+                            fatalSides > 0 ? "fatal" : "deadly"
+                        ),
+                    }
+                    : Array.Empty<TypedDamageDice>();
+            return TypedDamageResolver.Resolve(
+                dice,
+                item.FlatDamage.Concat(data.FlatDamage),
+                criticalOnlyDice,
+                degree,
+                data.Weaknesses,
+                data.Resistances,
+                rolls
             );
-            Dictionary<string, string> labels = new Dictionary<string, string>(
-                StringComparer.OrdinalIgnoreCase
-            );
-            foreach (StrikeDamageComponent component in dice)
-            {
-                int amount = rolls.Roll(new DiceExpression(component.Dice, component.Sides)).Total;
-                Add(amounts, labels, component.DamageType, amount);
-            }
-            foreach (StrikeFlatDamage flat in item.FlatDamage.Concat(data.FlatDamage))
-                Add(amounts, labels, flat.DamageType, flat.Amount);
-
-            if (degree == DegreeOfSuccess.CriticalSuccess)
-            {
-                foreach (string key in amounts.Keys.ToArray())
-                    amounts[key] = checked(amounts[key] * 2);
-                int criticalTraitSides = fatalSides > 0 ? fatalSides : deadlySides;
-                if (criticalTraitSides > 0)
-                {
-                    string type = dice[0].DamageType;
-                    Add(
-                        amounts,
-                        labels,
-                        type,
-                        rolls.Roll(new DiceExpression(1, criticalTraitSides)).Total
-                    );
-                }
-            }
-
-            foreach (KeyValuePair<string, string> label in labels.ToArray())
-            {
-                int amount = amounts[label.Key];
-                StrikeDefenseAdjustment weakness = data.Weaknesses.FirstOrDefault(value =>
-                    string.Equals(value.DamageType, label.Key, StringComparison.OrdinalIgnoreCase)
-                );
-                StrikeDefenseAdjustment resistance = data.Resistances.FirstOrDefault(value =>
-                    string.Equals(value.DamageType, label.Key, StringComparison.OrdinalIgnoreCase)
-                );
-                if (weakness != null)
-                    amount = checked(amount + weakness.Amount);
-                if (resistance != null)
-                    amount -= resistance.Amount;
-                amounts[label.Key] = Math.Max(0, amount);
-            }
-            return labels
-                .Select(pair => new StrikeDamagePart(pair.Value, amounts[pair.Key]))
-                .ToArray();
         }
 
         private static int FindTraitDie(IEnumerable<Trait> traits, string prefix)
@@ -1227,21 +1104,6 @@ namespace Game.Rules.Runtime
                     return sides;
             }
             return 0;
-        }
-
-        private static void Add(
-            IDictionary<string, int> amounts,
-            IDictionary<string, string> labels,
-            string damageType,
-            int amount
-        )
-        {
-            if (!amounts.ContainsKey(damageType))
-            {
-                amounts.Add(damageType, 0);
-                labels.Add(damageType, damageType);
-            }
-            amounts[damageType] = checked(amounts[damageType] + amount);
         }
     }
 

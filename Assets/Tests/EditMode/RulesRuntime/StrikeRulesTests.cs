@@ -38,6 +38,25 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task StrikeResolvesItsAttackThroughSharedAttackCheck()
+        {
+            TestRuntime runtime = CreateRuntime(new ScriptedRollService(10, 4));
+            CapturingAttackCheckObserver observer = new();
+            runtime.Dispatcher.RegisterResolvedOpObserver<AttackCheckOp, CheckOutcome>(observer);
+
+            StrikeResolution resolution = AssertResolved(
+                await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
+            ).Value;
+
+            Assert.That(observer.Operation, Is.Not.Null);
+            Assert.That(observer.Operation.Attacker, Is.EqualTo(Actor));
+            Assert.That(observer.Operation.Target, Is.EqualTo(Target));
+            Assert.That(observer.Outcome.Roll, Is.SameAs(resolution.AttackRoll));
+            Assert.That(observer.Outcome.Modifiers.Total, Is.EqualTo(resolution.AttackModifier));
+            Assert.That(observer.Outcome.Degree, Is.EqualTo(resolution.Degree));
+        }
+
+        [Test]
         public async Task MissStillSpendsActionAndAdvancesMapWithoutDamage()
         {
             TestRuntime runtime = CreateRuntime(new ScriptedRollService(2));
@@ -103,10 +122,10 @@ namespace Game.Rules.Runtime.Tests
                     new StrikeResolutionData(
                         15,
                         Array.Empty<Modifier>(),
-                        Array.Empty<StrikeDamageComponent>(),
-                        Array.Empty<StrikeFlatDamage>(),
-                        new[] { new StrikeDefenseAdjustment("slashing", 3) },
-                        new[] { new StrikeDefenseAdjustment("slashing", 1) }
+                        Array.Empty<TypedDamageDice>(),
+                        Array.Empty<TypedFlatDamage>(),
+                        new[] { new TypedDefenseAdjustment("slashing", 3) },
+                        new[] { new TypedDefenseAdjustment("slashing", 1) }
                     )
                 )
             );
@@ -358,10 +377,10 @@ namespace Game.Rules.Runtime.Tests
                     new StrikeResolutionData(
                         15,
                         Array.Empty<Modifier>(),
-                        Array.Empty<StrikeDamageComponent>(),
-                        Array.Empty<StrikeFlatDamage>(),
-                        Array.Empty<StrikeDefenseAdjustment>(),
-                        Array.Empty<StrikeDefenseAdjustment>()
+                        Array.Empty<TypedDamageDice>(),
+                        Array.Empty<TypedFlatDamage>(),
+                        Array.Empty<TypedDefenseAdjustment>(),
+                        Array.Empty<TypedDefenseAdjustment>()
                     )
                 );
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
@@ -371,6 +390,7 @@ namespace Game.Rules.Runtime.Tests
                 .UseHealthRules()
                 .UseCombatRuntimeRules()
                 .UseActionLifecycle(catalog)
+                .UseCheckResolution()
                 .UseStrikeRules(catalog, targeting, data)
                 .Build();
             return new TestRuntime(dispatcher, rolls, targeting);
@@ -389,8 +409,8 @@ namespace Game.Rules.Runtime.Tests
                 "martial",
                 traits ?? Array.Empty<Trait>(),
                 10,
-                new[] { new StrikeDamageComponent(1, 6, "slashing", "Test Sword") },
-                new[] { new StrikeFlatDamage(2, "slashing", "Strength") },
+                new[] { new TypedDamageDice(new DiceExpression(1, 6), "slashing", "Test Sword") },
+                new[] { new TypedFlatDamage(2, "slashing", "Strength") },
                 5,
                 reloadActions > 0 ? 30 : 0,
                 reloadActions,
@@ -419,6 +439,24 @@ namespace Game.Rules.Runtime.Tests
             public RuleDispatcher Dispatcher { get; }
             public ScriptedRollService Rolls { get; }
             public TestTargeting Targeting { get; }
+        }
+
+        private sealed class CapturingAttackCheckObserver
+            : IResolvedOpObserver<AttackCheckOp, CheckOutcome>
+        {
+            public AttackCheckOp Operation { get; private set; }
+            public CheckOutcome Outcome { get; private set; }
+
+            public ValueTask OnOperationResolved(
+                AttackCheckOp operation,
+                CheckOutcome result,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Operation = operation;
+                Outcome = result;
+                return default;
+            }
         }
 
         private sealed class TestCatalog : IActionCatalog, IStrikeActionCatalog

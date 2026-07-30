@@ -73,6 +73,43 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<ArgumentException>(() => new RollResult(empty, Array.Empty<int>()));
         }
 
+        [TestCase("2d4", 2, 4)]
+        [TestCase(" 1D20 ", 1, 20)]
+        public void DiceExpressionsParsePlainPositiveNdS(string value, int count, int sides)
+        {
+            Assert.That(DiceExpression.TryParse(value, out DiceExpression parsed), Is.True);
+            Assert.That(parsed, Is.EqualTo(new DiceExpression(count, sides)));
+        }
+
+        [TestCase("")]
+        [TestCase("d4")]
+        [TestCase("2d")]
+        [TestCase("0d4")]
+        [TestCase("2d0")]
+        [TestCase("2d4+3")]
+        [TestCase("2d4d6")]
+        public void DiceExpressionsRejectUnsupportedShapes(string value)
+        {
+            Assert.That(DiceExpression.TryParse(value, out _), Is.False);
+        }
+
+        [TestCase("60 feet", 60)]
+        [TestCase(" 5 feet ", 5)]
+        public void NumericFootDistancesParse(string value, int expected)
+        {
+            Assert.That(DistanceValues.TryParseFeet(value, out int feet), Is.True);
+            Assert.That(feet, Is.EqualTo(expected));
+        }
+
+        [TestCase("0 feet")]
+        [TestCase("30 foot")]
+        [TestCase("touch")]
+        [TestCase("30 feet away")]
+        public void NumericFootDistancesRejectUnsupportedShapes(string value)
+        {
+            Assert.That(DistanceValues.TryParseFeet(value, out _), Is.False);
+        }
+
         [Test]
         public void SeededRuntimeSourceProducesOnlyValuesInTheRequestedRange()
         {

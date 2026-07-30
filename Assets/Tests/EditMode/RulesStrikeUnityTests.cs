@@ -124,7 +124,7 @@ public sealed class RulesStrikeUnityTests
 
         Assert.That(
             rageStrike.Value.Damage.Sum(part => part.Amount),
-            Is.GreaterThan(torgrimStrike.Item.DamageDice[0].Dice + torgrim.strMod)
+            Is.GreaterThan(torgrimStrike.Item.DamageDice[0].Dice.Count + torgrim.strMod)
         );
         Assert.That(rogueStrike.Value.Damage.Any(part => part.DamageType == "precision"), Is.True);
         Assert.That(rogueStrike.Value.Damage.Any(part => part.DamageType == "vitality"), Is.True);

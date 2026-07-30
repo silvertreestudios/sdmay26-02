@@ -6,8 +6,9 @@ namespace Game.Rules.Runtime
     /// Collects attack-roll modifiers through active middleware before an attack roll is made.
     /// </summary>
     /// <remarks>
-    /// The operation is read-only but interceptable. Its stable identities let active bindings
-    /// contribute situational modifiers without discovering Unity components or changing state.
+    /// The operation is read-only but interceptable. Its handler seeds current rules-state
+    /// candidates without adding a feature-specific attack base. Active bindings can inspect the
+    /// operation ancestry to distinguish Strike, spell, and future attack workflows.
     /// </remarks>
     public sealed class CollectAttackModifiersOp : IRuleOp<ModifierCollection>
     {
@@ -17,33 +18,22 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the target creature.</summary>
         public CreatureId Target { get; }
 
-        /// <summary>Gets the stable weapon item used by the attack.</summary>
-        public ItemId Weapon { get; }
-
         /// <summary>Gets the ancestor operation responsible for the attack calculation.</summary>
         public CheckSource Source { get; }
 
         /// <summary>Creates a nested attack-modifier collection request.</summary>
         /// <param name="attacker">The attacking creature.</param>
         /// <param name="target">The target creature.</param>
-        /// <param name="weapon">The weapon item used for this attack.</param>
         /// <param name="source">The ancestor operation responsible for the calculation.</param>
         /// <exception cref="ArgumentException">
-        /// Any required creature, item, or source identity is empty.
+        /// Any required creature or source identity is empty.
         /// </exception>
-        public CollectAttackModifiersOp(
-            CreatureId attacker,
-            CreatureId target,
-            ItemId weapon,
-            CheckSource source
-        )
+        public CollectAttackModifiersOp(CreatureId attacker, CreatureId target, CheckSource source)
         {
             if (attacker.IsEmpty)
                 throw new ArgumentException("An attacker is required.", nameof(attacker));
             if (target.IsEmpty)
                 throw new ArgumentException("A target is required.", nameof(target));
-            if (weapon.IsEmpty)
-                throw new ArgumentException("A weapon item is required.", nameof(weapon));
             if (source.IsEmpty)
                 throw new ArgumentException(
                     "Modifier collection requires trusted source provenance.",
@@ -52,7 +42,6 @@ namespace Game.Rules.Runtime
 
             Attacker = attacker;
             Target = target;
-            Weapon = weapon;
             Source = source;
         }
     }

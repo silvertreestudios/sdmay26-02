@@ -47,6 +47,20 @@ namespace Game.Rules.Runtime
         );
 
         /// <summary>
+        /// Attempts to get current snapshot-owned candidates without requiring a statistics slice.
+        /// </summary>
+        /// <remarks>
+        /// Unity-backed combatants can keep base statistics at the adapter boundary while still
+        /// allowing rules-native effects to contribute modifiers when a statistics slice exists.
+        /// </remarks>
+        bool TryGetCurrentModifiers(
+            RulesSnapshot snapshot,
+            CreatureId creature,
+            Statistic statistic,
+            out ModifierCollection modifiers
+        );
+
+        /// <summary>
         /// Resolves Armor Class from the seeded base value and current Armor Class modifiers.
         /// </summary>
         int GetArmorClass(RulesSnapshot snapshot, CreatureId creature);
@@ -122,6 +136,25 @@ namespace Game.Rules.Runtime
         {
             CreatureStatisticsState statistics = RequireStatistics(snapshot, creature);
             return new ModifierCollection(statistic, statistics.Modifiers);
+        }
+
+        /// <inheritdoc/>
+        public bool TryGetCurrentModifiers(
+            RulesSnapshot snapshot,
+            CreatureId creature,
+            Statistic statistic,
+            out ModifierCollection modifiers
+        )
+        {
+            RequireSnapshot(snapshot);
+            RequireCreatureId(creature, nameof(creature));
+            if (snapshot.Statistics.TryGet(creature, out CreatureStatisticsState statistics))
+            {
+                modifiers = new ModifierCollection(statistic, statistics.Modifiers);
+                return true;
+            }
+            modifiers = new ModifierCollection(statistic, Array.Empty<Modifier>());
+            return false;
         }
 
         /// <inheritdoc/>
