@@ -30,6 +30,27 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task RegistrationTokenUnregistersObserverExactlyOnce()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher();
+            CountingObserver observer = new CountingObserver();
+            IDisposable registration = dispatcher.RegisterResolvedOpObserver<ObservedOp, int>(
+                observer
+            );
+
+            await dispatcher.Dispatch(new ObservedOp(1, OpStatus.Resolved));
+            registration.Dispose();
+            registration.Dispose();
+            await dispatcher.Dispatch(new ObservedOp(2, OpStatus.Resolved));
+
+            Assert.That(observer.Count, Is.EqualTo(1));
+            Assert.That(
+                dispatcher.UnregisterResolvedOpObserver<ObservedOp, int>(observer),
+                Is.False
+            );
+        }
+
+        [Test]
         public async Task NestedObserverFinishesBeforeParentContinuationAndParentObservation()
         {
             List<string> order = new List<string>();

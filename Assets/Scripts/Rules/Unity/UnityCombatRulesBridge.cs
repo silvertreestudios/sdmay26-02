@@ -41,11 +41,10 @@ namespace Game.Rules.Unity
         private readonly RuleDispatcher dispatcher;
         private readonly UnitySpellDefinitionCatalog spellCatalog;
         private readonly ISpellActionCatalog spellActionCatalog;
-        private readonly IReadOnlyList<IDisposable> presentationResources;
+        private readonly CompositeLifetime encounterLifetime = new();
         private readonly Dictionary<OpId, Queue<Action>> encounterPresentationByRoot = new();
         private readonly Dictionary<OpId, List<OpId>> encounterPresentationChildren = new();
         private readonly HashSet<OpId> settledEncounterPresentationRoots = new();
-        private readonly EncounterRootSettlementObserver encounterSettlementObserver;
         private readonly EncounterId encounterId = new EncounterId("unity-encounter-1");
         private Tile[,] currentTiles;
         private long nextCreatureId;
@@ -154,62 +153,102 @@ namespace Game.Rules.Unity
                 .UseSpellcastingRules(actionCatalog, spellAttackContext)
                 .UseStrikeRules(strikeContext, strikeContext, strikeContext)
                 .Build();
-            dispatcher.RegisterFactObserver<AmmunitionSpentFact>(strikeContext);
-            dispatcher.RegisterFactObserver<StrikeItemLoadedChangedFact>(strikeContext);
-            dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
-                new UnityResolvedSpellCastPresentationObserver(creatures, spellCatalog)
-            );
-            dispatcher.RegisterResolvedOpObserver<ResolveSpellAttackOp, SpellAttackResolution>(
-                new UnitySpellAttackPresentationObserver(creatures, spellCatalog)
-            );
-            UnityLightEffectPresentationObserver effectPresentation =
-                UnityLightEffectPresentationObserver.Create(spellCatalog, creatures);
-            presentationResources = new IDisposable[] { effectPresentation };
-            dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(effectPresentation);
-            dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(effectPresentation);
-            dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(effectPresentation);
-            dispatcher.RegisterFactObserver<EncounterEndedFact>(effectPresentation);
-            EncounterProjectionObserver encounterProjection = new EncounterProjectionObserver(this);
-            encounterSettlementObserver = new EncounterRootSettlementObserver(this);
-            dispatcher.RegisterRootSettlementObserver(encounterSettlementObserver);
-            dispatcher.RegisterCausalTreeSettlementObserver(encounterSettlementObserver);
-            dispatcher.RegisterFactObserver<EncounterStartedFact>(encounterProjection);
-            dispatcher.RegisterFactObserver<TurnBeganFact>(encounterProjection);
-            dispatcher.RegisterFactObserver<TurnEndedFact>(encounterProjection);
-            dispatcher.RegisterFactObserver<EncounterEndedFact>(encounterProjection);
-            if (attachControllers)
+            List<CreatureComponent> attachedCreatures = new();
+            List<ActionController> attachedControllers = new();
+            try
             {
-                Dictionary<
-                    ActionController,
-                    UnityStrikeActionInstallationPlan
-                > strikeInstallationPlans = new();
-                Dictionary<
-                    ActionController,
-                    UnitySpellActionInstallationPlan
-                > spellInstallationPlans = new();
-                foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
-                {
-                    strikeInstallationPlans.Add(
-                        entry.Key,
-                        UnityStrikeActionInstaller.Prepare(entry.Key, entry.Value, strikeContext)
-                    );
-                    spellInstallationPlans.Add(
-                        entry.Key,
-                        UnitySpellActionInstaller.Prepare(entry.Key, entry.Value, actionCatalog)
-                    );
-                }
-                UnityStrikePresentationObserver strikePresentation =
-                    new UnityStrikePresentationObserver(controllers, creatures, strikeContext);
-                dispatcher.RegisterResolvedOpObserver<ResolveStrikeOp, StrikeResolution>(
-                    strikePresentation
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<AmmunitionSpentFact>(strikeContext)
                 );
-                dispatcher.RegisterResolvedOpObserver<StrikeActionOp, StrikeResolution>(
-                    strikePresentation
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<StrikeItemLoadedChangedFact>(strikeContext)
                 );
-                List<CreatureComponent> attachedCreatures = new();
-                List<ActionController> attachedControllers = new();
-                try
+                encounterLifetime.Add(
+                    dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
+                        new UnityResolvedSpellCastPresentationObserver(creatures, spellCatalog)
+                    )
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterResolvedOpObserver<
+                        ResolveSpellAttackOp,
+                        SpellAttackResolution
+                    >(new UnitySpellAttackPresentationObserver(creatures, spellCatalog))
+                );
+                UnityLightEffectPresentationObserver effectPresentation =
+                    UnityLightEffectPresentationObserver.Create(spellCatalog, creatures);
+                encounterLifetime.Add(effectPresentation);
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(effectPresentation)
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(effectPresentation)
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(effectPresentation)
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<EncounterEndedFact>(effectPresentation)
+                );
+                EncounterProjectionObserver encounterProjection = new EncounterProjectionObserver(
+                    this
+                );
+                EncounterRootSettlementObserver encounterSettlementObserver =
+                    new EncounterRootSettlementObserver(this);
+                encounterLifetime.Add(
+                    dispatcher.RegisterRootSettlementObserver(encounterSettlementObserver)
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterCausalTreeSettlementObserver(encounterSettlementObserver)
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<EncounterStartedFact>(encounterProjection)
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<TurnBeganFact>(encounterProjection)
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<TurnEndedFact>(encounterProjection)
+                );
+                encounterLifetime.Add(
+                    dispatcher.RegisterFactObserver<EncounterEndedFact>(encounterProjection)
+                );
+                if (attachControllers)
                 {
+                    Dictionary<
+                        ActionController,
+                        UnityStrikeActionInstallationPlan
+                    > strikeInstallationPlans = new();
+                    Dictionary<
+                        ActionController,
+                        UnitySpellActionInstallationPlan
+                    > spellInstallationPlans = new();
+                    foreach (KeyValuePair<ActionController, CreatureId> entry in controllerIds)
+                    {
+                        strikeInstallationPlans.Add(
+                            entry.Key,
+                            UnityStrikeActionInstaller.Prepare(
+                                entry.Key,
+                                entry.Value,
+                                strikeContext
+                            )
+                        );
+                        spellInstallationPlans.Add(
+                            entry.Key,
+                            UnitySpellActionInstaller.Prepare(entry.Key, entry.Value, actionCatalog)
+                        );
+                    }
+                    UnityStrikePresentationObserver strikePresentation =
+                        new UnityStrikePresentationObserver(controllers, creatures, strikeContext);
+                    encounterLifetime.Add(
+                        dispatcher.RegisterResolvedOpObserver<ResolveStrikeOp, StrikeResolution>(
+                            strikePresentation
+                        )
+                    );
+                    encounterLifetime.Add(
+                        dispatcher.RegisterResolvedOpObserver<StrikeActionOp, StrikeResolution>(
+                            strikePresentation
+                        )
+                    );
                     RegisterHealthProjection();
                     foreach (KeyValuePair<CreatureComponent, CreatureId> entry in creatureIds)
                     {
@@ -227,17 +266,51 @@ namespace Game.Rules.Unity
                         spellInstallationPlans[entry.Key].Apply();
                     }
                 }
-                catch
+            }
+            catch (Exception constructionFailure)
+            {
+                List<Exception> cleanupFailures = new();
+                for (int index = attachedControllers.Count - 1; index >= 0; index--)
                 {
-                    foreach (ActionController controller in attachedControllers)
-                        controller.DetachCombatRules(this);
-                    foreach (CreatureComponent creature in attachedCreatures)
+                    try
                     {
+                        attachedControllers[index].DetachCombatRules(this);
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        cleanupFailures.Add(cleanupFailure);
+                    }
+                }
+                for (int index = attachedCreatures.Count - 1; index >= 0; index--)
+                {
+                    try
+                    {
+                        CreatureComponent creature = attachedCreatures[index];
                         CreatureId id = creatureIds[creature];
                         creature.DetachHealthRules(this, GetHealth(id));
                     }
-                    throw;
+                    catch (Exception cleanupFailure)
+                    {
+                        cleanupFailures.Add(cleanupFailure);
+                    }
                 }
+                try
+                {
+                    encounterLifetime.Dispose();
+                }
+                catch (Exception cleanupFailure)
+                {
+                    cleanupFailures.Add(cleanupFailure);
+                }
+
+                if (cleanupFailures.Count == 0)
+                    throw;
+
+                cleanupFailures.Insert(0, constructionFailure);
+                throw new AggregateException(
+                    "Encounter construction and its ownership cleanup both failed.",
+                    cleanupFailures
+                );
             }
         }
 
@@ -663,13 +736,7 @@ namespace Game.Rules.Unity
                 return;
             ownershipReleased = true;
             releaseRequested = false;
-            if (encounterSettlementObserver != null)
-            {
-                dispatcher.UnregisterRootSettlementObserver(encounterSettlementObserver);
-                dispatcher.UnregisterCausalTreeSettlementObserver(encounterSettlementObserver);
-            }
-            foreach (IDisposable resource in presentationResources)
-                resource.Dispose();
+            encounterLifetime.Dispose();
 
             foreach (KeyValuePair<CreatureComponent, CreatureId> entry in creatureIds)
             {
@@ -741,8 +808,7 @@ namespace Game.Rules.Unity
         {
             if (projection == null)
                 throw new ArgumentNullException(nameof(projection));
-            dispatcher.RegisterFactObserver(projection);
-            try
+            using (dispatcher.RegisterFactObserver(projection))
             {
                 try
                 {
@@ -756,10 +822,6 @@ namespace Game.Rules.Unity
                     // temporary exploration root must not project its uncommitted path suffix.
                     return true;
                 }
-            }
-            finally
-            {
-                dispatcher.UnregisterFactObserver(projection);
             }
         }
 
@@ -1000,8 +1062,10 @@ namespace Game.Rules.Unity
         private void RegisterHealthProjection()
         {
             HealthProjectionObserver observer = new HealthProjectionObserver(creatures);
-            dispatcher.RegisterFactObserver<HealthFact>(observer);
-            dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(observer);
+            encounterLifetime.Add(dispatcher.RegisterFactObserver<HealthFact>(observer));
+            encounterLifetime.Add(
+                dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(observer)
+            );
         }
 
         private void AddRegistrationMaps(CombatantRegistration registration)

@@ -145,12 +145,16 @@ namespace Game.Rules.Runtime
 
         /// <summary>Registers a host observer for exact-root settlement.</summary>
         /// <param name="observer">The observer appended to deterministic registration order.</param>
+        /// <returns>
+        /// An idempotent registration token. Disposing it removes this observer while preserving
+        /// the same idle-dispatcher requirement as explicit removal.
+        /// </returns>
         /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// Registration was attempted while a root owned serialization, or the observer is already
         /// registered.
         /// </exception>
-        public void RegisterRootSettlementObserver(IRootSettlementObserver observer)
+        public IDisposable RegisterRootSettlementObserver(IRootSettlementObserver observer)
         {
             if (observer == null)
                 throw new ArgumentNullException(nameof(observer));
@@ -166,6 +170,10 @@ namespace Game.Rules.Runtime
                     );
                 rootSettlementObservers.Add(observer);
             }
+
+            return new DispatcherObserverRegistration(() =>
+                UnregisterRootSettlementObserver(observer)
+            );
         }
 
         /// <summary>Removes a host observer from later exact-root settlement.</summary>
@@ -191,12 +199,18 @@ namespace Game.Rules.Runtime
 
         /// <summary>Registers the host's single final causal-tree settlement observer.</summary>
         /// <param name="observer">The terminal observer for every external root.</param>
+        /// <returns>
+        /// An idempotent registration token. Disposing it removes this observer while preserving
+        /// the same idle-dispatcher requirement as explicit removal.
+        /// </returns>
         /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// Registration was attempted while a root owned serialization, or a terminal observer is
         /// already registered.
         /// </exception>
-        public void RegisterCausalTreeSettlementObserver(ICausalTreeSettlementObserver observer)
+        public IDisposable RegisterCausalTreeSettlementObserver(
+            ICausalTreeSettlementObserver observer
+        )
         {
             if (observer == null)
                 throw new ArgumentNullException(nameof(observer));
@@ -212,6 +226,10 @@ namespace Game.Rules.Runtime
                     );
                 causalTreeSettlementObservers.Add(observer);
             }
+
+            return new DispatcherObserverRegistration(() =>
+                UnregisterCausalTreeSettlementObserver(observer)
+            );
         }
 
         /// <summary>Removes a host observer from final external-root causal-tree settlement.</summary>

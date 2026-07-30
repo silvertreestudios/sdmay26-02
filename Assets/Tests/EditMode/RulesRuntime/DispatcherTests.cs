@@ -62,6 +62,52 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void CompositeLifetimeCleansUpInReverseOrderOnceAndRejectsLateResources()
+        {
+            List<string> cleanupOrder = new List<string>();
+            TrackingDisposable first = new TrackingDisposable("first", cleanupOrder);
+            TrackingDisposable second = new TrackingDisposable("second", cleanupOrder);
+            TrackingDisposable late = new TrackingDisposable("late", cleanupOrder);
+            CompositeLifetime lifetime = new CompositeLifetime();
+
+            Assert.That(lifetime.Add(first), Is.SameAs(first));
+            lifetime.Add(second);
+            lifetime.Dispose();
+            lifetime.Dispose();
+
+            Assert.That(cleanupOrder, Is.EqualTo(new[] { "second", "first" }));
+            Assert.That(first.DisposeCount, Is.EqualTo(1));
+            Assert.That(second.DisposeCount, Is.EqualTo(1));
+            Assert.Throws<ObjectDisposedException>(() => lifetime.Add(late));
+            Assert.That(late.DisposeCount, Is.Zero);
+        }
+
+        [Test]
+        public async Task SettlementRegistrationTokensUnregisterEachObserverExactlyOnce()
+        {
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(10))
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .Build();
+            RecordingSettlementObserver observer = new RecordingSettlementObserver();
+            IDisposable rootRegistration = dispatcher.RegisterRootSettlementObserver(observer);
+            IDisposable treeRegistration = dispatcher.RegisterCausalTreeSettlementObserver(
+                observer
+            );
+
+            await dispatcher.Dispatch(new SettlementTokenOp());
+            treeRegistration.Dispose();
+            treeRegistration.Dispose();
+            rootRegistration.Dispose();
+            rootRegistration.Dispose();
+            await dispatcher.Dispatch(new SettlementTokenOp());
+
+            Assert.That(observer.RootSettlements, Is.EqualTo(1));
+            Assert.That(observer.TreeSettlements, Is.EqualTo(1));
+            Assert.That(dispatcher.UnregisterRootSettlementObserver(observer), Is.False);
+            Assert.That(dispatcher.UnregisterCausalTreeSettlementObserver(observer), Is.False);
+        }
+
+        [Test]
         public async Task TypedRootAndNestedHandlerReducerPathsRefreshSnapshotsAndAggregateFactsOnce()
         {
             InMemoryRulesStore store = CreateStore(10);
@@ -966,6 +1012,60 @@ namespace Game.Rules.Runtime.Tests
             public int Amount { get; }
 
             public RootOp(int amount) => Amount = amount;
+        }
+
+        private sealed class SettlementTokenOp : IRuleOp<int> { }
+
+        private sealed class SettlementTokenHandler : IOpHandler<SettlementTokenOp, int>
+        {
+            public ValueTask<int> Handle(
+                OpFrame<SettlementTokenOp> frame,
+                OpHandlerContext context
+            ) => new ValueTask<int>(1);
+        }
+
+        private sealed class RecordingSettlementObserver
+            : IRootSettlementObserver,
+                ICausalTreeSettlementObserver
+        {
+            public int RootSettlements { get; private set; }
+            public int TreeSettlements { get; private set; }
+
+            public ValueTask OnRootSettled(
+                OpId rootId,
+                OpId? causalParentRootId,
+                RulesSnapshot snapshot
+            )
+            {
+                RootSettlements++;
+                return default;
+            }
+
+            public ValueTask OnCausalTreeSettled(OpId rootId, RulesSnapshot snapshot)
+            {
+                TreeSettlements++;
+                return default;
+            }
+        }
+
+        private sealed class TrackingDisposable : IDisposable
+        {
+            private readonly string name;
+            private readonly List<string> cleanupOrder;
+
+            public TrackingDisposable(string name, List<string> cleanupOrder)
+            {
+                this.name = name;
+                this.cleanupOrder = cleanupOrder;
+            }
+
+            public int DisposeCount { get; private set; }
+
+            public void Dispose()
+            {
+                DisposeCount++;
+                cleanupOrder.Add(name);
+            }
         }
 
         private sealed class RootHandler : IOpHandler<RootOp, int>
