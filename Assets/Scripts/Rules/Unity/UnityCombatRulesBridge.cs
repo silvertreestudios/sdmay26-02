@@ -405,11 +405,10 @@ namespace Game.Rules.Unity
 
         /// <summary>Checks exact current-turn authority for one registered creature.</summary>
         public bool HasTurnAuthority(CreatureId creature) =>
-            Snapshot.Encounters.Any(pair =>
-                pair.Value.Phase == EncounterPhase.Active
-                && pair.Value.CurrentTurn.HasValue
-                && pair.Value.CurrentTurn.Value.Actor == creature
-            );
+            Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter)
+            && encounter.Phase == EncounterPhase.Active
+            && encounter.CurrentTurn.HasValue
+            && encounter.CurrentTurn.Value.Actor == creature;
 
         /// <summary>Starts initiative and advances to the first eligible turn.</summary>
         /// <param name="protagonistTeamName">The registered team used for player-relative outcome.</param>

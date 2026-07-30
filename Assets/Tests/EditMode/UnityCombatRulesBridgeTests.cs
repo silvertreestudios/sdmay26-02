@@ -81,6 +81,52 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void TurnAuthorityIsUnavailableBeforeStartAndExactAfterStart()
+    {
+        GameObject firstObject = new GameObject("first");
+        GameObject secondObject = new GameObject("second");
+        try
+        {
+            BridgeTestActionController first = ConfigureCombatant(
+                firstObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController second = ConfigureCombatant(
+                secondObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, second },
+                CreateTiles(2)
+            );
+            CreatureId firstId = bridge.GetCreatureId(first);
+            CreatureId secondId = bridge.GetCreatureId(second);
+
+            Assert.That(bridge.HasTurnAuthority(firstId), Is.False);
+            Assert.That(bridge.HasTurnAuthority(secondId), Is.False);
+
+            EncounterState encounter = bridge.StartEncounter("Players");
+
+            Assert.That(encounter.CurrentTurn.HasValue, Is.True);
+            Assert.That(
+                bridge.HasTurnAuthority(firstId),
+                Is.EqualTo(encounter.CurrentTurn.Value.Actor == firstId)
+            );
+            Assert.That(
+                bridge.HasTurnAuthority(secondId),
+                Is.EqualTo(encounter.CurrentTurn.Value.Actor == secondId)
+            );
+        }
+        finally
+        {
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    [Test]
     public void FailedCompetingOwnerCompositionLeavesCandidateDetachedAndAllowsRetry()
     {
         GameObject firstObject = new GameObject("owned-controller");
