@@ -549,6 +549,29 @@ namespace Game.Rules.Runtime
         }
     }
 
+    internal sealed class CommitInitiativeAssignmentsOp : IRuleOp<InitiativeAssignmentsOutcome>
+    {
+        public CommitInitiativeAssignmentsOp(
+            EncounterId encounter,
+            IReadOnlyList<InitiativeEntry> entries
+        )
+        {
+            Encounter = encounter;
+            Entries = entries;
+        }
+
+        public EncounterId Encounter { get; }
+
+        public IReadOnlyList<InitiativeEntry> Entries { get; }
+    }
+
+    internal readonly struct InitiativeAssignmentsOutcome
+    {
+        public InitiativeAssignmentsOutcome(int count) => Count = count;
+
+        public int Count { get; }
+    }
+
     internal sealed class CommitInitiativeBoundaryOp : IRuleOp<InitiativeBoundaryOutcome>
     {
         public EncounterId Encounter { get; }

@@ -105,6 +105,10 @@ namespace Game.Rules.Runtime
                     new CommitEncounterJoinReducer(),
                     Source
                 )
+                .RegisterEngineReducer<CommitInitiativeAssignmentsOp, InitiativeAssignmentsOutcome>(
+                    new CommitInitiativeAssignmentsReducer(),
+                    Source
+                )
                 .RegisterEngineReducer<CommitInitiativeBoundaryOp, InitiativeBoundaryOutcome>(
                     new CommitInitiativeBoundaryReducer(),
                     Source
@@ -208,6 +212,12 @@ namespace Game.Rules.Runtime
                 ),
                 "encounter start"
             );
+            EncounterHandlerResults.Require(
+                await context.Dispatch(
+                    new CommitInitiativeAssignmentsOp(frame.Op.Encounter, Array.AsReadOnly(roster))
+                ),
+                "initial initiative assignment"
+            );
             EncounterAdvanceOutcome advanced = EncounterHandlerResults.Require(
                 await context.Dispatch(new AdvanceEncounterOp(frame.Op.Encounter)),
                 "first turn advance"
@@ -251,7 +261,7 @@ namespace Game.Rules.Runtime
                     }
                 )
                 .ToArray();
-            return EncounterHandlerResults.Require(
+            EncounterJoinOutcome joined = EncounterHandlerResults.Require(
                 await context.Dispatch(
                     new CommitEncounterJoinOp(
                         frame.Op.Encounter,
@@ -264,6 +274,19 @@ namespace Game.Rules.Runtime
                 ),
                 "encounter join"
             );
+            // A binding created by the join reducer cannot observe Facts sourced from that same
+            // frame. Publishing assignments from this later authoritative frame lets every
+            // reinforcement feature observe its committed initiative exactly once.
+            EncounterHandlerResults.Require(
+                await context.Dispatch(
+                    new CommitInitiativeAssignmentsOp(
+                        frame.Op.Encounter,
+                        Array.AsReadOnly(additions)
+                    )
+                ),
+                "reinforcement initiative assignment"
+            );
+            return joined;
         }
     }
 

@@ -11,10 +11,41 @@ namespace Game.Rules.Runtime.Tests
         private static readonly CreatureId Hero = new CreatureId("hero");
         private static readonly CreatureId Enemy = new CreatureId("enemy");
         private static readonly CreatureId Reinforcement = new CreatureId("reinforcement");
+        private static readonly CreatureId SecondReinforcement = new CreatureId(
+            "second-reinforcement"
+        );
         private static readonly PlayerId Players = new PlayerId("players");
         private static readonly PlayerId Enemies = new PlayerId("enemies");
         private static readonly EncounterId Encounter = new EncounterId("test-encounter");
         private static readonly RuleSource Source = RuleSource.FromSlug("encounter-test");
+
+        /// <summary>Identifies one state collection that can collide during a join preflight.</summary>
+        public enum JoinRegistrationCollision
+        {
+            /// <summary>The creature identity slice.</summary>
+            Creature,
+
+            /// <summary>The health slice.</summary>
+            Health,
+
+            /// <summary>The position slice.</summary>
+            Position,
+
+            /// <summary>The land Speed slice.</summary>
+            LandSpeed,
+
+            /// <summary>The action-economy slice.</summary>
+            ActionEconomy,
+
+            /// <summary>The multiple-attack-penalty slice.</summary>
+            MultipleAttackPenalty,
+
+            /// <summary>The spell-slot pool slice.</summary>
+            SpellSlot,
+
+            /// <summary>The active rule-binding slice.</summary>
+            RuleBinding,
+        }
 
         [Test]
         public void StartRequestRequiresProtagonistMembershipAfterRosterCopy()
@@ -123,6 +154,8 @@ namespace Game.Rules.Runtime.Tests
                     new[]
                     {
                         typeof(EncounterStartedFact),
+                        typeof(InitiativeAssignedFact),
+                        typeof(InitiativeAssignedFact),
                         typeof(InitiativeBoundaryReachedFact),
                         typeof(TurnBeganFact),
                     }
@@ -717,7 +750,10 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task HigherInitiativeReinforcementWaitsUntilNextRound()
         {
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(15, 10, 20));
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 20),
+                JoinSeed()
+            );
             EncounterState heroTurn = Resolved(
                 await dispatcher.Dispatch(
                     Start(
@@ -753,6 +789,220 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(reinforcement.EligibleFromRound.Value, Is.EqualTo(2));
             Assert.That(reinforcementTurn.Round.Value, Is.EqualTo(2));
             Assert.That(reinforcementTurn.CurrentTurn.Value.Actor, Is.EqualTo(Reinforcement));
+        }
+
+        /// <summary>Verifies every join-owned state slice is preflighted before any write.</summary>
+        [TestCase(JoinRegistrationCollision.Creature)]
+        [TestCase(JoinRegistrationCollision.Health)]
+        [TestCase(JoinRegistrationCollision.Position)]
+        [TestCase(JoinRegistrationCollision.LandSpeed)]
+        [TestCase(JoinRegistrationCollision.ActionEconomy)]
+        [TestCase(JoinRegistrationCollision.MultipleAttackPenalty)]
+        [TestCase(JoinRegistrationCollision.SpellSlot)]
+        [TestCase(JoinRegistrationCollision.RuleBinding)]
+        public async Task JoinRegistrationCollisionRejectsBeforeAnyStateMutation(
+            JoinRegistrationCollision collision
+        )
+        {
+            SpellSlotPoolId slotId = new SpellSlotPoolId("reinforcement-slot");
+            BindingId bindingId = new BindingId("reinforcement-binding");
+            RuleDefinitionId definitionId = new RuleDefinitionId("reinforcement-rule");
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                bindingId,
+                definitionId,
+                Reinforcement,
+                null,
+                Source,
+                0,
+                false
+            );
+            CombatantRulesState registration = new CombatantRulesState(
+                new CreatureState(Reinforcement, Enemies),
+                new HealthState(10, 10),
+                new GridPosition(3, 0, 2),
+                new GridDistance(25),
+                new[] { new SpellSlotState(slotId, Reinforcement, 1, 1) },
+                new[] { binding }
+            );
+            RulesStateSeed seed = JoinSeed();
+            switch (collision)
+            {
+                case JoinRegistrationCollision.Creature:
+                    seed.SeedCreature(new CreatureState(Reinforcement, Enemies));
+                    break;
+                case JoinRegistrationCollision.Health:
+                    seed.SeedHealth(Reinforcement, new HealthState(7, 10));
+                    break;
+                case JoinRegistrationCollision.Position:
+                    seed.SeedPosition(Reinforcement, new GridPosition(9, 0, 9));
+                    break;
+                case JoinRegistrationCollision.LandSpeed:
+                    seed.SeedLandSpeed(Reinforcement, new GridDistance(30));
+                    break;
+                case JoinRegistrationCollision.ActionEconomy:
+                    seed.SeedActionEconomy(Reinforcement, new ActionEconomyState(2, true));
+                    break;
+                case JoinRegistrationCollision.MultipleAttackPenalty:
+                    seed.SeedMultipleAttackPenalty(
+                        Reinforcement,
+                        new MultipleAttackPenaltyState(1)
+                    );
+                    break;
+                case JoinRegistrationCollision.SpellSlot:
+                    seed.SeedSpellSlot(new SpellSlotState(slotId, Reinforcement, 0, 1));
+                    break;
+                case JoinRegistrationCollision.RuleBinding:
+                    seed.SeedRuleBinding(binding);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(collision), collision, null);
+            }
+
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(15, 10), seed);
+            EncounterState active = Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+            RulesSnapshot before = dispatcher.Snapshot;
+            InitiativeEntry addition = new InitiativeEntry(
+                Reinforcement,
+                Enemies,
+                12,
+                0,
+                active.Roster.Count,
+                RoundNumber.First
+            );
+
+            OpResult<OpResult<EncounterJoinOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitEncounterJoinWorkflowOp(
+                    new CommitEncounterJoinOp(
+                        Encounter,
+                        Array.AsReadOnly(new[] { addition }),
+                        new Dictionary<CreatureId, CombatantRulesState>
+                        {
+                            [Reinforcement] = registration,
+                        }
+                    )
+                )
+            );
+            OpResult<EncounterJoinOutcome> result = Resolved(workflow).Value;
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<EncounterJoinOutcome>>());
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Roster,
+                Is.EqualTo(before.Encounters[Encounter].Roster)
+            );
+            Assert.That(
+                dispatcher.Snapshot.Creatures.Count(),
+                Is.EqualTo(before.Creatures.Count())
+            );
+            Assert.That(dispatcher.Snapshot.Health.Count(), Is.EqualTo(before.Health.Count()));
+            Assert.That(
+                dispatcher.Snapshot.Positions.Count(),
+                Is.EqualTo(before.Positions.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.LandSpeeds.Count(),
+                Is.EqualTo(before.LandSpeeds.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy.Count(),
+                Is.EqualTo(before.ActionEconomy.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.MultipleAttackPenalty.Count(),
+                Is.EqualTo(before.MultipleAttackPenalty.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.SpellSlots.Count(),
+                Is.EqualTo(before.SpellSlots.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings.Count(),
+                Is.EqualTo(before.RuleBindings.Count())
+            );
+        }
+
+        /// <summary>Verifies feature IDs must also be unique across one reinforcement batch.</summary>
+        [TestCase(true)]
+        [TestCase(false)]
+        public async Task JoinRegistrationRejectsIdentifiersDuplicatedAcrossReinforcements(
+            bool duplicateSpellSlot
+        )
+        {
+            SpellSlotPoolId sharedSlot = new SpellSlotPoolId("shared-reinforcement-slot");
+            BindingId sharedBinding = new BindingId("shared-reinforcement-binding");
+            CombatantRulesState first = CreateJoinRegistration(
+                Reinforcement,
+                sharedSlot,
+                duplicateSpellSlot ? new BindingId("first-reinforcement-binding") : sharedBinding
+            );
+            CombatantRulesState second = CreateJoinRegistration(
+                SecondReinforcement,
+                duplicateSpellSlot ? sharedSlot : new SpellSlotPoolId("second-reinforcement-slot"),
+                duplicateSpellSlot ? new BindingId("second-reinforcement-binding") : sharedBinding
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10),
+                JoinSeed()
+            );
+            EncounterState active = Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+            InitiativeEntry[] additions =
+            {
+                new InitiativeEntry(
+                    Reinforcement,
+                    Enemies,
+                    12,
+                    0,
+                    active.Roster.Count,
+                    RoundNumber.First
+                ),
+                new InitiativeEntry(
+                    SecondReinforcement,
+                    Enemies,
+                    11,
+                    0,
+                    active.Roster.Count + 1,
+                    RoundNumber.First
+                ),
+            };
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            OpResult<OpResult<EncounterJoinOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitEncounterJoinWorkflowOp(
+                    new CommitEncounterJoinOp(
+                        Encounter,
+                        Array.AsReadOnly(additions),
+                        new Dictionary<CreatureId, CombatantRulesState>
+                        {
+                            [Reinforcement] = first,
+                            [SecondReinforcement] = second,
+                        }
+                    )
+                )
+            );
+
+            Assert.That(
+                Resolved(workflow).Value,
+                Is.TypeOf<InvalidOpResult<EncounterJoinOutcome>>()
+            );
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Roster,
+                Is.EqualTo(before.Encounters[Encounter].Roster)
+            );
         }
 
         [Test]
@@ -1182,6 +1432,36 @@ namespace Game.Rules.Runtime.Tests
                 .SeedHealth(Enemy, new HealthState(10, 10))
                 .SeedHealth(Reinforcement, new HealthState(10, 10));
 
+        private static RulesStateSeed JoinSeed() =>
+            new RulesStateSeed()
+                .SeedHealth(Hero, new HealthState(10, 10))
+                .SeedHealth(Enemy, new HealthState(10, 10));
+
+        private static CombatantRulesState CreateJoinRegistration(
+            CreatureId creature,
+            SpellSlotPoolId slot,
+            BindingId binding
+        ) =>
+            new CombatantRulesState(
+                new CreatureState(creature, Enemies),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                new[] { new SpellSlotState(slot, creature, 1, 1) },
+                new[]
+                {
+                    new ActiveRuleBinding(
+                        binding,
+                        new RuleDefinitionId("reinforcement-rule"),
+                        creature,
+                        null,
+                        Source,
+                        0,
+                        false
+                    ),
+                }
+            );
+
         private static RuleDispatcher CreateDispatcher(
             IRollService rolls,
             RulesStateSeed seed = null,
@@ -1204,6 +1484,9 @@ namespace Game.Rules.Runtime.Tests
                 CommitEncounterStartWorkflowOp,
                 OpResult<EncounterStartOutcome>
             >(new CommitEncounterStartWorkflowHandler());
+            builder.RegisterHandler<CommitEncounterJoinWorkflowOp, OpResult<EncounterJoinOutcome>>(
+                new CommitEncounterJoinWorkflowHandler()
+            );
             if (includeEffectWorkflow)
                 builder.RegisterHandler<CreateEffectWorkflowOp, ActiveEffectCreationOutcome>(
                     new CreateEffectWorkflowHandler()
@@ -1432,6 +1715,23 @@ namespace Game.Rules.Runtime.Tests
         {
             public async ValueTask<OpResult<EncounterStartOutcome>> Handle(
                 OpFrame<CommitEncounterStartWorkflowOp> frame,
+                OpHandlerContext context
+            ) => await context.Dispatch(frame.Op.Commit);
+        }
+
+        private sealed class CommitEncounterJoinWorkflowOp : IRuleOp<OpResult<EncounterJoinOutcome>>
+        {
+            public CommitEncounterJoinWorkflowOp(CommitEncounterJoinOp commit) =>
+                Commit = commit ?? throw new ArgumentNullException(nameof(commit));
+
+            public CommitEncounterJoinOp Commit { get; }
+        }
+
+        private sealed class CommitEncounterJoinWorkflowHandler
+            : IOpHandler<CommitEncounterJoinWorkflowOp, OpResult<EncounterJoinOutcome>>
+        {
+            public async ValueTask<OpResult<EncounterJoinOutcome>> Handle(
+                OpFrame<CommitEncounterJoinWorkflowOp> frame,
                 OpHandlerContext context
             ) => await context.Dispatch(frame.Op.Commit);
         }

@@ -144,7 +144,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
-        public async Task EncounterStartFactOwnsQuickTemperedRequirementsAndOneShot()
+        public async Task InitiativeAssignmentOwnsQuickTemperedRequirementsAndOneShot()
         {
             TestRageActorStateProvider allowedProvider = new TestRageActorStateProvider(
                 CreateActorState(ownsQuickTempered: true)
@@ -239,6 +239,55 @@ namespace Game.Tests.EditMode.RulesRuntime
                 dispatcher.Snapshot.Health[Actor].HasTemporaryHitPointImmunity(RageRules.Source),
                 Is.True
             );
+        }
+
+        /// <summary>
+        /// Verifies expiration retains a larger foreign pool while permanently retiring Rage's
+        /// temporary-Hit-Point source.
+        /// </summary>
+        [Test]
+        public async Task ExpiredRageRecordsImmunityWhileRetainingAnotherTemporaryHitPointPool()
+        {
+            RuleSource otherSource = RuleSource.FromSlug("larger-temporary-hit-points");
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState())
+            );
+            await dispatcher.Dispatch(new RageActionOp(Actor));
+            await dispatcher.Dispatch(
+                new GrantTemporaryHitPointsOp(
+                    Actor,
+                    8,
+                    new HealthChangeOriginId("replace-rage-pool"),
+                    otherSource
+                )
+            );
+
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(
+                    Enemy,
+                    10,
+                    new HealthChangeOriginId("expire-rage-with-encounter"),
+                    RuleSource.FromSlug("test")
+                )
+            );
+
+            HealthState retained = dispatcher.Snapshot.Health[Actor];
+            Assert.That(retained.Temporary, Is.EqualTo(8));
+            Assert.That(retained.TemporarySource, Is.EqualTo(otherSource));
+            Assert.That(retained.HasTemporaryHitPointImmunity(RageRules.Source), Is.True);
+            ResolvedOpResult<TemporaryHitPointsGrantOutcome> laterRageGrant = RequireResolved(
+                await dispatcher.Dispatch(
+                    new GrantTemporaryHitPointsOp(
+                        Actor,
+                        20,
+                        new HealthChangeOriginId("later-rage-grant"),
+                        RageRules.Source
+                    )
+                )
+            );
+            Assert.That(laterRageGrant.Value.Granted, Is.False);
+            Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.EqualTo(8));
+            Assert.That(dispatcher.Snapshot.Health[Actor].TemporarySource, Is.EqualTo(otherSource));
         }
 
         [Test]

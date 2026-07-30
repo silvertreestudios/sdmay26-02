@@ -374,8 +374,5 @@ public class CombatManager : CombatManagerInterface
 
     // Camera projection for legacy callers.
     public Vector3[] getPoistions() =>
-        (combatActive ? activeCombatants : Combatants)
-            .Where(controller => controller != null)
-            .Select(controller => controller.transform.position)
-            .ToArray();
+        GetCombatants().Select(combatant => combatant.transform.position).ToArray();
 }

@@ -231,6 +231,12 @@ namespace Game.Rules.Runtime
             HashSet<CreatureId> existing = new HashSet<CreatureId>(
                 encounter.Roster.Select(entry => entry.Creature)
             );
+            HashSet<SpellSlotPoolId> incomingSpellSlots = new HashSet<SpellSlotPoolId>();
+            HashSet<BindingId> incomingRuleBindings = new HashSet<BindingId>();
+            if (context.Op.Registrations.Count != context.Op.Additions.Count)
+                return ReductionResult<EncounterJoinOutcome>.Reject(
+                    "Every reinforcement must have exactly one captured rules registration."
+                );
             foreach (InitiativeEntry entry in context.Op.Additions)
             {
                 if (!existing.Add(entry.Creature))
@@ -241,24 +247,47 @@ namespace Game.Rules.Runtime
                     return ReductionResult<EncounterJoinOutcome>.Reject(
                         $"Creature {entry.Creature.Value} has no captured rules registration."
                     );
+                CombatantRulesState registration = context.Op.Registrations[entry.Creature];
+                if (registration.Creature.Id != entry.Creature)
+                    return ReductionResult<EncounterJoinOutcome>.Reject(
+                        $"Creature {entry.Creature.Value} has a mismatched rules registration."
+                    );
+                if (
+                    state.Creatures.Contains(entry.Creature)
+                    || state.Health.Contains(entry.Creature)
+                    || state.Positions.Contains(entry.Creature)
+                    || state.LandSpeeds.Contains(entry.Creature)
+                    || state.ActionEconomy.Contains(entry.Creature)
+                    || state.MultipleAttackPenalty.Contains(entry.Creature)
+                )
+                    return ReductionResult<EncounterJoinOutcome>.Reject(
+                        $"Creature {entry.Creature.Value} collides with existing registration state."
+                    );
+                foreach (SpellSlotState slot in registration.SpellSlots)
+                    if (state.SpellSlots.Contains(slot.Id) || !incomingSpellSlots.Add(slot.Id))
+                        return ReductionResult<EncounterJoinOutcome>.Reject(
+                            $"Spell-slot pool {slot.Id.Value} is already registered."
+                        );
+                foreach (ActiveRuleBinding binding in registration.RuleBindings)
+                    if (
+                        state.RuleBindings.Contains(binding.Id)
+                        || !incomingRuleBindings.Add(binding.Id)
+                    )
+                        return ReductionResult<EncounterJoinOutcome>.Reject(
+                            $"Rule binding {binding.Id.Value} is already registered."
+                        );
             }
             foreach (InitiativeEntry entry in context.Op.Additions)
             {
                 CombatantRulesState registration = context.Op.Registrations[entry.Creature];
-                if (!state.Creatures.Contains(entry.Creature))
-                    state.Creatures.Set(entry.Creature, registration.Creature);
-                if (!state.Health.Contains(entry.Creature))
-                    state.Health.Set(entry.Creature, registration.Health);
-                if (!state.Positions.Contains(entry.Creature))
-                    state.Positions.Set(entry.Creature, registration.Position);
-                if (!state.LandSpeeds.Contains(entry.Creature))
-                    state.LandSpeeds.Set(entry.Creature, registration.LandSpeed);
+                state.Creatures.Set(entry.Creature, registration.Creature);
+                state.Health.Set(entry.Creature, registration.Health);
+                state.Positions.Set(entry.Creature, registration.Position);
+                state.LandSpeeds.Set(entry.Creature, registration.LandSpeed);
                 foreach (SpellSlotState slot in registration.SpellSlots)
-                    if (!state.SpellSlots.Contains(slot.Id))
-                        state.SpellSlots.Set(slot.Id, slot);
+                    state.SpellSlots.Set(slot.Id, slot);
                 foreach (ActiveRuleBinding binding in registration.RuleBindings)
-                    if (!state.RuleBindings.Contains(binding.Id))
-                        state.RuleBindings.Set(binding.Id, binding);
+                    state.RuleBindings.Set(binding.Id, binding);
             }
             InitiativeEntry[] roster = encounter
                 .Roster.Concat(context.Op.Additions)
@@ -282,6 +311,47 @@ namespace Game.Rules.Runtime
             }
             facts.Stage(new EncounterJoinedFact(updated));
             return ReductionResult<EncounterJoinOutcome>.Accept(new EncounterJoinOutcome(updated));
+        }
+    }
+
+    internal sealed class CommitInitiativeAssignmentsReducer
+        : IOpReducer<CommitInitiativeAssignmentsOp, InitiativeAssignmentsOutcome>
+    {
+        public ReductionResult<InitiativeAssignmentsOutcome> Reduce(
+            ReductionContext<CommitInitiativeAssignmentsOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            if (
+                !EncounterReduction.TryGetActive(
+                    state,
+                    context.Op.Encounter,
+                    out EncounterState encounter,
+                    out string rejection
+                )
+            )
+                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(rejection);
+            if (context.Op.Entries == null || context.Op.Entries.Count == 0)
+                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
+                    "At least one initiative assignment is required."
+                );
+
+            foreach (InitiativeEntry entry in context.Op.Entries)
+            {
+                InitiativeEntry committed = encounter.Roster.SingleOrDefault(candidate =>
+                    candidate.Creature == entry.Creature
+                );
+                if (committed == null || !committed.Equals(entry))
+                    return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
+                        $"Creature {entry.Creature.Value} has no matching committed initiative slot."
+                    );
+            }
+            foreach (InitiativeEntry entry in context.Op.Entries)
+                facts.Stage(new InitiativeAssignedFact(encounter.Id, entry));
+            return ReductionResult<InitiativeAssignmentsOutcome>.Accept(
+                new InitiativeAssignmentsOutcome(context.Op.Entries.Count)
+            );
         }
     }
 

@@ -309,14 +309,20 @@ namespace Game.Rules.Runtime
         /// <summary>Initializes a Rage cleanup request.</summary>
         /// <param name="actor">The creature whose active Rage should end.</param>
         public EndRageOp(CreatureId actor)
+            : this(actor, false) { }
+
+        internal EndRageOp(CreatureId actor, bool recordExpiredTemporaryHitPointImmunity)
         {
             if (actor.IsEmpty)
                 throw new ArgumentException("A Rage actor is required.", nameof(actor));
             Actor = actor;
+            RecordExpiredTemporaryHitPointImmunity = recordExpiredTemporaryHitPointImmunity;
         }
 
         /// <summary>Gets the creature whose Rage should end.</summary>
         public CreatureId Actor { get; }
+
+        internal bool RecordExpiredTemporaryHitPointImmunity { get; }
     }
 
     /// <summary>Queries and composes the authoritative Rage rules slice.</summary>
@@ -462,7 +468,7 @@ namespace Game.Rules.Runtime
                 .Define(QuickTemperedRuleDefinitionId)
                 .FactListener(
                     RuleLifecyclePhase.Reaction,
-                    new QuickTemperedEncounterStartListener()
+                    new QuickTemperedInitiativeAssignedListener()
                 );
             return builder;
         }
@@ -552,13 +558,14 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class QuickTemperedEncounterStartListener
-        : IRuleFactListener<EncounterStartedFact>
+    internal sealed class QuickTemperedInitiativeAssignedListener
+        : IRuleFactListener<InitiativeAssignedFact>
     {
-        public async ValueTask OnFactCommitted(EncounterStartedFact fact, FactContext context)
+        public async ValueTask OnFactCommitted(InitiativeAssignedFact fact, FactContext context)
         {
             if (
-                !context.Snapshot.Encounters.TryGet(fact.Encounter.Id, out EncounterState encounter)
+                fact.Entry.Creature != context.Binding.Owner
+                || !context.Snapshot.Encounters.TryGet(fact.Encounter, out EncounterState encounter)
                 || encounter.Phase != EncounterPhase.Active
                 || !encounter.Roster.Any(entry => entry.Creature == context.Binding.Owner)
             )
@@ -581,7 +588,7 @@ namespace Game.Rules.Runtime
             )
                 return;
             await RageHandlerSupport.RequireResolved(
-                context.Dispatch(new EndRageOp(context.Binding.Owner))
+                context.Dispatch(new EndRageOp(context.Binding.Owner, true))
             );
         }
     }
@@ -740,25 +747,29 @@ namespace Game.Rules.Runtime
                 .ToArray();
             if (effects.Length == 0)
             {
-                if (
-                    !context.Snapshot.Health.TryGet(frame.Op.Actor, out HealthState health)
-                    || health.Temporary == 0
-                    || health.TemporarySource != RageRules.Source
-                )
+                if (!context.Snapshot.Health.TryGet(frame.Op.Actor, out HealthState health))
+                    return new RageEndOutcome(false);
+
+                bool rageOwnsTemporaryHitPoints =
+                    health.Temporary > 0 && health.TemporarySource == RageRules.Source;
+                if (!rageOwnsTemporaryHitPoints && !frame.Op.RecordExpiredTemporaryHitPointImmunity)
                     return new RageEndOutcome(false);
 
                 HealthChangeOriginId expiredOrigin = RageHandlerSupport.CreateHealthOrigin(
                     frame.RootId
                 );
-                await RageHandlerSupport.RequireResolved(
-                    context.Dispatch(
-                        new RemoveTemporaryHitPointsOp(
-                            frame.Op.Actor,
-                            expiredOrigin,
-                            RageRules.Source
+                if (rageOwnsTemporaryHitPoints)
+                {
+                    await RageHandlerSupport.RequireResolved(
+                        context.Dispatch(
+                            new RemoveTemporaryHitPointsOp(
+                                frame.Op.Actor,
+                                expiredOrigin,
+                                RageRules.Source
+                            )
                         )
-                    )
-                );
+                    );
+                }
                 await RageHandlerSupport.RequireResolved(
                     context.Dispatch(
                         new AddTemporaryHitPointImmunityOp(

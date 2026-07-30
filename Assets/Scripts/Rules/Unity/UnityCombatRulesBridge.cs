@@ -520,33 +520,51 @@ namespace Game.Rules.Unity
                     )
                 )
                 .ToArray();
-            if (Snapshot.Encounters.Contains(encounterId))
+            bool joiningEncounter = Snapshot.Encounters.Contains(encounterId);
+            if (joiningEncounter)
             {
-                DispatchNow(
-                    new JoinEncounterOp(
-                        encounterId,
-                        registrations.Select(registration => new EncounterJoinParticipant(
-                            new EncounterParticipant(
-                                registration.State.Creature.Id,
-                                registration.State.Creature.Player,
-                                registration.Creature.GetInitiative()
-                            ),
-                            registration.State
-                        ))
-                    )
-                );
-            }
-            else
-            {
+                // Fact listeners may run before this synchronous join returns. Install provisional
+                // lookups so newly joined feature bindings can read their immutable Unity inputs,
+                // then remove them if the authoritative join rejects.
                 foreach (CombatantRegistration registration in registrations)
+                    AddRegistrationMaps(registration);
+            }
+            try
+            {
+                if (joiningEncounter)
                 {
-                    RequireSuccess(DispatchNow(new RegisterCombatantOp(registration.State)));
+                    DispatchNow(
+                        new JoinEncounterOp(
+                            encounterId,
+                            registrations.Select(registration => new EncounterJoinParticipant(
+                                new EncounterParticipant(
+                                    registration.State.Creature.Id,
+                                    registration.State.Creature.Player,
+                                    registration.Creature.GetInitiative()
+                                ),
+                                registration.State
+                            ))
+                        )
+                    );
                 }
+                else
+                {
+                    foreach (CombatantRegistration registration in registrations)
+                        RequireSuccess(DispatchNow(new RegisterCombatantOp(registration.State)));
+                }
+            }
+            catch
+            {
+                if (joiningEncounter)
+                    foreach (CombatantRegistration registration in registrations)
+                        RemoveRegistrationMaps(registration);
+                throw;
             }
             for (int index = 0; index < registrations.Length; index++)
             {
                 CombatantRegistration registration = registrations[index];
-                AddRegistrationMaps(registration);
+                if (!joiningEncounter)
+                    AddRegistrationMaps(registration);
                 RequireResolved(
                     DispatchResultNow(new RegisterStrikeCombatantOp(strikeRegistrations[index]))
                 );
@@ -996,6 +1014,15 @@ namespace Game.Rules.Unity
             controllers.Add(id, registration.Controller);
             creatureIds.Add(registration.Creature, id);
             creatures.Add(id, registration.Creature);
+        }
+
+        private void RemoveRegistrationMaps(CombatantRegistration registration)
+        {
+            CreatureId id = registration.State.Creature.Id;
+            controllerIds.Remove(registration.Controller);
+            controllers.Remove(id);
+            creatureIds.Remove(registration.Creature);
+            creatures.Remove(id);
         }
 
         private static void Seed(RulesStateSeed seed, CombatantRulesState state)

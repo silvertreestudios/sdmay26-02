@@ -154,6 +154,50 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>Verifies camera framing excludes defeated roster slots retained for timing.</summary>
+    [Test]
+    public void getPoistions_ActiveCombatReturnsOnlyLivingEncounterParticipants()
+    {
+        FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
+            "Instance",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        Assert.That(singletonField, Is.Not.Null);
+        object previousGrid = singletonField.GetValue(null);
+        try
+        {
+            singletonField.SetValue(null, null);
+            Create("Test GridAPI").AddComponent<TestGridAPI>();
+            CombatantFixture player = CreateCombatant("Player", "Players", 100);
+            CombatantFixture defeated = CreateCombatant("Defeated Enemy", "Enemies", 50);
+            CombatantFixture survivor = CreateCombatant("Surviving Enemy", "Enemies", 0);
+            player.GameObject.transform.position = new Vector3(1f, 0f, 1f);
+            defeated.GameObject.transform.position = new Vector3(9f, 0f, 9f);
+            survivor.GameObject.transform.position = new Vector3(2f, 0f, 2f);
+            manager.StartDungeonCombat(
+                new[] { player.Controller, defeated.Controller, survivor.Controller }
+            );
+
+            defeated.Creature.ApplyFinalDamage(10, RuleSource.FromSlug("camera-framing-test"));
+
+            Assert.That(
+                manager.getPoistions(),
+                Is.EquivalentTo(
+                    new[]
+                    {
+                        player.GameObject.transform.position,
+                        survivor.GameObject.transform.position,
+                    }
+                )
+            );
+            Assert.That(defeated.GameObject.activeSelf, Is.False);
+        }
+        finally
+        {
+            singletonField.SetValue(null, previousGrid);
+        }
+    }
+
     /// <summary>Verifies a reinforcement before the current initiative waits for the next round.</summary>
     [Test]
     public void AddDungeonReinforcements_HigherInitiativeWaitsUntilNextRound()

@@ -22,6 +22,30 @@ namespace Game.Rules.Runtime
         public EncounterJoinedFact(EncounterState encounter) => Encounter = encounter;
     }
 
+    /// <summary>Reports that one creature received its immutable encounter initiative slot.</summary>
+    public sealed class InitiativeAssignedFact : RuleFact
+    {
+        /// <summary>Gets the encounter that owns the assigned slot.</summary>
+        public EncounterId Encounter { get; }
+
+        /// <summary>Gets the immutable initiative entry assigned to the creature.</summary>
+        public InitiativeEntry Entry { get; }
+
+        /// <summary>Creates a fact for one committed initiative assignment.</summary>
+        /// <param name="encounter">The encounter that owns the initiative roster.</param>
+        /// <param name="entry">The creature's committed immutable initiative entry.</param>
+        public InitiativeAssignedFact(EncounterId encounter, InitiativeEntry entry)
+        {
+            if (encounter.IsEmpty)
+                throw new System.ArgumentException(
+                    "An encounter ID is required.",
+                    nameof(encounter)
+                );
+            Encounter = encounter;
+            Entry = entry ?? throw new System.ArgumentNullException(nameof(entry));
+        }
+    }
+
     /// <summary>Reports a source-initiative timing boundary, including zero-HP slots.</summary>
     public sealed class InitiativeBoundaryReachedFact : RuleFact
     {
