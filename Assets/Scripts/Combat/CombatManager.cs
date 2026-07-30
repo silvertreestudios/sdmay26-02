@@ -342,13 +342,13 @@ public class CombatManager : CombatManagerInterface
         string winningTeam = playerWon ? FindProtagonistTeam() : FindLivingOppositionTeam();
         bool wasDungeonDirected = dungeonDirectedCombat;
 
+        StopCombatState();
         if (wasDungeonDirected)
             DungeonCombatEnded.Invoke(winningTeam);
         else
             OnCombatEnd.Invoke(winningTeam);
         if (!wasDungeonDirected || !playerWon)
             OnCombatOutcome.Invoke(playerWon);
-        StopCombatState();
     }
 
     private string FindLivingOppositionTeam()

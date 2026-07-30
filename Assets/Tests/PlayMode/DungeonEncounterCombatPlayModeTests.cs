@@ -372,6 +372,120 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    /// <summary>
+    /// Verifies every completion channel observes inactive combat and cannot strand ended rules
+    /// ownership when a callback throws.
+    /// </summary>
+    [TestCase("DungeonCombatEnded")]
+    [TestCase("LegacyCombatEnded")]
+    [TestCase("LegacyCombatOutcome")]
+    public void ThrowingCompletionCallback_ReleasesCombatBeforePropagating(string channel)
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        Action<string> dungeonEndListener = _ => ThrowFromCompletionCallback();
+        UnityAction<string> legacyEndListener = _ => ThrowFromCompletionCallback();
+        UnityAction<bool> legacyOutcomeListener = _ => ThrowFromCompletionCallback();
+
+        switch (channel)
+        {
+            case "DungeonCombatEnded":
+                manager.DungeonCombatEnded += dungeonEndListener;
+                break;
+            case "LegacyCombatEnded":
+                OnCombatEnd.AddListener(legacyEndListener);
+                break;
+            case "LegacyCombatOutcome":
+                OnCombatOutcome.AddListener(legacyOutcomeListener);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(channel), channel, null);
+        }
+
+        try
+        {
+            if (channel == "DungeonCombatEnded")
+                manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            else
+                manager.StartCombat();
+
+            CombatantFixture nextPlayer = CreateCombatant("Next Player", "Players", 100);
+            CombatantFixture nextEnemy = CreateCombatant("Next Enemy", "Enemies", 0);
+
+            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+                enemy.Creature.ApplyFinalDamage(
+                    enemy.Creature.hp,
+                    RuleSource.FromSlug("test-throwing-completion")
+                )
+            );
+
+            Assert.That(exception.Message, Is.EqualTo("Completion callback failed."));
+            Assert.That(manager.IsCombatActive, Is.False);
+            Assert.DoesNotThrow(() =>
+                manager.StartDungeonCombat(new[] { nextPlayer.Controller, nextEnemy.Controller })
+            );
+            Assert.That(manager.IsCombatActive, Is.True);
+        }
+        finally
+        {
+            manager.DungeonCombatEnded -= dungeonEndListener;
+            OnCombatEnd.RemoveListener(legacyEndListener);
+            OnCombatOutcome.RemoveListener(legacyOutcomeListener);
+        }
+
+        void ThrowFromCompletionCallback()
+        {
+            Assert.That(manager.IsCombatActive, Is.False);
+            throw new InvalidOperationException("Completion callback failed.");
+        }
+    }
+
+    /// <summary>
+    /// Verifies completion callbacks can synchronously begin a new encounter without delayed
+    /// cleanup from the ended bridge clearing the replacement encounter.
+    /// </summary>
+    [Test]
+    public void DungeonCompletionCallback_CanSynchronouslyStartNextEncounter()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        CombatantFixture nextPlayer = CreateCombatant("Next Player", "Players", 100);
+        CombatantFixture nextEnemy = CreateCombatant("Next Enemy", "Enemies", 0);
+        UnityCombatRulesBridge endedBridge = null;
+        UnityCombatRulesBridge restartedBridge = null;
+        Action<string> listener = _ =>
+        {
+            Assert.That(manager.IsCombatActive, Is.False);
+            manager.StartDungeonCombat(new[] { nextPlayer.Controller, nextEnemy.Controller });
+            restartedBridge = GetCombatRules(manager);
+        };
+        manager.DungeonCombatEnded += listener;
+
+        try
+        {
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+            endedBridge = GetCombatRules(manager);
+
+            enemy.Creature.ApplyFinalDamage(
+                enemy.Creature.hp,
+                RuleSource.FromSlug("test-synchronous-restart")
+            );
+
+            Assert.That(manager.IsCombatActive, Is.True);
+            Assert.That(restartedBridge, Is.Not.Null);
+            Assert.That(restartedBridge, Is.Not.SameAs(endedBridge));
+            Assert.That(
+                manager.GetCombatants(),
+                Is.EquivalentTo(new[] { nextPlayer.GameObject, nextEnemy.GameObject })
+            );
+            Assert.That(manager.CheckForEndOfGame(), Is.False);
+        }
+        finally
+        {
+            manager.DungeonCombatEnded -= listener;
+        }
+    }
+
     /// <summary>Verifies dungeon party defeat also reaches the normal loss presentation channel.</summary>
     [Test]
     public void DungeonDefeatEmitsDungeonCompletionAndNormalLossOutcome()

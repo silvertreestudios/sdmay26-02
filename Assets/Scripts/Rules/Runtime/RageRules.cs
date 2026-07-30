@@ -607,7 +607,7 @@ namespace Game.Rules.Runtime
             )
                 return;
             await RageHandlerSupport.RequireResolved(
-                context.Dispatch(new EndRageOp(context.Binding.Owner))
+                context.Dispatch(new EndRageOp(context.Binding.Owner, true))
             );
         }
     }

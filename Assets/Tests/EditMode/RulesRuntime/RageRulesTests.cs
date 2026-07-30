@@ -268,6 +268,76 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
         }
 
+        /// <summary>
+        /// Verifies timed expiration records Rage-source immunity after damage consumed the
+        /// original temporary Hit Points.
+        /// </summary>
+        [Test]
+        public async Task TimedRageExpiration_ConsumedPoolRecordsImmunity()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState())
+            );
+            await dispatcher.Dispatch(new RageActionOp(Actor));
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(
+                    Actor,
+                    3,
+                    new HealthChangeOriginId("consume-rage-pool"),
+                    RuleSource.FromSlug("test")
+                )
+            );
+            Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.Zero);
+
+            await AdvanceRageToExpiration(dispatcher);
+
+            HealthState expired = dispatcher.Snapshot.Health[Actor];
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
+            Assert.That(expired.Temporary, Is.Zero);
+            Assert.That(expired.HasTemporaryHitPointImmunity(RageRules.Source), Is.True);
+            ResolvedOpResult<RageStartOutcome> restarted = RequireResolved(
+                await dispatcher.Dispatch(new RageActionOp(Actor))
+            );
+            Assert.That(restarted.Value.TemporaryHitPointsGranted, Is.False);
+            Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.Zero);
+        }
+
+        /// <summary>
+        /// Verifies timed expiration preserves foreign temporary Hit Points while preventing a
+        /// later Rage from replacing that pool.
+        /// </summary>
+        [Test]
+        public async Task TimedRageExpiration_ReplacedPoolPreservesForeignOwnerAndRecordsImmunity()
+        {
+            RuleSource otherSource = RuleSource.FromSlug("larger-temporary-hit-points");
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState())
+            );
+            await dispatcher.Dispatch(new RageActionOp(Actor));
+            await dispatcher.Dispatch(
+                new GrantTemporaryHitPointsOp(
+                    Actor,
+                    8,
+                    new HealthChangeOriginId("replace-rage-pool-before-expiration"),
+                    otherSource
+                )
+            );
+
+            await AdvanceRageToExpiration(dispatcher);
+
+            HealthState expired = dispatcher.Snapshot.Health[Actor];
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
+            Assert.That(expired.Temporary, Is.EqualTo(8));
+            Assert.That(expired.TemporarySource, Is.EqualTo(otherSource));
+            Assert.That(expired.HasTemporaryHitPointImmunity(RageRules.Source), Is.True);
+            ResolvedOpResult<RageStartOutcome> restarted = RequireResolved(
+                await dispatcher.Dispatch(new RageActionOp(Actor))
+            );
+            Assert.That(restarted.Value.TemporaryHitPointsGranted, Is.False);
+            Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.EqualTo(8));
+            Assert.That(dispatcher.Snapshot.Health[Actor].TemporarySource, Is.EqualTo(otherSource));
+        }
+
         [Test]
         public async Task EncounterEndedFactLetsRageOwnItsCleanup()
         {
@@ -376,6 +446,22 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(restarted.Value.TemporaryHitPoints, Is.Zero);
             Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.Zero);
             Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.True);
+        }
+
+        private static async Task AdvanceRageToExpiration(RuleDispatcher dispatcher)
+        {
+            EncounterState turn = dispatcher.Snapshot.Encounters[Encounter];
+            for (int round = 0; round < 10; round++)
+            {
+                turn = RequireResolved(
+                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
+                ).Value.State;
+                Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+                turn = RequireResolved(
+                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
+                ).Value.State;
+                Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Actor));
+            }
         }
 
         private static RuleDispatcher CreateDispatcher(IRageActorStateProvider provider)
