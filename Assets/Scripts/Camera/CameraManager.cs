@@ -238,7 +238,7 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
 
     private IEnumerator PanToTargetRoutine(GameObject target, bool followIndefinitely)
     {
-        followTarget = null;
+        followTarget = followIndefinitely ? target : null;
         float panDuration = 0.5f;
         Vector3 offset = mainCamera.transform.position - GetCameraLookAtPosition();
 
@@ -273,7 +273,6 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
             }
 
             Vector3 lastTargetPos = target.transform.position;
-            followTarget = target;
             while (true)
             {
                 if (target == null || mainCamera == null)

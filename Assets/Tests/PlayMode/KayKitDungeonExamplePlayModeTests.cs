@@ -280,7 +280,7 @@ public sealed class KayKitDungeonExamplePlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator DestroyedPanTargetAfterFinalInitialYield_ExitsBeforeFollowing()
+    public IEnumerator DestroyedPanTargetAfterFinalInitialYield_ExitsSafelyAndClearsFollowing()
     {
         Camera gameplayCamera = Camera.main;
         CameraManager cameraManager = Object.FindFirstObjectByType<CameraManager>();
@@ -315,6 +315,11 @@ public sealed class KayKitDungeonExamplePlayModeTests
         for (int step = 0; step < maximumInitialPanSteps; step++)
         {
             Assert.That(routine.MoveNext(), Is.True);
+            Assert.That(
+                cameraManager.IsFollowing,
+                Is.True,
+                "An indefinite retarget must remain active throughout the initial pan."
+            );
             if (
                 Vector3.SqrMagnitude(gameplayCamera.transform.position - expectedFinalPosition)
                 < 0.000001f
