@@ -9,6 +9,7 @@ using Game.Creature.Rules;
 using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Attack;
+using Game.Rules.Unity.Composition;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
@@ -36,25 +37,18 @@ namespace Game.Rules.Unity.Strike
         private Tile[,] tiles;
 
         /// <summary>
-        /// Creates and seeds the Strike feature for every creature already registered by the
-        /// encounter composition root.
+        /// Creates an empty encounter-owned Strike context. Combatants are added through the
+        /// shared enrollment pipeline before their state commits.
         /// </summary>
         /// <param name="creatures">Stable rules-to-Unity creature mappings.</param>
         /// <param name="tiles">The current live grid used only by the targeting adapter.</param>
-        /// <param name="seed">The authoritative store seed receiving equipment and ammunition.</param>
         public UnityStrikeContext(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            Tile[,] tiles,
-            RulesStateSeed seed
+            Tile[,] tiles
         )
         {
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.tiles = tiles ?? throw new ArgumentNullException(nameof(tiles));
-            if (seed == null)
-                throw new ArgumentNullException(nameof(seed));
-
-            foreach (KeyValuePair<CreatureId, CreatureComponent> pair in creatures)
-                Register(pair.Key, pair.Value, seed);
         }
 
         /// <summary>Gets every Strike item registered for one creature.</summary>
@@ -66,46 +60,19 @@ namespace Game.Rules.Unity.Strike
         }
 
         /// <summary>
-        /// Adds Unity mappings and returns authoritative Strike state for one generic reinforcement.
+        /// Prepares reversible Unity mappings and typed authoritative state for one combatant.
         /// </summary>
-        public StrikeCombatantRegistration RegisterReinforcement(
+        internal IUnityCombatantStateContribution PrepareCombatant(
             CreatureId actor,
             CreatureComponent creature
         )
         {
-            RulesStateSeed temporarySeed = new RulesStateSeed();
-            Register(actor, creature, temporarySeed);
-            List<EquipmentState> equipment = GetItems(actor)
-                .Select(item => new EquipmentState(
-                    item.Item,
-                    item.Definition,
-                    actor,
-                    true,
-                    !TryGetWeapon(item.Item, out EquipmentWeapon weapon)
-                        || creature.IsWeaponLoaded(weapon)
-                ))
-                .ToList();
-            List<AmmunitionState> pools = GetItems(actor)
-                .Select(item => item.Ammunition)
-                .OfType<RequiredStrikeAmmunitionRequirement>()
-                .Select(requirement => requirement.Pool)
-                .Distinct()
-                .Select(pool =>
-                {
-                    AmmunitionProjection projection = ammunition[pool];
-                    return new AmmunitionState(
-                        pool,
-                        actor,
-                        creature.GetAmmoQuantity(projection.AmmoName)
-                    );
-                })
-                .ToList();
-            return new StrikeCombatantRegistration(actor, equipment, pools);
+            return new StrikeCombatantPreparation(this, Register(actor, creature));
         }
 
         /// <summary>Rolls back provisional Unity Strike mappings for a failed reinforcement join.</summary>
         /// <param name="actor">The reinforcement whose uncommitted mappings are removed.</param>
-        internal void UnregisterReinforcement(CreatureId actor)
+        private void UnregisterCombatant(CreatureId actor)
         {
             if (!actorItems.TryGetValue(actor, out List<ItemId> items))
                 return;
@@ -314,122 +281,135 @@ namespace Game.Rules.Unity.Strike
             return default;
         }
 
-        private void Register(CreatureId actor, CreatureComponent creature, RulesStateSeed seed)
+        private StrikeCombatantRegistration Register(CreatureId actor, CreatureComponent creature)
         {
             if (creature == null)
                 throw new ArgumentException("A registered Strike creature cannot be null.");
             List<ItemId> items = new List<ItemId>();
             actorItems.Add(actor, items);
+            List<EquipmentState> equipment = new List<EquipmentState>();
+            List<AmmunitionState> pools = new List<AmmunitionState>();
 
-            ItemId unarmedId = ItemIdFor(actor, "unarmed");
-            int unarmedDie =
-                creature.passives != null
-                && creature.passives.Any(passive =>
-                    string.Equals(
-                        CreatureSlug.FromName(passive),
-                        "zombie-fist",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                )
-                    ? 6
-                    : 3;
-            StrikeItemDefinition unarmed = new StrikeItemDefinition(
-                unarmedId,
-                new ItemDefinitionId("unarmed"),
-                "Unarmed Strike",
-                "unarmed",
-                "unarmed",
-                new[]
-                {
-                    Trait.FromSlug("agile"),
-                    Trait.FromSlug("finesse"),
-                    Trait.FromSlug("nonlethal"),
-                    Trait.FromSlug("unarmed"),
-                },
-                creature.attackBonus,
-                new[]
-                {
-                    new TypedDamageDice(
-                        new DiceExpression(1, unarmedDie),
-                        "bludgeoning",
-                        "Unarmed Strike"
-                    ),
-                },
-                new[] { new TypedFlatDamage(creature.strMod, "bludgeoning", "Strength") },
-                5,
-                0,
-                0,
-                StrikeAmmunitionRequirement.None
-            );
-            AddItem(actor, creature, unarmed, seed, items, null);
-
-            foreach (EquipmentWeapon weapon in EnumerateWeapons(creature))
+            try
             {
-                string slug = CreatureSlug.FromName(weapon.name);
-                ItemId itemId = ItemIdFor(actor, slug);
-                int reloadActions = creature.GetReloadCost(weapon);
-                StrikeAmmunitionRequirement ammoRequirement = string.IsNullOrWhiteSpace(weapon.ammo)
-                    ? StrikeAmmunitionRequirement.None
-                    : StrikeAmmunitionRequirement.Required(AmmunitionIdFor(actor, weapon.ammo));
-                List<TypedFlatDamage> flat = new List<TypedFlatDamage>();
-                if (weapon.range <= 0 || string.IsNullOrWhiteSpace(weapon.ammo))
-                {
-                    flat.Add(
-                        new TypedFlatDamage(
-                            creature.damageBonus,
-                            weapon.damage.damageType,
-                            "Damage bonus"
+                ItemId unarmedId = ItemIdFor(actor, "unarmed");
+                int unarmedDie =
+                    creature.passives != null
+                    && creature.passives.Any(passive =>
+                        string.Equals(
+                            CreatureSlug.FromName(passive),
+                            "zombie-fist",
+                            StringComparison.OrdinalIgnoreCase
                         )
-                    );
-                }
-                StrikeItemDefinition definition = new StrikeItemDefinition(
-                    itemId,
-                    new ItemDefinitionId(slug),
-                    weapon.name,
-                    weapon.group,
-                    weapon.category,
-                    (weapon.traits ?? new List<string>())
-                        .Where(trait => !string.IsNullOrWhiteSpace(trait))
-                        .Select(Trait.FromSlug),
-                    creature.GetAttackBonusForWeapon(weapon),
+                    )
+                        ? 6
+                        : 3;
+                StrikeItemDefinition unarmed = new StrikeItemDefinition(
+                    unarmedId,
+                    new ItemDefinitionId("unarmed"),
+                    "Unarmed Strike",
+                    "unarmed",
+                    "unarmed",
+                    new[]
+                    {
+                        Trait.FromSlug("agile"),
+                        Trait.FromSlug("finesse"),
+                        Trait.FromSlug("nonlethal"),
+                        Trait.FromSlug("unarmed"),
+                    },
+                    creature.attackBonus,
                     new[]
                     {
                         new TypedDamageDice(
-                            new DiceExpression(
-                                weapon.damage.numberOfDice,
-                                weapon.damage.sidesPerDie
-                            ),
-                            weapon.damage.damageType,
-                            weapon.name
+                            new DiceExpression(1, unarmedDie),
+                            "bludgeoning",
+                            "Unarmed Strike"
                         ),
                     },
-                    flat,
-                    weapon.traits != null
-                    && weapon.traits.Any(trait =>
-                        string.Equals(trait, "reach", StringComparison.OrdinalIgnoreCase)
-                    )
-                        ? 10
-                        : 5,
-                    Math.Max(0, weapon.range),
-                    reloadActions,
-                    ammoRequirement
+                    new[] { new TypedFlatDamage(creature.strMod, "bludgeoning", "Strength") },
+                    5,
+                    0,
+                    0,
+                    StrikeAmmunitionRequirement.None
                 );
-                AddItem(actor, creature, definition, seed, items, weapon);
+                AddItem(actor, creature, unarmed, items, equipment, null);
 
-                if (ammoRequirement is RequiredStrikeAmmunitionRequirement required)
+                foreach (EquipmentWeapon weapon in EnumerateWeapons(creature))
                 {
-                    int quantity = creature.GetAmmoQuantity(weapon.ammo);
-                    if (!ammunition.ContainsKey(required.Pool))
+                    string slug = CreatureSlug.FromName(weapon.name);
+                    ItemId itemId = ItemIdFor(actor, slug);
+                    int reloadActions = creature.GetReloadCost(weapon);
+                    StrikeAmmunitionRequirement ammoRequirement = string.IsNullOrWhiteSpace(
+                        weapon.ammo
+                    )
+                        ? StrikeAmmunitionRequirement.None
+                        : StrikeAmmunitionRequirement.Required(AmmunitionIdFor(actor, weapon.ammo));
+                    List<TypedFlatDamage> flat = new List<TypedFlatDamage>();
+                    if (weapon.range <= 0 || string.IsNullOrWhiteSpace(weapon.ammo))
                     {
-                        seed.SeedAmmunition(
-                            new AmmunitionState(required.Pool, actor, Math.Max(0, quantity))
-                        );
-                        ammunition.Add(
-                            required.Pool,
-                            new AmmunitionProjection(creature, weapon.ammo)
+                        flat.Add(
+                            new TypedFlatDamage(
+                                creature.damageBonus,
+                                weapon.damage.damageType,
+                                "Damage bonus"
+                            )
                         );
                     }
+                    StrikeItemDefinition definition = new StrikeItemDefinition(
+                        itemId,
+                        new ItemDefinitionId(slug),
+                        weapon.name,
+                        weapon.group,
+                        weapon.category,
+                        (weapon.traits ?? new List<string>())
+                            .Where(trait => !string.IsNullOrWhiteSpace(trait))
+                            .Select(Trait.FromSlug),
+                        creature.GetAttackBonusForWeapon(weapon),
+                        new[]
+                        {
+                            new TypedDamageDice(
+                                new DiceExpression(
+                                    weapon.damage.numberOfDice,
+                                    weapon.damage.sidesPerDie
+                                ),
+                                weapon.damage.damageType,
+                                weapon.name
+                            ),
+                        },
+                        flat,
+                        weapon.traits != null
+                        && weapon.traits.Any(trait =>
+                            string.Equals(trait, "reach", StringComparison.OrdinalIgnoreCase)
+                        )
+                            ? 10
+                            : 5,
+                        Math.Max(0, weapon.range),
+                        reloadActions,
+                        ammoRequirement
+                    );
+                    AddItem(actor, creature, definition, items, equipment, weapon);
+
+                    if (ammoRequirement is RequiredStrikeAmmunitionRequirement required)
+                    {
+                        int quantity = creature.GetAmmoQuantity(weapon.ammo);
+                        if (!ammunition.ContainsKey(required.Pool))
+                        {
+                            pools.Add(
+                                new AmmunitionState(required.Pool, actor, Math.Max(0, quantity))
+                            );
+                            ammunition.Add(
+                                required.Pool,
+                                new AmmunitionProjection(creature, weapon.ammo)
+                            );
+                        }
+                    }
                 }
+                return new StrikeCombatantRegistration(actor, equipment, pools);
+            }
+            catch
+            {
+                UnregisterCombatant(actor);
+                throw;
             }
         }
 
@@ -437,8 +417,8 @@ namespace Game.Rules.Unity.Strike
             CreatureId actor,
             CreatureComponent creature,
             StrikeItemDefinition definition,
-            RulesStateSeed seed,
             ICollection<ItemId> items,
+            ICollection<EquipmentState> equipment,
             EquipmentWeapon weapon
         )
         {
@@ -446,11 +426,70 @@ namespace Game.Rules.Unity.Strike
             items.Add(definition.Item);
             itemOwners.Add(definition.Item, creature);
             bool loaded = weapon == null || creature.IsWeaponLoaded(weapon);
-            seed.SeedEquipment(
+            equipment.Add(
                 new EquipmentState(definition.Item, definition.Definition, actor, true, loaded)
             );
             if (weapon != null)
                 weapons.Add(definition.Item, weapon);
+        }
+
+        /// <summary>
+        /// Owns provisional Strike mappings and exposes the same typed state to initial seeding and
+        /// reinforcement registration.
+        /// </summary>
+        private sealed class StrikeCombatantPreparation
+            : IUnityCombatantStateContribution,
+                IDisposable
+        {
+            private readonly UnityStrikeContext owner;
+            private readonly StrikeCombatantRegistration registration;
+            private bool isDisposed;
+
+            internal StrikeCombatantPreparation(
+                UnityStrikeContext owner,
+                StrikeCombatantRegistration registration
+            )
+            {
+                this.owner = owner;
+                this.registration = registration;
+            }
+
+            /// <inheritdoc/>
+            public void Seed(RulesStateSeed seed)
+            {
+                if (seed == null)
+                    throw new ArgumentNullException(nameof(seed));
+                foreach (EquipmentState item in registration.Equipment)
+                    seed.SeedEquipment(item);
+                foreach (AmmunitionState pool in registration.Ammunition)
+                    seed.SeedAmmunition(pool);
+            }
+
+            /// <inheritdoc/>
+            public void Register(UnityCombatRulesBridge bridge)
+            {
+                if (bridge == null)
+                    throw new ArgumentNullException(nameof(bridge));
+                OpResult<bool> result = bridge.Dispatch(
+                    new RegisterStrikeCombatantOp(registration)
+                );
+                if (result is ResolvedOpResult<bool>)
+                    return;
+                if (result is InvalidOpResult<bool> invalid)
+                    throw new InvalidOperationException(invalid.Reason);
+                throw new InvalidOperationException(
+                    "Strike combatant registration did not resolve."
+                );
+            }
+
+            /// <inheritdoc/>
+            public void Dispose()
+            {
+                if (isDisposed)
+                    return;
+                isDisposed = true;
+                owner.UnregisterCombatant(registration.Actor);
+            }
         }
 
         private CreatureComponent RequireCreature(CreatureId id)

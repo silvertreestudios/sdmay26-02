@@ -3,15 +3,291 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Game.Combat.Spells;
 using Game.Creature;
+using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
 public sealed class UnityCombatRulesBridgeTests
 {
+    [Test]
+    public void EncounterModulesPreserveOrderAcrossSharedCombatantPreparation()
+    {
+        GameObject firstObject = new GameObject("module-order-first");
+        GameObject secondObject = new GameObject("module-order-second");
+        CompositeLifetime firstLifetime = new CompositeLifetime();
+        CompositeLifetime secondLifetime = new CompositeLifetime();
+        try
+        {
+            CreatureComponent firstCreature = firstObject.AddComponent<CreatureComponent>();
+            CreatureComponent secondCreature = secondObject.AddComponent<CreatureComponent>();
+            BridgeTestActionController first =
+                firstObject.AddComponent<BridgeTestActionController>();
+            BridgeTestActionController second =
+                secondObject.AddComponent<BridgeTestActionController>();
+            List<string> order = new List<string>();
+            RecordingEncounterModule alpha = new RecordingEncounterModule("alpha", order);
+            RecordingEncounterModule beta = new RecordingEncounterModule("beta", order);
+            UnityEncounterComposition composition = new UnityEncounterComposition(
+                new IUnityEncounterModule[] { alpha, beta }
+            );
+
+            composition.PrepareCombatant(
+                new UnityCombatantEnrollmentBuilder(
+                    first,
+                    firstCreature,
+                    new CreatureState(
+                        new CreatureId("initial"),
+                        new PlayerId("module-order-player")
+                    ),
+                    new HealthState(1, 1),
+                    new GridPosition(0, 0, 0),
+                    new GridDistance(0),
+                    firstLifetime
+                )
+            );
+            composition.PrepareCombatant(
+                new UnityCombatantEnrollmentBuilder(
+                    second,
+                    secondCreature,
+                    new CreatureState(
+                        new CreatureId("reinforcement"),
+                        new PlayerId("module-order-player")
+                    ),
+                    new HealthState(1, 1),
+                    new GridPosition(1, 0, 0),
+                    new GridDistance(0),
+                    secondLifetime
+                )
+            );
+            IReadOnlyList<IEncounterTurnStartAdapter> adapters =
+                composition.CreateTurnStartAdapters();
+            composition.RefreshTopology(CreateTiles(1));
+
+            Assert.That(
+                order,
+                Is.EqualTo(
+                    new[]
+                    {
+                        "alpha:initial",
+                        "beta:initial",
+                        "alpha:reinforcement",
+                        "beta:reinforcement",
+                        "alpha:topology",
+                        "beta:topology",
+                    }
+                )
+            );
+            Assert.That(adapters, Is.EqualTo(new[] { alpha.Adapter, beta.Adapter }));
+        }
+        finally
+        {
+            secondLifetime.Dispose();
+            firstLifetime.Dispose();
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    [Test]
+    public void InitialAndReinforcementEnrollmentUseTheSameFeatureOwnedBaseState()
+    {
+        GameObject initialObject = new GameObject("feature-state-initial");
+        GameObject reinforcementObject = new GameObject("feature-state-reinforcement");
+        try
+        {
+            BridgeTestActionController initial = ConfigureCombatant(
+                initialObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Players",
+                Vector3Int.right
+            );
+            ConfigureFeatureState(initialObject.GetComponent<CreatureComponent>());
+            ConfigureFeatureState(reinforcementObject.GetComponent<CreatureComponent>());
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { initial },
+                CreateTiles(2)
+            );
+
+            bridge.RegisterCombatants(new ActionController[] { reinforcement });
+
+            CreatureId initialId = bridge.GetCreatureId(initial);
+            CreatureId reinforcementId = bridge.GetCreatureId(reinforcement);
+            AssertFeatureState(bridge.Snapshot, initialId);
+            AssertFeatureState(bridge.Snapshot, reinforcementId);
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(initialObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void ReleaseAttemptsCleanupAndEveryCallbackThenReportsFailuresInStableOrder()
+    {
+        GameObject combatantObject = new GameObject("release-failures");
+        try
+        {
+            BridgeTestActionController controller = ConfigureCombatant(
+                combatantObject,
+                "Players",
+                Vector3Int.zero
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { controller },
+                CreateTiles(1)
+            );
+            List<string> order = new List<string>();
+            InvalidOperationException firstCleanupFailure = new InvalidOperationException(
+                "first cleanup"
+            );
+            NotSupportedException secondCleanupFailure = new NotSupportedException(
+                "second cleanup"
+            );
+            ApplicationException firstCallbackFailure = new ApplicationException("first callback");
+            ArgumentException thirdCallbackFailure = new ArgumentException("third callback");
+            TrackingDisposable firstCleanup = new TrackingDisposable(
+                () => order.Add("cleanup-1"),
+                firstCleanupFailure
+            );
+            TrackingDisposable secondCleanup = new TrackingDisposable(
+                () => order.Add("cleanup-2"),
+                secondCleanupFailure
+            );
+            bridge.OwnEncounterResource(firstCleanup);
+            bridge.OwnEncounterResource(secondCleanup);
+            Action callbacks = () =>
+            {
+                order.Add("callback-1");
+                throw firstCallbackFailure;
+            };
+            callbacks += () => order.Add("callback-2");
+            callbacks += () =>
+            {
+                order.Add("callback-3");
+                throw thirdCallbackFailure;
+            };
+
+            AggregateException error = Assert.Throws<AggregateException>(() =>
+                bridge.ReleaseOwnership(callbacks)
+            );
+
+            Assert.That(
+                order,
+                Is.EqualTo(
+                    new[] { "cleanup-2", "cleanup-1", "callback-1", "callback-2", "callback-3" }
+                )
+            );
+            Assert.That(
+                error.InnerExceptions,
+                Is.EqualTo(
+                    new Exception[]
+                    {
+                        secondCleanupFailure,
+                        firstCleanupFailure,
+                        firstCallbackFailure,
+                        thirdCallbackFailure,
+                    }
+                )
+            );
+            Assert.That(firstCleanup.DisposeCount, Is.EqualTo(1));
+            Assert.That(secondCleanup.DisposeCount, Is.EqualTo(1));
+            List<string> immediateOrder = new List<string>();
+            InvalidOperationException firstImmediateFailure = new InvalidOperationException(
+                "first immediate callback"
+            );
+            NotImplementedException thirdImmediateFailure = new NotImplementedException(
+                "third immediate callback"
+            );
+            Action immediateCallbacks = () =>
+            {
+                immediateOrder.Add("immediate-1");
+                throw firstImmediateFailure;
+            };
+            immediateCallbacks += () => immediateOrder.Add("immediate-2");
+            immediateCallbacks += () =>
+            {
+                immediateOrder.Add("immediate-3");
+                throw thirdImmediateFailure;
+            };
+
+            AggregateException immediateError = Assert.Throws<AggregateException>(() =>
+                bridge.ReleaseOwnership(immediateCallbacks)
+            );
+
+            Assert.That(
+                immediateOrder,
+                Is.EqualTo(new[] { "immediate-1", "immediate-2", "immediate-3" })
+            );
+            Assert.That(
+                immediateError.InnerExceptions,
+                Is.EqualTo(new Exception[] { firstImmediateFailure, thirdImmediateFailure })
+            );
+            Assert.That(firstCleanup.DisposeCount, Is.EqualTo(1));
+            Assert.That(secondCleanup.DisposeCount, Is.EqualTo(1));
+            Assert.That(order, Has.Count.EqualTo(5));
+            Assert.DoesNotThrow(() => bridge.ReleaseOwnership());
+        }
+        finally
+        {
+            Object.DestroyImmediate(combatantObject);
+        }
+    }
+
+    [Test]
+    public void ReleasePreservesSingleFailureIdentityAndRemainsIdempotent()
+    {
+        GameObject combatantObject = new GameObject("release-single-failure");
+        try
+        {
+            BridgeTestActionController controller = ConfigureCombatant(
+                combatantObject,
+                "Players",
+                Vector3Int.zero
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { controller },
+                CreateTiles(1)
+            );
+            InvalidOperationException failure = new InvalidOperationException("single callback");
+            int invocationCount = 0;
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                bridge.ReleaseOwnership(() =>
+                {
+                    invocationCount++;
+                    throw failure;
+                })
+            );
+
+            Assert.That(error, Is.SameAs(failure));
+            ApplicationException immediateFailure = new ApplicationException(
+                "single immediate callback"
+            );
+            ApplicationException immediateError = Assert.Throws<ApplicationException>(() =>
+                bridge.ReleaseOwnership(() => throw immediateFailure)
+            );
+            Assert.That(immediateError, Is.SameAs(immediateFailure));
+            Assert.DoesNotThrow(() => bridge.ReleaseOwnership());
+            Assert.That(invocationCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            Object.DestroyImmediate(combatantObject);
+        }
+    }
+
     [Test]
     public void BridgeRejectsEmptyEncounterWithSpecificError()
     {
@@ -220,8 +496,8 @@ public sealed class UnityCombatRulesBridgeTests
                 CreateTiles(2)
             );
 
-            Assert.That(retry.GetCreatureId(first), Is.Not.EqualTo(default(CreatureId)));
-            Assert.That(retry.GetCreatureId(thrower), Is.Not.EqualTo(default(CreatureId)));
+            Assert.That(retry.GetCreatureId(first).Value, Is.EqualTo("combat-creature-1"));
+            Assert.That(retry.GetCreatureId(thrower).Value, Is.EqualTo("combat-creature-2"));
             retry.ReleaseOwnership();
         }
         finally
@@ -320,6 +596,10 @@ public sealed class UnityCombatRulesBridgeTests
                 encounter.RegisterCombatants(new ActionController[] { reinforcement })
             );
             Assert.That(encounter.GetEncounter().Roster, Has.Count.EqualTo(3));
+            Assert.That(
+                encounter.GetCreatureId(reinforcement).Value,
+                Is.EqualTo("combat-creature-3")
+            );
             encounter.ReleaseOwnership();
         }
         finally
@@ -385,6 +665,10 @@ public sealed class UnityCombatRulesBridgeTests
                 encounter.RegisterCombatants(new ActionController[] { reinforcement })
             );
             Assert.That(encounter.GetEncounter().Roster, Has.Count.EqualTo(3));
+            Assert.That(
+                encounter.GetCreatureId(reinforcement).Value,
+                Is.EqualTo("combat-creature-3")
+            );
             encounter.ReleaseOwnership();
         }
         finally
@@ -843,6 +1127,53 @@ public sealed class UnityCombatRulesBridgeTests
         );
     }
 
+    private static void ConfigureFeatureState(CreatureComponent creature)
+    {
+        PreparedCharacter prepared = new PreparedCharacter(new CharacterBuild())
+        {
+            SpellBook = new PreparedSpellBook(
+                Array.Empty<PreparedSpellEntry>(),
+                new[] { new PreparedSpellSlotPool(new SpellSlotPoolId("module-owned-rank-1"), 2) },
+                0
+            ),
+        };
+        Assert.That(
+            Pf2eItem.TryParse(
+                "test-rage",
+                "{\"name\":\"Rage\",\"type\":\"action\",\"system\":{\"slug\":\"rage\"}}",
+                out Pf2eItem rage
+            ),
+            Is.True
+        );
+        prepared.AddOwnedItem(rage);
+        creature.Prepared = prepared;
+    }
+
+    private static void AssertFeatureState(RulesSnapshot snapshot, CreatureId creature)
+    {
+        Assert.That(
+            snapshot.SpellSlots.Select(pair => pair.Value).Where(slot => slot.Owner == creature),
+            Is.EqualTo(
+                new[]
+                {
+                    new SpellSlotState(
+                        new SpellSlotPoolId($"{creature.Value}:module-owned-rank-1"),
+                        creature,
+                        2,
+                        2
+                    ),
+                }
+            )
+        );
+        Assert.That(
+            snapshot
+                .RuleBindings.Select(pair => pair.Value)
+                .Where(binding => binding.Owner == creature)
+                .Select(binding => binding.DefinitionId.Value),
+            Is.EqualTo(new[] { "rage-lifecycle" })
+        );
+    }
+
     private static TeamRules InitializeTeamRules(GameObject owner)
     {
         TeamRules rules = owner.AddComponent<TeamRules>();
@@ -898,8 +1229,62 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
+    private sealed class RecordingEncounterModule
+        : IUnityEncounterTurnStartModule,
+            IUnityEncounterTopologyModule,
+            IUnityCombatantEnrollmentModule
+    {
+        private readonly string name;
+        private readonly IList<string> order;
+
+        public RecordingEncounterModule(string name, IList<string> order)
+        {
+            this.name = name;
+            this.order = order;
+            Adapter = new RecordingTurnStartAdapter();
+        }
+
+        public IEncounterTurnStartAdapter Adapter { get; }
+
+        public IEncounterTurnStartAdapter CreateTurnStartAdapter() => Adapter;
+
+        public void RefreshTopology(GridPrivate.Tile[,] tiles) => order.Add($"{name}:topology");
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) =>
+            order.Add($"{name}:{builder.CreatureId.Value}");
+    }
+
+    private sealed class RecordingTurnStartAdapter : IEncounterTurnStartAdapter
+    {
+        public ValueTask<TurnStartContribution> Apply(
+            EncounterTurnStartContext context,
+            TurnStartContribution current
+        ) => new ValueTask<TurnStartContribution>(current);
+    }
+
     private sealed class BridgeTestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class TrackingDisposable : IDisposable
+    {
+        private readonly Action onDispose;
+        private readonly Exception failure;
+
+        public TrackingDisposable(Action onDispose, Exception failure)
+        {
+            this.onDispose = onDispose;
+            this.failure = failure;
+        }
+
+        public int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            DisposeCount++;
+            onDispose();
+            throw failure;
+        }
     }
 }

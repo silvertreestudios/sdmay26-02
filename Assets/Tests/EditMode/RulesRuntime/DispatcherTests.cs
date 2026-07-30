@@ -83,6 +83,27 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void CompositeLifetimeAttemptsEveryCleanupAndPreservesReverseFailureOrder()
+        {
+            List<string> cleanupOrder = new List<string>();
+            InvalidOperationException firstFailure = new InvalidOperationException("first");
+            ApplicationException secondFailure = new ApplicationException("second");
+            CompositeLifetime lifetime = new CompositeLifetime();
+            lifetime.Add(new TrackingDisposable("first", cleanupOrder, firstFailure));
+            lifetime.Add(new TrackingDisposable("second", cleanupOrder, secondFailure));
+            lifetime.Add(new TrackingDisposable("third", cleanupOrder));
+
+            AggregateException error = Assert.Throws<AggregateException>(() => lifetime.Dispose());
+
+            Assert.That(cleanupOrder, Is.EqualTo(new[] { "third", "second", "first" }));
+            Assert.That(
+                error.InnerExceptions,
+                Is.EqualTo(new Exception[] { secondFailure, firstFailure })
+            );
+            Assert.DoesNotThrow(() => lifetime.Dispose());
+        }
+
+        [Test]
         public async Task SettlementRegistrationTokensUnregisterEachObserverExactlyOnce()
         {
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(10))
@@ -1052,11 +1073,17 @@ namespace Game.Rules.Runtime.Tests
         {
             private readonly string name;
             private readonly List<string> cleanupOrder;
+            private readonly Exception failure;
 
-            public TrackingDisposable(string name, List<string> cleanupOrder)
+            public TrackingDisposable(
+                string name,
+                List<string> cleanupOrder,
+                Exception failure = null
+            )
             {
                 this.name = name;
                 this.cleanupOrder = cleanupOrder;
+                this.failure = failure;
             }
 
             public int DisposeCount { get; private set; }
@@ -1065,6 +1092,8 @@ namespace Game.Rules.Runtime.Tests
             {
                 DisposeCount++;
                 cleanupOrder.Add(name);
+                if (failure != null)
+                    throw failure;
             }
         }
 

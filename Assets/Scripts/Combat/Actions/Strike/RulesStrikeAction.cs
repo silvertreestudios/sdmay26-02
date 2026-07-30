@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using Game.Rules.Unity.Strike;
 using GridPublic;
 using UnityEngine;
@@ -253,6 +254,7 @@ namespace Game.Strikes
 
     /// <summary>Applies a fully prepared Strike action-list reconciliation without recomputing it.</summary>
     internal sealed class UnityStrikeActionInstallationPlan
+        : IUnityCombatantInstallationContribution
     {
         private readonly ActionController controller;
         private readonly IReadOnlyList<EntityAction> removals;
@@ -269,7 +271,8 @@ namespace Game.Strikes
             this.additions = additions;
         }
 
-        internal void Apply()
+        /// <inheritdoc/>
+        public void Apply()
         {
             foreach (EntityAction action in removals)
                 controller.RemoveAction(action);

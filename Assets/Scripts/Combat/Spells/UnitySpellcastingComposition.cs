@@ -6,6 +6,7 @@ using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using UnityEngine;
 
 namespace Game.Combat.Spells
@@ -167,7 +168,7 @@ namespace Game.Combat.Spells
     }
 
     /// <summary>Applies a fully prepared spell action reconciliation without querying Unity again.</summary>
-    internal sealed class UnitySpellActionInstallationPlan
+    internal sealed class UnitySpellActionInstallationPlan : IUnityCombatantInstallationContribution
     {
         private readonly ActionController controller;
         private readonly CreatureComponent creature;
@@ -190,7 +191,8 @@ namespace Game.Combat.Spells
             this.creatureActionNames = creatureActionNames;
         }
 
-        internal void Apply()
+        /// <inheritdoc/>
+        public void Apply()
         {
             foreach (EntityAction action in removals)
                 controller.RemoveAction(action);
