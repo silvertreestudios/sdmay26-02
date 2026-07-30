@@ -14,6 +14,8 @@ namespace Game.Rules.Runtime
     /// reducer commit and for accepted action work that must settle before an unrelated queued root
     /// can begin. The callback remains inside root serialization and may await a public dispatcher
     /// call; that call becomes a causally linked root instead of waiting on the serialization gate.
+    /// A callback must await each dispatcher call before starting another so sibling causal roots
+    /// retain their exact parent instead of overlapping one another.
     /// </remarks>
     public interface IRootResolutionObserver<TResult>
     {
@@ -31,8 +33,10 @@ namespace Game.Rules.Runtime
     /// <summary>Observes each exact root after all of its binding-scoped Fact listeners settle.</summary>
     /// <remarks>
     /// Observers execute before the dispatcher releases serialization to an unrelated queued root.
-    /// They may await public dispatcher calls, which become causally linked roots. This is intended
-    /// for host presentation transactions, not for changing the already-settled root result.
+    /// They may sequentially await public dispatcher calls, which become causally linked roots;
+    /// each call must finish before another begins. The callback remains responsible for finishing
+    /// all of its causal work before it returns. This hook is intended for host presentation
+    /// transactions, not for changing the already-settled root result.
     /// </remarks>
     public interface IRootSettlementObserver
     {
@@ -95,6 +99,7 @@ namespace Game.Rules.Runtime
         // running inside this dispatcher's current resolution from callers that should wait on the gate.
         private readonly AsyncLocal<long> activeResolutionFlow = new AsyncLocal<long>();
         private readonly AsyncLocal<long> activeRootCallbackFlow = new AsyncLocal<long>();
+        private readonly AsyncLocal<OpId?> activeRootCallbackOwner = new AsyncLocal<OpId?>();
         private long activeResolutionFlowLease;
         private long nextResolutionFlowLease;
         private readonly IRulesStore store;
@@ -317,7 +322,7 @@ namespace Game.Rules.Runtime
             if (op == null)
                 throw new ArgumentNullException(nameof(op));
             long callerFlowLease = activeResolutionFlow.Value;
-            RootResolution callbackOwner = RootResolution.Idle;
+            OpId? callbackOwner = null;
             lock (gate)
             {
                 if (callerFlowLease != 0 && callerFlowLease == activeResolutionFlowLease)
@@ -327,17 +332,21 @@ namespace Game.Rules.Runtime
                             "An active resolution cannot call the public root Dispatch API. "
                                 + "Use its callback context for nested work."
                         );
-                    callbackOwner = activeRoot;
+                    callbackOwner =
+                        activeRootCallbackOwner.Value
+                        ?? throw new InvalidOperationException(
+                            "A root callback has no exact owning root."
+                        );
                 }
             }
 
-            if (!callbackOwner.IsIdle)
+            if (callbackOwner.HasValue)
                 return await DispatchTriggeredRoot(
                     op,
-                    callbackOwner.RootId,
-                    callbackOwner.RootId,
+                    callbackOwner.Value,
+                    callbackOwner.Value,
                     observer,
-                    "Root-callback dispatch requires its owning root to retain serialization."
+                    "A root callback must await each dispatch before starting another."
                 );
 
             await rootSerial.WaitAsync();
@@ -525,17 +534,20 @@ namespace Game.Rules.Runtime
             }
         }
 
-        internal async ValueTask InvokeRootCallback(Func<ValueTask> callback)
+        internal async ValueTask InvokeRootCallback(OpId owner, Func<ValueTask> callback)
         {
-            long previous = activeRootCallbackFlow.Value;
+            long previousFlow = activeRootCallbackFlow.Value;
+            OpId? previousOwner = activeRootCallbackOwner.Value;
             activeRootCallbackFlow.Value = activeResolutionFlowLease;
+            activeRootCallbackOwner.Value = owner;
             try
             {
                 await callback();
             }
             finally
             {
-                activeRootCallbackFlow.Value = previous;
+                activeRootCallbackOwner.Value = previousOwner;
+                activeRootCallbackFlow.Value = previousFlow;
             }
         }
 
@@ -556,8 +568,9 @@ namespace Game.Rules.Runtime
             {
                 try
                 {
-                    await InvokeRootCallback(() =>
-                        observer.OnRootSettled(rootId, causalParentRootId, Snapshot)
+                    await InvokeRootCallback(
+                        rootId,
+                        () => observer.OnRootSettled(rootId, causalParentRootId, Snapshot)
                     );
                 }
                 catch (Exception exception)
@@ -572,7 +585,10 @@ namespace Game.Rules.Runtime
             {
                 try
                 {
-                    await InvokeRootCallback(() => observer.OnCausalTreeSettled(rootId, Snapshot));
+                    await InvokeRootCallback(
+                        rootId,
+                        () => observer.OnCausalTreeSettled(rootId, Snapshot)
+                    );
                 }
                 catch (Exception exception)
                 {

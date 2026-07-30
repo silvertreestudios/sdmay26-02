@@ -29,8 +29,9 @@ namespace Game.Rules.Runtime
                         null,
                         causeId
                     );
-                    await InvokeRootCallback(() =>
-                        observer.OnRootResolved(rootId, result, Snapshot)
+                    await InvokeRootCallback(
+                        rootId,
+                        () => observer.OnRootResolved(rootId, result, Snapshot)
                     );
                 }
                 catch (Exception resolutionException)

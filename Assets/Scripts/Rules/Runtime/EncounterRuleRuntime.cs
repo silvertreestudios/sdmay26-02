@@ -153,6 +153,16 @@ namespace Game.Rules.Runtime
             );
     }
 
+    /// <summary>Identifies when an encounter owns zero-HP reaction and defeat finalization.</summary>
+    internal static class EncounterDefeatAuthority
+    {
+        internal static bool Owns(RulesStateDraft state, CreatureId creature) =>
+            state.Encounters.Any(pair =>
+                pair.Value.Phase == EncounterPhase.Active
+                && pair.Value.Roster.Any(entry => entry.Creature == creature)
+            );
+    }
+
     internal static class EncounterHandlerResults
     {
         public static TResult Require<TResult>(OpResult<TResult> result, string work)
@@ -299,6 +309,8 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException(
                     "Encounter advancement requires an active encounter without a current turn."
                 );
+            await ExpireEffects(PendingExpirations(context.Snapshot, initial.Id), context);
+            initial = EncounterRuleRuntime.RequireEncounter(context.Snapshot, frame.Op.Encounter);
             EncounterOutcome? immediate = EncounterRuleRuntime.Evaluate(context.Snapshot, initial);
             if (immediate.HasValue)
             {
@@ -312,7 +324,36 @@ namespace Game.Rules.Runtime
                 await context.Dispatch(new CommitInitiativeBoundaryOp(frame.Op.Encounter)),
                 "initiative boundary"
             );
-            foreach (ActiveEffectTimingState timing in boundary.DueEffects)
+            await ExpireEffects(boundary.DueEffects, context);
+            return new EncounterAdvanceOutcome(
+                EncounterRuleRuntime.RequireEncounter(context.Snapshot, frame.Op.Encounter)
+            );
+        }
+
+        private static ActiveEffectTimingState[] PendingExpirations(
+            RulesSnapshot snapshot,
+            EncounterId encounter
+        ) =>
+            snapshot
+                // Zero remains durable until ExpireActiveEffectOp commits. A later Advance request
+                // therefore resumes deterministic expiration before it consumes another boundary
+                // when an earlier expiration callback failed after the boundary transaction.
+                .ActiveEffectTimings.Where(pair =>
+                    pair.Value.Encounter == encounter
+                    && !pair.Value.ExpiresWithEncounter
+                    && pair.Value.RemainingBoundaries == 0
+                )
+                .Select(pair => pair.Value)
+                .OrderBy(value => value.CreationOrder)
+                .ThenBy(value => value.Effect.Value, StringComparer.Ordinal)
+                .ToArray();
+
+        private static async ValueTask ExpireEffects(
+            IEnumerable<ActiveEffectTimingState> timings,
+            OpHandlerContext context
+        )
+        {
+            foreach (ActiveEffectTimingState timing in timings)
             {
                 if (
                     !context.Snapshot.ActiveEffects.TryGet(
@@ -334,9 +375,6 @@ namespace Game.Rules.Runtime
                     "timed effect expiration"
                 );
             }
-            return new EncounterAdvanceOutcome(
-                EncounterRuleRuntime.RequireEncounter(context.Snapshot, frame.Op.Encounter)
-            );
         }
     }
 

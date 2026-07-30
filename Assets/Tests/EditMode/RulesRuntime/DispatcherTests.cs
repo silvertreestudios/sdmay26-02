@@ -571,6 +571,42 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(10));
         }
 
+        [Test]
+        [Timeout(10000)]
+        public async Task RootCallbackRejectsOverlapAndAllowsAwaitedSequentialDispatch()
+        {
+            SuspendedNestedHandler suspended = new SuspendedNestedHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                CreateStore(10),
+                new SequentialOpIdProvider(840)
+            )
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .RegisterHandler<SuspendedNestedOp, int>(suspended)
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+            OverlappingRootCallbackObserver observer = new OverlappingRootCallbackObserver(
+                dispatcher,
+                suspended
+            );
+
+            await dispatcher.Dispatch(new SettlementTokenOp(), observer);
+
+            Assert.That(observer.OverlapError, Is.Not.Null);
+            Assert.That(observer.OverlapError.Message, Does.Contain("await each dispatch"));
+            Assert.That(observer.FirstResult, Is.TypeOf<ResolvedOpResult<int>>());
+            Assert.That(observer.SequentialResult, Is.TypeOf<ResolvedOpResult<int>>());
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(12));
+            Assert.That(
+                dispatcher
+                    .Trace.OrderedFrames.Where(frame => !frame.ParentId.HasValue)
+                    .Select(frame => frame.RootId)
+                    .Distinct()
+                    .Count(),
+                Is.EqualTo(3)
+            );
+        }
+
         /// <summary>
         /// Verifies a delayed continuation may start a new root after its originating root releases ownership.
         /// </summary>
@@ -1094,6 +1130,49 @@ namespace Game.Rules.Runtime.Tests
                 cleanupOrder.Add(name);
                 if (failure != null)
                     throw failure;
+            }
+        }
+
+        private sealed class OverlappingRootCallbackObserver : IRootResolutionObserver<int>
+        {
+            private readonly RuleDispatcher dispatcher;
+            private readonly SuspendedNestedHandler suspended;
+
+            public OverlappingRootCallbackObserver(
+                RuleDispatcher dispatcher,
+                SuspendedNestedHandler suspended
+            )
+            {
+                this.dispatcher = dispatcher;
+                this.suspended = suspended;
+            }
+
+            public InvalidOperationException OverlapError { get; private set; }
+            public OpResult<int> FirstResult { get; private set; }
+            public OpResult<int> SequentialResult { get; private set; }
+
+            public async ValueTask OnRootResolved(
+                OpId rootId,
+                OpResult<int> result,
+                RulesSnapshot snapshot
+            )
+            {
+                Task<OpResult<int>> first = dispatcher.Dispatch(new SuspendedNestedOp(1)).AsTask();
+                await suspended.Started;
+                try
+                {
+                    await dispatcher.Dispatch(new SingleIncrementRootOp());
+                }
+                catch (InvalidOperationException error)
+                {
+                    OverlapError = error;
+                }
+                finally
+                {
+                    suspended.Release();
+                }
+                FirstResult = await first;
+                SequentialResult = await dispatcher.Dispatch(new SingleIncrementRootOp());
             }
         }
 

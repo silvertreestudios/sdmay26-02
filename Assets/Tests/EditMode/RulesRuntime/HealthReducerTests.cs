@@ -73,7 +73,11 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(resolved.Value.AppliedToTemporary, Is.EqualTo(3));
             Assert.That(resolved.Value.AppliedToCurrent, Is.EqualTo(5));
             Assert.That(resolved.Value.Applied, Is.EqualTo(8));
-            Assert.That(dispatcher.Snapshot.Health[Creature], Is.EqualTo(new HealthState(0, 10)));
+            HealthState defeated = dispatcher.Snapshot.Health[Creature];
+            Assert.That(defeated.Current, Is.Zero);
+            Assert.That(defeated.Maximum, Is.EqualTo(10));
+            Assert.That(defeated.Temporary, Is.Zero);
+            Assert.That(defeated.IsCommittedDefeated, Is.True);
             DamageAppliedFact damage = resolved.Facts.OfType<DamageAppliedFact>().Single();
             Assert.That(damage.AppliedToTemporary, Is.EqualTo(3));
             Assert.That(damage.AppliedToCurrent, Is.EqualTo(5));
@@ -82,6 +86,10 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(1)
             );
             Assert.That(resolved.Facts.OfType<CreatureReducedToZeroFact>().Count(), Is.EqualTo(1));
+            Assert.That(
+                resolved.Facts.OfType<CreatureDefeatCommittedFact>().Count(),
+                Is.EqualTo(1)
+            );
         }
 
         [Test]
@@ -118,7 +126,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task ReductionToZeroDefersVacatingPositionUntilDefeatReactionsSettle()
+        public async Task ReductionToZeroCommitsDefeatWhenNoEncounterOwnsReactions()
         {
             GridPosition occupiedPosition = new GridPosition(2, 0, 3);
             RulesStateSeed seed = new RulesStateSeed()
@@ -132,10 +140,23 @@ namespace Game.Rules.Runtime.Tests
             );
 
             Assert.That(RequireResolved(result).Value.AppliedToCurrent, Is.EqualTo(2));
-            Assert.That(dispatcher.Snapshot.Positions[Creature], Is.EqualTo(occupiedPosition));
-            Assert.That(dispatcher.Snapshot.Health[Creature], Is.EqualTo(new HealthState(0, 10)));
+            Assert.That(dispatcher.Snapshot.Positions.Contains(Creature), Is.False);
+            HealthState defeated = dispatcher.Snapshot.Health[Creature];
+            Assert.That(defeated.Current, Is.Zero);
             Assert.That(dispatcher.Snapshot.Creatures[Creature].Id, Is.EqualTo(Creature));
             Assert.That(result.Facts.OfType<CreatureReducedToZeroFact>().Count(), Is.EqualTo(1));
+            Assert.That(defeated.IsCommittedDefeated, Is.True);
+            Assert.That(result.Facts.OfType<CreatureDefeatCommittedFact>().Count(), Is.EqualTo(1));
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(
+                    new ApplyHealingOp(
+                        Creature,
+                        1,
+                        new HealthChangeOriginId("heal-committed-defeat"),
+                        RuleSource.FromSlug("healing")
+                    )
+                )
+            );
         }
 
         [Test]

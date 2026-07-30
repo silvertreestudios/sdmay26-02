@@ -1135,6 +1135,122 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(order.Order, Is.EqualTo(new[] { "turn", "expired", "turn" }));
         }
 
+        [Test]
+        public async Task FailedExpirationLeavesLaterDueEffectsRetryableBeforeNextBoundary()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("retryable-timed-effect");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            EncounterState awaitingBoundary = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
+                -1,
+                null,
+                1,
+                null
+            );
+            ActiveEffectId firstId = new ActiveEffectId("retryable-effect-first");
+            BindingId firstBindingId = new BindingId("retryable-binding-first");
+            ActiveEffectId secondId = new ActiveEffectId("retryable-effect-second");
+            BindingId secondBindingId = new BindingId("retryable-binding-second");
+            ActiveEffectInstance first = new ActiveEffectInstance(
+                firstId,
+                definition,
+                Hero,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveEffectInstance second = new ActiveEffectInstance(
+                secondId,
+                definition,
+                Hero,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            RulesStateSeed seed = BaseSeed()
+                .SeedEncounter(awaitingBoundary)
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        EncounterRuleRuntime.OutcomeBindingId(Encounter),
+                        EncounterRuleRuntime.OutcomeDefinitionId,
+                        Hero,
+                        null,
+                        EncounterRuleRuntime.Source,
+                        0
+                    )
+                )
+                .SeedActiveEffect(first)
+                .SeedActiveEffect(second)
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(firstBindingId, definition, Hero, firstId, Source, 1)
+                )
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(secondBindingId, definition, Hero, secondId, Source, 2)
+                )
+                .SeedActiveEffectTiming(
+                    new ActiveEffectTimingState(
+                        firstId,
+                        Encounter,
+                        firstBindingId,
+                        Hero,
+                        0,
+                        false,
+                        1
+                    )
+                )
+                .SeedActiveEffectTiming(
+                    new ActiveEffectTimingState(
+                        secondId,
+                        Encounter,
+                        secondBindingId,
+                        Hero,
+                        0,
+                        false,
+                        2
+                    )
+                );
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed, registry);
+            ThrowOnceExpirationObserver observer = new ThrowOnceExpirationObserver();
+            dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(observer);
+
+            Assert.ThrowsAsync<ApplicationException>(async () =>
+                await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[firstId].Status,
+                Is.EqualTo(ActiveEffectStatus.Expired)
+            );
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[secondId].Status,
+                Is.EqualTo(ActiveEffectStatus.Active)
+            );
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[secondId].RemainingBoundaries,
+                Is.Zero
+            );
+            Assert.That(dispatcher.Snapshot.Encounters[Encounter], Is.EqualTo(awaitingBoundary));
+
+            Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
+
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[secondId].Status,
+                Is.EqualTo(ActiveEffectStatus.Expired)
+            );
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(secondId), Is.False);
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].CurrentTurn.Value.Actor,
+                Is.EqualTo(Hero)
+            );
+            Assert.That(observer.Calls, Is.EqualTo(2));
+        }
+
         [TestCase(false, false)]
         [TestCase(true, false)]
         [TestCase(false, true)]
@@ -1474,6 +1590,19 @@ namespace Game.Rules.Runtime.Tests
             }
 
             public void Release() => release.TrySetResult(true);
+        }
+
+        private sealed class ThrowOnceExpirationObserver : IFactObserver<ActiveEffectExpiredFact>
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            {
+                Calls++;
+                if (Calls == 1)
+                    throw new ApplicationException("first expiration callback failed");
+                return default;
+            }
         }
 
         private sealed class TurnBeganActorsObserver : IFactObserver<TurnBeganFact>

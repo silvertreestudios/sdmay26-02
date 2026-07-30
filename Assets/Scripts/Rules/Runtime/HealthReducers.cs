@@ -20,6 +20,24 @@ namespace Game.Rules.Runtime
         ) => previous.WithValues(current, temporary, temporarySource);
     }
 
+    /// <summary>Commits the shared health and occupancy state for an unrecoverable defeat.</summary>
+    internal static class HealthDefeatState
+    {
+        internal static bool Commit(RulesStateDraft state, CreatureId creature, FactSink facts)
+        {
+            if (!state.Health.TryGet(creature, out HealthState health))
+                throw new InvalidOperationException(
+                    "Defeat finalization requires authoritative health state."
+                );
+            if (health.IsCommittedDefeated)
+                return false;
+            state.Health.Set(creature, health.CommitDefeat());
+            state.Positions.Remove(creature);
+            facts.Stage(new CreatureDefeatCommittedFact(creature));
+            return true;
+        }
+    }
+
     internal sealed class CommitDamageReducer : IOpReducer<CommitDamageOp, DamageOutcome>
     {
         public ReductionResult<DamageOutcome> Reduce(
@@ -72,7 +90,11 @@ namespace Game.Rules.Runtime
                 );
             }
             if (health.Current > 0 && current == 0)
+            {
                 facts.Stage(new CreatureReducedToZeroFact(context.Op.Target, context.Op.Origin));
+                if (!EncounterDefeatAuthority.Owns(state, context.Op.Target))
+                    HealthDefeatState.Commit(state, context.Op.Target, facts);
+            }
             return ReductionResult<DamageOutcome>.Accept(outcome);
         }
     }
@@ -281,10 +303,9 @@ namespace Game.Rules.Runtime
             if (health.IsCommittedDefeated)
                 return ReductionResult<bool>.Accept(false);
 
-            state.Health.Set(context.Op.Target, health.CommitDefeat());
-            state.Positions.Remove(context.Op.Target);
-            facts.Stage(new CreatureDefeatCommittedFact(context.Op.Target));
-            return ReductionResult<bool>.Accept(true);
+            return ReductionResult<bool>.Accept(
+                HealthDefeatState.Commit(state, context.Op.Target, facts)
+            );
         }
     }
 }
