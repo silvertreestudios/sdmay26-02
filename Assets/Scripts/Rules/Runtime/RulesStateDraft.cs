@@ -52,6 +52,12 @@ namespace Game.Rules.Runtime
         public StateSliceDraft<BindingId, ActiveRuleBinding> RuleBindings { get; }
         public StateSliceDraft<BindingId, FrequencyState> Frequencies { get; }
 
+        /// <summary>Gets transaction-scoped access to authoritative encounter clocks.</summary>
+        public StateSliceDraft<EncounterId, EncounterState> Encounters { get; }
+
+        /// <summary>Gets transaction-scoped access to active-effect schedules.</summary>
+        public StateSliceDraft<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
+
         internal RulesStateDraft(RulesStateData data)
         {
             Creatures = new StateSliceDraft<CreatureId, CreatureState>(
@@ -118,6 +124,14 @@ namespace Game.Rules.Runtime
                 data.Frequencies,
                 (id, value) => !id.IsEmpty
             );
+            Encounters = new StateSliceDraft<EncounterId, EncounterState>(
+                data.Encounters,
+                (id, value) => !id.IsEmpty && value != null && id == value.Id
+            );
+            ActiveEffectTimings = new StateSliceDraft<ActiveEffectId, ActiveEffectTimingState>(
+                data.ActiveEffectTimings,
+                (id, value) => !id.IsEmpty && value != null && id == value.Effect
+            );
         }
 
         internal bool IsDirty =>
@@ -136,7 +150,9 @@ namespace Game.Rules.Runtime
             || Equipment.IsDirty
             || ActiveEffects.IsDirty
             || RuleBindings.IsDirty
-            || Frequencies.IsDirty;
+            || Frequencies.IsDirty
+            || Encounters.IsDirty
+            || ActiveEffectTimings.IsDirty;
 
         internal RulesStateData Build(long version)
         {
@@ -157,7 +173,9 @@ namespace Game.Rules.Runtime
                 Equipment.BuildCommittedValues(),
                 ActiveEffects.BuildCommittedValues(),
                 RuleBindings.BuildCommittedValues(),
-                Frequencies.BuildCommittedValues()
+                Frequencies.BuildCommittedValues(),
+                Encounters.BuildCommittedValues(),
+                ActiveEffectTimings.BuildCommittedValues()
             );
         }
     }

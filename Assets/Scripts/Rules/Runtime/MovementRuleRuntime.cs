@@ -7,7 +7,30 @@ namespace Game.Rules.Runtime
     /// <summary>Registers the complete Unity-free movement command and reducer slice.</summary>
     public static class MovementRuleDispatcherExtensions
     {
+        private const string BudgetResetComposition = "movement-budget-reset";
         private static readonly RuleSource MovementSource = RuleSource.FromSlug("movement");
+
+        /// <summary>Registers the topology-free movement-budget reset operation and reducer.</summary>
+        /// <param name="builder">The dispatcher builder being composed.</param>
+        /// <returns>The supplied builder for fluent composition.</returns>
+        public static RuleDispatcherBuilder UseMovementBudgetResetRules(
+            this RuleDispatcherBuilder builder
+        )
+        {
+            if (builder == null)
+                throw new ArgumentNullException(nameof(builder));
+            if (!builder.TryUseEngineComposition(BudgetResetComposition))
+                return builder;
+            return builder
+                .RegisterHandler<ResetMovementBudgetOp, MovementBudgetResetOutcome>(
+                    new ResetMovementBudgetHandler(),
+                    InvocationPolicy.NestedOnly
+                )
+                .RegisterEngineReducer<CommitMovementBudgetResetOp, MovementBudgetResetOutcome>(
+                    new CommitMovementBudgetResetReducer(),
+                    MovementSource
+                );
+        }
 
         /// <summary>
         /// Adds nested movement budgets, path timing, permission issuance, atomic steps, and relocation.
@@ -38,6 +61,7 @@ namespace Game.Rules.Runtime
             if (topologyProvider == null)
                 throw new ArgumentNullException(nameof(topologyProvider));
 
+            builder.UseMovementBudgetResetRules();
             MovementPathValidator validator = new MovementPathValidator(topologyProvider);
             MovementPermission.Authority authority = new MovementPermission.Authority();
             CommitMovementStepReducer stepReducer = new CommitMovementStepReducer(topologyProvider);
@@ -48,14 +72,6 @@ namespace Game.Rules.Runtime
                 )
                 .RegisterEngineReducer<CommitMovementBudgetStartOp, MovementBudgetStartOutcome>(
                     new CommitMovementBudgetStartReducer(),
-                    MovementSource
-                )
-                .RegisterHandler<ResetMovementBudgetOp, MovementBudgetResetOutcome>(
-                    new ResetMovementBudgetHandler(),
-                    InvocationPolicy.NestedOnly
-                )
-                .RegisterEngineReducer<CommitMovementBudgetResetOp, MovementBudgetResetOutcome>(
-                    new CommitMovementBudgetResetReducer(),
                     MovementSource
                 )
                 .RegisterHandler<MovementLeavingSquareOp, MovementTriggerOutcome>(

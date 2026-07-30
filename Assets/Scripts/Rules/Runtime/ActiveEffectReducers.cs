@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -135,6 +136,40 @@ namespace Game.Rules.Runtime
                 );
             }
 
+            if (effect.Duration.Kind != EffectDurationKind.Indefinite)
+            {
+                EncounterState encounter = state
+                    .Encounters.Select(pair => pair.Value)
+                    .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
+                // Exploration-owned effects retain their existing host-managed lifetime until an
+                // encounter clock exists. Once a clock exists, every finite effect is scheduled
+                // deterministically and its source must belong to that exact roster.
+                if (encounter != null)
+                {
+                    if (!encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature))
+                        return ReductionResult<ActiveEffectCreationOutcome>.Reject(
+                            "The effect source is not in the active encounter roster."
+                        );
+                    int boundaries =
+                        effect.Duration.Kind == EffectDurationKind.Rounds ? effect.Duration.Amount
+                        : effect.Duration.Kind == EffectDurationKind.Minutes
+                            ? checked(effect.Duration.Amount * 10)
+                        : 0;
+                    state.ActiveEffectTimings.Set(
+                        effect.Id,
+                        new ActiveEffectTimingState(
+                            effect.Id,
+                            encounter.Id,
+                            binding.Id,
+                            effect.SourceCreature,
+                            boundaries,
+                            effect.Duration.Kind == EffectDurationKind.Encounter,
+                            binding.CreationOrder
+                        )
+                    );
+                }
+            }
+
             state.ActiveEffects.Set(effect.Id, effect);
             state.RuleBindings.Set(binding.Id, binding);
             facts.Stage(new ActiveEffectCreatedFact(effect, binding.Id));
@@ -232,6 +267,7 @@ namespace Game.Rules.Runtime
                 effect.WithStatus(ActiveEffectStatus.Expired, nextVersion)
             );
             state.RuleBindings.Set(binding.Id, binding.WithEnabled(false));
+            state.ActiveEffectTimings.Remove(effect.Id);
             facts.Stage(
                 new ActiveEffectExpiredFact(
                     effect.Id,
@@ -281,6 +317,7 @@ namespace Game.Rules.Runtime
             state.ActiveEffects.Remove(effect.Id);
             state.RuleBindings.Remove(binding.Id);
             state.Frequencies.Remove(binding.Id);
+            state.ActiveEffectTimings.Remove(effect.Id);
             facts.Stage(
                 new ActiveEffectRemovedFact(
                     effect.Id,

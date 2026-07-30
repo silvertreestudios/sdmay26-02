@@ -26,6 +26,28 @@ namespace Game.Rules.Runtime
     internal static class CallbackFailure
     {
         /// <summary>
+        /// Settles non-result cleanup without allowing it to hide the callback's primary failure.
+        /// </summary>
+        internal static async ValueTask AwaitCleanupPreservingPrimary(
+            Exception callbackException,
+            ValueTask cleanup
+        )
+        {
+            try
+            {
+                await cleanup;
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(
+                    "Callback execution and cleanup of its unconsumed work both failed.",
+                    callbackException,
+                    cleanupException
+                );
+            }
+        }
+
+        /// <summary>
         /// Waits for callback-owned cleanup without allowing its failure to hide the callback's
         /// original exception.
         /// </summary>

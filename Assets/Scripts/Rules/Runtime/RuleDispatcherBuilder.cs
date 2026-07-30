@@ -17,6 +17,9 @@ namespace Game.Rules.Runtime
             new Dictionary<Type, IRegistration>();
         private readonly Dictionary<Type, List<IActionValidatorRegistration>> actionValidators =
             new Dictionary<Type, List<IActionValidatorRegistration>>();
+        private readonly HashSet<string> engineCompositions = new HashSet<string>(
+            StringComparer.Ordinal
+        );
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private readonly IRollService rollService;
@@ -146,6 +149,13 @@ namespace Game.Rules.Runtime
                 )
             );
             return this;
+        }
+
+        internal bool TryUseEngineComposition(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                throw new ArgumentException("An engine composition key is required.", nameof(key));
+            return engineCompositions.Add(key);
         }
 
         /// <summary>

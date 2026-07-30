@@ -17,14 +17,7 @@ namespace Game.Rules.Runtime
             int current,
             int temporary,
             RuleSource temporarySource
-        ) =>
-            new HealthState(
-                current,
-                previous.Maximum,
-                temporary,
-                temporarySource,
-                previous.TemporaryHitPointImmunities
-            );
+        ) => previous.WithValues(current, temporary, temporarySource);
     }
 
     internal sealed class CommitDamageReducer : IOpReducer<CommitDamageOp, DamageOutcome>
@@ -79,10 +72,7 @@ namespace Game.Rules.Runtime
                 );
             }
             if (health.Current > 0 && current == 0)
-            {
-                state.Positions.Remove(context.Op.Target);
                 facts.Stage(new CreatureReducedToZeroFact(context.Op.Target, context.Op.Origin));
-            }
             return ReductionResult<DamageOutcome>.Accept(outcome);
         }
     }
@@ -98,6 +88,10 @@ namespace Game.Rules.Runtime
             if (!HealthReducerState.TryGet(state, context.Op.Target, out HealthState health))
                 return ReductionResult<HealingOutcome>.Reject(
                     "Target has no authoritative health state."
+                );
+            if (health.IsCommittedDefeated)
+                return ReductionResult<HealingOutcome>.Reject(
+                    "A committed-defeated creature cannot be healed."
                 );
 
             int applied = Math.Min(context.Op.Healing, health.Maximum - health.Current);
@@ -141,6 +135,10 @@ namespace Game.Rules.Runtime
                     "Target has no authoritative health state."
                 );
             }
+            if (health.IsCommittedDefeated)
+                return ReductionResult<TemporaryHitPointsGrantOutcome>.Reject(
+                    "A committed-defeated creature cannot receive temporary Hit Points."
+                );
             if (health.HasTemporaryHitPointImmunity(context.Op.Source))
             {
                 return ReductionResult<TemporaryHitPointsGrantOutcome>.Accept(
@@ -252,16 +250,7 @@ namespace Game.Rules.Runtime
 
             List<RuleSource> immunities = health.TemporaryHitPointImmunities.ToList();
             immunities.Add(context.Op.Source);
-            state.Health.Set(
-                context.Op.Target,
-                new HealthState(
-                    health.Current,
-                    health.Maximum,
-                    health.Temporary,
-                    health.TemporarySource,
-                    immunities
-                )
-            );
+            state.Health.Set(context.Op.Target, health.WithTemporaryHitPointImmunities(immunities));
             facts.Stage(
                 new TemporaryHitPointImmunityAddedFact(
                     context.Op.Target,
@@ -272,6 +261,30 @@ namespace Game.Rules.Runtime
             return ReductionResult<TemporaryHitPointImmunityOutcome>.Accept(
                 new TemporaryHitPointImmunityOutcome(true)
             );
+        }
+    }
+
+    internal sealed class CommitCreatureDefeatReducer : IOpReducer<CommitCreatureDefeatOp, bool>
+    {
+        public ReductionResult<bool> Reduce(
+            ReductionContext<CommitCreatureDefeatOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            if (!HealthReducerState.TryGet(state, context.Op.Target, out HealthState health))
+                return ReductionResult<bool>.Reject("Target has no authoritative health state.");
+            if (health.Current > 0)
+                return ReductionResult<bool>.Reject(
+                    "A living creature cannot commit authoritative defeat."
+                );
+            if (health.IsCommittedDefeated)
+                return ReductionResult<bool>.Accept(false);
+
+            state.Health.Set(context.Op.Target, health.CommitDefeat());
+            state.Positions.Remove(context.Op.Target);
+            facts.Stage(new CreatureDefeatCommittedFact(context.Op.Target));
+            return ReductionResult<bool>.Accept(true);
         }
     }
 }
