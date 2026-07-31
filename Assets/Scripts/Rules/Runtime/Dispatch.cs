@@ -100,6 +100,8 @@ namespace Game.Rules.Runtime
         private readonly AsyncLocal<long> activeResolutionFlow = new AsyncLocal<long>();
         private readonly AsyncLocal<long> activeRootCallbackFlow = new AsyncLocal<long>();
         private readonly AsyncLocal<OpId?> activeRootCallbackOwner = new AsyncLocal<OpId?>();
+        private readonly AsyncLocal<CallbackWorkCoordinator> activeRootCallbackWork =
+            new AsyncLocal<CallbackWorkCoordinator>();
         private long activeResolutionFlowLease;
         private long nextResolutionFlowLease;
         private readonly IRulesStore store;
@@ -314,7 +316,7 @@ namespace Game.Rules.Runtime
             return DispatchExternal(op, observer);
         }
 
-        private async ValueTask<OpResult<TResult>> DispatchExternal<TResult>(
+        private ValueTask<OpResult<TResult>> DispatchExternal<TResult>(
             IRuleOp<TResult> op,
             IRootResolutionObserver<TResult> observer
         )
@@ -323,6 +325,7 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(op));
             long callerFlowLease = activeResolutionFlow.Value;
             OpId? callbackOwner = null;
+            CallbackWorkCoordinator callbackWork = null;
             lock (gate)
             {
                 if (callerFlowLease != 0 && callerFlowLease == activeResolutionFlowLease)
@@ -337,18 +340,37 @@ namespace Game.Rules.Runtime
                         ?? throw new InvalidOperationException(
                             "A root callback has no exact owning root."
                         );
+                    callbackWork =
+                        activeRootCallbackWork.Value
+                        ?? throw new InvalidOperationException(
+                            "A root callback has no active work coordinator."
+                        );
                 }
             }
 
             if (callbackOwner.HasValue)
-                return await DispatchTriggeredRoot(
-                    op,
-                    callbackOwner.Value,
-                    callbackOwner.Value,
-                    observer,
-                    "A root callback must await each dispatch before starting another."
+                return callbackWork.StartDispatch(
+                    () =>
+                        DispatchTriggeredRoot(
+                            op,
+                            callbackOwner.Value,
+                            callbackOwner.Value,
+                            observer,
+                            "A root callback must await each dispatch before starting another."
+                        ),
+                    "A root callback cannot dispatch after it returns.",
+                    "A root callback must await each dispatch before starting another.",
+                    "A root callback cannot dispatch while callback continuation work is active."
                 );
 
+            return DispatchIndependentRoot(op, observer);
+        }
+
+        private async ValueTask<OpResult<TResult>> DispatchIndependentRoot<TResult>(
+            IRuleOp<TResult> op,
+            IRootResolutionObserver<TResult> observer
+        )
+        {
             await rootSerial.WaitAsync();
             // Keep the idle sentinel until construction succeeds so the ownership gate is still
             // released if per-resolution allocation fails.
@@ -538,14 +560,47 @@ namespace Game.Rules.Runtime
         {
             long previousFlow = activeRootCallbackFlow.Value;
             OpId? previousOwner = activeRootCallbackOwner.Value;
+            CallbackWorkCoordinator previousWork = activeRootCallbackWork.Value;
+            CallbackWorkCoordinator work = new CallbackWorkCoordinator();
             activeRootCallbackFlow.Value = activeResolutionFlowLease;
             activeRootCallbackOwner.Value = owner;
+            activeRootCallbackWork.Value = work;
             try
             {
-                await callback();
+                try
+                {
+                    await callback();
+                }
+                catch (Exception callbackException)
+                {
+                    await CallbackFailure.AwaitCleanupPreservingPrimary(
+                        callbackException,
+                        work.CompleteInvocation("A root callback completed more than once.")
+                    );
+                    throw;
+                }
+
+                if (
+                    await work.CompleteInvocation("A root callback completed more than once.")
+                    == CallbackWorkCompletion.UnconsumedDispatch
+                )
+                {
+                    throw new InvalidOperationException(
+                        $"Root callback for {owner.Value} returned before awaiting its causally linked dispatch."
+                    );
+                }
+
+                lock (gate)
+                {
+                    if (activeRoot.IsIdle || activeRoot.RootId != owner)
+                        throw new InvalidOperationException(
+                            $"Root callback for {owner.Value} crossed resolution root ownership."
+                        );
+                }
             }
             finally
             {
+                activeRootCallbackWork.Value = previousWork;
                 activeRootCallbackOwner.Value = previousOwner;
                 activeRootCallbackFlow.Value = previousFlow;
             }
