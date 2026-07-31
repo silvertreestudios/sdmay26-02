@@ -607,6 +607,48 @@ namespace Game.Rules.Runtime.Tests
             );
         }
 
+        [Test]
+        [Timeout(10000)]
+        public async Task RootCallbackSettlesUnawaitedCausalRootBeforeFailingAndReleasingOwnership()
+        {
+            SuspendedNestedHandler suspended = new SuspendedNestedHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                CreateStore(10),
+                new SequentialOpIdProvider(845)
+            )
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .RegisterHandler<SuspendedNestedOp, int>(suspended)
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+            UnawaitedRootCallbackObserver observer = new UnawaitedRootCallbackObserver(dispatcher);
+
+            Task<OpResult<int>> root = dispatcher
+                .Dispatch(new SettlementTokenOp(), observer)
+                .AsTask();
+            await suspended.Started;
+
+            Assert.That(root.IsCompleted, Is.False);
+            Task<OpResult<int>> queuedRoot = dispatcher
+                .Dispatch(new SingleIncrementRootOp())
+                .AsTask();
+            Assert.That(queuedRoot.IsCompleted, Is.False);
+
+            suspended.Release();
+            InvalidOperationException unawaited = await RequireFailure<InvalidOperationException>(
+                root
+            );
+            OpResult<int> queuedResult = await queuedRoot;
+
+            Assert.That(
+                unawaited.Message,
+                Does.Contain("returned before awaiting its causally linked dispatch")
+            );
+            Assert.That(RequireResolved(queuedResult).Value, Is.EqualTo(12));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(12));
+            Assert.That(queuedResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(848)));
+        }
+
         /// <summary>
         /// Verifies a delayed continuation may start a new root after its originating root releases ownership.
         /// </summary>
@@ -1173,6 +1215,26 @@ namespace Game.Rules.Runtime.Tests
                 }
                 FirstResult = await first;
                 SequentialResult = await dispatcher.Dispatch(new SingleIncrementRootOp());
+            }
+        }
+
+        private sealed class UnawaitedRootCallbackObserver : IRootResolutionObserver<int>
+        {
+            private readonly RuleDispatcher dispatcher;
+
+            public UnawaitedRootCallbackObserver(RuleDispatcher dispatcher)
+            {
+                this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+            }
+
+            public ValueTask OnRootResolved(
+                OpId rootId,
+                OpResult<int> result,
+                RulesSnapshot snapshot
+            )
+            {
+                _ = dispatcher.Dispatch(new SuspendedNestedOp(1));
+                return default;
             }
         }
 
