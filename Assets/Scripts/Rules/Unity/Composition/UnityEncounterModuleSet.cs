@@ -56,6 +56,9 @@ namespace Game.Rules.Unity.Composition
             RuleRegistryBuilder registryBuilder = new();
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
+            registryBuilder.Define(
+                UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
+            );
             foreach (
                 RuleDefinitionId definitionId in spellCatalog
                     .Definitions.SelectMany(definition => definition.Effects)
@@ -76,6 +79,7 @@ namespace Game.Rules.Unity.Composition
                     installUnityAuthority
                 ),
                 new UnitySpellcastingEncounterModule(
+                    owner,
                     actionCatalog,
                     spellAttackContext,
                     creatures,

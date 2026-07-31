@@ -368,6 +368,28 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
         }
 
+        [Test]
+        public async Task EncounterSuspensionExpiresRageBeforeTheEncounterClockIsReleased()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState())
+            );
+            await dispatcher.Dispatch(new RageActionOp(Actor));
+
+            ResolvedOpResult<EncounterSuspensionOutcome> suspended = RequireResolved(
+                await dispatcher.Dispatch(new SuspendEncounterOp(Encounter))
+            );
+
+            Assert.That(suspended.Value.State.Phase, Is.EqualTo(EncounterPhase.Suspended));
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
+            Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.Zero);
+            Assert.That(
+                dispatcher.Snapshot.Health[Actor].HasTemporaryHitPointImmunity(RageRules.Source),
+                Is.True
+            );
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings, Is.Empty);
+        }
+
         /// <summary>
         /// Verifies expiration retains a larger foreign pool while permanently retiring Rage's
         /// temporary-Hit-Point source.

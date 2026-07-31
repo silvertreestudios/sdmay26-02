@@ -142,6 +142,73 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void RestoredFiniteSpellEffectUsesEncounterTimingAndProjectsRemainingDuration()
+    {
+        GameObject sourceObject = new GameObject("restored-effect-source");
+        GameObject targetObject = new GameObject("restored-effect-target");
+        try
+        {
+            BridgeTestActionController source = ConfigureCombatant(
+                sourceObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController target = ConfigureCombatant(
+                targetObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            BlessSpellEffect bless = new BlessSpellEffect(sourceObject)
+            {
+                RemainingTargetTurnStarts = 2,
+            };
+            SpellEffectController targetEffects = SpellEffectController.GetOrAdd(targetObject);
+            targetEffects.RestoreEffects(new[] { bless });
+
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { source, target },
+                CreateTiles(2),
+                new ScriptedRollService(20, 1)
+            );
+            bridge.StartEncounter("Players");
+
+            ActiveEffectInstance adopted = bridge
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single(effect =>
+                    effect.DefinitionId
+                    == UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
+                );
+            CreatureId sourceId = bridge.GetCreatureId(source);
+            Assert.That(adopted.SourceCreature, Is.EqualTo(sourceId));
+            Assert.That(
+                bridge.Snapshot.ActiveEffectTimings[adopted.Id].RemainingBoundaries,
+                Is.EqualTo(1)
+            );
+            Assert.That(bless.RemainingTargetTurnStarts, Is.EqualTo(1));
+            Assert.That(targetEffects.HasEffect<BlessSpellEffect>(), Is.True);
+
+            for (int turn = 0; turn < 3 && targetEffects.HasEffect<BlessSpellEffect>(); turn++)
+            {
+                TurnIdentity current = bridge.GetEncounter().CurrentTurn.Value;
+                bridge.EndTurn(current.Actor);
+            }
+
+            Assert.That(targetEffects.HasEffect<BlessSpellEffect>(), Is.False);
+            Assert.That(
+                bridge.Snapshot.ActiveEffects[adopted.Id].Status,
+                Is.EqualTo(ActiveEffectStatus.Expired)
+            );
+            Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(adopted.Id), Is.False);
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(sourceObject);
+            Object.DestroyImmediate(targetObject);
+        }
+    }
+
+    [Test]
     public void ReleaseAttemptsCleanupAndEveryCallbackThenReportsFailuresInStableOrder()
     {
         GameObject combatantObject = new GameObject("release-failures");

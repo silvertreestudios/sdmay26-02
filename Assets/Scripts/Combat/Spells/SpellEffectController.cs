@@ -261,6 +261,9 @@ namespace Game.Combat.Spells
             effects.AddRange(copied);
         }
 
+        /// <summary>Removes one exact Unity projection after authoritative effect expiry.</summary>
+        internal bool Remove(ActiveSpellEffect effect) => effects.Remove(effect);
+
         public bool HasEffect<T>()
             where T : ActiveSpellEffect
         {
