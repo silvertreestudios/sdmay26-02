@@ -25,17 +25,21 @@ conceptual model and its implemented/deferred matrix; do not treat conceptual ex
 3. Identify the cohesive feature module that should own the rule-specific operations, validation,
    handlers, listeners, selectors, state, and Unity adapter code. Follow the boundary in `AGENTS.md`
    and `Docs/Encounter_Rules_Architecture.md`.
-4. Keep shared engines, bridges, managers, and facades feature-agnostic. Prefer publishing generic
-   timing Facts or dispatching generic Ops so the feature module can decide how its rule responds.
-5. Add horizontal infrastructure only when the current vertical slice requires it, and keep the
-   shared API free of feature terminology.
+4. Keep new shared engine, bridge, manager, and facade APIs feature-agnostic. Existing
+   Stride-specific `UnityCombatRulesBridge` fields and helpers are a transitional first-slice
+   exception; do not copy or expand them. Prefer publishing generic timing Facts or dispatching
+   generic Ops so the feature module can decide how its rule responds.
+5. Add horizontal infrastructure only when the current vertical slice requires it, and keep new
+   shared APIs free of feature terminology.
 6. For encounter features, explicitly compose every feature-used `RuleDefinitionId` and required
    action profile or typed catalog in `UnityEncounterModuleSet.Create` before dispatcher build, then
    register the module once. Support both initial seed and reinforcement enrollment, transfer every
-   observer/resource to the encounter `CompositeLifetime`, and preserve exact bridge identity at
-   cleanup.
+   encounter-scoped module observer/resource to the encounter `CompositeLifetime`, keep root-scoped
+   temporary registrations locally owned until that root ends, and preserve exact bridge identity
+   at cleanup.
 7. Never introduce legacy fallback or dual authority for a migrated state slice, static discovery
-   or self-registration, manual observer cleanup, or feature semantics in shared bridges.
+   or self-registration, manual cleanup of encounter-scoped module observers/resources, or new
+   feature semantics in shared bridges.
 8. Add deterministic tests for rules math before refactoring broad behavior.
 9. Cover PF2e-sensitive areas: degree of success, multiple attack penalty, action economy, damage dice, resistances/weaknesses, conditions, proficiency, and item bonuses.
 10. Keep UI labels and player-facing text short and source-safe.

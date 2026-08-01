@@ -63,12 +63,16 @@ explicit static-composition pass that feature modules cannot defer to `Configure
   each distinct spell-effect `DefinitionId` from `spellCatalog.Definitions`, then calls
   `registryBuilder.Build()`.
 
-Both immutable objects therefore exist before `UnityCombatRulesBridge` supplies them to
+`RuleRegistry` is immutable. `CombatActionCatalog` is instead a stable composed interface over
+encounter-live adapters. Both are constructed before `UnityCombatRulesBridge` supplies them to
 `UseActionLifecycle(modules.ActionCatalog)` and `UseActiveEffectRules(modules.Registry)`, and before
-any module's `ConfigureDispatcher` pass. This is an allowed named composition-root responsibility:
-the root may mention Rage and spell definitions to wire feature-owned catalogs and IDs, but it does
-not implement their conditions or workflow and does not permit static discovery or
-self-registration.
+any module's `ConfigureDispatcher` pass. The catalog's composed capabilities are stable, but
+combatant-specific data remains encounter-live:
+`UnityStrikeContext.Register` adds item definitions during reinforcement preparation, and
+`UnitySpellBookProvider` reads the live creature map. Do not snapshot combatant-specific catalog
+data during static composition. This is an allowed named composition-root responsibility: the root
+may mention Rage and spell definitions to wire feature-owned catalogs and IDs, but it does not
+implement their conditions or workflow and does not permit static discovery or self-registration.
 
 [`UnityEncounterComposition`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterComposition.cs)
 copies that explicit sequence and never scans assemblies, scene objects, statics, or attributes.
@@ -104,15 +108,26 @@ registration side effects.
 `AttachAndInstall` is deliberately after authoritative state and runtime observers exist. For each
 combatant it attaches health authority first, attaches `ActionController` combat authority second,
 and applies already prepared feature installations last, in module contribution order. Do not move
-Unity attachment or action-list mutation into preparation.
+Unity attachment or action-list mutation into preparation. This post-authority Unity mutation is an
+adapter responsibility, not rules authority: installation plans may reconcile Unity action lists
+from frozen prepared data, and post-commit projections such as `UnityHealthProjectionModule` may
+update Unity health and presentation from committed Facts. Neither may mutate authoritative
+`RulesState` or maintain a competing feature mirror.
 
 ### One cleanup boundary
 
-`UnityCombatRulesBridge` owns exactly one encounter-level `CompositeLifetime`. Runtime observer
-registrations and every successfully transferred enrollment plan belong to it. `ReleaseOwnership`
-disposes it once in reverse registration order, attempts all cleanup even after failures, and only
-then runs release callbacks. Modules must add disposable registrations and resources to the lifetime
-they receive; they must not keep a second encounter cleanup list or manually unregister observers.
+`UnityCombatRulesBridge` owns exactly one encounter-level `CompositeLifetime`. Encounter-scoped
+runtime observer registrations and every successfully transferred enrollment plan belong to it.
+`ReleaseOwnership` disposes it once in reverse registration order, attempts all cleanup even after
+failures, and only then runs release callbacks. Modules must add disposable registrations and
+resources to the lifetime they receive; they must not keep a second encounter cleanup list or
+manually unregister observers.
+
+That ownership rule applies to registrations and resources intended to remain active for the
+encounter. A temporary observer that exists for one rules root owns its registration locally and
+disposes it as soon as that root completes. `DispatchProjectedStride` intentionally uses a local
+`using` registration for this reason; adding that observer to the encounter lifetime would leak its
+delivery into later roots.
 
 `ActionController.DetachCombatRules` and `CreatureComponent.DetachHealthRules` use
 `ReferenceEquals` against the owning `UnityCombatRulesBridge`. Delayed cleanup from an older
@@ -252,12 +267,14 @@ framework.
    every provisional disposable.
 4. **Precompute Unity installation.** If the feature changes action lists or adapters, return an
    `IUnityCombatantInstallationContribution` from preparation. Its `Apply` method may only apply
-   frozen work. `UnityStrikeActionInstallationPlan` and `UnitySpellActionInstallationPlan` are the
-   examples.
+   frozen work after rules authority is established. It may mutate Unity installation state, such as
+   action lists, but has no rules authority and must not maintain a competing feature mirror.
+   `UnityStrikeActionInstallationPlan` and `UnitySpellActionInstallationPlan` are the examples.
 5. **Register presentation with encounter ownership.** Implement
    `IUnityEncounterRuntimeModule.RegisterRuntime(RuleDispatcher, CompositeLifetime)` and add every
-   registration/disposable to that lifetime. Strike uses resolved-operation observers for attack
-   pacing; health and Light use committed Fact observers.
+   encounter-scoped registration/disposable to that lifetime. Keep a root-scoped observer locally
+   owned and dispose it after that root. Strike uses resolved-operation observers for attack pacing;
+   health and Light use committed Fact observers.
 6. **Add topology or turn-start capabilities only if required.** Implement
    `IUnityEncounterTopologyModule` for a live geometry adapter. Use
    `IUnityEncounterTurnStartModule` only for a transitional Unity-owned calculation that cannot yet
@@ -295,15 +312,20 @@ framework.
   slice.
 - No static discovery, singleton lookup, static event registration, scene scanning, or feature
   self-registration during composition.
-- No manual observer cleanup outside the provided encounter `CompositeLifetime`.
-- No feature-named conditions, caches, trigger flags, dispatch helpers, or workflow semantics in
-  `UnityCombatRulesBridge`, `RuleDispatcher`, shared managers, or generic projection modules.
+- No manual cleanup list or unregister path for encounter-scoped module observers and resources;
+  add them to the provided encounter `CompositeLifetime`. Root-scoped temporary registrations stay
+  locally owned and must end with their root.
+- No new feature-named conditions, caches, trigger flags, dispatch helpers, or workflow semantics in
+  `UnityCombatRulesBridge`, `RuleDispatcher`, shared managers, or generic projection modules. The
+  existing Stride bridge helpers are the transitional exception described below, not a template.
 - No feature that handles only initial participants. Reinforcements must receive equivalent state,
   bindings, installations, topology behavior, and lifetime ownership.
 - No Unity object, callback, or mutable collection in a rules Op; translate to stable IDs and plain
   data at the adapter boundary.
-- No direct state mutation from handlers, middleware, listeners, observers, installers, or Unity
-  components. Dispatch an Op and let a reducer commit.
+- No direct authoritative `RulesState` mutation from handlers, middleware, listeners, observers,
+  installers, or Unity components, and no competing feature-owned mirror. Dispatch an Op and let a
+  reducer commit. Precomputed post-authority Unity installation and post-commit Unity projection are
+  allowed adapter mutations; neither has rules authority.
 - No treating `IResolvedOpObserver` as a Fact or granting it dispatch authority.
 - No topology refresh during a root and no cached topology that ignores
   `IUnityEncounterTopologyModule.RefreshTopology`.
@@ -326,6 +348,11 @@ shrink them through vertical migrations:
   action lists at attachment.
 - `CreateExplorationStride` creates a temporary, unattached rules composition for movement outside
   initiative and projects its committed boundary position before encounter composition begins.
+- `UnityCombatRulesBridge` still has the first-slice Stride fields and
+  `GetStrideAvailability`, `CreateStrideSelectionWorkflow`, `DispatchStride`, and
+  `DispatchProjectedStride` helpers. They are a transitional exception to the feature-agnostic
+  bridge direction and must not be copied, expanded, or used to justify new feature helpers; new
+  slices should use feature-owned adapters and the bridge's generic dispatch boundary.
 - Other actions, conditions, feats, spells, equipment behaviors, exploration systems, and scene
   flows not named as migrated above can still be Unity-native. Migrate them one vertical slice at a
   time; do not describe the whole game as rules-native.

@@ -30,13 +30,17 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
   module order. In `UnityEncounterModuleSet.Create`, define every feature-used `RuleDefinitionId`
   and compose every required action profile or typed catalog before dispatcher construction. This
   named root wiring is allowed, but features must not self-register. Enrollment must work for both
-  initial participants and reinforcements; registrations and resources belong to the one encounter
-  `CompositeLifetime`.
-- Keep Unity bridges, managers, and facades feature-agnostic. Composition may install a named
-  feature, but shared code must not implement its conditions or workflow. Prefer feature-created Ops
-  and feature listeners for generic Facts over feature-specific bridge helpers.
+  initial participants and reinforcements. Encounter-scoped module registrations and resources
+  belong to the one encounter `CompositeLifetime`; root-scoped temporary registrations stay locally
+  owned and end with their root.
+- Keep new Unity bridge, manager, and facade APIs feature-agnostic. Composition may install a named
+  feature, but shared code must not implement its conditions or workflow. Existing Stride-specific
+  `UnityCombatRulesBridge` fields and helpers are a transitional first-slice exception; do not copy
+  or expand them. Prefer feature-created Ops and feature listeners for generic Facts over new
+  feature-specific bridge helpers.
 - Never add a legacy fallback or dual authority for a migrated slice, static feature discovery or
-  self-registration, manual observer cleanup, or detach logic that ignores exact bridge identity.
+  self-registration, manual cleanup of encounter-scoped module observers/resources, or detach logic
+  that ignores exact bridge identity.
 - Save and restore random state in tests that touch randomness.
 - Keep generated Unity files and results out of version control.
 - Remove the task worktree after the work is merged, closed, or abandoned.
