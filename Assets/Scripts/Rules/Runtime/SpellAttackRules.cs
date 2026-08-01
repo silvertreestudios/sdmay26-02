@@ -117,6 +117,7 @@ namespace Game.Rules.Runtime
                     Array.Empty<TypedFlatDamage>(),
                     Array.Empty<TypedDamageDice>(),
                     degree,
+                    Array.Empty<TypedDamageImmunity>(),
                     data.Weaknesses,
                     data.Resistances,
                     context.Rolls

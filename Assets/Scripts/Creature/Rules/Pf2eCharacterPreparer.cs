@@ -100,11 +100,30 @@ namespace Game.Creature.Rules
                 JObject[] rules = item.Rules.ToArray();
                 for (int index = 0; index < rules.Length; index++)
                 {
-                    string key = rules[index].Value<string>("key");
-                    if (!string.IsNullOrWhiteSpace(key))
+                    JObject rule = rules[index];
+                    string key = rule.Value<string>("key");
+                    if (CreatesPreparedBinding(rule, key))
                         yield return CreateDefinitionSpec(item, key, index);
                 }
             }
+        }
+
+        private static bool CreatesPreparedBinding(JObject rule, string key)
+        {
+            if (rule == null || string.IsNullOrWhiteSpace(key))
+                return false;
+            if (
+                key == "FlatModifier"
+                || key == "AdjustModifier"
+                || key == "DamageDice"
+                || key == "ItemAlteration"
+            )
+                return true;
+            if (key != "RollOption" || rule["toggleable"] != null)
+                return false;
+            string option = rule.Value<string>("option");
+            return !string.IsNullOrWhiteSpace(option)
+                && !option.StartsWith("target:", StringComparison.OrdinalIgnoreCase);
         }
 
         private static PreparedRuleDefinitionSpec CreateDefinitionSpec(
@@ -486,7 +505,6 @@ namespace Game.Creature.Rules
 
             PreparedPredicate predicate = Pf2ePredicate.Compile(rule["predicate"]);
             bool predicateMatches = prepared.EvaluateStatic(predicate);
-            RuleDefinitionId definitionId = prepared.Define(source, key, ruleIndex);
 
             switch (key)
             {
@@ -503,9 +521,10 @@ namespace Game.Creature.Rules
                         ApplyActiveEffectLike(rule, prepared);
                     break;
                 case "FlatModifier":
+                    RuleDefinitionId modifierDefinition = prepared.Define(source, key, ruleIndex);
                     prepared.Modifiers.Add(
                         new PreparedModifierSpec(
-                            definitionId,
+                            modifierDefinition,
                             rule.Value<string>("selector"),
                             rule.Value<string>("slug") ?? source.Slug,
                             ResolveRuleInt(rule["value"], prepared),
@@ -516,9 +535,10 @@ namespace Game.Creature.Rules
                     );
                     break;
                 case "AdjustModifier":
+                    RuleDefinitionId adjustmentDefinition = prepared.Define(source, key, ruleIndex);
                     prepared.Adjustments.Add(
                         new PreparedAdjustmentSpec(
-                            definitionId,
+                            adjustmentDefinition,
                             rule.Value<string>("selector"),
                             rule.Value<string>("slug"),
                             rule.Value<string>("mode"),
@@ -529,9 +549,10 @@ namespace Game.Creature.Rules
                     );
                     break;
                 case "DamageDice":
+                    RuleDefinitionId damageDiceDefinition = prepared.Define(source, key, ruleIndex);
                     prepared.DamageDice.Add(
                         new PreparedDamageDiceSpec(
-                            definitionId,
+                            damageDiceDefinition,
                             rule.Value<string>("selector"),
                             rule.Value<string>("category"),
                             ResolveRuleInt(rule["diceNumber"], prepared),
@@ -541,9 +562,10 @@ namespace Game.Creature.Rules
                     );
                     break;
                 case "ItemAlteration":
+                    RuleDefinitionId alterationDefinition = prepared.Define(source, key, ruleIndex);
                     prepared.ItemAlterations.Add(
                         new PreparedItemAlterationSpec(
-                            definitionId,
+                            alterationDefinition,
                             rule.Value<string>("itemType"),
                             rule.Value<string>("mode"),
                             rule.Value<string>("property"),
@@ -553,19 +575,15 @@ namespace Game.Creature.Rules
                     );
                     break;
                 case "RollOption":
-                    if (!predicateMatches || rule["toggleable"] != null)
+                    if (!CreatesPreparedBinding(rule, key))
                         break;
                     string option = rule.Value<string>("option");
-                    if (
-                        !string.IsNullOrWhiteSpace(option)
-                        && !option.StartsWith("target:", StringComparison.OrdinalIgnoreCase)
-                    )
-                    {
+                    RuleDefinitionId optionDefinition = prepared.Define(source, key, ruleIndex);
+                    if (predicateMatches)
                         prepared.RollOptions.Add(option);
-                        prepared.Options.Add(
-                            new PreparedOptionSpec(definitionId, option, predicate)
-                        );
-                    }
+                    prepared.Options.Add(
+                        new PreparedOptionSpec(optionDefinition, option, predicate)
+                    );
                     break;
                 case "TempHP":
                 case "Resistance":
@@ -971,11 +989,6 @@ namespace Game.Creature.Rules
                     staticOptions.Add($"self:resistance:{Pf2eSlug.FromName(value.DamageType)}");
                 foreach (string immunity in creature?.immunities ?? new List<string>())
                     staticOptions.Add($"self:immunity:{Pf2eSlug.FromName(immunity)}");
-                Conditions conditions = creature?.GetComponent<Conditions>();
-                foreach (
-                    string condition in conditions?.ActiveConditionNames ?? Array.Empty<string>()
-                )
-                    staticOptions.Add($"self:condition:{Pf2eSlug.FromName(condition)}");
                 PreparedCreatureInputs inputs = new(
                     level,
                     new PreparedAbilityModifiers(
@@ -996,13 +1009,12 @@ namespace Game.Creature.Rules
                     (creature?.resistances ?? new List<DamageValue>()).Select(
                         value => new PreparedDefenseDescriptor(value.DamageType, value.DamageAmount)
                     ),
-                    (creature?.immunities ?? new List<string>()).Select(
-                        value => new PreparedImmunityDescriptor(value)
-                    ),
+                    (creature?.immunities ?? new List<string>()).SelectMany(CompileImmunity),
                     staticOptions,
                     Options.Select(value => new PreparedBoundOption(
                         value.DefinitionId,
-                        value.Option
+                        value.Option,
+                        value.Predicate
                     )),
                     RuleValues
                 );
@@ -1055,5 +1067,91 @@ namespace Game.Creature.Rules
                     Options.Add(new PreparedOptionSpec(id, option, PreparedPredicate.Always));
             }
         }
+
+        private static IEnumerable<PreparedImmunityDescriptor> CompileImmunity(string value)
+        {
+            string type = Pf2eSlug.FromName(value);
+            if (type == "death" || type == "death-effect" || type == "death-effects")
+            {
+                yield return new PreparedImmunityDescriptor(type, PreparedImmunityKind.EffectTrait);
+                yield break;
+            }
+            if (type == "disease")
+            {
+                yield return new PreparedImmunityDescriptor(type, PreparedImmunityKind.EffectTrait);
+                yield break;
+            }
+            if (type == "poison")
+            {
+                yield return new PreparedImmunityDescriptor(type, PreparedImmunityKind.Damage);
+                yield return new PreparedImmunityDescriptor(type, PreparedImmunityKind.EffectTrait);
+                yield break;
+            }
+            if (DamageImmunityTypes.Contains(type))
+            {
+                yield return new PreparedImmunityDescriptor(type, PreparedImmunityKind.Damage);
+                yield break;
+            }
+            if (ConditionImmunityTypes.Contains(type))
+            {
+                yield return new PreparedImmunityDescriptor(type, PreparedImmunityKind.Condition);
+                yield break;
+            }
+            yield return new PreparedImmunityDescriptor(type, PreparedImmunityKind.Unclassified);
+        }
+
+        private static readonly HashSet<string> DamageImmunityTypes = new(
+            new[]
+            {
+                "acid",
+                "bleed",
+                "bludgeoning",
+                "cold",
+                "electricity",
+                "fire",
+                "force",
+                "mental",
+                "piercing",
+                "precision",
+                "slashing",
+                "sonic",
+                "spirit",
+                "vitality",
+                "void",
+            },
+            StringComparer.Ordinal
+        );
+
+        private static readonly HashSet<string> ConditionImmunityTypes = new(
+            new[]
+            {
+                "blinded",
+                "clumsy",
+                "controlled",
+                "dazzled",
+                "deafened",
+                "doomed",
+                "drained",
+                "dying",
+                "enfeebled",
+                "fascinated",
+                "fatigued",
+                "fleeing",
+                "frightened",
+                "grabbed",
+                "immobilized",
+                "off-guard",
+                "paralyzed",
+                "prone",
+                "restrained",
+                "sickened",
+                "slowed",
+                "stunned",
+                "stupefied",
+                "unconscious",
+                "wounded",
+            },
+            StringComparer.Ordinal
+        );
     }
 }

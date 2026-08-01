@@ -141,22 +141,23 @@ namespace Game.Rules.Runtime
     /// <summary>Records a committed stateless binding participation change.</summary>
     public sealed class StatelessRuleBindingEnabledChangedFact : RuleFact
     {
-        internal StatelessRuleBindingEnabledChangedFact(BindingId binding, bool isEnabled)
-        {
+        internal StatelessRuleBindingEnabledChangedFact(ActiveRuleBinding binding) =>
             Binding = binding;
-            IsEnabled = isEnabled;
-        }
 
-        public BindingId Binding { get; }
-        public bool IsEnabled { get; }
+        /// <summary>Gets the complete committed binding generation after the change.</summary>
+        public ActiveRuleBinding Binding { get; }
+
+        /// <summary>Gets the committed participation state.</summary>
+        public bool IsEnabled => Binding.IsEnabled;
     }
 
     /// <summary>Records committed removal of one stateless binding.</summary>
     public sealed class StatelessRuleBindingRemovedFact : RuleFact
     {
-        internal StatelessRuleBindingRemovedFact(BindingId binding) => Binding = binding;
+        internal StatelessRuleBindingRemovedFact(ActiveRuleBinding binding) => Binding = binding;
 
-        public BindingId Binding { get; }
+        /// <summary>Gets the complete removed binding generation and its provenance.</summary>
+        public ActiveRuleBinding Binding { get; }
     }
 
     internal static class StatelessBindingReduction
@@ -263,8 +264,9 @@ namespace Game.Rules.Runtime
                 return ReductionResult<StatelessRuleBindingEnabledOutcome>.Reject(
                     $"Active binding {id.Value} is already {(enabled ? "enabled" : "disabled")}."
                 );
-            state.RuleBindings.Set(id, binding.WithEnabled(enabled));
-            facts.Stage(new StatelessRuleBindingEnabledChangedFact(id, enabled));
+            ActiveRuleBinding updated = binding.WithEnabled(enabled);
+            state.RuleBindings.Set(id, updated);
+            facts.Stage(new StatelessRuleBindingEnabledChangedFact(updated));
             return ReductionResult<StatelessRuleBindingEnabledOutcome>.Accept(
                 new StatelessRuleBindingEnabledOutcome(id, enabled)
             );
@@ -324,14 +326,14 @@ namespace Game.Rules.Runtime
                     context.Op.Binding,
                     context.Op.ExpectedCreationOrder,
                     context.Op.Source,
-                    out _,
+                    out ActiveRuleBinding binding,
                     out string rejection
                 )
             )
                 return ReductionResult<StatelessRuleBindingRemovedOutcome>.Reject(rejection);
             state.RuleBindings.Remove(context.Op.Binding);
             state.Frequencies.Remove(context.Op.Binding);
-            facts.Stage(new StatelessRuleBindingRemovedFact(context.Op.Binding));
+            facts.Stage(new StatelessRuleBindingRemovedFact(binding));
             return ReductionResult<StatelessRuleBindingRemovedOutcome>.Accept(
                 new StatelessRuleBindingRemovedOutcome(context.Op.Binding)
             );

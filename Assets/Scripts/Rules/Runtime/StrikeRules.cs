@@ -267,15 +267,24 @@ namespace Game.Rules.Runtime
         private readonly IReadOnlyList<Modifier> attackModifiers;
         private readonly IReadOnlyList<TypedDamageDice> damageDice;
         private readonly IReadOnlyList<TypedFlatDamage> flatDamage;
+        private readonly IReadOnlyList<TypedDamageImmunity> immunities;
         private readonly IReadOnlyList<TypedDefenseAdjustment> weaknesses;
         private readonly IReadOnlyList<TypedDefenseAdjustment> resistances;
 
         /// <summary>Creates one frozen resolution-data snapshot.</summary>
+        /// <param name="armorClass">The target Armor Class for this resolution.</param>
+        /// <param name="attackModifiers">Current non-item attack modifiers.</param>
+        /// <param name="damageDice">Additional typed damage dice.</param>
+        /// <param name="flatDamage">Additional typed flat damage.</param>
+        /// <param name="immunities">Target damage-type immunities.</param>
+        /// <param name="weaknesses">Target typed weaknesses.</param>
+        /// <param name="resistances">Target typed resistances.</param>
         public StrikeResolutionData(
             int armorClass,
             IEnumerable<Modifier> attackModifiers,
             IEnumerable<TypedDamageDice> damageDice,
             IEnumerable<TypedFlatDamage> flatDamage,
+            IEnumerable<TypedDamageImmunity> immunities,
             IEnumerable<TypedDefenseAdjustment> weaknesses,
             IEnumerable<TypedDefenseAdjustment> resistances
         )
@@ -294,6 +303,7 @@ namespace Game.Rules.Runtime
             this.attackModifiers = Array.AsReadOnly(copiedModifiers);
             this.damageDice = Copy(damageDice, nameof(damageDice));
             this.flatDamage = Copy(flatDamage, nameof(flatDamage));
+            this.immunities = Copy(immunities, nameof(immunities));
             this.weaknesses = Copy(weaknesses, nameof(weaknesses));
             this.resistances = Copy(resistances, nameof(resistances));
         }
@@ -313,6 +323,9 @@ namespace Game.Rules.Runtime
         /// <summary>Gets prepared flat damage contributions.</summary>
         public IReadOnlyList<TypedFlatDamage> FlatDamage => flatDamage;
 
+        /// <summary>Gets target damage-type immunities.</summary>
+        public IReadOnlyList<TypedDamageImmunity> Immunities => immunities;
+
         /// <summary>Gets target weaknesses.</summary>
         public IReadOnlyList<TypedDefenseAdjustment> Weaknesses => weaknesses;
 
@@ -322,6 +335,7 @@ namespace Game.Rules.Runtime
         internal StrikeResolutionData WithPreparedContributions(
             IEnumerable<TypedDamageDice> extraDice,
             IEnumerable<TypedFlatDamage> extraFlat,
+            IEnumerable<TypedDamageImmunity> preparedImmunities,
             IEnumerable<TypedDefenseAdjustment> preparedWeaknesses,
             IEnumerable<TypedDefenseAdjustment> preparedResistances
         ) =>
@@ -330,6 +344,10 @@ namespace Game.Rules.Runtime
                 AttackModifiers,
                 DamageDice.Concat(extraDice ?? throw new ArgumentNullException(nameof(extraDice))),
                 FlatDamage.Concat(extraFlat ?? throw new ArgumentNullException(nameof(extraFlat))),
+                Immunities.Concat(
+                    preparedImmunities
+                        ?? throw new ArgumentNullException(nameof(preparedImmunities))
+                ),
                 Weaknesses.Concat(
                     preparedWeaknesses
                         ?? throw new ArgumentNullException(nameof(preparedWeaknesses))
@@ -1021,10 +1039,17 @@ namespace Game.Rules.Runtime
             if (
                 !context.Snapshot.PreparedInputs.TryGet(
                     frame.Op.Actor,
-                    out PreparedCreatureInputs inputs
+                    out PreparedCreatureInputs actorInputs
                 )
             )
                 throw new InvalidOperationException("The Strike actor has no prepared inputs.");
+            if (
+                !context.Snapshot.PreparedInputs.TryGet(
+                    frame.Op.Target,
+                    out PreparedCreatureInputs targetInputs
+                )
+            )
+                throw new InvalidOperationException("The Strike target has no prepared inputs.");
             string[] targetConditions = targeting.OffGuard
                 ? new[] { "off-guard" }
                 : Array.Empty<string>();
@@ -1097,7 +1122,7 @@ namespace Game.Rules.Runtime
                     int current = item.FlatDamage.Count == 0 ? 0 : item.FlatDamage[0].Amount;
                     extraFlat.Add(
                         new TypedFlatDamage(
-                            inputs.Abilities.Get(ability.Ability) - current,
+                            actorInputs.Abilities.Get(ability.Ability) - current,
                             item.DamageDice[0].DamageType,
                             ability.Ability
                         )
@@ -1117,11 +1142,14 @@ namespace Game.Rules.Runtime
                     "Prepared damage dice"
                 )),
                 extraFlat,
-                inputs.Weaknesses.Select(value => new TypedDefenseAdjustment(
+                targetInputs
+                    .Immunities.Where(value => value.Kind == PreparedImmunityKind.Damage)
+                    .Select(value => new TypedDamageImmunity(value.Type)),
+                targetInputs.Weaknesses.Select(value => new TypedDefenseAdjustment(
                     value.Type,
                     value.Value
                 )),
-                inputs.Resistances.Select(value => new TypedDefenseAdjustment(
+                targetInputs.Resistances.Select(value => new TypedDefenseAdjustment(
                     value.Type,
                     value.Value
                 ))
@@ -1242,6 +1270,7 @@ namespace Game.Rules.Runtime
                 item.FlatDamage.Concat(data.FlatDamage),
                 criticalOnlyDice,
                 degree,
+                data.Immunities,
                 data.Weaknesses,
                 data.Resistances,
                 rolls

@@ -175,11 +175,13 @@ namespace Game.Rules.Unity.Strike
                     tiles,
                     Math.Max(5, item.ReachFeet)
                 );
-            if (snapshot.PreparedInputs.TryGet(target, out PreparedCreatureInputs targetInputs))
-                offGuard |= targetInputs.StaticOptions.Any(option =>
-                    option == "self:condition:flat-footed"
-                    || option == "self:condition:offguard"
-                    || option == "self:condition:off-guard"
+            Conditions conditions = defender.GetComponent<Conditions>();
+            offGuard |=
+                conditions != null
+                && conditions.ActiveConditionNames.Any(condition =>
+                    string.Equals(condition, "flat-footed", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(condition, "offguard", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(condition, "off-guard", StringComparison.OrdinalIgnoreCase)
                 );
             return StrikeTargetingOutcome.Legal(
                 result.DistanceFeet,
@@ -239,6 +241,7 @@ namespace Game.Rules.Unity.Strike
                 attackModifiers,
                 extraDice,
                 Array.Empty<TypedFlatDamage>(),
+                Array.Empty<TypedDamageImmunity>(),
                 Array.Empty<TypedDefenseAdjustment>(),
                 Array.Empty<TypedDefenseAdjustment>()
             );

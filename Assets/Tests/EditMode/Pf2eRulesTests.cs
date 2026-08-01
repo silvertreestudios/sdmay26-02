@@ -311,6 +311,134 @@ public class Pf2eRulesTests
     }
 
     [Test]
+    public void UnsupportedAndDeferredRulesDoNotCreatePreparedBindings()
+    {
+        const string json =
+            "{\"name\":\"Fixture Rules\",\"type\":\"feat\",\"system\":{"
+            + "\"slug\":\"fixture-rules\",\"category\":\"class\",\"rules\":["
+            + "{\"key\":\"FlatModifier\",\"selector\":\"ac\",\"slug\":\"fixture\",\"value\":1},"
+            + "{\"key\":\"TempHP\",\"value\":3},"
+            + "{\"key\":\"Resistance\",\"type\":\"fire\",\"value\":2},"
+            + "{\"key\":\"MysteryRule\"}]}}";
+        Assert.That(Pf2eItem.TryParse("fixture-rules", json, out Pf2eItem item), Is.True);
+        Pf2eItemCatalog catalog = new Pf2eItemCatalog();
+        catalog.Add(item);
+        GameObject gameObject = new GameObject("Unsupported Prepared Rules");
+        created.Add(gameObject);
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.Build = new CharacterBuild { ClassFeatName = "Fixture Rules" };
+
+        PreparedRulePackage package = Pf2eCharacterPreparer.Compile(
+            creature,
+            creature.Build,
+            catalog
+        );
+
+        Assert.That(
+            package.Bindings.Select(value => value.StableKey),
+            Is.EquivalentTo(new[] { "fixture-rules:owned", "fixture-rules:0:flatmodifier" })
+        );
+        Assert.That(
+            package.Definitions.Select(value => value.RuleKey),
+            Is.EquivalentTo(new[] { "owned", "FlatModifier" })
+        );
+        Assert.That(package.Diagnostics, Has.Count.EqualTo(1));
+        Assert.That(package.Diagnostics[0].Key, Is.EqualTo("MysteryRule"));
+        Assert.That(
+            Pf2eCharacterPreparer.CompileDefinitionSpecs(catalog).Select(value => value.RuleKey),
+            Is.EquivalentTo(new[] { "owned", "FlatModifier" })
+        );
+    }
+
+    [Test]
+    public void RollOptionPredicatesArePreservedForRuntimeDependencyEvaluation()
+    {
+        const string json =
+            "{\"name\":\"Option Fixture\",\"type\":\"feat\",\"system\":{"
+            + "\"slug\":\"option-fixture\",\"category\":\"class\",\"rules\":["
+            + "{\"key\":\"RollOption\",\"option\":\"feature:prerequisite\"},"
+            + "{\"key\":\"RollOption\",\"option\":\"feature:dependent\","
+            + "\"predicate\":[\"feature:prerequisite\"]}]}}";
+        Assert.That(Pf2eItem.TryParse("option-fixture", json, out Pf2eItem item), Is.True);
+        Pf2eItemCatalog catalog = new Pf2eItemCatalog();
+        catalog.Add(item);
+        GameObject gameObject = new GameObject("Prepared Option Fixture");
+        created.Add(gameObject);
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.Build = new CharacterBuild { ClassFeatName = "Option Fixture" };
+
+        PreparedRulePackage package = Pf2eCharacterPreparer.Compile(
+            creature,
+            creature.Build,
+            catalog
+        );
+        PreparedBoundOption dependent = package.Inputs.BoundOptions.Single(value =>
+            value.Option == "feature:dependent"
+        );
+        CreatureId actor = new CreatureId("option-fixture");
+        RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(actor, package.Inputs);
+        foreach (PreparedBindingSeed binding in package.Bindings)
+            seed.SeedRuleBinding(binding.Create(actor));
+
+        PreparedPredicateContext context = new PreparedPredicateContext(
+            new InMemoryRulesStore(seed).Snapshot,
+            actor,
+            Array.Empty<string>()
+        );
+
+        Assert.That(dependent.Predicate, Is.Not.SameAs(PreparedPredicate.Always));
+        Assert.That(context.HasOption("feature:prerequisite"), Is.True);
+        Assert.That(context.HasOption("feature:dependent"), Is.True);
+    }
+
+    [Test]
+    public void ImmunityCompilationKeepsConditionDamageAndEffectTraitDomainsDistinct()
+    {
+        GameObject gameObject = new GameObject("Typed Immunities");
+        created.Add(gameObject);
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.immunities = new List<string>
+        {
+            "death",
+            "death-effects",
+            "disease",
+            "poison",
+            "paralyzed",
+            "fire",
+            "bleed",
+            "unmapped-immunity",
+        };
+
+        IReadOnlyList<PreparedImmunityDescriptor> immunities = Pf2eCharacterPreparer
+            .Compile(creature, new CharacterBuild(), new Pf2eItemCatalog())
+            .Inputs.Immunities;
+
+        Assert.That(
+            immunities
+                .Where(value => value.Kind == PreparedImmunityKind.Condition)
+                .Select(value => value.Type),
+            Is.EqualTo(new[] { "paralyzed" })
+        );
+        Assert.That(
+            immunities
+                .Where(value => value.Kind == PreparedImmunityKind.Damage)
+                .Select(value => value.Type),
+            Is.EquivalentTo(new[] { "bleed", "fire", "poison" })
+        );
+        Assert.That(
+            immunities
+                .Where(value => value.Kind == PreparedImmunityKind.EffectTrait)
+                .Select(value => value.Type),
+            Is.EquivalentTo(new[] { "death", "death-effects", "disease", "poison" })
+        );
+        Assert.That(
+            immunities.Single(value => value.Type == "unmapped-immunity").Kind,
+            Is.EqualTo(PreparedImmunityKind.Unclassified)
+        );
+        Assert.That(immunities.Count(value => value.IsDeathEffect), Is.EqualTo(2));
+    }
+
+    [Test]
     public void CurrentFixtureCompilationIsDeterministicAndCapturesZombieImmunities()
     {
         CreatureComponent torgrim = CreatureJsonConverter
@@ -708,7 +836,7 @@ public class Pf2eRulesTests
                 string.Join(
                     ",",
                     package.Inputs.BoundOptions.Select(value =>
-                        $"{value.DefinitionId.Value}:{value.Option}"
+                        $"{value.DefinitionId.Value}:{value.Option}:{PredicateFingerprint(value.Predicate)}"
                     )
                 ),
                 string.Join(
@@ -725,7 +853,10 @@ public class Pf2eRulesTests
                     ",",
                     package.Inputs.Resistances.Select(value => $"{value.Type}:{value.Value}")
                 ),
-                string.Join(",", package.Inputs.Immunities.Select(value => value.Type)),
+                string.Join(
+                    ",",
+                    package.Inputs.Immunities.Select(value => $"{value.Type}:{value.Kind}")
+                ),
                 string.Join(
                     ",",
                     package.Definitions.Select(value =>
@@ -746,6 +877,23 @@ public class Pf2eRulesTests
                 ),
             }
         );
+
+    private static string PredicateFingerprint(PreparedPredicate predicate) =>
+        predicate switch
+        {
+            PreparedConstantPredicate constant => $"constant:{constant.Value}",
+            PreparedOptionPredicate option => $"option:{option.Option}",
+            PreparedNumericAtLeastPredicate numeric =>
+                $"numeric:{numeric.Kind}:{numeric.Key}:{numeric.Minimum}",
+            PreparedAllPredicate all =>
+                $"all({string.Join(",", all.Children.Select(PredicateFingerprint))})",
+            PreparedAnyPredicate any =>
+                $"any({string.Join(",", any.Children.Select(PredicateFingerprint))})",
+            PreparedNotPredicate not => $"not({PredicateFingerprint(not.Child)})",
+            _ => throw new InvalidOperationException(
+                $"Unknown prepared predicate {predicate.GetType().Name}."
+            ),
+        };
 
     private UnityCombatRulesBridge CreateActiveEncounter(ActionController protagonist)
     {

@@ -19,7 +19,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         public void ActionProfilesKeepQuickTemperedTraitsDistinctFromRage()
         {
             RageActionDefinition definition = new RageActionDefinition(
-                new TestRageActorStateProvider(CreateActorState())
+                new TestRageConditionStateProvider(CreateActorState())
             );
 
             ActionProfile rage = definition.GetBaseProfile(RageActionDefinition.DefinitionId);
@@ -73,7 +73,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         [Test]
         public async Task OrdinaryRageOwnsActionCostEffectAndTemporaryHitPoints()
         {
-            TestRageActorStateProvider provider = new TestRageActorStateProvider(
+            TestRageConditionStateProvider provider = new TestRageConditionStateProvider(
                 CreateActorState()
             );
             RuleDispatcher dispatcher = CreateDispatcher(provider);
@@ -109,7 +109,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         [Test]
         public async Task OrdinaryRageIgnoresQuickTemperedMovementRequirements()
         {
-            TestRageActorStateProvider provider = new TestRageActorStateProvider(
+            TestRageConditionStateProvider provider = new TestRageConditionStateProvider(
                 CreateActorState(isEncumbered: true, wearsHeavyArmor: true)
             );
             RuleDispatcher dispatcher = CreateDispatcher(provider);
@@ -123,11 +123,11 @@ namespace Game.Tests.EditMode.RulesRuntime
         [Test]
         public async Task FatiguedOrUnownedRageIsRejectedBeforeCost()
         {
-            TestRageActorStateProvider fatiguedProvider = new TestRageActorStateProvider(
+            TestRageConditionStateProvider fatiguedProvider = new TestRageConditionStateProvider(
                 CreateActorState(isFatigued: true)
             );
             RuleDispatcher fatigued = CreateDispatcher(fatiguedProvider);
-            TestRageActorStateProvider unownedProvider = new TestRageActorStateProvider(
+            TestRageConditionStateProvider unownedProvider = new TestRageConditionStateProvider(
                 CreateActorState(ownsRage: false)
             );
             RuleDispatcher unowned = CreateDispatcher(unownedProvider);
@@ -147,22 +147,22 @@ namespace Game.Tests.EditMode.RulesRuntime
         [Test]
         public async Task InitiativeAssignmentOwnsQuickTemperedRequirementsAndOneShot()
         {
-            TestRageActorStateProvider allowedProvider = new TestRageActorStateProvider(
+            TestRageConditionStateProvider allowedProvider = new TestRageConditionStateProvider(
                 CreateActorState(ownsQuickTempered: true)
             );
             RuleDispatcher allowed = CreateDispatcher(allowedProvider);
             RuleDispatcher encumbered = CreateDispatcher(
-                new TestRageActorStateProvider(
+                new TestRageConditionStateProvider(
                     CreateActorState(ownsQuickTempered: true, isEncumbered: true)
                 )
             );
             RuleDispatcher heavy = CreateDispatcher(
-                new TestRageActorStateProvider(
+                new TestRageConditionStateProvider(
                     CreateActorState(ownsQuickTempered: true, wearsHeavyArmor: true)
                 )
             );
             RuleDispatcher armoredException = CreateDispatcher(
-                new TestRageActorStateProvider(
+                new TestRageConditionStateProvider(
                     CreateActorState(
                         ownsQuickTempered: true,
                         wearsHeavyArmor: true,
@@ -194,7 +194,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         public void EncounterStartAppliesQuickTemperedBeforeHigherInitiativeTurn()
         {
             RuleDispatcher dispatcher = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState(ownsQuickTempered: true)),
+                new TestRageConditionStateProvider(CreateActorState(ownsQuickTempered: true)),
                 new ScriptedRollService(1, 20),
                 actorInitiativeModifier: 0,
                 enemyInitiativeModifier: 0
@@ -218,7 +218,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             RageTurnStartProbe adapter = new RageTurnStartProbe(Actor);
 
             RuleDispatcher dispatcher = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState(ownsQuickTempered: true)),
+                new TestRageConditionStateProvider(CreateActorState(ownsQuickTempered: true)),
                 new ScriptedRollService(20, 1),
                 actorInitiativeModifier: 0,
                 enemyInitiativeModifier: 0,
@@ -239,7 +239,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         {
             TenthActorTurnDamageAdapter adapter = new TenthActorTurnDamageAdapter(Actor);
             RuleDispatcher dispatcher = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState()),
+                new TestRageConditionStateProvider(CreateActorState()),
                 new ScriptedRollService(20, 1),
                 actorInitiativeModifier: 0,
                 enemyInitiativeModifier: 0,
@@ -276,7 +276,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         public async Task TimedRageExpiration_ConsumedPoolRecordsImmunity()
         {
             RuleDispatcher dispatcher = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState())
+                new TestRageConditionStateProvider(CreateActorState())
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
             await dispatcher.Dispatch(
@@ -311,7 +311,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         {
             RuleSource otherSource = RuleSource.FromSlug("larger-temporary-hit-points");
             RuleDispatcher dispatcher = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState())
+                new TestRageConditionStateProvider(CreateActorState())
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
             await dispatcher.Dispatch(
@@ -342,7 +342,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         public async Task EncounterOutcomeCommittedFactLetsRageOwnItsCleanup()
         {
             RuleDispatcher dispatcher = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState())
+                new TestRageConditionStateProvider(CreateActorState())
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
 
@@ -372,7 +372,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         public async Task EncounterSuspensionExpiresRageBeforeTheEncounterClockIsReleased()
         {
             RuleDispatcher dispatcher = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState())
+                new TestRageConditionStateProvider(CreateActorState())
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
 
@@ -399,7 +399,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         {
             RuleSource otherSource = RuleSource.FromSlug("larger-temporary-hit-points");
             RuleDispatcher dispatcher = CreateDispatcher(
-                new TestRageActorStateProvider(CreateActorState())
+                new TestRageConditionStateProvider(CreateActorState())
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
             await dispatcher.Dispatch(
@@ -442,7 +442,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         [Test]
         public async Task EndingRageRemovesItsStateAndPreventsLaterTemporaryHitPoints()
         {
-            TestRageActorStateProvider provider = new TestRageActorStateProvider(
+            TestRageConditionStateProvider provider = new TestRageConditionStateProvider(
                 CreateActorState()
             );
             RuleDispatcher dispatcher = CreateDispatcher(provider);
@@ -486,7 +486,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             }
         }
 
-        private static RuleDispatcher CreateDispatcher(IRageActorStateProvider provider)
+        private static RuleDispatcher CreateDispatcher(TestRageConditionStateProvider provider)
         {
             return CreateDispatcher(
                 provider,
@@ -497,7 +497,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         private static RuleDispatcher CreateDispatcher(
-            IRageActorStateProvider provider,
+            TestRageConditionStateProvider provider,
             ScriptedRollService rolls,
             int actorInitiativeModifier,
             int enemyInitiativeModifier,
@@ -513,11 +513,9 @@ namespace Game.Tests.EditMode.RulesRuntime
                 .SeedHealth(Actor, new HealthState(10, 10))
                 .SeedHealth(Enemy, new HealthState(10, 10))
                 .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
+            SeedPreparedActor(seed, registryBuilder, provider.State);
             foreach (
-                ActiveRuleBinding binding in RageRules.CreateInitialBindings(
-                    Actor,
-                    provider.Get(Actor)
-                )
+                ActiveRuleBinding binding in RageRules.CreateInitialBindings(Actor, provider.State)
             )
             {
                 seed.SeedRuleBinding(binding);
@@ -560,6 +558,64 @@ namespace Game.Tests.EditMode.RulesRuntime
             return dispatcher;
         }
 
+        private static void SeedPreparedActor(
+            RulesStateSeed seed,
+            RuleRegistryBuilder registry,
+            RageActorState state
+        )
+        {
+            List<PreparedBoundOption> options = new List<PreparedBoundOption>();
+            List<ActiveRuleBinding> bindings = new List<ActiveRuleBinding>();
+            AddOwned("rage", state.OwnsRage);
+            AddOwned("quick-tempered", state.OwnsQuickTempered);
+            AddOwned("invulnerable-rager", state.HasInvulnerableRager);
+            seed.SeedPreparedInputs(
+                Actor,
+                new PreparedCreatureInputs(
+                    state.Level,
+                    new PreparedAbilityModifiers(0, 0, state.ConstitutionModifier, 0, 0, 0),
+                    Array.Empty<KeyValuePair<string, int>>(),
+                    Array.Empty<string>(),
+                    state.WearsHeavyArmor ? "heavy" : string.Empty,
+                    Array.Empty<string>(),
+                    Array.Empty<PreparedDefenseDescriptor>(),
+                    Array.Empty<PreparedDefenseDescriptor>(),
+                    Array.Empty<PreparedImmunityDescriptor>(),
+                    Array.Empty<string>(),
+                    options,
+                    Array.Empty<KeyValuePair<string, int>>()
+                )
+            );
+            foreach (ActiveRuleBinding binding in bindings)
+                seed.SeedRuleBinding(binding);
+
+            void AddOwned(string slug, bool owned)
+            {
+                if (!owned)
+                    return;
+                RuleDefinitionId definition = new RuleDefinitionId($"prepared:test:{slug}");
+                RuleSource source = RuleSource.FromSlug(slug);
+                registry.Define(definition);
+                options.Add(
+                    new PreparedBoundOption(
+                        definition,
+                        $"item:owned:{slug}",
+                        PreparedPredicate.Always
+                    )
+                );
+                bindings.Add(
+                    new ActiveRuleBinding(
+                        new BindingId($"prepared-test-{slug}"),
+                        definition,
+                        Actor,
+                        null,
+                        source,
+                        1000 + bindings.Count
+                    )
+                );
+            }
+        }
+
         private static RageActorState CreateActorState(
             bool ownsRage = true,
             bool ownsQuickTempered = false,
@@ -588,18 +644,20 @@ namespace Game.Tests.EditMode.RulesRuntime
             return (ResolvedOpResult<TResult>)result;
         }
 
-        private sealed class TestRageActorStateProvider : IRageActorStateProvider
+        private sealed class TestRageConditionStateProvider : IRageConditionStateProvider
         {
             private readonly RageActorState state;
 
-            public TestRageActorStateProvider(RageActorState state) =>
+            public TestRageConditionStateProvider(RageActorState state) =>
                 this.state = state ?? throw new ArgumentNullException(nameof(state));
 
-            public RageActorState Get(CreatureId actor)
+            public RageActorState State => state;
+
+            public RageConditionState Get(CreatureId actor)
             {
                 if (actor != Actor)
                     throw new InvalidOperationException("Unknown Rage test actor.");
-                return state;
+                return new RageConditionState(state.IsFatigued, state.IsEncumbered);
             }
         }
 

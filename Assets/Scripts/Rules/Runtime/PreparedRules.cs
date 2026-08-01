@@ -86,28 +86,56 @@ namespace Game.Rules.Runtime
         public override int GetHashCode() => HashCode.Combine(Type, Value);
     }
 
-    /// <summary>Describes an immunity while retaining effect-trait and death-effect semantics.</summary>
+    /// <summary>Identifies the rules domain in which one prepared immunity participates.</summary>
+    public enum PreparedImmunityKind
+    {
+        /// <summary>The source value is retained without guessing a rules domain.</summary>
+        Unclassified,
+
+        /// <summary>The immunity prevents a named condition.</summary>
+        Condition,
+
+        /// <summary>The immunity prevents a matching damage type.</summary>
+        Damage,
+
+        /// <summary>The immunity prevents effects carrying a matching trait.</summary>
+        EffectTrait,
+    }
+
+    /// <summary>Describes one explicitly classified immunity input.</summary>
     public sealed class PreparedImmunityDescriptor : IEquatable<PreparedImmunityDescriptor>
     {
-        public PreparedImmunityDescriptor(string type)
+        /// <summary>Creates one normalized immunity descriptor without inferring its domain.</summary>
+        /// <param name="type">The source immunity slug.</param>
+        /// <param name="kind">The exact rules domain matched by the immunity.</param>
+        public PreparedImmunityDescriptor(string type, PreparedImmunityKind kind)
         {
             Type = Pf2eSlug.FromName(type);
             if (string.IsNullOrWhiteSpace(Type))
                 throw new ArgumentException("An immunity type is required.", nameof(type));
-            IsDeathEffect = Type == "death-effects" || Type == "death-effect";
-            IsEffectTrait = IsDeathEffect || Type.EndsWith("-effects", StringComparison.Ordinal);
+            if (!Enum.IsDefined(typeof(PreparedImmunityKind), kind))
+                throw new ArgumentOutOfRangeException(nameof(kind));
+            Kind = kind;
         }
 
+        /// <summary>Gets the normalized source immunity slug.</summary>
         public string Type { get; }
-        public bool IsEffectTrait { get; }
-        public bool IsDeathEffect { get; }
 
-        public bool Equals(PreparedImmunityDescriptor other) => other != null && Type == other.Type;
+        /// <summary>Gets the exact rules domain matched by this descriptor.</summary>
+        public PreparedImmunityKind Kind { get; }
+
+        /// <summary>Gets whether this descriptor matches the death effect trait.</summary>
+        public bool IsDeathEffect =>
+            Kind == PreparedImmunityKind.EffectTrait
+            && (Type == "death" || Type == "death-effect" || Type == "death-effects");
+
+        public bool Equals(PreparedImmunityDescriptor other) =>
+            other != null && Type == other.Type && Kind == other.Kind;
 
         public override bool Equals(object obj) =>
             obj is PreparedImmunityDescriptor other && Equals(other);
 
-        public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Type);
+        public override int GetHashCode() => HashCode.Combine(Type, Kind);
     }
 
     /// <summary>Contains the immutable creature facts available to prepared predicates and collectors.</summary>
@@ -291,16 +319,27 @@ namespace Game.Rules.Runtime
                 copied
                     .OrderBy(value => value.DefinitionId.Value, StringComparer.Ordinal)
                     .ThenBy(value => value.Option, StringComparer.Ordinal)
+                    .ThenBy(
+                        value => PreparedPredicateIdentity.Signature(value.Predicate),
+                        StringComparer.Ordinal
+                    )
                     .ToArray()
             );
         }
     }
 
-    /// <summary>Associates one static option with the exact definition binding that grants it.</summary>
+    /// <summary>Associates one conditional option with the exact definition binding that grants it.</summary>
     public sealed class PreparedBoundOption : IEquatable<PreparedBoundOption>
     {
-        /// <summary>Creates an option granted only while one definition is actively bound.</summary>
-        public PreparedBoundOption(RuleDefinitionId definitionId, string option)
+        /// <summary>Creates an option granted while its definition and predicate are active.</summary>
+        /// <param name="definitionId">The definition whose active binding owns the grant.</param>
+        /// <param name="option">The option to normalize and grant.</param>
+        /// <param name="predicate">The immutable prerequisite evaluated from each snapshot.</param>
+        public PreparedBoundOption(
+            RuleDefinitionId definitionId,
+            string option,
+            PreparedPredicate predicate
+        )
         {
             if (definitionId.IsEmpty)
                 throw new ArgumentException("A definition ID is required.", nameof(definitionId));
@@ -308,6 +347,7 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("An option is required.", nameof(option));
             DefinitionId = definitionId;
             Option = option.Trim().ToLowerInvariant();
+            Predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
         }
 
         /// <summary>Gets the definition that owns this option.</summary>
@@ -316,13 +356,21 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the normalized option.</summary>
         public string Option { get; }
 
+        /// <summary>Gets the immutable predicate reevaluated for every operation snapshot.</summary>
+        public PreparedPredicate Predicate { get; }
+
         public bool Equals(PreparedBoundOption other) =>
-            other != null && DefinitionId == other.DefinitionId && Option == other.Option;
+            other != null
+            && DefinitionId == other.DefinitionId
+            && Option == other.Option
+            && PreparedPredicateIdentity.Signature(Predicate)
+                == PreparedPredicateIdentity.Signature(other.Predicate);
 
         public override bool Equals(object obj) =>
             obj is PreparedBoundOption other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(DefinitionId, Option);
+        public override int GetHashCode() =>
+            HashCode.Combine(DefinitionId, Option, PreparedPredicateIdentity.Signature(Predicate));
     }
 
     /// <summary>Base type for the immutable predicate tree compiled from source JSON.</summary>
@@ -455,11 +503,47 @@ namespace Game.Rules.Runtime
         public override bool Evaluate(PreparedPredicateContext context) => !Child.Evaluate(context);
     }
 
+    internal static class PreparedPredicateIdentity
+    {
+        internal static string Signature(PreparedPredicate predicate) =>
+            predicate switch
+            {
+                PreparedConstantPredicate constant => constant.Value ? "constant:1" : "constant:0",
+                PreparedOptionPredicate option => $"option:{Part(option.Option)}",
+                PreparedNumericAtLeastPredicate numeric =>
+                    $"numeric:{numeric.Kind}:{Part(numeric.Key)}:{numeric.Minimum.ToString(CultureInfo.InvariantCulture)}",
+                PreparedAllPredicate all => $"all:{Parts(all.Children.Select(Signature))}",
+                PreparedAnyPredicate any => $"any:{Parts(any.Children.Select(Signature))}",
+                PreparedNotPredicate not => $"not:{Part(Signature(not.Child))}",
+                _ => throw new InvalidOperationException(
+                    $"Unknown prepared predicate type {predicate.GetType().FullName}."
+                ),
+            };
+
+        private static string Parts(IEnumerable<string> values) =>
+            string.Concat(values.Select(Part));
+
+        private static string Part(string value) =>
+            $"{value.Length.ToString(CultureInfo.InvariantCulture)}:{value}";
+    }
+
     /// <summary>Evaluates predicates from immutable inputs and one authoritative binding snapshot.</summary>
+    /// <remarks>
+    /// Definition-bound options form a deterministic least fixed point. Active grants are grouped
+    /// by option, dependencies are evaluated prerequisite-first with ordinal ordering, and a
+    /// dependency cycle grants none of its members. Static, operation, or active-effect options are
+    /// independent seeds and remain available even when a bound grant for the same option cycles.
+    /// Rebuilding the context from the next snapshot therefore turns dependent options on or off
+    /// without rebuilding the registry.
+    /// </remarks>
     public sealed class PreparedPredicateContext
     {
         private readonly HashSet<string> options;
 
+        /// <summary>Builds the complete option closure for one operation snapshot.</summary>
+        /// <param name="snapshot">The authoritative snapshot used for bindings and inputs.</param>
+        /// <param name="owner">The creature whose prepared options are evaluated.</param>
+        /// <param name="currentOptions">Typed options supplied by the current operation.</param>
         public PreparedPredicateContext(
             RulesSnapshot snapshot,
             CreatureId owner,
@@ -478,25 +562,30 @@ namespace Game.Rules.Runtime
             options = new HashSet<string>(Inputs.StaticOptions, StringComparer.OrdinalIgnoreCase);
             foreach (string option in currentOptions ?? Array.Empty<string>())
                 if (!string.IsNullOrWhiteSpace(option))
-                    options.Add(option);
-            foreach (PreparedBoundOption option in inputs.BoundOptions)
-                if (IsDefinitionActive(option.DefinitionId))
-                    options.Add(option.Option);
+                    options.Add(option.Trim().ToLowerInvariant());
             foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in snapshot.RuleBindings)
             {
                 ActiveRuleBinding binding = pair.Value;
                 if (binding.Owner == owner && binding.IsEnabled && binding.EffectId.HasValue)
                     options.Add($"self:effect:{binding.Source.Slug}");
             }
+            AddBoundOptions(inputs.BoundOptions);
         }
 
+        /// <summary>Gets the owner's immutable compiled inputs.</summary>
         public PreparedCreatureInputs Inputs { get; }
+
+        /// <summary>Gets the authoritative operation snapshot.</summary>
         public RulesSnapshot Snapshot { get; }
+
+        /// <summary>Gets the creature whose options are being evaluated.</summary>
         public CreatureId Owner { get; }
 
+        /// <summary>Gets whether the fixed-point option set contains a normalized option.</summary>
         public bool HasOption(string option) =>
             !string.IsNullOrWhiteSpace(option) && options.Contains(option);
 
+        /// <summary>Gets whether the owner has an enabled binding for one definition.</summary>
         public bool IsDefinitionActive(RuleDefinitionId definition) =>
             Snapshot.RuleBindings.Any(pair =>
                 pair.Value.Owner == Owner
@@ -508,6 +597,112 @@ namespace Game.Rules.Runtime
             kind == PreparedNumericFactKind.Level ? Inputs.Level
             : Inputs.SkillRanks.TryGetValue(key, out int rank) ? rank
             : 0;
+
+        private void AddBoundOptions(IEnumerable<PreparedBoundOption> boundOptions)
+        {
+            PreparedBoundOption[] active = boundOptions
+                .Where(option => IsDefinitionActive(option.DefinitionId))
+                .OrderBy(option => option.DefinitionId.Value, StringComparer.Ordinal)
+                .ThenBy(option => option.Option, StringComparer.Ordinal)
+                .ToArray();
+            Dictionary<string, PreparedBoundOption[]> grants = active
+                .GroupBy(option => option.Option, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+            Dictionary<string, string[]> dependencies = grants.ToDictionary(
+                pair => pair.Key,
+                pair =>
+                    pair.Value.SelectMany(value => ReferencedOptions(value.Predicate))
+                        .Where(grants.ContainsKey)
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(value => value, StringComparer.Ordinal)
+                        .ToArray(),
+                StringComparer.Ordinal
+            );
+            HashSet<string> cyclic = FindCyclicOptions(dependencies);
+            HashSet<string> visited = new(StringComparer.Ordinal);
+            foreach (string option in grants.Keys.OrderBy(value => value, StringComparer.Ordinal))
+                AddOption(option, grants, dependencies, cyclic, visited);
+        }
+
+        private void AddOption(
+            string option,
+            IReadOnlyDictionary<string, PreparedBoundOption[]> grants,
+            IReadOnlyDictionary<string, string[]> dependencies,
+            ISet<string> cyclic,
+            ISet<string> visited
+        )
+        {
+            if (!visited.Add(option) || cyclic.Contains(option))
+                return;
+            foreach (string dependency in dependencies[option])
+                AddOption(dependency, grants, dependencies, cyclic, visited);
+            if (grants[option].Any(grant => grant.Predicate.Evaluate(this)))
+                options.Add(option);
+        }
+
+        private static HashSet<string> FindCyclicOptions(
+            IReadOnlyDictionary<string, string[]> dependencies
+        )
+        {
+            HashSet<string> cyclic = new(StringComparer.Ordinal);
+            HashSet<string> visited = new(StringComparer.Ordinal);
+            List<string> path = new();
+            Dictionary<string, int> pathIndexes = new(StringComparer.Ordinal);
+            foreach (
+                string option in dependencies.Keys.OrderBy(value => value, StringComparer.Ordinal)
+            )
+                Visit(option, dependencies, visited, path, pathIndexes, cyclic);
+            return cyclic;
+        }
+
+        private static void Visit(
+            string option,
+            IReadOnlyDictionary<string, string[]> dependencies,
+            ISet<string> visited,
+            IList<string> path,
+            IDictionary<string, int> pathIndexes,
+            ISet<string> cyclic
+        )
+        {
+            if (pathIndexes.TryGetValue(option, out int cycleStart))
+            {
+                for (int index = cycleStart; index < path.Count; index++)
+                    cyclic.Add(path[index]);
+                return;
+            }
+            if (!visited.Add(option))
+                return;
+            pathIndexes.Add(option, path.Count);
+            path.Add(option);
+            foreach (string dependency in dependencies[option])
+                Visit(dependency, dependencies, visited, path, pathIndexes, cyclic);
+            path.RemoveAt(path.Count - 1);
+            pathIndexes.Remove(option);
+        }
+
+        private static IEnumerable<string> ReferencedOptions(PreparedPredicate predicate)
+        {
+            switch (predicate)
+            {
+                case PreparedOptionPredicate option:
+                    yield return option.Option;
+                    break;
+                case PreparedAllPredicate all:
+                    foreach (PreparedPredicate child in all.Children)
+                    foreach (string reference in ReferencedOptions(child))
+                        yield return reference;
+                    break;
+                case PreparedAnyPredicate any:
+                    foreach (PreparedPredicate child in any.Children)
+                    foreach (string reference in ReferencedOptions(child))
+                        yield return reference;
+                    break;
+                case PreparedNotPredicate not:
+                    foreach (string reference in ReferencedOptions(not.Child))
+                        yield return reference;
+                    break;
+            }
+        }
     }
 
     /// <summary>Immutable provenance for one compiled runtime definition.</summary>

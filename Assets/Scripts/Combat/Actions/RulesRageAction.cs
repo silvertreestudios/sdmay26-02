@@ -10,9 +10,13 @@ using UnityEngine;
 /// </summary>
 public sealed class RulesRageAction : EntityAction
 {
+    private readonly RageActionDefinition definition;
+
     /// <summary>Creates the one-action Rage action-bar entry.</summary>
-    public RulesRageAction()
-        : base(1) { }
+    /// <param name="definition">The encounter-owned Rage rules definition.</param>
+    public RulesRageAction(RageActionDefinition definition)
+        : base(1) =>
+        this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
 
     /// <inheritdoc/>
     public override string ActionName => "Rage";
@@ -31,7 +35,7 @@ public sealed class RulesRageAction : EntityAction
             return false;
         }
 
-        return RageRules.GetAvailability(bridge.Snapshot, creature) is AvailableActionAvailability;
+        return definition.GetAvailability(bridge.Snapshot, creature) is AvailableActionAvailability;
     }
 
     /// <inheritdoc/>

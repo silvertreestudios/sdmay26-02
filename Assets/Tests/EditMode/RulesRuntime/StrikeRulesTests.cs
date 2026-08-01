@@ -150,6 +150,7 @@ namespace Game.Rules.Runtime.Tests
                         Array.Empty<Modifier>(),
                         Array.Empty<TypedDamageDice>(),
                         Array.Empty<TypedFlatDamage>(),
+                        Array.Empty<TypedDamageImmunity>(),
                         new[] { new TypedDefenseAdjustment("slashing", 3) },
                         new[] { new TypedDefenseAdjustment("slashing", 1) }
                     )
@@ -374,10 +375,9 @@ namespace Game.Rules.Runtime.Tests
         )
         {
             item ??= CreateItem();
-            RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(
-                Actor,
-                PreparedCreatureInputs.Empty
-            );
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedPreparedInputs(Actor, PreparedCreatureInputs.Empty)
+                .SeedPreparedInputs(Target, PreparedCreatureInputs.Empty);
             if (registerActor)
                 seed.SeedCreature(new CreatureState(Actor, new PlayerId("players")));
             seed.SeedCreature(new CreatureState(Target, new PlayerId("enemies")))
@@ -401,6 +401,7 @@ namespace Game.Rules.Runtime.Tests
                         Array.Empty<Modifier>(),
                         Array.Empty<TypedDamageDice>(),
                         Array.Empty<TypedFlatDamage>(),
+                        Array.Empty<TypedDamageImmunity>(),
                         Array.Empty<TypedDefenseAdjustment>(),
                         Array.Empty<TypedDefenseAdjustment>()
                     )

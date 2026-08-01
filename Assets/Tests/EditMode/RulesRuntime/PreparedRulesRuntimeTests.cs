@@ -60,7 +60,7 @@ namespace Game.Rules.Runtime.Tests
             List<string> equipment = new() { "Leather Armor" };
             List<PreparedBoundOption> options = new()
             {
-                new PreparedBoundOption(Definition, "feat:test-source"),
+                new PreparedBoundOption(Definition, "feat:test-source", PreparedPredicate.Always),
             };
             PreparedCreatureInputs inputs = new(
                 1,
@@ -133,6 +133,12 @@ namespace Game.Rules.Runtime.Tests
                 disabled.Facts.Single(),
                 Is.TypeOf<StatelessRuleBindingEnabledChangedFact>()
             );
+            StatelessRuleBindingEnabledChangedFact disabledFact =
+                (StatelessRuleBindingEnabledChangedFact)disabled.Facts.Single();
+            Assert.That(disabledFact.Binding.Id, Is.EqualTo(binding.Id));
+            Assert.That(disabledFact.Binding.Source, Is.EqualTo(Source));
+            Assert.That(disabledFact.Binding.CreationOrder, Is.EqualTo(12));
+            Assert.That(disabledFact.Binding.IsEnabled, Is.False);
             Assert.That(disabled.Snapshot.RuleBindings[binding.Id].IsEnabled, Is.False);
             Assert.That(
                 store
@@ -152,16 +158,36 @@ namespace Game.Rules.Runtime.Tests
                     .IsAccepted,
                 Is.True
             );
-            Assert.That(
-                store
-                    .Reduce(
-                        Context(new RemoveStatelessRuleBindingOp(binding.Id, 12, Source)),
-                        new RemoveStatelessRuleBindingReducer()
-                    )
-                    .IsAccepted,
-                Is.True
+            ReductionResult<StatelessRuleBindingRemovedOutcome> removed = store.Reduce(
+                Context(new RemoveStatelessRuleBindingOp(binding.Id, 12, Source)),
+                new RemoveStatelessRuleBindingReducer()
             );
+            Assert.That(removed.IsAccepted, Is.True);
+            StatelessRuleBindingRemovedFact removedFact = (StatelessRuleBindingRemovedFact)
+                removed.Facts.Single();
+            Assert.That(removedFact.Binding.Source, Is.EqualTo(Source));
+            Assert.That(removedFact.Binding.CreationOrder, Is.EqualTo(12));
             Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+
+            RuleSource replacementSource = RuleSource.FromSlug("replacement-source");
+            ActiveRuleBinding replacement = new ActiveRuleBinding(
+                binding.Id,
+                Definition,
+                Owner,
+                null,
+                replacementSource,
+                99
+            );
+            ReductionResult<StatelessRuleBindingCreatedOutcome> recreated = store.Reduce(
+                Context(new CreateStatelessRuleBindingOp(replacement)),
+                new CreateStatelessRuleBindingReducer(registry)
+            );
+            Assert.That(recreated.IsAccepted, Is.True);
+            StatelessRuleBindingCreatedFact recreatedFact = (StatelessRuleBindingCreatedFact)
+                recreated.Facts.Single();
+            Assert.That(recreatedFact.Binding.Source, Is.EqualTo(replacementSource));
+            Assert.That(recreatedFact.Binding.CreationOrder, Is.EqualTo(99));
+            Assert.That(recreatedFact.Binding, Is.Not.EqualTo(removedFact.Binding));
 
             ActiveRuleBinding effectBacked = new(
                 new BindingId("effect-binding"),
@@ -245,6 +271,121 @@ namespace Game.Rules.Runtime.Tests
                 }
             );
             Assert.That(predicate.Evaluate(context), Is.True);
+        }
+
+        [Test]
+        public void BoundOptionPredicatesTrackBindingChangesAndSuppressCyclesDeterministically()
+        {
+            RuleDefinitionId prerequisiteDefinition = new("prepared:prerequisite");
+            RuleDefinitionId dependentDefinition = new("prepared:dependent");
+            RuleDefinitionId cycleADefinition = new("prepared:cycle-a");
+            RuleDefinitionId cycleBDefinition = new("prepared:cycle-b");
+            PreparedCreatureInputs inputs = new PreparedCreatureInputs(
+                1,
+                default,
+                Array.Empty<KeyValuePair<string, int>>(),
+                Array.Empty<string>(),
+                string.Empty,
+                Array.Empty<string>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedImmunityDescriptor>(),
+                Array.Empty<string>(),
+                new[]
+                {
+                    new PreparedBoundOption(
+                        dependentDefinition,
+                        "feature:dependent",
+                        new PreparedOptionPredicate("feature:prerequisite")
+                    ),
+                    new PreparedBoundOption(
+                        prerequisiteDefinition,
+                        "feature:prerequisite",
+                        PreparedPredicate.Always
+                    ),
+                    new PreparedBoundOption(
+                        cycleBDefinition,
+                        "feature:cycle-b",
+                        new PreparedOptionPredicate("feature:cycle-a")
+                    ),
+                    new PreparedBoundOption(
+                        cycleADefinition,
+                        "feature:cycle-a",
+                        new PreparedOptionPredicate("feature:cycle-b")
+                    ),
+                },
+                Array.Empty<KeyValuePair<string, int>>()
+            );
+            ActiveRuleBinding prerequisite = Binding("prerequisite", prerequisiteDefinition, 1);
+            ActiveRuleBinding dependent = Binding("dependent", dependentDefinition, 2);
+            ActiveRuleBinding cycleA = Binding("cycle-a", cycleADefinition, 3);
+            ActiveRuleBinding cycleB = Binding("cycle-b", cycleBDefinition, 4);
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedPreparedInputs(Owner, inputs)
+                    .SeedRuleBinding(prerequisite)
+                    .SeedRuleBinding(dependent)
+                    .SeedRuleBinding(cycleA)
+                    .SeedRuleBinding(cycleB)
+            );
+
+            PreparedPredicateContext enabled = new PreparedPredicateContext(
+                store.Snapshot,
+                Owner,
+                Array.Empty<string>()
+            );
+            Assert.That(enabled.HasOption("feature:prerequisite"), Is.True);
+            Assert.That(enabled.HasOption("feature:dependent"), Is.True);
+            Assert.That(enabled.HasOption("feature:cycle-a"), Is.False);
+            Assert.That(enabled.HasOption("feature:cycle-b"), Is.False);
+
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(
+                            new DisableStatelessRuleBindingOp(
+                                prerequisite.Id,
+                                prerequisite.CreationOrder,
+                                Source
+                            )
+                        ),
+                        new DisableStatelessRuleBindingReducer()
+                    )
+                    .IsAccepted,
+                Is.True
+            );
+            PreparedPredicateContext disabled = new PreparedPredicateContext(
+                store.Snapshot,
+                Owner,
+                Array.Empty<string>()
+            );
+            Assert.That(disabled.HasOption("feature:prerequisite"), Is.False);
+            Assert.That(disabled.HasOption("feature:dependent"), Is.False);
+
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(
+                            new EnableStatelessRuleBindingOp(
+                                prerequisite.Id,
+                                prerequisite.CreationOrder,
+                                Source
+                            )
+                        ),
+                        new EnableStatelessRuleBindingReducer()
+                    )
+                    .IsAccepted,
+                Is.True
+            );
+            PreparedPredicateContext reenabled = new PreparedPredicateContext(
+                store.Snapshot,
+                Owner,
+                Array.Empty<string>()
+            );
+            Assert.That(reenabled.HasOption("feature:dependent"), Is.True);
+
+            ActiveRuleBinding Binding(string id, RuleDefinitionId definition, long order) =>
+                new ActiveRuleBinding(new BindingId(id), definition, Owner, null, Source, order);
         }
 
         [Test]
@@ -334,7 +475,13 @@ namespace Game.Rules.Runtime.Tests
                 new[] { "undead" },
                 new[] { new PreparedDefenseDescriptor("slashing", 5) },
                 new[] { new PreparedDefenseDescriptor("fire", 3) },
-                new[] { new PreparedImmunityDescriptor("death-effects") },
+                new[]
+                {
+                    new PreparedImmunityDescriptor(
+                        "death-effects",
+                        PreparedImmunityKind.EffectTrait
+                    ),
+                },
                 new[]
                 {
                     "self:trait:undead",
@@ -342,7 +489,14 @@ namespace Game.Rules.Runtime.Tests
                     "self:resistance:fire",
                     "self:immunity:death-effects",
                 },
-                new[] { new PreparedBoundOption(Definition, "feat:test-source") },
+                new[]
+                {
+                    new PreparedBoundOption(
+                        Definition,
+                        "feat:test-source",
+                        PreparedPredicate.Always
+                    ),
+                },
                 Array.Empty<KeyValuePair<string, int>>()
             );
             PreparedRuleDefinitionSpec definition = new(

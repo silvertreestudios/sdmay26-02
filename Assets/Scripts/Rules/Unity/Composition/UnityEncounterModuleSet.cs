@@ -44,7 +44,9 @@ namespace Game.Rules.Unity.Composition
             UnityStrikeContext strikeContext = new(creatures, tiles);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
-            RageActionDefinition rageDefinition = new();
+            RageActionDefinition rageDefinition = new(
+                new UnityRageConditionStateProvider(creatures)
+            );
             CombatActionCatalog actionCatalog = new(
                 strideDefinition,
                 strikeContext,
@@ -138,21 +140,23 @@ namespace Game.Rules.Unity.Composition
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
-            RageActorState state = CreateState(builder.PreparedInputs);
+            RageActorState state = CreateEnrollmentState(builder.PreparedInputs);
             builder.AddRuleBindings(RageRules.CreateInitialBindings(builder.CreatureId, state));
             if (state.OwnsRage)
-                builder.AddInstallation(new UnityRageActionInstallation(builder.Controller));
+                builder.AddInstallation(
+                    new UnityRageActionInstallation(builder.Controller, definition)
+                );
         }
 
-        private static RageActorState CreateState(PreparedCreatureInputs inputs)
+        private static RageActorState CreateEnrollmentState(PreparedCreatureInputs inputs)
         {
             bool HasOwned(string slug) =>
                 inputs.BoundOptions.Any(option => option.Option == $"item:owned:{slug}");
             return new RageActorState(
                 HasOwned("rage"),
                 HasOwned("quick-tempered"),
-                inputs.StaticOptions.Contains("self:condition:fatigued"),
-                inputs.StaticOptions.Contains("self:condition:encumbered"),
+                false,
+                false,
                 inputs.ArmorCategory == "heavy",
                 HasOwned("invulnerable-rager"),
                 inputs.Level,
@@ -163,16 +167,53 @@ namespace Game.Rules.Unity.Composition
         private sealed class UnityRageActionInstallation : IUnityCombatantInstallationContribution
         {
             private readonly ActionController controller;
+            private readonly RageActionDefinition definition;
 
-            internal UnityRageActionInstallation(ActionController controller) =>
+            internal UnityRageActionInstallation(
+                ActionController controller,
+                RageActionDefinition definition
+            )
+            {
                 this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
+                this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
+            }
 
             public void Apply()
             {
                 if (!controller.GetActions().Any(action => action is RulesRageAction))
-                    controller.AddAction(new RulesRageAction());
+                    controller.AddAction(new RulesRageAction(definition));
             }
         }
+    }
+
+    /// <summary>Adapts the current Unity condition component into Rage's temporary condition seam.</summary>
+    internal sealed class UnityRageConditionStateProvider : IRageConditionStateProvider
+    {
+        private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
+
+        internal UnityRageConditionStateProvider(
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
+        ) => this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
+
+        /// <inheritdoc/>
+        public RageConditionState Get(CreatureId actor)
+        {
+            if (!creatures.TryGetValue(actor, out CreatureComponent creature) || creature == null)
+                throw new InvalidOperationException(
+                    $"Rage actor {actor.Value} has no current Unity condition boundary."
+                );
+            Conditions conditions = creature.GetComponent<Conditions>();
+            return new RageConditionState(
+                HasCondition(conditions, "fatigued"),
+                HasCondition(conditions, "encumbered")
+            );
+        }
+
+        private static bool HasCondition(Conditions conditions, string expected) =>
+            conditions != null
+            && conditions.ActiveConditionNames.Any(value =>
+                string.Equals(value, expected, StringComparison.OrdinalIgnoreCase)
+            );
     }
 
     /// <summary>Combines required typed action catalogs without teaching the bridge feature IDs.</summary>
