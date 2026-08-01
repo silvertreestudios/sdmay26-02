@@ -96,7 +96,7 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { torgrimController, lenaController, targetController },
             tiles,
-            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4, 5, 3)
+            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4, 4, 3)
         );
         CreatureId torgrimId = bridge.GetCreatureId(torgrim);
         CreatureId lenaId = bridge.GetCreatureId(lena);

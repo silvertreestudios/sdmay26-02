@@ -1,7 +1,9 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -64,7 +66,7 @@ public class Pf2eBarbarianSmokeTests
         yield return null;
 
         CreatureComponent torgrimCreature = torgrim.GetComponent<CreatureComponent>();
-        Assert.That(torgrimCreature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
+        Assert.That(HasOwned(torgrimCreature, "quick-tempered"), Is.True);
         Assert.That(
             torgrim
                 .GetComponent<ActionController>()
@@ -115,7 +117,7 @@ public class Pf2eBarbarianSmokeTests
         yield return null;
 
         CreatureComponent torgrimCreature = torgrim.GetComponent<CreatureComponent>();
-        Assert.That(torgrimCreature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
+        Assert.That(HasOwned(torgrimCreature, "quick-tempered"), Is.True);
         Assert.That(
             torgrimCreature.tempHp,
             Is.EqualTo(torgrimCreature.level + torgrimCreature.conMod)
@@ -155,9 +157,9 @@ public class Pf2eBarbarianSmokeTests
         yield return null;
 
         CreatureComponent lenaCreature = lena.GetComponent<CreatureComponent>();
-        Assert.That(lenaCreature.Prepared.HasOwnedItem("rogue"), Is.True);
-        Assert.That(lenaCreature.Prepared.HasOwnedItem("sneak-attack"), Is.True);
-        Assert.That(lenaCreature.Prepared.HasOwnedItem("thief"), Is.True);
+        Assert.That(HasOwned(lenaCreature, "rogue"), Is.True);
+        Assert.That(HasOwned(lenaCreature, "sneak-attack"), Is.True);
+        Assert.That(HasOwned(lenaCreature, "thief"), Is.True);
         Assert.That(lenaCreature.Prepared.HasActiveEffect("rage"), Is.False);
     }
 
@@ -167,6 +169,11 @@ public class Pf2eBarbarianSmokeTests
         created.Add(go);
         return go;
     }
+
+    private static bool HasOwned(CreatureComponent creature, string slug) =>
+        Pf2eCharacterPreparer
+            .Compile(creature, creature.Build ?? new CharacterBuild())
+            .Inputs.BoundOptions.Any(option => option.Option == $"item:owned:{slug}");
 
     private GameObject CreateSimpleCombatant(string name, string teamName, int initiative)
     {

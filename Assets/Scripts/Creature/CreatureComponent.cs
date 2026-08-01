@@ -927,8 +927,6 @@ namespace Game.Creature
             }
 
             runtimeActionsInitialized = true;
-            if (Prepared != null && Prepared.HasOwnedItem("rage"))
-                actionController.AddAction(new RulesRageAction());
             CastSpellAction.AddSpellActions(gameObject);
         }
 

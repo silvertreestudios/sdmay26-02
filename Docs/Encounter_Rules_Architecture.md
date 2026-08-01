@@ -24,7 +24,7 @@ controller and creature are attached to that exact bridge, the following state i
 | Position and movement | `RulesSnapshot.Positions`, movement budgets, permissions, and movement reducers. Token movement is a committed-Fact projection. |
 | Encounter roster, initiative, round, and outcome | `EncounterState`, its roster and cursor, and encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
 | Active-effect timing | `ActiveEffectInstance` and `ActiveEffectTimingState`, advanced at encounter initiative boundaries. |
-| Prepared rule participation | `PreparedRulePackage` supplies immutable creature inputs and definition/binding seeds; `RulesSnapshot.RuleBindings` alone controls whether compiled contributions participate. |
+| Prepared rule participation | `RulesSnapshot.PreparedInputs` owns normalized creature facts and `RulesSnapshot.RuleBindings` alone controls whether definition-owned compiled behavior participates. `PreparedRulePackage` is only the ephemeral compiler result used to seed those slices. |
 | Migrated action slices | Stride, Strike, Reload, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
 
 Cutover never means “try rules, then fall back.” A detached `ActionController` exposes deliberately
@@ -78,11 +78,12 @@ may mention Rage and spell definitions to wire feature-owned catalogs and IDs, b
 implement their conditions or workflow and does not permit static discovery or self-registration.
 
 Prepared definitions are compiled from the complete PF2e item catalog before registry construction,
-so a reinforcement cannot introduce an unknown definition. Per-creature `PreparedRulePackage`
-values then seed deterministic stateless bindings and immutable inputs. Generic prepared collectors
-evaluate those packages against the same `RulesSnapshot` used by registry selection; enable,
-disable, and remove operations affect the next frame without rebuilding the registry. Effect-backed
-bindings remain exclusively owned by active-effect lifecycle operations.
+so a reinforcement cannot introduce an unknown definition. Per-creature compilation then seeds
+deterministic stateless bindings and `PreparedCreatureInputs` into rules state; Unity retains no
+package. Generic typed collection operations run definition-local middleware against the same
+operation snapshot used by registry selection. Enable, disable, and remove operations therefore
+affect the next snapshot without rebuilding the registry. Effect-backed bindings remain exclusively
+owned by active-effect lifecycle operations.
 
 [`UnityEncounterComposition`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterComposition.cs)
 copies that explicit sequence and never scans assemblies, scene objects, statics, or attributes.

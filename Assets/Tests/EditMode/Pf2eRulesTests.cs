@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Game.Creature;
@@ -9,6 +10,7 @@ using GridPublic;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 public class Pf2eRulesTests
 {
@@ -77,13 +79,14 @@ public class Pf2eRulesTests
 
         Assert.That(creature.Build.ClassName, Is.EqualTo("Barbarian"));
         Assert.That(creature.Build.SubclassName, Is.EqualTo("Fury Instinct"));
-        Assert.That(creature.Prepared.HasOwnedItem("barbarian"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("rage"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("fury-instinct"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("raging-intimidation"), Is.True);
+        PreparedRulePackage compilation = Compile(creature);
+        Assert.That(HasOwned(compilation, "barbarian"), Is.True);
+        Assert.That(HasOwned(compilation, "quick-tempered"), Is.True);
+        Assert.That(HasOwned(compilation, "rage"), Is.True);
+        Assert.That(HasOwned(compilation, "fury-instinct"), Is.True);
+        Assert.That(HasOwned(compilation, "raging-intimidation"), Is.True);
         Assert.That(
-            creature.Prepared.Build.RuleSelections["furyInstinct"],
+            creature.Build.RuleSelections["furyInstinct"],
             Does.Contain("Raging Intimidation")
         );
     }
@@ -149,14 +152,12 @@ public class Pf2eRulesTests
         CreatureComponent creature = CreatePreparedBarbarian();
         creature.level = 7;
         creature.Build.TrainedSkills.Add("intimidation");
-        creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
-        PreparedRulePackage package = creature.Prepared.Rules;
+        PreparedRulePackage package = Compile(creature);
         CreatureId actor = new("predicate-actor");
-        RulesStateSeed seed = new();
+        RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(actor, package.Inputs);
         foreach (PreparedBindingSeed binding in package.Bindings)
             seed.SeedRuleBinding(binding.Create(actor));
         PreparedPredicateContext context = new(
-            package,
             new InMemoryRulesStore(seed).Snapshot,
             actor,
             new[] { "self:effect:rage", "skill:intimidation:rank:4" }
@@ -239,24 +240,36 @@ public class Pf2eRulesTests
         CreatureId actor = bridge.GetCreatureId(creature);
         bridge.BeginTurn(actor, 3);
 
-        PreparedRulePackage package = creature.Prepared.Rules;
+        PreparedRulePackage package = Compile(creature);
         if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
             Assert.That(
                 bridge.Dispatch(new RageActionOp(actor)),
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
             );
-        PreparedPredicateContext duringContext = new(
-            package,
-            bridge.Snapshot,
-            actor,
-            new[] { "item:slug:demoralize" }
-        );
-        Assert.That(
-            PreparedRuleCollectors
-                .CollectItemAlterations(package, duringContext, "action", "traits")
-                .Select(value => value.Value),
-            Does.Contain("rage")
-        );
+        RuleDispatcher collector = CreatePreparedDispatcher(package, actor, bridge.Snapshot);
+        ResolvedOpResult<IReadOnlyList<PreparedItemAlterationSpec>> alterations =
+            (ResolvedOpResult<IReadOnlyList<PreparedItemAlterationSpec>>)
+                collector
+                    .Dispatch(
+                        new CollectPreparedItemAlterationsOp(
+                            actor,
+                            "action",
+                            "traits",
+                            new PreparedContributionContext(
+                                "demoralize",
+                                string.Empty,
+                                false,
+                                0,
+                                Array.Empty<string>(),
+                                Array.Empty<string>(),
+                                Array.Empty<string>()
+                            )
+                        )
+                    )
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult();
+        Assert.That(alterations.Value.Select(value => value.Value), Does.Contain("rage"));
     }
 
     [Test]
@@ -268,14 +281,15 @@ public class Pf2eRulesTests
 
         Assert.That(creature.Build.ClassName, Is.EqualTo("Rogue"));
         Assert.That(creature.Build.SubclassName, Is.EqualTo("Thief"));
-        Assert.That(creature.Prepared.HasOwnedItem("rogue"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("rogues-racket"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("sneak-attack"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("surprise-attack"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("thief"), Is.True);
-        Assert.That(creature.Prepared.HasOwnedItem("nimble-dodge"), Is.True);
-        Assert.That(creature.Prepared.SkillRanks["stealth"], Is.EqualTo(1));
-        Assert.That(creature.Prepared.SkillRanks["thievery"], Is.EqualTo(1));
+        PreparedRulePackage compilation = Compile(creature);
+        Assert.That(HasOwned(compilation, "rogue"), Is.True);
+        Assert.That(HasOwned(compilation, "rogues-racket"), Is.True);
+        Assert.That(HasOwned(compilation, "sneak-attack"), Is.True);
+        Assert.That(HasOwned(compilation, "surprise-attack"), Is.True);
+        Assert.That(HasOwned(compilation, "thief"), Is.True);
+        Assert.That(HasOwned(compilation, "nimble-dodge"), Is.True);
+        Assert.That(compilation.Inputs.SkillRanks["stealth"], Is.EqualTo(1));
+        Assert.That(compilation.Inputs.SkillRanks["thievery"], Is.EqualTo(1));
         Assert.That(
             creature.weaponBonuses.First(b => b.category == "martial").bonus,
             Is.EqualTo(2)
@@ -288,8 +302,12 @@ public class Pf2eRulesTests
     {
         CreatureComponent creature = CreatePreparedRogue();
 
-        Assert.That(creature.Prepared.RollOptions, Does.Not.Contain("target:condition:off-guard"));
-        Assert.That(creature.Prepared.RollOptions, Does.Not.Contain("nimble-dodge"));
+        PreparedRulePackage compilation = Compile(creature);
+        Assert.That(
+            compilation.Inputs.StaticOptions,
+            Does.Not.Contain("target:condition:off-guard")
+        );
+        Assert.That(compilation.Inputs.StaticOptions, Does.Not.Contain("nimble-dodge"));
     }
 
     [Test]
@@ -316,16 +334,14 @@ public class Pf2eRulesTests
         foreach (CreatureComponent creature in new[] { torgrim, lena, cleric, zombie })
         {
             CharacterBuild build = creature.Build ?? new CharacterBuild();
-            string first = PackageFingerprint(Pf2eCharacterPreparer.Prepare(creature, build).Rules);
-            string second = PackageFingerprint(
-                Pf2eCharacterPreparer.Prepare(creature, build).Rules
-            );
+            string first = PackageFingerprint(Pf2eCharacterPreparer.Compile(creature, build));
+            string second = PackageFingerprint(Pf2eCharacterPreparer.Compile(creature, build));
             Assert.That(second, Is.EqualTo(first));
         }
         Assert.That(
             Pf2eCharacterPreparer
-                .Prepare(zombie, zombie.Build ?? new CharacterBuild())
-                .Rules.Inputs.Immunities.Any(value => value.IsDeathEffect),
+                .Compile(zombie, zombie.Build ?? new CharacterBuild())
+                .Inputs.Immunities.Any(value => value.IsDeathEffect),
             Is.True
         );
     }
@@ -517,7 +533,7 @@ public class Pf2eRulesTests
                 },
             }
         );
-        PreparedRulePackage package = attacker.Prepared.Rules;
+        PreparedRulePackage package = Compile(attacker);
         RulesSnapshot snapshot;
         CreatureId actor;
         ActionController controller = attacker.GetComponent<ActionController>();
@@ -531,52 +547,122 @@ public class Pf2eRulesTests
         else
         {
             actor = new CreatureId($"prepared-test-{created.Count}");
-            RulesStateSeed seed = new();
+            RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(actor, package.Inputs);
             foreach (PreparedBindingSeed binding in package.Bindings)
                 seed.SeedRuleBinding(binding.Create(actor));
             snapshot = new InMemoryRulesStore(seed).Snapshot;
         }
-        StrikeItemDefinition item = new(
-            new ItemId($"prepared-item-{created.Count}"),
-            new ItemDefinitionId(profile.ItemSlug ?? "test-item"),
-            profile.ItemSlug ?? "Test Item",
-            string.Empty,
-            profile.WeaponCategory ?? string.Empty,
-            profile.Traits.Select(Trait.FromSlug),
-            0,
-            profile.DamageDice.Select(die => new TypedDamageDice(
-                new DiceExpression(die.numberOfDice, die.sidesPerDie),
-                die.damageType,
-                "Test"
-            )),
-            profile.FlatDamages.Select(value => new TypedFlatDamage(
-                value.DamageAmount,
-                value.DamageType,
-                "Test"
-            )),
-            5,
-            profile.IsRangedAttack ? 60 : 0,
-            0,
-            StrikeAmmunitionRequirement.None
-        );
         bool offGuard = resolvedTarget
             .GetComponent<Conditions>()
             .GetConditionNames()
             .Any(value => value == "Off-Guard" || value == "Flat-Footed");
-        PreparedStrikeContributions contribution = UnityPreparedStrikeDataAdapter.Capture(
-            attacker,
-            resolvedTarget,
-            item,
-            StrikeTargetingOutcome.Legal(5, 0, 0, offGuard),
-            snapshot,
-            actor
+        RuleDispatcher dispatcher = CreatePreparedDispatcher(package, actor, snapshot);
+        PreparedContributionContext baseContext = new(
+            profile.ItemSlug ?? "test-item",
+            profile.WeaponCategory ?? string.Empty,
+            profile.IsRangedAttack,
+            profile.DamageDice[0].sidesPerDie,
+            profile.Traits,
+            Array.Empty<string>(),
+            offGuard ? new[] { "off-guard" } : Array.Empty<string>()
         );
-        foreach (TypedDamageDice die in contribution.DamageDice)
-            context.DamageDice.Add(new Dice(die.Dice.Count, die.Dice.Sides, die.DamageType));
-        foreach (TypedFlatDamage value in contribution.FlatDamage)
-            context.FlatDamages.Add(new DamageValue(value.DamageType, value.Amount));
+        string[] tags = Resolve(
+                dispatcher.Dispatch(
+                    new CollectPreparedItemAlterationsOp(actor, "weapon", "other-tags", baseContext)
+                )
+            )
+            .Where(value => string.Equals(value.Mode, "add", StringComparison.OrdinalIgnoreCase))
+            .Select(value => value.Value)
+            .ToArray();
+        PreparedContributionContext preparedContext = new(
+            profile.ItemSlug ?? "test-item",
+            profile.WeaponCategory ?? string.Empty,
+            profile.IsRangedAttack,
+            profile.DamageDice[0].sidesPerDie,
+            profile.Traits,
+            tags,
+            offGuard ? new[] { "off-guard" } : Array.Empty<string>()
+        );
+        IReadOnlyList<PreparedModifierValue> flat = Resolve(
+            dispatcher.Dispatch(
+                new CollectPreparedModifiersOp(actor, "strike-damage", preparedContext)
+            )
+        );
+        foreach (PreparedModifierValue value in flat.Where(value => value.Value != 0))
+            context.FlatDamages.Add(new DamageValue(profile.DamageDice[0].damageType, value.Value));
+        if (!profile.IsRangedAttack)
+        {
+            PreparedModifierValue ability = Resolve(
+                    dispatcher.Dispatch(
+                        new CollectPreparedModifiersOp(
+                            actor,
+                            "melee-strike-damage",
+                            preparedContext
+                        )
+                    )
+                )
+                .LastOrDefault(value => !string.IsNullOrWhiteSpace(value.Ability));
+            if (ability != null)
+            {
+                int current =
+                    profile.FlatDamages.Count == 0 ? 0 : profile.FlatDamages[0].DamageAmount;
+                context.FlatDamages.Add(
+                    new DamageValue(
+                        profile.DamageDice[0].damageType,
+                        package.Inputs.Abilities.Get(ability.Ability) - current
+                    )
+                );
+            }
+        }
+        foreach (
+            PreparedDamageDiceSpec die in Resolve(
+                dispatcher.Dispatch(
+                    new CollectPreparedDamageDiceOp(actor, "strike-damage", preparedContext)
+                )
+            )
+        )
+        {
+            context.DamageDice.Add(new Dice(die.DiceNumber, die.DieSize, die.Category));
+        }
         return context;
     }
+
+    private static IReadOnlyList<T> Resolve<T>(
+        System.Threading.Tasks.ValueTask<OpResult<IReadOnlyList<T>>> pending
+    ) => ((ResolvedOpResult<IReadOnlyList<T>>)pending.AsTask().GetAwaiter().GetResult()).Value;
+
+    private static RuleDispatcher CreatePreparedDispatcher(
+        PreparedRulePackage package,
+        CreatureId actor,
+        RulesSnapshot sourceSnapshot
+    )
+    {
+        RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(actor, package.Inputs);
+        foreach (KeyValuePair<BindingId, ActiveRuleBinding> binding in sourceSnapshot.RuleBindings)
+        {
+            if (binding.Value.Owner == actor)
+                seed.SeedRuleBinding(binding.Value);
+        }
+        RuleRegistryBuilder registryBuilder = new();
+        foreach (PreparedRuleDefinitionSpec definition in package.Definitions)
+            registryBuilder.Define(definition);
+        foreach (KeyValuePair<BindingId, ActiveRuleBinding> binding in sourceSnapshot.RuleBindings)
+        {
+            if (!package.Definitions.Any(value => value.Id == binding.Value.DefinitionId))
+                registryBuilder.Define(binding.Value.DefinitionId);
+        }
+        RuleRegistry registry = registryBuilder.Build();
+        return new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
+            .UseRuleRegistry(registry)
+            .UsePreparedContributions()
+            .Build();
+    }
+
+    private static PreparedRulePackage Compile(CreatureComponent creature) =>
+        Pf2eCharacterPreparer.Compile(creature, creature.Build ?? new CharacterBuild());
+
+    private static bool HasOwned(PreparedRulePackage package, string slug) =>
+        package.Inputs.BoundOptions.Any(option => option.Option == $"item:owned:{slug}");
 
     private static StrikeProfile CreateDogslicerStrike(CreatureComponent rogue)
     {
@@ -599,14 +685,51 @@ public class Pf2eRulesTests
                 package.Inputs.Level.ToString(),
                 string.Join(
                     ",",
+                    new[]
+                    {
+                        package.Inputs.Abilities.Strength,
+                        package.Inputs.Abilities.Dexterity,
+                        package.Inputs.Abilities.Constitution,
+                        package.Inputs.Abilities.Intelligence,
+                        package.Inputs.Abilities.Wisdom,
+                        package.Inputs.Abilities.Charisma,
+                    }
+                ),
+                string.Join(
+                    ",",
                     package
                         .Inputs.SkillRanks.OrderBy(value => value.Key)
                         .Select(value => $"{value.Key}:{value.Value}")
                 ),
+                string.Join(",", package.Inputs.Equipment),
+                package.Inputs.ArmorCategory,
+                string.Join(",", package.Inputs.Traits),
+                string.Join(",", package.Inputs.StaticOptions),
+                string.Join(
+                    ",",
+                    package.Inputs.BoundOptions.Select(value =>
+                        $"{value.DefinitionId.Value}:{value.Option}"
+                    )
+                ),
+                string.Join(
+                    ",",
+                    package
+                        .Inputs.RuleValues.OrderBy(value => value.Key)
+                        .Select(value => $"{value.Key}:{value.Value}")
+                ),
+                string.Join(
+                    ",",
+                    package.Inputs.Weaknesses.Select(value => $"{value.Type}:{value.Value}")
+                ),
+                string.Join(
+                    ",",
+                    package.Inputs.Resistances.Select(value => $"{value.Type}:{value.Value}")
+                ),
+                string.Join(",", package.Inputs.Immunities.Select(value => value.Type)),
                 string.Join(
                     ",",
                     package.Definitions.Select(value =>
-                        $"{value.Id.Value}:{value.Source.Slug}:{value.RuleKey}:{value.Provenance}"
+                        $"{value.Id.Value}:{value.Source.Slug}:{value.RuleKey}:{value.Provenance}:{value.Signature}"
                     )
                 ),
                 string.Join(

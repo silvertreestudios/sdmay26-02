@@ -7,6 +7,8 @@ namespace Game.Rules.Runtime
     {
         internal Dictionary<CreatureId, CreatureState> Creatures { get; } =
             new Dictionary<CreatureId, CreatureState>();
+        internal Dictionary<CreatureId, PreparedCreatureInputs> PreparedInputs { get; } =
+            new Dictionary<CreatureId, PreparedCreatureInputs>();
         internal Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; } =
             new Dictionary<CreatureId, CreatureStatisticsState>();
         internal Dictionary<CreatureId, HealthState> Health { get; } =
@@ -69,6 +71,14 @@ namespace Game.Rules.Runtime
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
             Creatures[value.Id] = value;
+            return this;
+        }
+
+        /// <summary>Seeds immutable compiled inputs for one creature.</summary>
+        public RulesStateSeed SeedPreparedInputs(CreatureId creature, PreparedCreatureInputs value)
+        {
+            RequireCreatureId(creature, nameof(creature));
+            PreparedInputs[creature] = value ?? throw new ArgumentNullException(nameof(value));
             return this;
         }
 

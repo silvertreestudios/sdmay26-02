@@ -258,7 +258,7 @@ public sealed class DungeonActorStateAdapterTests
         {
             new AmmoCount { ammoName = "bolt", quantity = 5 },
         };
-        creature.Prepared = new PreparedCharacter(new CharacterBuild());
+        creature.Prepared = new PreparedCharacter();
         Conditions conditions = gameObject.AddComponent<Conditions>();
         return new SourceFixture(controller, creature, conditions, weapons);
     }

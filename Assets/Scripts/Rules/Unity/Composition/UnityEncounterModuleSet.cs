@@ -44,7 +44,7 @@ namespace Game.Rules.Unity.Composition
             UnityStrikeContext strikeContext = new(creatures, tiles);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
-            RageActionDefinition rageDefinition = new(new UnityRageActorStateProvider(creatures));
+            RageActionDefinition rageDefinition = new();
             CombatActionCatalog actionCatalog = new(
                 strideDefinition,
                 strikeContext,
@@ -110,11 +110,13 @@ namespace Game.Rules.Unity.Composition
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
-            PreparedRulePackage package = Pf2eCharacterPreparer
-                .EnsurePrepared(builder.Creature)
-                .Rules;
-            builder.AddRuleBindings(
-                package.Bindings.Select(seed => seed.Create(builder.CreatureId))
+            PreparedRulePackage compilation = Pf2eCharacterPreparer.Compile(
+                builder.Creature,
+                builder.Creature.Build ?? new CharacterBuild()
+            );
+            builder.AddPreparedRules(
+                compilation.Inputs,
+                compilation.Bindings.Select(seed => seed.Create(builder.CreatureId))
             );
         }
     }
@@ -136,8 +138,40 @@ namespace Game.Rules.Unity.Composition
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
-            RageActorState state = UnityRageActorStateProvider.CreateState(builder.Creature);
+            RageActorState state = CreateState(builder.PreparedInputs);
             builder.AddRuleBindings(RageRules.CreateInitialBindings(builder.CreatureId, state));
+            if (state.OwnsRage)
+                builder.AddInstallation(new UnityRageActionInstallation(builder.Controller));
+        }
+
+        private static RageActorState CreateState(PreparedCreatureInputs inputs)
+        {
+            bool HasOwned(string slug) =>
+                inputs.BoundOptions.Any(option => option.Option == $"item:owned:{slug}");
+            return new RageActorState(
+                HasOwned("rage"),
+                HasOwned("quick-tempered"),
+                inputs.StaticOptions.Contains("self:condition:fatigued"),
+                inputs.StaticOptions.Contains("self:condition:encumbered"),
+                inputs.ArmorCategory == "heavy",
+                HasOwned("invulnerable-rager"),
+                inputs.Level,
+                inputs.Abilities.Constitution
+            );
+        }
+
+        private sealed class UnityRageActionInstallation : IUnityCombatantInstallationContribution
+        {
+            private readonly ActionController controller;
+
+            internal UnityRageActionInstallation(ActionController controller) =>
+                this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
+
+            public void Apply()
+            {
+                if (!controller.GetActions().Any(action => action is RulesRageAction))
+                    controller.AddAction(new RulesRageAction());
+            }
         }
     }
 

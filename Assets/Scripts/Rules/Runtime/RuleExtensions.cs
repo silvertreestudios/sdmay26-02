@@ -11,7 +11,7 @@ namespace Game.Rules.Runtime
     /// specific ordering relationship, introduce a distinct lifecycle operation instead of using
     /// a stage as an undocumented priority. Fact listeners run in the order shown. Middleware
     /// nests in reverse phase order so its post-<c>next</c> result settles through Prevention,
-    /// Transformation, Reaction, and finally Observation.
+    /// Transformation, Adjustment, Reaction, and finally Observation.
     /// </remarks>
     public enum RuleLifecyclePhase
     {
@@ -24,6 +24,11 @@ namespace Game.Rules.Runtime
         /// Rules that replace or transform the value produced by ordinary resolution.
         /// </summary>
         Transformation,
+
+        /// <summary>
+        /// Rules that adjust values after every ordinary transformation has contributed.
+        /// </summary>
+        Adjustment,
 
         /// <summary>
         /// Rules that perform a rules response, such as offering or resolving a reaction.

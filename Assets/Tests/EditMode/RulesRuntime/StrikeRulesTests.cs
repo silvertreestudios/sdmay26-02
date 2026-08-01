@@ -374,7 +374,10 @@ namespace Game.Rules.Runtime.Tests
         )
         {
             item ??= CreateItem();
-            RulesStateSeed seed = new RulesStateSeed();
+            RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(
+                Actor,
+                PreparedCreatureInputs.Empty
+            );
             if (registerActor)
                 seed.SeedCreature(new CreatureState(Actor, new PlayerId("players")));
             seed.SeedCreature(new CreatureState(Target, new PlayerId("enemies")))
@@ -410,6 +413,7 @@ namespace Game.Rules.Runtime.Tests
                 .UseMultipleAttackPenaltyRules()
                 .UseActionLifecycle(catalog)
                 .UseCheckResolution()
+                .UsePreparedContributions()
                 .UseStrikeRules(catalog, targeting, data)
                 .Build();
             return new TestRuntime(dispatcher, rolls, targeting);

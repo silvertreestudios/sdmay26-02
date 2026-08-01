@@ -31,13 +31,7 @@ public sealed class RulesRageAction : EntityAction
             return false;
         }
 
-        CreatureComponent actor = controller.GetComponent<CreatureComponent>();
-        return actor != null
-            && RageRules.GetAvailability(
-                bridge.Snapshot,
-                creature,
-                UnityRageActorStateProvider.CreateState(actor)
-            ) is AvailableActionAvailability;
+        return RageRules.GetAvailability(bridge.Snapshot, creature) is AvailableActionAvailability;
     }
 
     /// <inheritdoc/>

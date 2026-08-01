@@ -25,6 +25,9 @@ namespace Game.Rules.Runtime.Tests
             /// <summary>The creature identity slice.</summary>
             Creature,
 
+            /// <summary>The immutable prepared-input slice.</summary>
+            PreparedInputs,
+
             /// <summary>The health slice.</summary>
             Health,
 
@@ -737,6 +740,7 @@ namespace Game.Rules.Runtime.Tests
             InitiativeEntry reinforcement = joined.Roster.Single(entry =>
                 entry.Creature == Reinforcement
             );
+            Assert.That(dispatcher.Snapshot.PreparedInputs.Contains(Reinforcement), Is.True);
             EncounterState enemyTurn = Resolved(
                 await dispatcher.Dispatch(new EndTurnOp(heroTurn.CurrentTurn.Value))
             ).Value.State;
@@ -751,6 +755,7 @@ namespace Game.Rules.Runtime.Tests
 
         /// <summary>Verifies every join-owned state slice is preflighted before any write.</summary>
         [TestCase(JoinRegistrationCollision.Creature)]
+        [TestCase(JoinRegistrationCollision.PreparedInputs)]
         [TestCase(JoinRegistrationCollision.Health)]
         [TestCase(JoinRegistrationCollision.Position)]
         [TestCase(JoinRegistrationCollision.LandSpeed)]
@@ -779,6 +784,7 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(3, 0, 2),
                 new GridDistance(25),
+                PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slotId, Reinforcement, 1, 1) },
                 new[] { binding }
             );
@@ -787,6 +793,9 @@ namespace Game.Rules.Runtime.Tests
             {
                 case JoinRegistrationCollision.Creature:
                     seed.SeedCreature(new CreatureState(Reinforcement, Enemies));
+                    break;
+                case JoinRegistrationCollision.PreparedInputs:
+                    seed.SeedPreparedInputs(Reinforcement, PreparedCreatureInputs.Empty);
                     break;
                 case JoinRegistrationCollision.Health:
                     seed.SeedHealth(Reinforcement, new HealthState(7, 10));
@@ -1708,6 +1717,7 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
+                PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slot, creature, 1, 1) },
                 new[]
                 {

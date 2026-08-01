@@ -319,6 +319,27 @@ namespace Game.Rules.Runtime
         /// <summary>Gets target resistances.</summary>
         public IReadOnlyList<TypedDefenseAdjustment> Resistances => resistances;
 
+        internal StrikeResolutionData WithPreparedContributions(
+            IEnumerable<TypedDamageDice> extraDice,
+            IEnumerable<TypedFlatDamage> extraFlat,
+            IEnumerable<TypedDefenseAdjustment> preparedWeaknesses,
+            IEnumerable<TypedDefenseAdjustment> preparedResistances
+        ) =>
+            new(
+                ArmorClass,
+                AttackModifiers,
+                DamageDice.Concat(extraDice ?? throw new ArgumentNullException(nameof(extraDice))),
+                FlatDamage.Concat(extraFlat ?? throw new ArgumentNullException(nameof(extraFlat))),
+                Weaknesses.Concat(
+                    preparedWeaknesses
+                        ?? throw new ArgumentNullException(nameof(preparedWeaknesses))
+                ),
+                Resistances.Concat(
+                    preparedResistances
+                        ?? throw new ArgumentNullException(nameof(preparedResistances))
+                )
+            );
+
         private static IReadOnlyList<T> Copy<T>(IEnumerable<T> values, string parameterName)
             where T : class
         {
@@ -974,6 +995,7 @@ namespace Game.Rules.Runtime
                 frame.Op.Target,
                 legal
             );
+            data = await AddPreparedContributions(frame, context, item, legal, data);
             if (
                 !context.Snapshot.MultipleAttackPenalty.TryGet(
                     frame.Op.Actor,
@@ -987,6 +1009,132 @@ namespace Game.Rules.Runtime
             int mapPenalty = MultipleAttackPenaltyResolver.Resolve(priorAttacks, item.IsAgile);
             return await Resolve(frame, item, data, legal, mapPenalty, context);
         }
+
+        private static async ValueTask<StrikeResolutionData> AddPreparedContributions(
+            OpFrame<ResolveStrikeOp> frame,
+            OpHandlerContext context,
+            StrikeItemDefinition item,
+            LegalStrikeTargetingOutcome targeting,
+            StrikeResolutionData data
+        )
+        {
+            if (
+                !context.Snapshot.PreparedInputs.TryGet(
+                    frame.Op.Actor,
+                    out PreparedCreatureInputs inputs
+                )
+            )
+                throw new InvalidOperationException("The Strike actor has no prepared inputs.");
+            string[] targetConditions = targeting.OffGuard
+                ? new[] { "off-guard" }
+                : Array.Empty<string>();
+            PreparedContributionContext baseContext = new(
+                item.Definition.Value,
+                item.Category,
+                item.IsRanged,
+                item.DamageDice[0].Dice.Sides,
+                item.Traits.Select(trait => trait.Slug),
+                Array.Empty<string>(),
+                targetConditions
+            );
+            OpResult<IReadOnlyList<PreparedItemAlterationSpec>> alterationResult =
+                await context.Dispatch(
+                    new CollectPreparedItemAlterationsOp(
+                        frame.Op.Actor,
+                        "weapon",
+                        "other-tags",
+                        baseContext
+                    )
+                );
+            if (
+                alterationResult
+                is not ResolvedOpResult<IReadOnlyList<PreparedItemAlterationSpec>> alterations
+            )
+                throw new InvalidOperationException("Prepared item alterations did not resolve.");
+            string[] tags = alterations
+                .Value.Where(value =>
+                    string.Equals(value.Mode, "add", StringComparison.OrdinalIgnoreCase)
+                )
+                .Select(value => value.Value)
+                .ToArray();
+            PreparedContributionContext finalContext = new(
+                item.Definition.Value,
+                item.Category,
+                item.IsRanged,
+                item.DamageDice[0].Dice.Sides,
+                item.Traits.Select(trait => trait.Slug),
+                tags,
+                targetConditions
+            );
+            IReadOnlyList<PreparedModifierValue> flat = RequireResolved(
+                await context.Dispatch(
+                    new CollectPreparedModifiersOp(frame.Op.Actor, "strike-damage", finalContext)
+                ),
+                "Prepared Strike modifiers"
+            );
+            List<TypedFlatDamage> extraFlat = flat.Where(value => value.Value != 0)
+                .Select(value => new TypedFlatDamage(
+                    value.Value,
+                    item.DamageDice[0].DamageType,
+                    value.Slug
+                ))
+                .ToList();
+            if (!item.IsRanged)
+            {
+                PreparedModifierValue ability = RequireResolved(
+                        await context.Dispatch(
+                            new CollectPreparedModifiersOp(
+                                frame.Op.Actor,
+                                "melee-strike-damage",
+                                finalContext
+                            )
+                        ),
+                        "Prepared melee modifiers"
+                    )
+                    .LastOrDefault(value => !string.IsNullOrWhiteSpace(value.Ability));
+                if (ability != null)
+                {
+                    int current = item.FlatDamage.Count == 0 ? 0 : item.FlatDamage[0].Amount;
+                    extraFlat.Add(
+                        new TypedFlatDamage(
+                            inputs.Abilities.Get(ability.Ability) - current,
+                            item.DamageDice[0].DamageType,
+                            ability.Ability
+                        )
+                    );
+                }
+            }
+            IReadOnlyList<PreparedDamageDiceSpec> dice = RequireResolved(
+                await context.Dispatch(
+                    new CollectPreparedDamageDiceOp(frame.Op.Actor, "strike-damage", finalContext)
+                ),
+                "Prepared damage dice"
+            );
+            return data.WithPreparedContributions(
+                dice.Select(value => new TypedDamageDice(
+                    new DiceExpression(value.DiceNumber, value.DieSize),
+                    value.Category,
+                    "Prepared damage dice"
+                )),
+                extraFlat,
+                inputs.Weaknesses.Select(value => new TypedDefenseAdjustment(
+                    value.Type,
+                    value.Value
+                )),
+                inputs.Resistances.Select(value => new TypedDefenseAdjustment(
+                    value.Type,
+                    value.Value
+                ))
+            );
+        }
+
+        private static IReadOnlyList<T> RequireResolved<T>(
+            OpResult<IReadOnlyList<T>> result,
+            string operation
+        ) =>
+            result is ResolvedOpResult<IReadOnlyList<T>> resolved
+                ? resolved.Value
+                : throw new InvalidOperationException($"{operation} did not resolve.");
 
         private static async ValueTask<StrikeResolution> Resolve(
             OpFrame<ResolveStrikeOp> frame,

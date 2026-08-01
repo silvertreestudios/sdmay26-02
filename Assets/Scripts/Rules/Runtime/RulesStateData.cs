@@ -6,6 +6,7 @@ namespace Game.Rules.Runtime
     {
         public long Version { get; }
         public Dictionary<CreatureId, CreatureState> Creatures { get; }
+        public Dictionary<CreatureId, PreparedCreatureInputs> PreparedInputs { get; }
         public Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; }
         public Dictionary<CreatureId, HealthState> Health { get; }
         public Dictionary<CreatureId, GridPosition> Positions { get; }
@@ -28,6 +29,7 @@ namespace Game.Rules.Runtime
             : this(
                 0,
                 new Dictionary<CreatureId, CreatureState>(seed.Creatures),
+                new Dictionary<CreatureId, PreparedCreatureInputs>(seed.PreparedInputs),
                 new Dictionary<CreatureId, CreatureStatisticsState>(seed.Statistics),
                 new Dictionary<CreatureId, HealthState>(seed.Health),
                 new Dictionary<CreatureId, GridPosition>(seed.Positions),
@@ -50,6 +52,7 @@ namespace Game.Rules.Runtime
         public RulesStateData(
             long version,
             Dictionary<CreatureId, CreatureState> creatures,
+            Dictionary<CreatureId, PreparedCreatureInputs> preparedInputs,
             Dictionary<CreatureId, CreatureStatisticsState> statistics,
             Dictionary<CreatureId, HealthState> health,
             Dictionary<CreatureId, GridPosition> positions,
@@ -71,6 +74,7 @@ namespace Game.Rules.Runtime
         {
             Version = version;
             Creatures = creatures;
+            PreparedInputs = preparedInputs;
             Statistics = statistics;
             Health = health;
             Positions = positions;

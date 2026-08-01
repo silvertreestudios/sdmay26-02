@@ -165,6 +165,7 @@ namespace Game.Rules.Runtime
             RulesStateDraft state,
             BindingId id,
             long expectedOrder,
+            RuleSource expectedSource,
             out ActiveRuleBinding binding,
             out string rejection
         )
@@ -184,6 +185,12 @@ namespace Game.Rules.Runtime
             {
                 rejection =
                     $"Active binding {id.Value} expected creation order {expectedOrder}, but current order is {binding.CreationOrder}.";
+                return false;
+            }
+            if (binding.Source != expectedSource)
+            {
+                rejection =
+                    $"Active binding {id.Value} source {binding.Source.Slug} does not match {expectedSource.Slug}.";
                 return false;
             }
             rejection = string.Empty;
@@ -235,6 +242,7 @@ namespace Game.Rules.Runtime
         protected static ReductionResult<StatelessRuleBindingEnabledOutcome> Reduce(
             BindingId id,
             long order,
+            RuleSource source,
             bool enabled,
             RulesStateDraft state,
             FactSink facts
@@ -245,6 +253,7 @@ namespace Game.Rules.Runtime
                     state,
                     id,
                     order,
+                    source,
                     out ActiveRuleBinding binding,
                     out string rejection
                 )
@@ -270,7 +279,15 @@ namespace Game.Rules.Runtime
             ReductionContext<EnableStatelessRuleBindingOp> context,
             RulesStateDraft state,
             FactSink facts
-        ) => Reduce(context.Op.Binding, context.Op.ExpectedCreationOrder, true, state, facts);
+        ) =>
+            Reduce(
+                context.Op.Binding,
+                context.Op.ExpectedCreationOrder,
+                context.Op.Source,
+                true,
+                state,
+                facts
+            );
     }
 
     internal sealed class DisableStatelessRuleBindingReducer
@@ -281,7 +298,15 @@ namespace Game.Rules.Runtime
             ReductionContext<DisableStatelessRuleBindingOp> context,
             RulesStateDraft state,
             FactSink facts
-        ) => Reduce(context.Op.Binding, context.Op.ExpectedCreationOrder, false, state, facts);
+        ) =>
+            Reduce(
+                context.Op.Binding,
+                context.Op.ExpectedCreationOrder,
+                context.Op.Source,
+                false,
+                state,
+                facts
+            );
     }
 
     internal sealed class RemoveStatelessRuleBindingReducer
@@ -298,6 +323,7 @@ namespace Game.Rules.Runtime
                     state,
                     context.Op.Binding,
                     context.Op.ExpectedCreationOrder,
+                    context.Op.Source,
                     out _,
                     out string rejection
                 )
@@ -329,7 +355,6 @@ namespace Game.Rules.Runtime
             if (registry == null)
                 throw new ArgumentNullException(nameof(registry));
             return builder
-                .UseRuleRegistry(registry)
                 .RegisterReducer<CreateStatelessRuleBindingOp, StatelessRuleBindingCreatedOutcome>(
                     new CreateStatelessRuleBindingReducer(registry),
                     Source

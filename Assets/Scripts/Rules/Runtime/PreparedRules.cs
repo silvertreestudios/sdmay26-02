@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 
 namespace Game.Rules.Runtime
@@ -113,7 +114,24 @@ namespace Game.Rules.Runtime
     public sealed class PreparedCreatureInputs
     {
         private readonly IReadOnlyDictionary<string, int> skillRanks;
+        private readonly IReadOnlyDictionary<string, int> ruleValues;
 
+        /// <summary>Gets an immutable empty input set for fixtures without prepared data.</summary>
+        public static PreparedCreatureInputs Empty { get; } =
+            new(
+                0,
+                default,
+                Array.Empty<KeyValuePair<string, int>>(),
+                Array.Empty<string>(),
+                string.Empty,
+                Array.Empty<string>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedImmunityDescriptor>(),
+                Array.Empty<string>()
+            );
+
+        /// <summary>Creates prepared inputs without any definition-bound options or rule values.</summary>
         public PreparedCreatureInputs(
             int level,
             PreparedAbilityModifiers abilities,
@@ -125,6 +143,36 @@ namespace Game.Rules.Runtime
             IEnumerable<PreparedDefenseDescriptor> resistances,
             IEnumerable<PreparedImmunityDescriptor> immunities,
             IEnumerable<string> staticOptions
+        )
+            : this(
+                level,
+                abilities,
+                skillRanks,
+                equipment,
+                armorCategory,
+                traits,
+                weaknesses,
+                resistances,
+                immunities,
+                staticOptions,
+                Array.Empty<PreparedBoundOption>(),
+                Array.Empty<KeyValuePair<string, int>>()
+            ) { }
+
+        /// <summary>Creates the complete immutable prepared input state for one creature.</summary>
+        public PreparedCreatureInputs(
+            int level,
+            PreparedAbilityModifiers abilities,
+            IEnumerable<KeyValuePair<string, int>> skillRanks,
+            IEnumerable<string> equipment,
+            string armorCategory,
+            IEnumerable<string> traits,
+            IEnumerable<PreparedDefenseDescriptor> weaknesses,
+            IEnumerable<PreparedDefenseDescriptor> resistances,
+            IEnumerable<PreparedImmunityDescriptor> immunities,
+            IEnumerable<string> staticOptions,
+            IEnumerable<PreparedBoundOption> boundOptions,
+            IEnumerable<KeyValuePair<string, int>> ruleValues
         )
         {
             if (level < 0)
@@ -147,18 +195,51 @@ namespace Game.Rules.Runtime
             Resistances = Freeze(resistances, nameof(resistances));
             Immunities = Freeze(immunities, nameof(immunities));
             StaticOptions = FreezeOptions(staticOptions);
+            BoundOptions = FreezeBoundOptions(boundOptions);
+            this.ruleValues = new ReadOnlyDictionary<string, int>(
+                (ruleValues ?? throw new ArgumentNullException(nameof(ruleValues))).ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value,
+                    StringComparer.OrdinalIgnoreCase
+                )
+            );
         }
 
+        /// <summary>Gets the compiled creature level.</summary>
         public int Level { get; }
+
+        /// <summary>Gets all six compiled ability modifiers.</summary>
         public PreparedAbilityModifiers Abilities { get; }
+
+        /// <summary>Gets immutable normalized skill ranks.</summary>
         public IReadOnlyDictionary<string, int> SkillRanks => skillRanks;
+
+        /// <summary>Gets immutable normalized equipment identifiers.</summary>
         public IReadOnlyList<string> Equipment { get; }
+
+        /// <summary>Gets the normalized equipped armor category.</summary>
         public string ArmorCategory { get; }
+
+        /// <summary>Gets immutable normalized creature traits.</summary>
         public IReadOnlyList<string> Traits { get; }
+
+        /// <summary>Gets immutable weakness inputs.</summary>
         public IReadOnlyList<PreparedDefenseDescriptor> Weaknesses { get; }
+
+        /// <summary>Gets immutable resistance inputs.</summary>
         public IReadOnlyList<PreparedDefenseDescriptor> Resistances { get; }
+
+        /// <summary>Gets immutable immunity inputs.</summary>
         public IReadOnlyList<PreparedImmunityDescriptor> Immunities { get; }
+
+        /// <summary>Gets immutable options that are independent of binding participation.</summary>
         public IReadOnlyList<string> StaticOptions { get; }
+
+        /// <summary>Gets immutable options gated by their exact active definition binding.</summary>
+        public IReadOnlyList<PreparedBoundOption> BoundOptions { get; }
+
+        /// <summary>Gets immutable numeric values referenced by compiled rule behavior.</summary>
+        public IReadOnlyDictionary<string, int> RuleValues => ruleValues;
 
         private static IReadOnlyList<T> Freeze<T>(IEnumerable<T> values, string parameter)
         {
@@ -193,6 +274,55 @@ namespace Game.Rules.Runtime
                     .OrderBy(value => value, StringComparer.Ordinal)
                     .ToArray()
             );
+
+        private static IReadOnlyList<PreparedBoundOption> FreezeBoundOptions(
+            IEnumerable<PreparedBoundOption> values
+        )
+        {
+            PreparedBoundOption[] copied = (
+                values ?? throw new ArgumentNullException(nameof(values))
+            ).ToArray();
+            if (copied.Any(value => value == null))
+                throw new ArgumentException(
+                    "Immutable prepared inputs cannot contain null.",
+                    nameof(values)
+                );
+            return Array.AsReadOnly(
+                copied
+                    .OrderBy(value => value.DefinitionId.Value, StringComparer.Ordinal)
+                    .ThenBy(value => value.Option, StringComparer.Ordinal)
+                    .ToArray()
+            );
+        }
+    }
+
+    /// <summary>Associates one static option with the exact definition binding that grants it.</summary>
+    public sealed class PreparedBoundOption : IEquatable<PreparedBoundOption>
+    {
+        /// <summary>Creates an option granted only while one definition is actively bound.</summary>
+        public PreparedBoundOption(RuleDefinitionId definitionId, string option)
+        {
+            if (definitionId.IsEmpty)
+                throw new ArgumentException("A definition ID is required.", nameof(definitionId));
+            if (string.IsNullOrWhiteSpace(option))
+                throw new ArgumentException("An option is required.", nameof(option));
+            DefinitionId = definitionId;
+            Option = option.Trim().ToLowerInvariant();
+        }
+
+        /// <summary>Gets the definition that owns this option.</summary>
+        public RuleDefinitionId DefinitionId { get; }
+
+        /// <summary>Gets the normalized option.</summary>
+        public string Option { get; }
+
+        public bool Equals(PreparedBoundOption other) =>
+            other != null && DefinitionId == other.DefinitionId && Option == other.Option;
+
+        public override bool Equals(object obj) =>
+            obj is PreparedBoundOption other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(DefinitionId, Option);
     }
 
     /// <summary>Base type for the immutable predicate tree compiled from source JSON.</summary>
@@ -331,25 +461,25 @@ namespace Game.Rules.Runtime
         private readonly HashSet<string> options;
 
         public PreparedPredicateContext(
-            PreparedRulePackage package,
             RulesSnapshot snapshot,
             CreatureId owner,
             IEnumerable<string> currentOptions
         )
         {
-            Package = package ?? throw new ArgumentNullException(nameof(package));
             Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
             if (owner.IsEmpty)
                 throw new ArgumentException("A predicate owner is required.", nameof(owner));
             Owner = owner;
-            options = new HashSet<string>(
-                Package.Inputs.StaticOptions,
-                StringComparer.OrdinalIgnoreCase
-            );
+            if (!snapshot.PreparedInputs.TryGet(owner, out PreparedCreatureInputs inputs))
+                throw new InvalidOperationException(
+                    $"Creature {owner.Value} has no authoritative prepared inputs."
+                );
+            Inputs = inputs;
+            options = new HashSet<string>(Inputs.StaticOptions, StringComparer.OrdinalIgnoreCase);
             foreach (string option in currentOptions ?? Array.Empty<string>())
                 if (!string.IsNullOrWhiteSpace(option))
                     options.Add(option);
-            foreach (PreparedOptionSpec option in package.Options)
+            foreach (PreparedBoundOption option in inputs.BoundOptions)
                 if (IsDefinitionActive(option.DefinitionId))
                     options.Add(option.Option);
             foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in snapshot.RuleBindings)
@@ -360,7 +490,7 @@ namespace Game.Rules.Runtime
             }
         }
 
-        public PreparedRulePackage Package { get; }
+        public PreparedCreatureInputs Inputs { get; }
         public RulesSnapshot Snapshot { get; }
         public CreatureId Owner { get; }
 
@@ -375,19 +505,44 @@ namespace Game.Rules.Runtime
             );
 
         internal int GetNumeric(PreparedNumericFactKind kind, string key) =>
-            kind == PreparedNumericFactKind.Level ? Package.Inputs.Level
-            : Package.Inputs.SkillRanks.TryGetValue(key, out int rank) ? rank
+            kind == PreparedNumericFactKind.Level ? Inputs.Level
+            : Inputs.SkillRanks.TryGetValue(key, out int rank) ? rank
             : 0;
     }
 
     /// <summary>Immutable provenance for one compiled runtime definition.</summary>
     public sealed class PreparedRuleDefinitionSpec : IEquatable<PreparedRuleDefinitionSpec>
     {
+        /// <summary>Creates an immutable definition without contribution middleware.</summary>
         public PreparedRuleDefinitionSpec(
             RuleDefinitionId id,
             RuleSource source,
             string ruleKey,
             string provenance
+        )
+            : this(
+                id,
+                source,
+                ruleKey,
+                provenance,
+                provenance,
+                Array.Empty<PreparedModifierSpec>(),
+                Array.Empty<PreparedAdjustmentSpec>(),
+                Array.Empty<PreparedDamageDiceSpec>(),
+                Array.Empty<PreparedItemAlterationSpec>()
+            ) { }
+
+        /// <summary>Creates an immutable definition and all behavior owned by that definition.</summary>
+        public PreparedRuleDefinitionSpec(
+            RuleDefinitionId id,
+            RuleSource source,
+            string ruleKey,
+            string provenance,
+            string signature,
+            IEnumerable<PreparedModifierSpec> modifiers,
+            IEnumerable<PreparedAdjustmentSpec> adjustments,
+            IEnumerable<PreparedDamageDiceSpec> damageDice,
+            IEnumerable<PreparedItemAlterationSpec> itemAlterations
         )
         {
             if (id.IsEmpty)
@@ -398,6 +553,11 @@ namespace Game.Rules.Runtime
             Source = source;
             RuleKey = ruleKey ?? string.Empty;
             Provenance = provenance ?? string.Empty;
+            Modifiers = Freeze(modifiers, nameof(modifiers));
+            Adjustments = Freeze(adjustments, nameof(adjustments));
+            DamageDice = Freeze(damageDice, nameof(damageDice));
+            ItemAlterations = Freeze(itemAlterations, nameof(itemAlterations));
+            Signature = $"{signature ?? string.Empty}|behavior:{BehaviorSignature()}";
         }
 
         public RuleDefinitionId Id { get; }
@@ -405,17 +565,83 @@ namespace Game.Rules.Runtime
         public string RuleKey { get; }
         public string Provenance { get; }
 
+        /// <summary>Gets the canonical source signature used to reject conflicting IDs.</summary>
+        public string Signature { get; }
+
+        /// <summary>Gets immutable modifier behavior owned by this definition.</summary>
+        public IReadOnlyList<PreparedModifierSpec> Modifiers { get; }
+
+        /// <summary>Gets immutable adjustment behavior owned by this definition.</summary>
+        public IReadOnlyList<PreparedAdjustmentSpec> Adjustments { get; }
+
+        /// <summary>Gets immutable damage-dice behavior owned by this definition.</summary>
+        public IReadOnlyList<PreparedDamageDiceSpec> DamageDice { get; }
+
+        /// <summary>Gets immutable item-alteration behavior owned by this definition.</summary>
+        public IReadOnlyList<PreparedItemAlterationSpec> ItemAlterations { get; }
+
         public bool Equals(PreparedRuleDefinitionSpec other) =>
             other != null
             && Id == other.Id
             && Source == other.Source
             && RuleKey == other.RuleKey
-            && Provenance == other.Provenance;
+            && Provenance == other.Provenance
+            && Signature == other.Signature;
 
         public override bool Equals(object obj) =>
             obj is PreparedRuleDefinitionSpec other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(Id, Source, RuleKey, Provenance);
+        public override int GetHashCode() =>
+            HashCode.Combine(Id, Source, RuleKey, Provenance, Signature);
+
+        private static IReadOnlyList<T> Freeze<T>(IEnumerable<T> values, string parameter)
+        {
+            T[] copied = (values ?? throw new ArgumentNullException(parameter)).ToArray();
+            if (copied.Any(value => value == null))
+                throw new ArgumentException("Definition behavior cannot contain null.", parameter);
+            return Array.AsReadOnly(copied);
+        }
+
+        private string BehaviorSignature() =>
+            string.Join(
+                ";",
+                Modifiers
+                    .Select(value =>
+                        $"modifier:{value.Selector}:{value.Slug}:{value.Value}:{value.Type}:{value.Ability}:{PredicateSignature(value.Predicate)}"
+                    )
+                    .Concat(
+                        Adjustments.Select(value =>
+                            $"adjustment:{value.Selector}:{value.Slug}:{value.Mode}:{value.Value.ToString("R", CultureInfo.InvariantCulture)}:{value.Priority}:{PredicateSignature(value.Predicate)}"
+                        )
+                    )
+                    .Concat(
+                        DamageDice.Select(value =>
+                            $"dice:{value.Selector}:{value.Category}:{value.DiceNumber}:{value.DieSize}:{value.DiceNumberFact}:{value.DieSizeFact}:{PredicateSignature(value.Predicate)}"
+                        )
+                    )
+                    .Concat(
+                        ItemAlterations.Select(value =>
+                            $"alteration:{value.ItemType}:{value.Mode}:{value.Property}:{value.Value}:{PredicateSignature(value.Predicate)}"
+                        )
+                    )
+            );
+
+        private static string PredicateSignature(PreparedPredicate predicate) =>
+            predicate switch
+            {
+                PreparedConstantPredicate value => value.Value ? "true" : "false",
+                PreparedOptionPredicate value => $"option({value.Option})",
+                PreparedNumericAtLeastPredicate value =>
+                    $"gte({value.Kind},{value.Key},{value.Minimum})",
+                PreparedAllPredicate value =>
+                    $"all({string.Join(",", value.Children.Select(PredicateSignature))})",
+                PreparedAnyPredicate value =>
+                    $"any({string.Join(",", value.Children.Select(PredicateSignature))})",
+                PreparedNotPredicate value => $"not({PredicateSignature(value.Child)})",
+                _ => throw new InvalidOperationException(
+                    $"Unsupported prepared predicate type {predicate?.GetType().Name ?? "null"}."
+                ),
+            };
     }
 
     /// <summary>Creates a stateless binding with encounter creature identity added at enrollment.</summary>
@@ -574,7 +800,9 @@ namespace Game.Rules.Runtime
             string category,
             int diceNumber,
             int dieSize,
-            PreparedPredicate predicate
+            PreparedPredicate predicate,
+            string diceNumberFact = "",
+            string dieSizeFact = ""
         )
             : base(id, predicate)
         {
@@ -582,12 +810,34 @@ namespace Game.Rules.Runtime
             Category = category ?? string.Empty;
             DiceNumber = diceNumber;
             DieSize = dieSize;
+            DiceNumberFact = diceNumberFact ?? string.Empty;
+            DieSizeFact = dieSizeFact ?? string.Empty;
         }
 
         public string Selector { get; }
         public string Category { get; }
         public int DiceNumber { get; }
         public int DieSize { get; }
+
+        /// <summary>Gets the optional compiled numeric fact supplying the dice count.</summary>
+        public string DiceNumberFact { get; }
+
+        /// <summary>Gets the optional compiled numeric fact supplying the die size.</summary>
+        public string DieSizeFact { get; }
+
+        internal PreparedDamageDiceSpec Resolve(PreparedCreatureInputs inputs) =>
+            new(
+                DefinitionId,
+                Selector,
+                Category,
+                string.IsNullOrWhiteSpace(DiceNumberFact) ? DiceNumber
+                    : inputs.RuleValues.TryGetValue(DiceNumberFact, out int dice) ? dice
+                    : 0,
+                string.IsNullOrWhiteSpace(DieSizeFact) ? DieSize
+                    : inputs.RuleValues.TryGetValue(DieSizeFact, out int sides) ? sides
+                    : 0,
+                Predicate
+            );
     }
 
     /// <summary>Describes an immutable item alteration without resolving or mutating inventory.</summary>
@@ -618,37 +868,30 @@ namespace Game.Rules.Runtime
     /// <summary>The complete immutable output of prepared-rule compilation.</summary>
     public sealed class PreparedRulePackage
     {
+        /// <summary>Creates one immutable compiler result ready for registry and state seeding.</summary>
         public PreparedRulePackage(
             PreparedCreatureInputs inputs,
             IEnumerable<PreparedRuleDefinitionSpec> definitions,
             IEnumerable<PreparedBindingSeed> bindings,
-            IEnumerable<PreparedOptionSpec> options,
-            IEnumerable<PreparedModifierSpec> modifiers,
-            IEnumerable<PreparedAdjustmentSpec> adjustments,
-            IEnumerable<PreparedDamageDiceSpec> damageDice,
-            IEnumerable<PreparedItemAlterationSpec> itemAlterations,
             IEnumerable<PreparedUnsupportedDiagnostic> diagnostics
         )
         {
             Inputs = inputs ?? throw new ArgumentNullException(nameof(inputs));
             Definitions = Freeze(definitions);
             Bindings = Freeze(bindings);
-            Options = Freeze(options);
-            Modifiers = Freeze(modifiers);
-            Adjustments = Freeze(adjustments);
-            DamageDice = Freeze(damageDice);
-            ItemAlterations = Freeze(itemAlterations);
             Diagnostics = Freeze(diagnostics);
         }
 
+        /// <summary>Gets immutable creature inputs to enroll in the rules store.</summary>
         public PreparedCreatureInputs Inputs { get; }
+
+        /// <summary>Gets immutable behavior-owning definitions required by the compilation.</summary>
         public IReadOnlyList<PreparedRuleDefinitionSpec> Definitions { get; }
+
+        /// <summary>Gets deterministic binding seeds owned by the creature.</summary>
         public IReadOnlyList<PreparedBindingSeed> Bindings { get; }
-        public IReadOnlyList<PreparedOptionSpec> Options { get; }
-        public IReadOnlyList<PreparedModifierSpec> Modifiers { get; }
-        public IReadOnlyList<PreparedAdjustmentSpec> Adjustments { get; }
-        public IReadOnlyList<PreparedDamageDiceSpec> DamageDice { get; }
-        public IReadOnlyList<PreparedItemAlterationSpec> ItemAlterations { get; }
+
+        /// <summary>Gets stable diagnostics for unsupported source rules.</summary>
         public IReadOnlyList<PreparedUnsupportedDiagnostic> Diagnostics { get; }
 
         private static IReadOnlyList<T> Freeze<T>(IEnumerable<T> values)

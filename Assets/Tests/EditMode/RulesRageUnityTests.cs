@@ -30,9 +30,15 @@ public sealed class RulesRageUnityTests
         CreatureComponent creature = CreateBarbarian();
         RageTestActionController controller =
             creature.gameObject.AddComponent<RageTestActionController>();
+        CreatureComponent opponent = CreateBarbarian();
+        RageTestActionController opponentController =
+            opponent.gameObject.AddComponent<RageTestActionController>();
 
-        creature.InitializeRuntimeActions();
-        creature.InitializeRuntimeActions();
+        UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
 
         Assert.That(
             controller.GetActions().FindAll(action => action is RulesRageAction),

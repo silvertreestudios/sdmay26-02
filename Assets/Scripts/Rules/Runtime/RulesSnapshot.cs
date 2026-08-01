@@ -5,6 +5,9 @@ namespace Game.Rules.Runtime
         public long Version { get; }
         public StateSliceSnapshot<CreatureId, CreatureState> Creatures { get; }
 
+        /// <summary>Gets immutable build-time inputs keyed by their creature owner.</summary>
+        public StateSliceSnapshot<CreatureId, PreparedCreatureInputs> PreparedInputs { get; }
+
         /// <summary>
         /// Gets base check values and snapshot-owned modifier inputs keyed by creature.
         /// </summary>
@@ -66,6 +69,9 @@ namespace Game.Rules.Runtime
         {
             Version = data.Version;
             Creatures = new StateSliceSnapshot<CreatureId, CreatureState>(data.Creatures);
+            PreparedInputs = new StateSliceSnapshot<CreatureId, PreparedCreatureInputs>(
+                data.PreparedInputs
+            );
             Statistics = new StateSliceSnapshot<CreatureId, CreatureStatisticsState>(
                 data.Statistics
             );

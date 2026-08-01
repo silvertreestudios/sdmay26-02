@@ -4,6 +4,9 @@ namespace Game.Rules.Runtime
     {
         public StateSliceDraft<CreatureId, CreatureState> Creatures { get; }
 
+        /// <summary>Gets write access to immutable prepared inputs during registration only.</summary>
+        public StateSliceDraft<CreatureId, PreparedCreatureInputs> PreparedInputs { get; }
+
         /// <summary>
         /// Gets transaction-scoped write access to creature statistics and modifier inputs.
         /// </summary>
@@ -63,6 +66,10 @@ namespace Game.Rules.Runtime
             Creatures = new StateSliceDraft<CreatureId, CreatureState>(
                 data.Creatures,
                 (id, value) => !id.IsEmpty && value != null && id == value.Id
+            );
+            PreparedInputs = new StateSliceDraft<CreatureId, PreparedCreatureInputs>(
+                data.PreparedInputs,
+                (id, value) => !id.IsEmpty && value != null
             );
             Statistics = new StateSliceDraft<CreatureId, CreatureStatisticsState>(
                 data.Statistics,
@@ -136,6 +143,7 @@ namespace Game.Rules.Runtime
 
         internal bool IsDirty =>
             Creatures.IsDirty
+            || PreparedInputs.IsDirty
             || Statistics.IsDirty
             || Health.IsDirty
             || Positions.IsDirty
@@ -159,6 +167,7 @@ namespace Game.Rules.Runtime
             return new RulesStateData(
                 version,
                 Creatures.BuildCommittedValues(),
+                PreparedInputs.BuildCommittedValues(),
                 Statistics.BuildCommittedValues(),
                 Health.BuildCommittedValues(),
                 Positions.BuildCommittedValues(),

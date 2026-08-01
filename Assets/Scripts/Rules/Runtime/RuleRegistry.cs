@@ -59,6 +59,7 @@ namespace Game.Rules.Runtime
             }
             RuleDefinitionBuilder created = Define(specification.Id);
             preparedSpecs.Add(specification.Id, specification);
+            PreparedContributionRuntime.Configure(created, specification);
             return created;
         }
 

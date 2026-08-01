@@ -174,7 +174,7 @@ namespace Game.Rules.Runtime
             ActionCost.FreeAction,
             QuickTemperedTraits
         );
-        private readonly IRageActorStateProvider actorStateProvider;
+        private readonly IRageActorStateResolver actorStateResolver;
 
         /// <summary>Gets Rage's stable action-definition identity.</summary>
         public static ActionDefinitionId DefinitionId { get; } = new ActionDefinitionId("rage");
@@ -190,16 +190,21 @@ namespace Game.Rules.Runtime
         /// <param name="actorStateProvider">
         /// The boundary used to capture current ownership, condition, armor, and statistic facts.
         /// </param>
+        public RageActionDefinition() =>
+            actorStateResolver = SnapshotRageActorStateResolver.Instance;
+
+        /// <summary>Creates a definition with an explicit deterministic actor-state seam.</summary>
         public RageActionDefinition(IRageActorStateProvider actorStateProvider) =>
-            this.actorStateProvider =
-                actorStateProvider ?? throw new ArgumentNullException(nameof(actorStateProvider));
+            actorStateResolver = new ProviderRageActorStateResolver(
+                actorStateProvider ?? throw new ArgumentNullException(nameof(actorStateProvider))
+            );
 
         /// <summary>Gets current ordinary Rage availability for presentation.</summary>
         /// <param name="snapshot">The authoritative rules snapshot.</param>
         /// <param name="actor">The creature considering Rage.</param>
         /// <returns>A typed availability result with a reason when unavailable.</returns>
         public ActionAvailability GetAvailability(RulesSnapshot snapshot, CreatureId actor) =>
-            RageRules.GetAvailability(snapshot, actor, actorStateProvider.Get(actor));
+            RageRules.GetAvailability(snapshot, actor, actorStateResolver.Resolve(snapshot, actor));
 
         /// <inheritdoc/>
         public ActionProfile GetBaseProfile(ActionDefinitionId definitionId)
@@ -211,13 +216,44 @@ namespace Game.Rules.Runtime
             throw new KeyNotFoundException($"Unknown action definition '{definitionId}'.");
         }
 
-        internal RageActorState GetActorState(CreatureId actor) => actorStateProvider.Get(actor);
+        internal RageActorState GetActorState(RulesSnapshot snapshot, CreatureId actor) =>
+            actorStateResolver.Resolve(snapshot, actor);
 
         internal ActionValidationResult Validate(
             RulesSnapshot snapshot,
             CreatureId actor,
             bool quickTempered
-        ) => RageRules.Validate(snapshot, actor, actorStateProvider.Get(actor), quickTempered);
+        ) =>
+            RageRules.Validate(
+                snapshot,
+                actor,
+                actorStateResolver.Resolve(snapshot, actor),
+                quickTempered
+            );
+
+        private interface IRageActorStateResolver
+        {
+            RageActorState Resolve(RulesSnapshot snapshot, CreatureId actor);
+        }
+
+        private sealed class SnapshotRageActorStateResolver : IRageActorStateResolver
+        {
+            internal static SnapshotRageActorStateResolver Instance { get; } = new();
+
+            public RageActorState Resolve(RulesSnapshot snapshot, CreatureId actor) =>
+                RageRules.GetActorState(snapshot, actor);
+        }
+
+        private sealed class ProviderRageActorStateResolver : IRageActorStateResolver
+        {
+            private readonly IRageActorStateProvider provider;
+
+            internal ProviderRageActorStateResolver(IRageActorStateProvider provider) =>
+                this.provider = provider;
+
+            public RageActorState Resolve(RulesSnapshot snapshot, CreatureId actor) =>
+                provider.Get(actor);
+        }
     }
 
     /// <summary>Requests the complete ordinary one-action Rage workflow.</summary>
@@ -343,6 +379,44 @@ namespace Game.Rules.Runtime
         private static readonly IReadOnlyList<string> ActiveRollOptions = Array.AsReadOnly(
             new[] { "self:effect:rage", "self:effect:effect-rage" }
         );
+
+        internal static RageActorState GetActorState(RulesSnapshot snapshot, CreatureId actor)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (!snapshot.PreparedInputs.TryGet(actor, out PreparedCreatureInputs inputs))
+                throw new InvalidOperationException(
+                    $"Rage actor {actor.Value} has no prepared inputs."
+                );
+            bool Owns(string slug) =>
+                inputs.BoundOptions.Any(option =>
+                    option.Option == $"item:owned:{slug}"
+                    && snapshot.RuleBindings.Any(pair =>
+                        pair.Value.Owner == actor
+                        && pair.Value.DefinitionId == option.DefinitionId
+                        && pair.Value.IsEnabled
+                    )
+                );
+            return new RageActorState(
+                Owns("rage"),
+                Owns("quick-tempered"),
+                inputs.StaticOptions.Contains("self:condition:fatigued"),
+                inputs.StaticOptions.Contains("self:condition:encumbered"),
+                inputs.ArmorCategory == "heavy",
+                Owns("invulnerable-rager"),
+                inputs.Level,
+                inputs.Abilities.Constitution
+            );
+        }
+
+        /// <summary>Gets ordinary Rage availability from the actor's authoritative prepared inputs.</summary>
+        /// <param name="snapshot">The authoritative rules snapshot.</param>
+        /// <param name="actor">The creature considering Rage.</param>
+        /// <returns>A typed available or unavailable preview state.</returns>
+        public static ActionAvailability GetAvailability(
+            RulesSnapshot snapshot,
+            CreatureId actor
+        ) => GetAvailability(snapshot, actor, GetActorState(snapshot, actor));
 
         /// <summary>Gets ordinary Rage availability from authoritative and immutable actor state.</summary>
         /// <param name="snapshot">The authoritative rules snapshot.</param>
@@ -839,7 +913,7 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         )
         {
-            RageActorState actorState = definition.GetActorState(actor);
+            RageActorState actorState = definition.GetActorState(context.Snapshot, actor);
             ActiveEffectId effectId = new ActiveEffectId($"rage-effect-{rootId.Value}");
             BindingId bindingId = new BindingId($"rage-binding-{rootId.Value}");
             ActiveEffectInstance effect = new ActiveEffectInstance(

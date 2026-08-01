@@ -4,6 +4,7 @@ using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Rules.Runtime;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Game.Creature.Rules
@@ -13,14 +14,39 @@ namespace Game.Creature.Rules
     /// </summary>
     public static class Pf2eCharacterPreparer
     {
+        private sealed class OwnedPf2eItem
+        {
+            internal OwnedPf2eItem(Pf2eItem item, string grantedBy)
+            {
+                Item = item ?? throw new ArgumentNullException(nameof(item));
+                GrantedBy = grantedBy ?? string.Empty;
+            }
+
+            internal Pf2eItem Item { get; }
+            internal string GrantedBy { get; }
+        }
+
         /// <summary>
-        /// Resolves build choices, grants, roll options, and supported rule elements into a prepared character snapshot.
+        /// Builds only quarantined spellcasting state after compiling migrated rules data.
         /// </summary>
         /// <param name="creature">The Unity creature receiving prepared math and derived options.</param>
         /// <param name="build">The saved choices that select class, subclass, feats, and rule selections.</param>
         /// <param name="catalog">Optional catalog override for tests; production uses the Resources-backed singleton.</param>
-        /// <returns>A prepared character that rules can query without reparsing item JSON.</returns>
+        /// <returns>Deferred spellcasting and persisted-effect state; it is not rules authority.</returns>
         public static PreparedCharacter Prepare(
+            CreatureComponent creature,
+            CharacterBuild build,
+            Pf2eItemCatalog catalog = null
+        )
+        {
+            PreparedRulePackage compiled = Compile(creature, build, catalog);
+            PreparedCharacter prepared = new();
+            PrepareImplementedSpellcasting(creature, prepared, compiled);
+            return prepared;
+        }
+
+        /// <summary>Deterministically compiles all migrated character facts and rule bindings.</summary>
+        public static PreparedRulePackage Compile(
             CreatureComponent creature,
             CharacterBuild build,
             Pf2eItemCatalog catalog = null
@@ -56,21 +82,7 @@ namespace Game.Creature.Rules
                 ProcessGrantRules(prepared, catalog);
 
             CollectRuleSynthetics(prepared, catalog);
-            PreparedCharacter result = prepared.Freeze();
-            PrepareImplementedSpellcasting(creature, result);
-            return result;
-        }
-
-        /// <summary>
-        /// Returns an existing prepared snapshot or prepares one lazily for legacy call sites that only have a CreatureComponent.
-        /// </summary>
-        /// <param name="creature">The Unity creature that owns the cached prepared character.</param>
-        /// <returns>The cached or newly prepared PF2e character state.</returns>
-        public static PreparedCharacter EnsurePrepared(CreatureComponent creature)
-        {
-            if (creature.Prepared == null)
-                creature.Prepared = Prepare(creature, creature.Build ?? new CharacterBuild());
-            return creature.Prepared;
+            return prepared.Freeze();
         }
 
         /// <summary>Enumerates every catalog-backed definition before immutable registry construction.</summary>
@@ -105,12 +117,111 @@ namespace Game.Creature.Rules
                 index < 0
                     ? $"{source.Slug}:owned"
                     : $"{source.Slug}:{index}:{Pf2eSlug.FromName(key)}";
+            JObject rule = index < 0 ? null : source.Rules.ElementAt(index);
+            RuleDefinitionId id = new($"prepared:{stableKey}");
+            PreparedPredicate predicate = Pf2ePredicate.Compile(rule?["predicate"]);
+            List<PreparedModifierSpec> modifiers = new();
+            List<PreparedAdjustmentSpec> adjustments = new();
+            List<PreparedDamageDiceSpec> damageDice = new();
+            List<PreparedItemAlterationSpec> alterations = new();
+            if (rule != null)
+            {
+                switch (key)
+                {
+                    case "FlatModifier":
+                        modifiers.Add(
+                            new PreparedModifierSpec(
+                                id,
+                                rule.Value<string>("selector"),
+                                rule.Value<string>("slug") ?? source.Slug,
+                                LiteralInt(rule["value"]),
+                                rule.Value<string>("type"),
+                                rule.Value<string>("ability"),
+                                predicate
+                            )
+                        );
+                        break;
+                    case "AdjustModifier":
+                        adjustments.Add(
+                            new PreparedAdjustmentSpec(
+                                id,
+                                rule.Value<string>("selector"),
+                                rule.Value<string>("slug"),
+                                rule.Value<string>("mode"),
+                                rule.Value<float?>("value") ?? 0,
+                                rule.Value<int?>("priority") ?? 0,
+                                predicate
+                            )
+                        );
+                        break;
+                    case "DamageDice":
+                        string diceText = rule.Value<string>("diceNumber");
+                        string sidesText = rule.Value<string>("dieSize");
+                        damageDice.Add(
+                            new PreparedDamageDiceSpec(
+                                id,
+                                rule.Value<string>("selector"),
+                                rule.Value<string>("category"),
+                                LiteralInt(rule["diceNumber"]),
+                                ParseDieSize(sidesText),
+                                predicate,
+                                ActorFact(diceText),
+                                ActorDieFact(sidesText)
+                            )
+                        );
+                        break;
+                    case "ItemAlteration":
+                        alterations.Add(
+                            new PreparedItemAlterationSpec(
+                                id,
+                                rule.Value<string>("itemType"),
+                                rule.Value<string>("mode"),
+                                rule.Value<string>("property"),
+                                rule.Value<string>("value"),
+                                predicate
+                            )
+                        );
+                        break;
+                }
+            }
             return new PreparedRuleDefinitionSpec(
-                new RuleDefinitionId($"prepared:{stableKey}"),
+                id,
                 RuleSource.FromSlug(source.Slug),
                 key,
-                index < 0 ? source.Name : $"{source.Slug}#rule-{index}"
+                index < 0 ? source.Name : $"{source.Slug}#rule-{index}",
+                rule?.ToString(Formatting.None) ?? $"owned:{source.Slug}",
+                modifiers,
+                adjustments,
+                damageDice,
+                alterations
             );
+        }
+
+        private static int ParseDieSize(string value) =>
+            !string.IsNullOrWhiteSpace(value)
+            && value.StartsWith("d", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(value.Substring(1), out int sides)
+                ? sides
+                : 0;
+
+        private static int LiteralInt(JToken value) =>
+            value?.Type == JTokenType.Integer ? value.Value<int>() : 0;
+
+        private static string ActorFact(string value) =>
+            !string.IsNullOrWhiteSpace(value)
+            && value.StartsWith("@actor.", StringComparison.OrdinalIgnoreCase)
+                ? value.Substring("@actor.".Length)
+                : string.Empty;
+
+        private static string ActorDieFact(string value)
+        {
+            const string prefix = "d{actor|";
+            return
+                !string.IsNullOrWhiteSpace(value)
+                && value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && value.EndsWith("}", StringComparison.Ordinal)
+                ? value.Substring(prefix.Length, value.Length - prefix.Length - 1)
+                : string.Empty;
         }
 
         private static void ApplyImplementedBuildDefaults(CharacterBuild build)
@@ -141,10 +252,15 @@ namespace Game.Creature.Rules
 
         private static void PrepareImplementedSpellcasting(
             CreatureComponent creature,
-            PreparedCharacter prepared
+            PreparedCharacter prepared,
+            PreparedRulePackage compiled
         )
         {
-            if (!prepared.HasOwnedItem("cleric"))
+            if (
+                !compiled.Inputs.BoundOptions.Any(value =>
+                    string.Equals(value.Option, "item:owned:cleric", StringComparison.Ordinal)
+                )
+            )
                 return;
 
             PrepareLegacySpellcasting(creature, prepared);
@@ -835,7 +951,7 @@ namespace Game.Creature.Rules
                 );
             }
 
-            internal PreparedCharacter Freeze()
+            internal PreparedRulePackage Freeze()
             {
                 if (frozen)
                     throw new InvalidOperationException("Prepared rules can only be frozen once.");
@@ -855,6 +971,11 @@ namespace Game.Creature.Rules
                     staticOptions.Add($"self:resistance:{Pf2eSlug.FromName(value.DamageType)}");
                 foreach (string immunity in creature?.immunities ?? new List<string>())
                     staticOptions.Add($"self:immunity:{Pf2eSlug.FromName(immunity)}");
+                Conditions conditions = creature?.GetComponent<Conditions>();
+                foreach (
+                    string condition in conditions?.ActiveConditionNames ?? Array.Empty<string>()
+                )
+                    staticOptions.Add($"self:condition:{Pf2eSlug.FromName(condition)}");
                 PreparedCreatureInputs inputs = new(
                     level,
                     new PreparedAbilityModifiers(
@@ -878,7 +999,12 @@ namespace Game.Creature.Rules
                     (creature?.immunities ?? new List<string>()).Select(
                         value => new PreparedImmunityDescriptor(value)
                     ),
-                    staticOptions
+                    staticOptions,
+                    Options.Select(value => new PreparedBoundOption(
+                        value.DefinitionId,
+                        value.Option
+                    )),
+                    RuleValues
                 );
                 PreparedRulePackage package = new(
                     inputs,
@@ -886,18 +1012,11 @@ namespace Game.Creature.Rules
                     bindings
                         .OrderBy(value => value.CreationOrder)
                         .ThenBy(value => value.StableKey, StringComparer.Ordinal),
-                    Options
-                        .OrderBy(value => value.DefinitionId.Value, StringComparer.Ordinal)
-                        .ThenBy(value => value.Option, StringComparer.Ordinal),
-                    Modifiers,
-                    Adjustments.OrderBy(value => value.Priority),
-                    DamageDice,
-                    ItemAlterations,
                     diagnostics
                         .OrderBy(value => value.Source.Slug, StringComparer.Ordinal)
                         .ThenBy(value => value.Provenance, StringComparer.Ordinal)
                 );
-                return new PreparedCharacter(Build, package, OwnedItems);
+                return package;
             }
 
             private RuleDefinitionId Define(string sourceSlug, string key, int index, string name)

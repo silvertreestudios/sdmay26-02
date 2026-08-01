@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using NUnit.Framework;
 
 namespace Game.Rules.Runtime.Tests
@@ -20,7 +21,69 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<InvalidOperationException>(() =>
                 builder.Define(new PreparedRuleDefinitionSpec(Definition, Source, "owned", "other"))
             );
+            Assert.Throws<InvalidOperationException>(() =>
+                builder.Define(
+                    new PreparedRuleDefinitionSpec(
+                        Definition,
+                        Source,
+                        "owned",
+                        "fixture",
+                        "fixture",
+                        new[]
+                        {
+                            new PreparedModifierSpec(
+                                Definition,
+                                "ac",
+                                "conflict",
+                                1,
+                                "item",
+                                string.Empty,
+                                PreparedPredicate.Always
+                            ),
+                        },
+                        Array.Empty<PreparedAdjustmentSpec>(),
+                        Array.Empty<PreparedDamageDiceSpec>(),
+                        Array.Empty<PreparedItemAlterationSpec>()
+                    )
+                )
+            );
             Assert.That(builder.Build().Definitions, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public void PreparedInputsDefensivelyCopyMutableSources()
+        {
+            List<KeyValuePair<string, int>> skills = new()
+            {
+                new KeyValuePair<string, int>("stealth", 1),
+            };
+            List<string> equipment = new() { "Leather Armor" };
+            List<PreparedBoundOption> options = new()
+            {
+                new PreparedBoundOption(Definition, "feat:test-source"),
+            };
+            PreparedCreatureInputs inputs = new(
+                1,
+                default,
+                skills,
+                equipment,
+                "light",
+                Array.Empty<string>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedImmunityDescriptor>(),
+                Array.Empty<string>(),
+                options,
+                Array.Empty<KeyValuePair<string, int>>()
+            );
+
+            skills.Clear();
+            equipment.Clear();
+            options.Clear();
+
+            Assert.That(inputs.SkillRanks["stealth"], Is.EqualTo(1));
+            Assert.That(inputs.Equipment, Is.EqualTo(new[] { "leather-armor" }));
+            Assert.That(inputs.BoundOptions, Has.Count.EqualTo(1));
         }
 
         [Test]
@@ -45,13 +108,31 @@ namespace Game.Rules.Runtime.Tests
                 new CreateStatelessRuleBindingReducer(registry)
             );
             Assert.That(created.IsAccepted, Is.True);
+            Assert.That(created.Facts.Single(), Is.TypeOf<StatelessRuleBindingCreatedFact>());
             Assert.That(empty.RuleBindings, Is.Empty);
+
+            ReductionResult<StatelessRuleBindingEnabledOutcome> sourceMismatch = store.Reduce(
+                Context(
+                    new DisableStatelessRuleBindingOp(
+                        binding.Id,
+                        binding.CreationOrder,
+                        RuleSource.FromSlug("other-source")
+                    )
+                ),
+                new DisableStatelessRuleBindingReducer()
+            );
+            Assert.That(sourceMismatch.IsRejected, Is.True);
+            Assert.That(sourceMismatch.Facts, Is.Empty);
 
             ReductionResult<StatelessRuleBindingEnabledOutcome> disabled = store.Reduce(
                 Context(new DisableStatelessRuleBindingOp(binding.Id, 12, Source)),
                 new DisableStatelessRuleBindingReducer()
             );
             Assert.That(disabled.IsAccepted, Is.True);
+            Assert.That(
+                disabled.Facts.Single(),
+                Is.TypeOf<StatelessRuleBindingEnabledChangedFact>()
+            );
             Assert.That(disabled.Snapshot.RuleBindings[binding.Id].IsEnabled, Is.False);
             Assert.That(
                 store
@@ -99,6 +180,21 @@ namespace Game.Rules.Runtime.Tests
                     .IsRejected,
                 Is.True
             );
+            InMemoryRulesStore effectStore = new(
+                new RulesStateSeed().SeedRuleBinding(effectBacked)
+            );
+            ReductionResult<StatelessRuleBindingEnabledOutcome> effectMutation = effectStore.Reduce(
+                Context(
+                    new DisableStatelessRuleBindingOp(
+                        effectBacked.Id,
+                        effectBacked.CreationOrder,
+                        effectBacked.Source
+                    )
+                ),
+                new DisableStatelessRuleBindingReducer()
+            );
+            Assert.That(effectMutation.IsRejected, Is.True);
+            Assert.That(effectMutation.Facts, Is.Empty);
         }
 
         [Test]
@@ -115,10 +211,12 @@ namespace Game.Rules.Runtime.Tests
                 2
             );
             RulesSnapshot snapshot = new InMemoryRulesStore(
-                new RulesStateSeed().SeedRuleBinding(owned).SeedRuleBinding(effect)
+                new RulesStateSeed()
+                    .SeedPreparedInputs(Owner, package.Inputs)
+                    .SeedRuleBinding(owned)
+                    .SeedRuleBinding(effect)
             ).Snapshot;
             PreparedPredicateContext context = new(
-                package,
                 snapshot,
                 Owner,
                 new[] { "target:condition:off-guard", "item:trait:finesse" }
@@ -150,38 +248,52 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void CollectorObservesNextSnapshotWithoutRegistryRebuild()
+        public async Task CollectorObservesNextSnapshotWithoutRegistryRebuild()
         {
             PreparedRulePackage package = CreatePackage();
             ActiveRuleBinding binding = package.Bindings.Single().Create(Owner);
             RuleRegistryBuilder registryBuilder = new();
             registryBuilder.Define(package.Definitions.Single());
             RuleRegistry registry = registryBuilder.Build();
-            InMemoryRulesStore store = new(new RulesStateSeed().SeedRuleBinding(binding));
-            PreparedPredicateContext enabled = new(
-                package,
-                store.Snapshot,
-                Owner,
+            InMemoryRulesStore store = new(
+                new RulesStateSeed()
+                    .SeedPreparedInputs(Owner, package.Inputs)
+                    .SeedRuleBinding(binding)
+            );
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .UseRuleRegistry(registry)
+                .UseStatelessRuleBindingRules(registry)
+                .UsePreparedContributions()
+                .Build();
+            PreparedContributionContext contributionContext = new(
+                string.Empty,
+                string.Empty,
+                false,
+                0,
+                Array.Empty<string>(),
+                Array.Empty<string>(),
                 Array.Empty<string>()
             );
-            Assert.That(
-                PreparedRuleCollectors.CollectModifiers(package, enabled, "ac"),
-                Has.Count.EqualTo(1)
-            );
+            ResolvedOpResult<IReadOnlyList<PreparedModifierValue>> enabled =
+                (ResolvedOpResult<IReadOnlyList<PreparedModifierValue>>)
+                    await dispatcher.Dispatch(
+                        new CollectPreparedModifiersOp(Owner, "ac", contributionContext)
+                    );
+            Assert.That(enabled.Value, Has.Count.EqualTo(1));
 
-            store.Reduce(
+            ReductionResult<StatelessRuleBindingEnabledOutcome> disabled = store.Reduce(
                 Context(
                     new DisableStatelessRuleBindingOp(binding.Id, binding.CreationOrder, Source)
                 ),
                 new DisableStatelessRuleBindingReducer()
             );
-            PreparedPredicateContext disabled = new(
-                package,
-                store.Snapshot,
-                Owner,
-                Array.Empty<string>()
-            );
-            Assert.That(PreparedRuleCollectors.CollectModifiers(package, disabled, "ac"), Is.Empty);
+            Assert.That(disabled.IsAccepted, Is.True);
+            ResolvedOpResult<IReadOnlyList<PreparedModifierValue>> nextSnapshot =
+                (ResolvedOpResult<IReadOnlyList<PreparedModifierValue>>)
+                    await dispatcher.Dispatch(
+                        new CollectPreparedModifiersOp(Owner, "ac", contributionContext)
+                    );
+            Assert.That(nextSnapshot.Value, Is.Empty);
             Assert.That(registry.Definitions, Has.Count.EqualTo(1));
         }
 
@@ -204,6 +316,15 @@ namespace Game.Rules.Runtime.Tests
 
         private static PreparedRulePackage CreatePackage()
         {
+            PreparedModifierSpec modifier = new(
+                Definition,
+                "ac",
+                "fixture",
+                1,
+                "item",
+                string.Empty,
+                PreparedPredicate.Always
+            );
             PreparedCreatureInputs inputs = new(
                 7,
                 new PreparedAbilityModifiers(1, 4, 2, 0, 1, 2),
@@ -220,36 +341,25 @@ namespace Game.Rules.Runtime.Tests
                     "self:weakness:slashing",
                     "self:resistance:fire",
                     "self:immunity:death-effects",
-                }
+                },
+                new[] { new PreparedBoundOption(Definition, "feat:test-source") },
+                Array.Empty<KeyValuePair<string, int>>()
             );
-            PreparedRuleDefinitionSpec definition = new(Definition, Source, "owned", "fixture");
+            PreparedRuleDefinitionSpec definition = new(
+                Definition,
+                Source,
+                "owned",
+                "fixture",
+                "fixture",
+                new[] { modifier },
+                Array.Empty<PreparedAdjustmentSpec>(),
+                Array.Empty<PreparedDamageDiceSpec>(),
+                Array.Empty<PreparedItemAlterationSpec>()
+            );
             return new PreparedRulePackage(
                 inputs,
                 new[] { definition },
                 new[] { new PreparedBindingSeed("test:owned", Definition, Source, 1) },
-                new[]
-                {
-                    new PreparedOptionSpec(
-                        Definition,
-                        "feat:test-source",
-                        PreparedPredicate.Always
-                    ),
-                },
-                new[]
-                {
-                    new PreparedModifierSpec(
-                        Definition,
-                        "ac",
-                        "fixture",
-                        1,
-                        "item",
-                        string.Empty,
-                        PreparedPredicate.Always
-                    ),
-                },
-                Array.Empty<PreparedAdjustmentSpec>(),
-                Array.Empty<PreparedDamageDiceSpec>(),
-                Array.Empty<PreparedItemAlterationSpec>(),
                 Array.Empty<PreparedUnsupportedDiagnostic>()
             );
         }

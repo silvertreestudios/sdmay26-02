@@ -1218,6 +1218,12 @@ public sealed class UnityCombatRulesBridgeTests
 
     private static void AssertFeatureState(RulesSnapshot snapshot, CreatureId creature)
     {
+        Assert.That(snapshot.PreparedInputs.Contains(creature), Is.True);
+        Assert.That(snapshot.PreparedInputs[creature].Level, Is.EqualTo(1));
+        Assert.That(
+            snapshot.PreparedInputs[creature].BoundOptions.Select(value => value.Option),
+            Does.Contain("item:owned:rage")
+        );
         Assert.That(
             snapshot.SpellSlots.Select(pair => pair.Value).Where(slot => slot.Owner == creature),
             Is.EqualTo(

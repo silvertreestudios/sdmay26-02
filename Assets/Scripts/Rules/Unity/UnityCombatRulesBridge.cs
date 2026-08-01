@@ -104,6 +104,7 @@ namespace Game.Rules.Unity
                     .UseCheckResolution()
                     .UseActiveEffectRules(modules.Registry)
                     .UseStatelessRuleBindingRules(modules.Registry)
+                    .UsePreparedContributions()
                     .UseEncounterRules(composition.CreateTurnStartAdapters())
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)
@@ -872,6 +873,7 @@ namespace Game.Rules.Unity
         {
             CreatureId id = state.Creature.Id;
             seed.SeedCreature(state.Creature)
+                .SeedPreparedInputs(id, state.PreparedInputs)
                 .SeedHealth(id, state.Health)
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)
