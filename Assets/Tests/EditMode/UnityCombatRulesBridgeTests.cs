@@ -1204,23 +1204,15 @@ public sealed class UnityCombatRulesBridgeTests
 
     private static void ConfigureFeatureState(CreatureComponent creature)
     {
-        PreparedCharacter prepared = new PreparedCharacter(new CharacterBuild())
-        {
-            SpellBook = new PreparedSpellBook(
-                Array.Empty<PreparedSpellEntry>(),
-                new[] { new PreparedSpellSlotPool(new SpellSlotPoolId("module-owned-rank-1"), 2) },
-                0
-            ),
-        };
-        Assert.That(
-            Pf2eItem.TryParse(
-                "test-rage",
-                "{\"name\":\"Rage\",\"type\":\"action\",\"system\":{\"slug\":\"rage\"}}",
-                out Pf2eItem rage
-            ),
-            Is.True
+        creature.level = 1;
+        CharacterBuild build = new CharacterBuild { ClassName = "Barbarian" };
+        creature.Build = build;
+        PreparedCharacter prepared = Pf2eCharacterPreparer.Prepare(creature, build);
+        prepared.SpellBook = new PreparedSpellBook(
+            Array.Empty<PreparedSpellEntry>(),
+            new[] { new PreparedSpellSlotPool(new SpellSlotPoolId("module-owned-rank-1"), 2) },
+            0
         );
-        prepared.AddOwnedItem(rage);
         creature.Prepared = prepared;
     }
 

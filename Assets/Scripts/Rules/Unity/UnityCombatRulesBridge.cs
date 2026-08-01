@@ -103,6 +103,7 @@ namespace Game.Rules.Unity
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
                     .UseActiveEffectRules(modules.Registry)
+                    .UseStatelessRuleBindingRules(modules.Registry)
                     .UseEncounterRules(composition.CreateTurnStartAdapters())
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)

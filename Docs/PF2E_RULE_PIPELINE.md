@@ -4,7 +4,7 @@ This document covers imported item data and pre-encounter character preparation.
 encounter state, composition, enrollment, and migrated action cutover, see the
 [authoritative encounter rules architecture](Encounter_Rules_Architecture.md).
 
-Imported PF2e item JSON under `Assets/Resources/DataFiles` is treated as source data. Keep FoundryVTT PF2e files verbatim where practical so future imports can diff and refresh them cleanly. Unity-owned data belongs outside imported item JSON: saved character choices live in `CharacterBuild`, runtime state lives in `PreparedCharacter`, and provenance/import notes live in docs or sidecar files outside `Resources`.
+Imported PF2e item JSON under `Assets/Resources/DataFiles` is treated as source data. Keep FoundryVTT PF2e files verbatim where practical so future imports can diff and refresh them cleanly. Unity-owned data belongs outside imported item JSON: saved character choices live in `CharacterBuild`, compiled participation lives in immutable `PreparedRulePackage` values and authoritative `ActiveRuleBinding` state, and provenance/import notes live in docs or sidecar files outside `Resources`.
 
 ## Preparation Flow
 
@@ -37,7 +37,7 @@ The implementation supports the subset needed for the current level-1 Barbarian 
 - `ActiveEffectLike` for the supported skill-rank and numeric actor-flag paths used by the current class feature data.
 - `Resistance` is accepted as schema data but not applied to damage yet.
 
-Unsupported rule keys are collected on `PreparedCharacter.UnsupportedRuleKeys` and ignored rather than removed from source JSON.
+Unsupported rule keys are frozen as deterministic `PreparedUnsupportedDiagnostic` values and ignored rather than removed from source JSON.
 
 ## Predicates
 

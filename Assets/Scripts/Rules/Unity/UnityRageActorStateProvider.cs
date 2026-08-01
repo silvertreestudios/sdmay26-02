@@ -33,6 +33,7 @@ namespace Game.Rules.Unity
             if (creature == null)
                 throw new ArgumentNullException(nameof(creature));
             PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(creature);
+            PreparedCreatureInputs inputs = prepared.Rules.Inputs;
             Conditions conditions = creature.GetComponent<Conditions>();
             string armorCategory = creature.equippedArmor?.category ?? string.Empty;
             return new RageActorState(
@@ -41,9 +42,9 @@ namespace Game.Rules.Unity
                 HasCondition(conditions, "Fatigued"),
                 HasCondition(conditions, "Encumbered"),
                 string.Equals(armorCategory, "heavy", StringComparison.OrdinalIgnoreCase),
-                prepared.RollOptions.Contains("feat:invulnerable-rager"),
-                Math.Max(0, creature.level),
-                creature.conMod
+                prepared.HasOwnedItem("invulnerable-rager"),
+                inputs.Level,
+                inputs.Abilities.Constitution
             );
         }
 

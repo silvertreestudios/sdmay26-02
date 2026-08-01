@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -26,14 +27,17 @@ namespace Game.Creature.Rules
         )
         {
             catalog ??= Pf2eItemCatalog.Instance;
-            PreparedCharacter prepared = new(build);
+            PreparedRulesBuilder prepared = new(creature, build);
             if (creature == null)
-                return prepared;
+                return prepared.Freeze();
+
+            build = prepared.Build;
 
             ApplyImplementedBuildDefaults(build);
             prepared.RollOptions.Add($"self:level:{creature.level}");
             AddArmorRollOptions(creature, prepared);
             AddSavedSkillRanks(prepared);
+            AddEquipmentOwnership(creature, prepared, catalog);
 
             if (catalog.TryResolveByNameOrSlug(build.ClassName, out Pf2eItem classItem))
             {
@@ -52,8 +56,9 @@ namespace Game.Creature.Rules
                 ProcessGrantRules(prepared, catalog);
 
             CollectRuleSynthetics(prepared, catalog);
-            PrepareImplementedSpellcasting(creature, prepared);
-            return prepared;
+            PreparedCharacter result = prepared.Freeze();
+            PrepareImplementedSpellcasting(creature, result);
+            return result;
         }
 
         /// <summary>
@@ -66,6 +71,46 @@ namespace Game.Creature.Rules
             if (creature.Prepared == null)
                 creature.Prepared = Prepare(creature, creature.Build ?? new CharacterBuild());
             return creature.Prepared;
+        }
+
+        /// <summary>Enumerates every catalog-backed definition before immutable registry construction.</summary>
+        internal static IEnumerable<PreparedRuleDefinitionSpec> CompileDefinitionSpecs(
+            Pf2eItemCatalog catalog
+        )
+        {
+            if (catalog == null)
+                throw new ArgumentNullException(nameof(catalog));
+            foreach (
+                Pf2eItem item in catalog.Items.OrderBy(value => value.Slug, StringComparer.Ordinal)
+            )
+            {
+                yield return CreateDefinitionSpec(item, "owned", -1);
+                JObject[] rules = item.Rules.ToArray();
+                for (int index = 0; index < rules.Length; index++)
+                {
+                    string key = rules[index].Value<string>("key");
+                    if (!string.IsNullOrWhiteSpace(key))
+                        yield return CreateDefinitionSpec(item, key, index);
+                }
+            }
+        }
+
+        private static PreparedRuleDefinitionSpec CreateDefinitionSpec(
+            Pf2eItem source,
+            string key,
+            int index
+        )
+        {
+            string stableKey =
+                index < 0
+                    ? $"{source.Slug}:owned"
+                    : $"{source.Slug}:{index}:{Pf2eSlug.FromName(key)}";
+            return new PreparedRuleDefinitionSpec(
+                new RuleDefinitionId($"prepared:{stableKey}"),
+                RuleSource.FromSlug(source.Slug),
+                key,
+                index < 0 ? source.Name : $"{source.Slug}#rule-{index}"
+            );
         }
 
         private static void ApplyImplementedBuildDefaults(CharacterBuild build)
@@ -166,7 +211,7 @@ namespace Game.Creature.Rules
         private static void ApplyClassBaseMath(
             CreatureComponent creature,
             Pf2eItem classItem,
-            PreparedCharacter prepared
+            PreparedRulesBuilder prepared
         )
         {
             JObject system = classItem.System;
@@ -253,7 +298,7 @@ namespace Game.Creature.Rules
             int level,
             Pf2eItem classItem,
             Pf2eItemCatalog catalog,
-            PreparedCharacter prepared
+            PreparedRulesBuilder prepared
         )
         {
             JObject items = classItem.System?["items"] as JObject;
@@ -273,37 +318,40 @@ namespace Game.Creature.Rules
             }
         }
 
-        private static void ProcessGrantRules(PreparedCharacter prepared, Pf2eItemCatalog catalog)
+        private static void ProcessGrantRules(
+            PreparedRulesBuilder prepared,
+            Pf2eItemCatalog catalog
+        )
         {
             foreach (OwnedPf2eItem owned in prepared.OwnedItems.ToArray())
             {
-                foreach (JObject rule in owned.Item.Rules)
+                JObject[] rules = owned.Item.Rules.ToArray();
+                for (int index = 0; index < rules.Length; index++)
                 {
+                    JObject rule = rules[index];
                     string key = rule.Value<string>("key");
                     if (key == "ChoiceSet" || key == "GrantItem" || key == "ActiveEffectLike")
-                        ProcessRule(rule, owned.Item, prepared, catalog);
+                        ProcessRule(rule, owned.Item, index, prepared, catalog);
                 }
             }
         }
 
         private static void CollectRuleSynthetics(
-            PreparedCharacter prepared,
+            PreparedRulesBuilder prepared,
             Pf2eItemCatalog catalog
         )
         {
-            prepared.Modifiers.Clear();
-            prepared.Adjustments.Clear();
-            prepared.DamageDice.Clear();
-            prepared.ItemAlterations.Clear();
-            prepared.UnsupportedRuleKeys.Clear();
+            prepared.ResetContributions();
 
             foreach (OwnedPf2eItem owned in prepared.OwnedItems.ToArray())
             {
-                foreach (JObject rule in owned.Item.Rules)
+                JObject[] rules = owned.Item.Rules.ToArray();
+                for (int index = 0; index < rules.Length; index++)
                 {
+                    JObject rule = rules[index];
                     string key = rule.Value<string>("key");
                     if (key != "ChoiceSet" && key != "GrantItem")
-                        ProcessRule(rule, owned.Item, prepared, catalog);
+                        ProcessRule(rule, owned.Item, index, prepared, catalog);
                 }
             }
         }
@@ -311,7 +359,8 @@ namespace Game.Creature.Rules
         private static void ProcessRule(
             JObject rule,
             Pf2eItem source,
-            PreparedCharacter prepared,
+            int ruleIndex,
+            PreparedRulesBuilder prepared,
             Pf2eItemCatalog catalog
         )
         {
@@ -319,7 +368,9 @@ namespace Game.Creature.Rules
             if (string.IsNullOrWhiteSpace(key))
                 return;
 
-            bool predicateMatches = Pf2ePredicate.Evaluate(rule["predicate"], prepared);
+            PreparedPredicate predicate = Pf2ePredicate.Compile(rule["predicate"]);
+            bool predicateMatches = prepared.EvaluateStatic(predicate);
+            RuleDefinitionId definitionId = prepared.Define(source, key, ruleIndex);
 
             switch (key)
             {
@@ -337,52 +388,52 @@ namespace Game.Creature.Rules
                     break;
                 case "FlatModifier":
                     prepared.Modifiers.Add(
-                        new RuleModifier
-                        {
-                            Selector = rule.Value<string>("selector"),
-                            Slug = rule.Value<string>("slug") ?? source.Slug,
-                            Value = ResolveRuleInt(rule["value"], prepared),
-                            Type = rule.Value<string>("type"),
-                            Ability = rule.Value<string>("ability"),
-                            Predicate = rule["predicate"]?.DeepClone(),
-                        }
+                        new PreparedModifierSpec(
+                            definitionId,
+                            rule.Value<string>("selector"),
+                            rule.Value<string>("slug") ?? source.Slug,
+                            ResolveRuleInt(rule["value"], prepared),
+                            rule.Value<string>("type"),
+                            rule.Value<string>("ability"),
+                            predicate
+                        )
                     );
                     break;
                 case "AdjustModifier":
                     prepared.Adjustments.Add(
-                        new RuleAdjustment
-                        {
-                            Selector = rule.Value<string>("selector"),
-                            Slug = rule.Value<string>("slug"),
-                            Mode = rule.Value<string>("mode"),
-                            Value = rule.Value<float?>("value") ?? 0,
-                            Priority = rule.Value<int?>("priority") ?? 0,
-                            Predicate = rule["predicate"]?.DeepClone(),
-                        }
+                        new PreparedAdjustmentSpec(
+                            definitionId,
+                            rule.Value<string>("selector"),
+                            rule.Value<string>("slug"),
+                            rule.Value<string>("mode"),
+                            rule.Value<float?>("value") ?? 0,
+                            rule.Value<int?>("priority") ?? 0,
+                            predicate
+                        )
                     );
                     break;
                 case "DamageDice":
                     prepared.DamageDice.Add(
-                        new RuleDamageDice
-                        {
-                            Selector = rule.Value<string>("selector"),
-                            Category = rule.Value<string>("category"),
-                            DiceNumber = ResolveRuleInt(rule["diceNumber"], prepared),
-                            DieSize = ResolveDieSize(rule["dieSize"], prepared),
-                            Predicate = rule["predicate"]?.DeepClone(),
-                        }
+                        new PreparedDamageDiceSpec(
+                            definitionId,
+                            rule.Value<string>("selector"),
+                            rule.Value<string>("category"),
+                            ResolveRuleInt(rule["diceNumber"], prepared),
+                            ResolveDieSize(rule["dieSize"], prepared),
+                            predicate
+                        )
                     );
                     break;
                 case "ItemAlteration":
                     prepared.ItemAlterations.Add(
-                        new ItemAlterationRule
-                        {
-                            ItemType = rule.Value<string>("itemType"),
-                            Mode = rule.Value<string>("mode"),
-                            Property = rule.Value<string>("property"),
-                            Value = rule.Value<string>("value"),
-                            Predicate = rule["predicate"]?.DeepClone(),
-                        }
+                        new PreparedItemAlterationSpec(
+                            definitionId,
+                            rule.Value<string>("itemType"),
+                            rule.Value<string>("mode"),
+                            rule.Value<string>("property"),
+                            rule.Value<string>("value"),
+                            predicate
+                        )
                     );
                     break;
                 case "RollOption":
@@ -393,21 +444,25 @@ namespace Game.Creature.Rules
                         !string.IsNullOrWhiteSpace(option)
                         && !option.StartsWith("target:", StringComparison.OrdinalIgnoreCase)
                     )
+                    {
                         prepared.RollOptions.Add(option);
+                        prepared.Options.Add(
+                            new PreparedOptionSpec(definitionId, option, predicate)
+                        );
+                    }
                     break;
                 case "TempHP":
                 case "Resistance":
                     break;
                 default:
-                    if (!prepared.UnsupportedRuleKeys.Contains(key))
-                        prepared.UnsupportedRuleKeys.Add(key);
+                    prepared.AddUnsupported(key, source, ruleIndex);
                     break;
             }
         }
 
         private static void ApplyChoiceSet(
             JObject rule,
-            PreparedCharacter prepared,
+            PreparedRulesBuilder prepared,
             Pf2eItemCatalog catalog
         )
         {
@@ -440,7 +495,7 @@ namespace Game.Creature.Rules
         private static void ApplyGrantItem(
             JObject rule,
             Pf2eItem source,
-            PreparedCharacter prepared,
+            PreparedRulesBuilder prepared,
             Pf2eItemCatalog catalog
         )
         {
@@ -452,7 +507,7 @@ namespace Game.Creature.Rules
             prepared.AddOwnedItem(granted, source.Slug);
         }
 
-        private static string ResolveRuleReference(string uuid, PreparedCharacter prepared)
+        private static string ResolveRuleReference(string uuid, PreparedRulesBuilder prepared)
         {
             if (string.IsNullOrWhiteSpace(uuid))
                 return null;
@@ -472,7 +527,7 @@ namespace Game.Creature.Rules
                 : null;
         }
 
-        private static string ResolveActorReference(string uuid, PreparedCharacter prepared)
+        private static string ResolveActorReference(string uuid, PreparedRulesBuilder prepared)
         {
             const string actorPrefix = "{actor|";
             if (
@@ -487,7 +542,7 @@ namespace Game.Creature.Rules
                 : null;
         }
 
-        private static void ApplyActiveEffectLike(JObject rule, PreparedCharacter prepared)
+        private static void ApplyActiveEffectLike(JObject rule, PreparedRulesBuilder prepared)
         {
             string path = rule.Value<string>("path");
             if (string.IsNullOrWhiteSpace(path))
@@ -535,7 +590,7 @@ namespace Game.Creature.Rules
         private static void StoreRuleReferences(
             string path,
             JObject value,
-            PreparedCharacter prepared
+            PreparedRulesBuilder prepared
         )
         {
             foreach (JProperty property in value.Properties())
@@ -550,13 +605,13 @@ namespace Game.Creature.Rules
             }
         }
 
-        private static void AddSavedSkillRanks(PreparedCharacter prepared)
+        private static void AddSavedSkillRanks(PreparedRulesBuilder prepared)
         {
             foreach (string skill in prepared.Build.TrainedSkills)
                 UpgradeSkillRank(prepared, skill, 1);
         }
 
-        private static void UpgradeSkillRank(PreparedCharacter prepared, string skill, int rank)
+        private static void UpgradeSkillRank(PreparedRulesBuilder prepared, string skill, int rank)
         {
             if (string.IsNullOrWhiteSpace(skill) || rank <= 0)
                 return;
@@ -565,7 +620,7 @@ namespace Game.Creature.Rules
                 prepared.SkillRanks[skill] = rank;
         }
 
-        private static int ResolveRuleInt(JToken token, PreparedCharacter prepared)
+        private static int ResolveRuleInt(JToken token, PreparedRulesBuilder prepared)
         {
             if (token == null || token.Type == JTokenType.Null)
                 return 0;
@@ -601,7 +656,7 @@ namespace Game.Creature.Rules
             return 0;
         }
 
-        private static int ResolveDieSize(JToken token, PreparedCharacter prepared)
+        private static int ResolveDieSize(JToken token, PreparedRulesBuilder prepared)
         {
             if (token == null || token.Type == JTokenType.Null)
                 return 0;
@@ -637,7 +692,7 @@ namespace Game.Creature.Rules
             return 0;
         }
 
-        private static int GetPreparedLevel(PreparedCharacter prepared)
+        private static int GetPreparedLevel(PreparedRulesBuilder prepared)
         {
             string levelOption = prepared.RollOptions.FirstOrDefault(option =>
                 option.StartsWith("self:level:", StringComparison.OrdinalIgnoreCase)
@@ -652,12 +707,234 @@ namespace Game.Creature.Rules
 
         private static void AddArmorRollOptions(
             CreatureComponent creature,
-            PreparedCharacter prepared
+            PreparedRulesBuilder prepared
         )
         {
             string category = creature.equippedArmor?.category;
             if (!string.IsNullOrWhiteSpace(category))
                 prepared.RollOptions.Add($"armor:category:{category}");
+        }
+
+        private static void AddEquipmentOwnership(
+            CreatureComponent creature,
+            PreparedRulesBuilder prepared,
+            Pf2eItemCatalog catalog
+        )
+        {
+            IEnumerable<string> references = (creature.equipment ?? new List<string>())
+                .Concat(
+                    new[]
+                    {
+                        creature.equippedArmor?.name,
+                        creature.equippedRightHand?.name,
+                        creature.equippedLeftHand?.name,
+                    }
+                )
+                .Where(value => !string.IsNullOrWhiteSpace(value));
+            foreach (string reference in references)
+                prepared.AddOwnedItem(catalog.Resolve(reference));
+        }
+
+        /// <summary>
+        /// The only mutable preparation representation. It is private to compilation and transfers
+        /// copied values into one <see cref="PreparedRulePackage"/> exactly once.
+        /// </summary>
+        private sealed class PreparedRulesBuilder
+        {
+            private readonly CreatureComponent creature;
+            private readonly List<PreparedRuleDefinitionSpec> definitions = new();
+            private readonly List<PreparedBindingSeed> bindings = new();
+            private readonly List<PreparedUnsupportedDiagnostic> diagnostics = new();
+            private readonly HashSet<RuleDefinitionId> defined = new();
+            private bool frozen;
+
+            internal PreparedRulesBuilder(CreatureComponent creature, CharacterBuild build)
+            {
+                this.creature = creature;
+                Build = build ?? new CharacterBuild();
+            }
+
+            internal CharacterBuild Build { get; }
+            internal List<OwnedPf2eItem> OwnedItems { get; } = new();
+            internal HashSet<string> RollOptions { get; } = new(StringComparer.OrdinalIgnoreCase);
+            internal List<PreparedOptionSpec> Options { get; } = new();
+            internal List<PreparedModifierSpec> Modifiers { get; } = new();
+            internal List<PreparedAdjustmentSpec> Adjustments { get; } = new();
+            internal List<PreparedDamageDiceSpec> DamageDice { get; } = new();
+            internal List<PreparedItemAlterationSpec> ItemAlterations { get; } = new();
+            internal Dictionary<string, int> SkillRanks { get; } =
+                new(StringComparer.OrdinalIgnoreCase);
+            internal Dictionary<string, int> RuleValues { get; } =
+                new(StringComparer.OrdinalIgnoreCase);
+            internal Dictionary<string, string> RuleReferences { get; } =
+                new(StringComparer.OrdinalIgnoreCase);
+
+            internal bool AddOwnedItem(Pf2eItem item, string grantedBy = null)
+            {
+                if (item == null || OwnedItems.Any(owned => owned.Item.Slug == item.Slug))
+                    return false;
+                OwnedItems.Add(new OwnedPf2eItem(item, grantedBy));
+                RuleDefinitionId id = Define(item.Slug, "owned", -1, item.Name);
+                AddOwnedOption(id, item, $"item:owned:{item.Slug}");
+                if (item.Type == "class")
+                    AddOwnedOption(id, item, $"class:{item.Slug}");
+                if (item.Type == "feat")
+                    AddOwnedOption(id, item, $"feat:{item.Slug}");
+                string category = item.System?.SelectToken("category")?.Value<string>();
+                if (
+                    item.Type == "feat"
+                    && string.Equals(category, "classfeature", StringComparison.OrdinalIgnoreCase)
+                )
+                    AddOwnedOption(id, item, $"feature:{item.Slug}");
+                if (item.Type == "action")
+                    AddOwnedOption(id, item, $"action:{item.Slug}");
+                return true;
+            }
+
+            internal bool HasOwnedItem(string slug) =>
+                OwnedItems.Any(item =>
+                    string.Equals(item.Item.Slug, slug, StringComparison.OrdinalIgnoreCase)
+                );
+
+            internal RuleDefinitionId Define(Pf2eItem source, string key, int index) =>
+                Define(source.Slug, key, index, source.Name);
+
+            internal bool EvaluateStatic(PreparedPredicate predicate) =>
+                Pf2ePredicate.EvaluateStatic(
+                    predicate,
+                    RollOptions,
+                    SkillRanks,
+                    creature?.level ?? 0
+                );
+
+            internal void ResetContributions()
+            {
+                Modifiers.Clear();
+                Adjustments.Clear();
+                DamageDice.Clear();
+                ItemAlterations.Clear();
+                diagnostics.Clear();
+            }
+
+            internal void AddUnsupported(string key, Pf2eItem source, int index)
+            {
+                if (
+                    diagnostics.Any(value =>
+                        value.Key == key
+                        && value.Source == RuleSource.FromSlug(source.Slug)
+                        && value.Provenance == $"{source.Slug}#rule-{index}"
+                    )
+                )
+                    return;
+                diagnostics.Add(
+                    new PreparedUnsupportedDiagnostic(
+                        key,
+                        RuleSource.FromSlug(source.Slug),
+                        $"{source.Slug}#rule-{index}"
+                    )
+                );
+            }
+
+            internal PreparedCharacter Freeze()
+            {
+                if (frozen)
+                    throw new InvalidOperationException("Prepared rules can only be frozen once.");
+                frozen = true;
+                int level = Math.Max(0, creature?.level ?? 0);
+                List<string> staticOptions = RollOptions
+                    .Where(option =>
+                        option.StartsWith("self:level:", StringComparison.OrdinalIgnoreCase)
+                        || option.StartsWith("armor:", StringComparison.OrdinalIgnoreCase)
+                    )
+                    .ToList();
+                foreach (string trait in creature?.traits ?? new List<string>())
+                    staticOptions.Add($"self:trait:{Pf2eSlug.FromName(trait)}");
+                foreach (DamageValue value in creature?.weaknesses ?? new List<DamageValue>())
+                    staticOptions.Add($"self:weakness:{Pf2eSlug.FromName(value.DamageType)}");
+                foreach (DamageValue value in creature?.resistances ?? new List<DamageValue>())
+                    staticOptions.Add($"self:resistance:{Pf2eSlug.FromName(value.DamageType)}");
+                foreach (string immunity in creature?.immunities ?? new List<string>())
+                    staticOptions.Add($"self:immunity:{Pf2eSlug.FromName(immunity)}");
+                PreparedCreatureInputs inputs = new(
+                    level,
+                    new PreparedAbilityModifiers(
+                        creature?.strMod ?? 0,
+                        creature?.dexMod ?? 0,
+                        creature?.conMod ?? 0,
+                        creature?.intMod ?? 0,
+                        creature?.wisMod ?? 0,
+                        creature?.chaMod ?? 0
+                    ),
+                    SkillRanks,
+                    creature?.equipment ?? new List<string>(),
+                    creature?.equippedArmor?.category ?? string.Empty,
+                    creature?.traits ?? new List<string>(),
+                    (creature?.weaknesses ?? new List<DamageValue>()).Select(
+                        value => new PreparedDefenseDescriptor(value.DamageType, value.DamageAmount)
+                    ),
+                    (creature?.resistances ?? new List<DamageValue>()).Select(
+                        value => new PreparedDefenseDescriptor(value.DamageType, value.DamageAmount)
+                    ),
+                    (creature?.immunities ?? new List<string>()).Select(
+                        value => new PreparedImmunityDescriptor(value)
+                    ),
+                    staticOptions
+                );
+                PreparedRulePackage package = new(
+                    inputs,
+                    definitions.OrderBy(value => value.Id.Value, StringComparer.Ordinal),
+                    bindings
+                        .OrderBy(value => value.CreationOrder)
+                        .ThenBy(value => value.StableKey, StringComparer.Ordinal),
+                    Options
+                        .OrderBy(value => value.DefinitionId.Value, StringComparer.Ordinal)
+                        .ThenBy(value => value.Option, StringComparer.Ordinal),
+                    Modifiers,
+                    Adjustments.OrderBy(value => value.Priority),
+                    DamageDice,
+                    ItemAlterations,
+                    diagnostics
+                        .OrderBy(value => value.Source.Slug, StringComparer.Ordinal)
+                        .ThenBy(value => value.Provenance, StringComparer.Ordinal)
+                );
+                return new PreparedCharacter(Build, package, OwnedItems);
+            }
+
+            private RuleDefinitionId Define(string sourceSlug, string key, int index, string name)
+            {
+                Pf2eItem sourceItem = OwnedItems
+                    .Select(value => value.Item)
+                    .FirstOrDefault(value => value.Slug == Pf2eSlug.FromName(sourceSlug));
+                string stableKey =
+                    index < 0
+                        ? $"{Pf2eSlug.FromName(sourceSlug)}:owned"
+                        : $"{Pf2eSlug.FromName(sourceSlug)}:{index}:{Pf2eSlug.FromName(key)}";
+                RuleDefinitionId id = new($"prepared:{stableKey}");
+                if (!defined.Add(id))
+                    return id;
+                RuleSource ruleSource = RuleSource.FromSlug(sourceSlug);
+                definitions.Add(
+                    sourceItem == null
+                        ? new PreparedRuleDefinitionSpec(
+                            id,
+                            ruleSource,
+                            key,
+                            index < 0 ? name : $"{sourceSlug}#rule-{index}"
+                        )
+                        : CreateDefinitionSpec(sourceItem, key, index)
+                );
+                bindings.Add(
+                    new PreparedBindingSeed(stableKey, id, ruleSource, 1000 + bindings.Count)
+                );
+                return id;
+            }
+
+            private void AddOwnedOption(RuleDefinitionId id, Pf2eItem item, string option)
+            {
+                RollOptions.Add(option);
+                if (!Options.Any(value => value.DefinitionId == id && value.Option == option))
+                    Options.Add(new PreparedOptionSpec(id, option, PreparedPredicate.Always));
+            }
         }
     }
 }

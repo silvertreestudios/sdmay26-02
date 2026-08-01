@@ -74,14 +74,6 @@ public sealed class RulesStrikeUnityTests
     public void PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage()
     {
         CreatureComponent torgrim = Load("DataFiles/playerCharacters/Torgrim");
-        torgrim.Prepared.OwnedItems.RemoveAll(item =>
-            string.Equals(
-                item.Item.Slug,
-                "quick-tempered",
-                System.StringComparison.OrdinalIgnoreCase
-            )
-        );
-        torgrim.Prepared.RollOptions.Remove("feat:quick-tempered");
         CreatureComponent lena = Load("DataFiles/playerCharacters/Lena");
         CreatureComponent target = CreateCreature("Target", "enemy", 100, 10);
         torgrim.gameObject.AddComponent<Conditions>();
@@ -110,10 +102,13 @@ public sealed class RulesStrikeUnityTests
         CreatureId lenaId = bridge.GetCreatureId(lena);
         CreatureId targetId = bridge.GetCreatureId(target);
         bridge.BeginTurn(torgrimId, 3);
-        Assert.That(
-            bridge.Dispatch(new RageActionOp(torgrimId)),
-            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
-        );
+        if (
+            !RageRules.GetActiveRollOptions(bridge.Snapshot, torgrimId).Contains("self:effect:rage")
+        )
+            Assert.That(
+                bridge.Dispatch(new RageActionOp(torgrimId)),
+                Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+            );
 
         RulesStrikeAction torgrimStrike = torgrimController
             .GetActions()

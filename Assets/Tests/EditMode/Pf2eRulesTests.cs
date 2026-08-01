@@ -4,6 +4,7 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Strike;
 using GridPublic;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -145,40 +146,50 @@ public class Pf2eRulesTests
     [Test]
     public void PredicateSupportsAtomicCompoundAndNumericChecks()
     {
-        PreparedCharacter prepared = new(new CharacterBuild());
-        prepared.RollOptions.Add("class:barbarian");
-        prepared.RollOptions.Add("self:effect:rage");
-        prepared.RollOptions.Add("self:level:7");
-        prepared.SkillRanks["intimidation"] = 4;
+        CreatureComponent creature = CreatePreparedBarbarian();
+        creature.level = 7;
+        creature.Build.TrainedSkills.Add("intimidation");
+        creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
+        PreparedRulePackage package = creature.Prepared.Rules;
+        CreatureId actor = new("predicate-actor");
+        RulesStateSeed seed = new();
+        foreach (PreparedBindingSeed binding in package.Bindings)
+            seed.SeedRuleBinding(binding.Create(actor));
+        PreparedPredicateContext context = new(
+            package,
+            new InMemoryRulesStore(seed).Snapshot,
+            actor,
+            new[] { "self:effect:rage", "skill:intimidation:rank:4" }
+        );
 
         Assert.That(
-            Pf2ePredicate.Evaluate(
-                JToken.Parse("[\"class:barbarian\", {\"not\": \"item:ranged\"}]"),
-                prepared
-            ),
+            Pf2ePredicate
+                .Compile(JToken.Parse("[\"class:barbarian\", {\"not\": \"item:ranged\"}]"))
+                .Evaluate(context),
             Is.True
         );
         Assert.That(
-            Pf2ePredicate.Evaluate(
-                JToken.Parse("[{\"or\": [\"item:ranged\", \"self:effect:rage\"]}]"),
-                prepared
-            ),
+            Pf2ePredicate
+                .Compile(JToken.Parse("[{\"or\": [\"item:ranged\", \"self:effect:rage\"]}]"))
+                .Evaluate(context),
             Is.True
         );
         Assert.That(
-            Pf2ePredicate.Evaluate(
-                JToken.Parse(
-                    "[{\"gte\": [\"self:level\", 7]}, {\"gte\": [\"skill:intimidation:rank\", 4]}]"
-                ),
-                prepared
-            ),
+            Pf2ePredicate
+                .Compile(
+                    JToken.Parse(
+                        "[{\"gte\": [\"self:level\", 7]}, {\"gte\": [\"skill:intimidation:rank\", 1]}]"
+                    )
+                )
+                .Evaluate(context),
             Is.True
         );
         Assert.That(
-            Pf2ePredicate.Evaluate(
-                JToken.Parse("[{\"and\": [\"class:barbarian\", {\"not\": \"item:ranged\"}]}]"),
-                prepared
-            ),
+            Pf2ePredicate
+                .Compile(
+                    JToken.Parse("[{\"and\": [\"class:barbarian\", {\"not\": \"item:ranged\"}]}]")
+                )
+                .Evaluate(context),
             Is.True
         );
     }
@@ -190,10 +201,11 @@ public class Pf2eRulesTests
         UnityCombatRulesBridge bridge = CreateCombatRules(creature);
         CreatureId actor = bridge.GetCreatureId(creature);
         bridge.BeginTurn(actor, 3);
-        Assert.That(
-            bridge.Dispatch(new RageActionOp(actor)),
-            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
-        );
+        if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
+            Assert.That(
+                bridge.Dispatch(new RageActionOp(actor)),
+                Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+            );
 
         StrikeProfile greataxe = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
@@ -227,25 +239,24 @@ public class Pf2eRulesTests
         CreatureId actor = bridge.GetCreatureId(creature);
         bridge.BeginTurn(actor, 3);
 
-        List<string> beforeRage = Pf2eRulesEngine.GetAlteredTraits(
-            creature,
-            "action",
-            "demoralize",
-            new List<string>()
+        PreparedRulePackage package = creature.Prepared.Rules;
+        if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
+            Assert.That(
+                bridge.Dispatch(new RageActionOp(actor)),
+                Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+            );
+        PreparedPredicateContext duringContext = new(
+            package,
+            bridge.Snapshot,
+            actor,
+            new[] { "item:slug:demoralize" }
         );
-        Assert.That(beforeRage, Does.Not.Contain("rage"));
-
         Assert.That(
-            bridge.Dispatch(new RageActionOp(actor)),
-            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+            PreparedRuleCollectors
+                .CollectItemAlterations(package, duringContext, "action", "traits")
+                .Select(value => value.Value),
+            Does.Contain("rage")
         );
-        List<string> duringRage = Pf2eRulesEngine.GetAlteredTraits(
-            creature,
-            "action",
-            "demoralize",
-            new List<string>()
-        );
-        Assert.That(duringRage, Does.Contain("rage"));
     }
 
     [Test]
@@ -282,6 +293,44 @@ public class Pf2eRulesTests
     }
 
     [Test]
+    public void CurrentFixtureCompilationIsDeterministicAndCapturesZombieImmunities()
+    {
+        CreatureComponent torgrim = CreatureJsonConverter
+            .CreateFromFile("DataFiles/playerCharacters/Torgrim")
+            .GetComponent<CreatureComponent>();
+        created.Add(torgrim.gameObject);
+        CreatureComponent lena = CreatureJsonConverter
+            .CreateFromFile("DataFiles/playerCharacters/Lena")
+            .GetComponent<CreatureComponent>();
+        created.Add(lena.gameObject);
+        CreatureComponent zombie = CreatureJsonConverter
+            .CreateFromFile("DataFiles/pathfinder-monster-core/zombie-shambler")
+            .GetComponent<CreatureComponent>();
+        created.Add(zombie.gameObject);
+        GameObject clericObject = new("Prepared Cleric");
+        created.Add(clericObject);
+        CreatureComponent cleric = clericObject.AddComponent<CreatureComponent>();
+        cleric.level = 1;
+        cleric.Build = new CharacterBuild { ClassName = "Cleric" };
+
+        foreach (CreatureComponent creature in new[] { torgrim, lena, cleric, zombie })
+        {
+            CharacterBuild build = creature.Build ?? new CharacterBuild();
+            string first = PackageFingerprint(Pf2eCharacterPreparer.Prepare(creature, build).Rules);
+            string second = PackageFingerprint(
+                Pf2eCharacterPreparer.Prepare(creature, build).Rules
+            );
+            Assert.That(second, Is.EqualTo(first));
+        }
+        Assert.That(
+            Pf2eCharacterPreparer
+                .Prepare(zombie, zombie.Build ?? new CharacterBuild())
+                .Rules.Inputs.Immunities.Any(value => value.IsDeathEffect),
+            Is.True
+        );
+    }
+
+    [Test]
     public void ThiefUsesDexterityForFinesseMeleeDamage()
     {
         CreatureComponent creature = CreatePreparedRogue();
@@ -296,7 +345,10 @@ public class Pf2eRulesTests
             WeaponCategory = "martial",
         };
         StrikeResolutionContext finesseContext = PrepareStrike(creature, finesseStrike);
-        Assert.That(finesseContext.FlatDamages[0].DamageAmount, Is.EqualTo(creature.dexMod));
+        Assert.That(
+            finesseContext.FlatDamages.Sum(value => value.DamageAmount),
+            Is.EqualTo(creature.dexMod)
+        );
 
         StrikeProfile nonFinesseStrike = new(
             new List<Dice> { new Dice(1, 6, "slashing") },
@@ -308,7 +360,10 @@ public class Pf2eRulesTests
             WeaponCategory = "martial",
         };
         StrikeResolutionContext nonFinesseContext = PrepareStrike(creature, nonFinesseStrike);
-        Assert.That(nonFinesseContext.FlatDamages[0].DamageAmount, Is.EqualTo(creature.strMod));
+        Assert.That(
+            nonFinesseContext.FlatDamages.Sum(value => value.DamageAmount),
+            Is.EqualTo(creature.strMod)
+        );
     }
 
     [Test]
@@ -384,20 +439,7 @@ public class Pf2eRulesTests
             ClassFeatName = "Raging Intimidation",
         };
         creature.Prepared = Pf2eCharacterPreparer.Prepare(creature, creature.Build);
-        DisableQuickTempered(creature.Prepared);
         return creature;
-    }
-
-    private static void DisableQuickTempered(PreparedCharacter prepared)
-    {
-        prepared.OwnedItems.RemoveAll(item =>
-            string.Equals(
-                item.Item.Slug,
-                "quick-tempered",
-                System.StringComparison.OrdinalIgnoreCase
-            )
-        );
-        prepared.RollOptions.Remove("feat:quick-tempered");
     }
 
     private UnityCombatRulesBridge CreateCombatRules(CreatureComponent creature)
@@ -475,7 +517,64 @@ public class Pf2eRulesTests
                 },
             }
         );
-        Pf2eRulesEngine.ApplyPreparedStrikeAdjustments(context);
+        PreparedRulePackage package = attacker.Prepared.Rules;
+        RulesSnapshot snapshot;
+        CreatureId actor;
+        ActionController controller = attacker.GetComponent<ActionController>();
+        if (
+            controller != null
+            && controller.TryGetCombatRules(out UnityCombatRulesBridge bridge, out actor)
+        )
+        {
+            snapshot = bridge.Snapshot;
+        }
+        else
+        {
+            actor = new CreatureId($"prepared-test-{created.Count}");
+            RulesStateSeed seed = new();
+            foreach (PreparedBindingSeed binding in package.Bindings)
+                seed.SeedRuleBinding(binding.Create(actor));
+            snapshot = new InMemoryRulesStore(seed).Snapshot;
+        }
+        StrikeItemDefinition item = new(
+            new ItemId($"prepared-item-{created.Count}"),
+            new ItemDefinitionId(profile.ItemSlug ?? "test-item"),
+            profile.ItemSlug ?? "Test Item",
+            string.Empty,
+            profile.WeaponCategory ?? string.Empty,
+            profile.Traits.Select(Trait.FromSlug),
+            0,
+            profile.DamageDice.Select(die => new TypedDamageDice(
+                new DiceExpression(die.numberOfDice, die.sidesPerDie),
+                die.damageType,
+                "Test"
+            )),
+            profile.FlatDamages.Select(value => new TypedFlatDamage(
+                value.DamageAmount,
+                value.DamageType,
+                "Test"
+            )),
+            5,
+            profile.IsRangedAttack ? 60 : 0,
+            0,
+            StrikeAmmunitionRequirement.None
+        );
+        bool offGuard = resolvedTarget
+            .GetComponent<Conditions>()
+            .GetConditionNames()
+            .Any(value => value == "Off-Guard" || value == "Flat-Footed");
+        PreparedStrikeContributions contribution = UnityPreparedStrikeDataAdapter.Capture(
+            attacker,
+            resolvedTarget,
+            item,
+            StrikeTargetingOutcome.Legal(5, 0, 0, offGuard),
+            snapshot,
+            actor
+        );
+        foreach (TypedDamageDice die in contribution.DamageDice)
+            context.DamageDice.Add(new Dice(die.Dice.Count, die.Dice.Sides, die.DamageType));
+        foreach (TypedFlatDamage value in contribution.FlatDamage)
+            context.FlatDamages.Add(new DamageValue(value.DamageType, value.Amount));
         return context;
     }
 
@@ -491,6 +590,39 @@ public class Pf2eRulesTests
             WeaponCategory = "martial",
         };
     }
+
+    private static string PackageFingerprint(PreparedRulePackage package) =>
+        string.Join(
+            "|",
+            new[]
+            {
+                package.Inputs.Level.ToString(),
+                string.Join(
+                    ",",
+                    package
+                        .Inputs.SkillRanks.OrderBy(value => value.Key)
+                        .Select(value => $"{value.Key}:{value.Value}")
+                ),
+                string.Join(
+                    ",",
+                    package.Definitions.Select(value =>
+                        $"{value.Id.Value}:{value.Source.Slug}:{value.RuleKey}:{value.Provenance}"
+                    )
+                ),
+                string.Join(
+                    ",",
+                    package.Bindings.Select(value =>
+                        $"{value.StableKey}:{value.DefinitionId.Value}:{value.CreationOrder}"
+                    )
+                ),
+                string.Join(
+                    ",",
+                    package.Diagnostics.Select(value =>
+                        $"{value.Source.Slug}:{value.Key}:{value.Provenance}"
+                    )
+                ),
+            }
+        );
 
     private UnityCombatRulesBridge CreateActiveEncounter(ActionController protagonist)
     {

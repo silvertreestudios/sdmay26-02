@@ -133,6 +133,9 @@ namespace Game.Creature
         [SerializeField]
         private List<DamageValue> _resistances = new List<DamageValue>();
 
+        [SerializeField]
+        private List<string> _immunities = new List<string>();
+
         // Ability modifiers
         [Header("Ability Modifiers")]
         [SerializeField]
@@ -325,6 +328,11 @@ namespace Game.Creature
         {
             get => _resistances;
             set => _resistances = value;
+        }
+        public List<string> immunities
+        {
+            get => _immunities;
+            set => _immunities = value ?? new List<string>();
         }
 
         public int strMod

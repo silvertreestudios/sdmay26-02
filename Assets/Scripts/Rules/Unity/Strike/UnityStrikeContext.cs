@@ -591,75 +591,41 @@ namespace Game.Rules.Unity.Strike
         )
         {
             PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(attacker);
-            List<string> options = BuildOptions(prepared, target, item, targeting);
-            foreach (string option in RageRules.GetActiveRollOptions(snapshot, actor))
-                AddOption(options, option);
+            PreparedRulePackage package = prepared.Rules;
+            List<string> options = BuildOptions(item, targeting);
+            PreparedPredicateContext predicateContext = new(package, snapshot, actor, options);
+            foreach (
+                PreparedItemAlterationSpec alteration in PreparedRuleCollectors.CollectItemAlterations(
+                    package,
+                    predicateContext,
+                    "weapon",
+                    "other-tags"
+                )
+            )
+                if (string.Equals(alteration.Mode, "add", StringComparison.OrdinalIgnoreCase))
+                    AddOption(options, $"item:tag:{alteration.Value}");
+            predicateContext = new PreparedPredicateContext(package, snapshot, actor, options);
             PreparedStrikeContributions result = new PreparedStrikeContributions();
 
-            List<RuleModifier> flatModifiers = prepared
-                .Modifiers.Where(modifier =>
-                    string.Equals(
-                        modifier.Selector,
-                        "strike-damage",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                )
-                .Where(modifier => Pf2ePredicate.Evaluate(modifier.Predicate, prepared, options))
-                .GroupBy(modifier => modifier.Slug, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.Last())
-                .ToList();
-            foreach (
-                RuleAdjustment adjustment in prepared
-                    .Adjustments.Where(adjustment =>
-                        string.Equals(
-                            adjustment.Selector,
-                            "strike-damage",
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                    .Where(adjustment =>
-                        Pf2ePredicate.Evaluate(adjustment.Predicate, prepared, options)
-                    )
-                    .OrderBy(adjustment => adjustment.Priority)
-            )
-            {
-                RuleModifier modifier = flatModifiers.LastOrDefault(candidate =>
-                    string.Equals(
-                        candidate.Slug,
-                        adjustment.Slug,
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                );
-                if (modifier == null)
-                    continue;
-                if (string.Equals(adjustment.Mode, "upgrade", StringComparison.OrdinalIgnoreCase))
-                    modifier.Value = Math.Max(modifier.Value, Mathf.RoundToInt(adjustment.Value));
-                else if (
-                    string.Equals(adjustment.Mode, "multiply", StringComparison.OrdinalIgnoreCase)
-                )
-                    modifier.Value = Mathf.FloorToInt(modifier.Value * adjustment.Value);
-            }
+            IReadOnlyList<PreparedModifierValue> flatModifiers =
+                PreparedRuleCollectors.CollectModifiers(package, predicateContext, "strike-damage");
 
             string primaryType = item.DamageDice[0].DamageType;
-            foreach (RuleModifier modifier in flatModifiers.Where(value => value.Value != 0))
+            foreach (
+                PreparedModifierValue modifier in flatModifiers.Where(value => value.Value != 0)
+            )
                 result.FlatDamage.Add(
                     new TypedFlatDamage(modifier.Value, primaryType, modifier.Slug)
                 );
 
             if (!item.IsRanged)
             {
-                RuleModifier ability = prepared.Modifiers.LastOrDefault(modifier =>
-                    string.Equals(
-                        modifier.Selector,
-                        "melee-strike-damage",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    && !string.IsNullOrWhiteSpace(modifier.Ability)
-                    && Pf2ePredicate.Evaluate(modifier.Predicate, prepared, options)
-                );
+                PreparedModifierValue ability = PreparedRuleCollectors
+                    .CollectModifiers(package, predicateContext, "melee-strike-damage")
+                    .LastOrDefault(modifier => !string.IsNullOrWhiteSpace(modifier.Ability));
                 if (ability != null)
                 {
-                    int desired = GetAbilityModifier(attacker, ability.Ability);
+                    int desired = package.Inputs.Abilities.Get(ability.Ability);
                     int existing = item.FlatDamage.Count == 0 ? 0 : item.FlatDamage[0].Amount;
                     result.FlatDamage.Add(
                         new TypedFlatDamage(desired - existing, primaryType, ability.Ability)
@@ -668,16 +634,11 @@ namespace Game.Rules.Unity.Strike
             }
 
             foreach (
-                RuleDamageDice dice in prepared
-                    .DamageDice.Where(value =>
-                        string.Equals(
-                            value.Selector,
-                            "strike-damage",
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                    .Where(value => value.DiceNumber > 0 && value.DieSize > 0)
-                    .Where(value => Pf2ePredicate.Evaluate(value.Predicate, prepared, options))
+                PreparedDamageDiceSpec dice in PreparedRuleCollectors.CollectDamageDice(
+                    package,
+                    predicateContext,
+                    "strike-damage"
+                )
             )
             {
                 result.DamageDice.Add(
@@ -692,8 +653,6 @@ namespace Game.Rules.Unity.Strike
         }
 
         private static List<string> BuildOptions(
-            PreparedCharacter prepared,
-            CreatureComponent target,
             StrikeItemDefinition item,
             LegalStrikeTargetingOutcome targeting
         )
@@ -716,30 +675,6 @@ namespace Game.Rules.Unity.Strike
             if (targeting.OffGuard)
                 AddOption(options, "target:condition:off-guard");
 
-            foreach (ItemAlterationRule alteration in prepared.ItemAlterations)
-            {
-                if (
-                    string.Equals(alteration.ItemType, "weapon", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(
-                        alteration.Property,
-                        "other-tags",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    && string.Equals(alteration.Mode, "add", StringComparison.OrdinalIgnoreCase)
-                    && Pf2ePredicate.Evaluate(alteration.Predicate, prepared, options)
-                )
-                    AddOption(options, $"item:tag:{alteration.Value}");
-            }
-            Conditions conditions = target.GetComponent<Conditions>();
-            if (conditions != null)
-            {
-                foreach (string condition in conditions.GetConditionNames())
-                {
-                    string slug = CreatureSlug.FromName(condition);
-                    if (!string.IsNullOrWhiteSpace(slug))
-                        AddOption(options, $"target:condition:{slug}");
-                }
-            }
             return options;
         }
 
@@ -748,17 +683,5 @@ namespace Game.Rules.Unity.Strike
             if (!options.Contains(option, StringComparer.OrdinalIgnoreCase))
                 options.Add(option);
         }
-
-        private static int GetAbilityModifier(CreatureComponent creature, string ability) =>
-            ability?.ToLowerInvariant() switch
-            {
-                "str" => creature.strMod,
-                "dex" => creature.dexMod,
-                "con" => creature.conMod,
-                "int" => creature.intMod,
-                "wis" => creature.wisMod,
-                "cha" => creature.chaMod,
-                _ => 0,
-            };
     }
 }

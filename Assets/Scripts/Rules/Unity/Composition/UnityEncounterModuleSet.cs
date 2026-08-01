@@ -54,6 +54,12 @@ namespace Game.Rules.Unity.Composition
             );
 
             RuleRegistryBuilder registryBuilder = new();
+            foreach (
+                PreparedRuleDefinitionSpec specification in Pf2eCharacterPreparer.CompileDefinitionSpecs(
+                    Pf2eItemCatalog.Instance
+                )
+            )
+                registryBuilder.Define(specification);
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
             registryBuilder.Define(
@@ -69,6 +75,7 @@ namespace Game.Rules.Unity.Composition
 
             IUnityEncounterModule[] modules =
             {
+                new UnityPreparedRulesEncounterModule(),
                 new RottingAuraEncounterModule(owner),
                 new SlowedEncounterModule(owner),
                 new UnityRageEncounterModule(rageDefinition),
@@ -93,6 +100,21 @@ namespace Game.Rules.Unity.Composition
                 new UnityEncounterComposition(modules),
                 actionCatalog,
                 registryBuilder.Build()
+            );
+        }
+    }
+
+    /// <summary>Seeds compiled stateless prepared bindings through the shared enrollment path.</summary>
+    internal sealed class UnityPreparedRulesEncounterModule : IUnityCombatantEnrollmentModule
+    {
+        /// <inheritdoc/>
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
+        {
+            PreparedRulePackage package = Pf2eCharacterPreparer
+                .EnsurePrepared(builder.Creature)
+                .Rules;
+            builder.AddRuleBindings(
+                package.Bindings.Select(seed => seed.Create(builder.CreatureId))
             );
         }
     }

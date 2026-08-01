@@ -24,6 +24,7 @@ controller and creature are attached to that exact bridge, the following state i
 | Position and movement | `RulesSnapshot.Positions`, movement budgets, permissions, and movement reducers. Token movement is a committed-Fact projection. |
 | Encounter roster, initiative, round, and outcome | `EncounterState`, its roster and cursor, and encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
 | Active-effect timing | `ActiveEffectInstance` and `ActiveEffectTimingState`, advanced at encounter initiative boundaries. |
+| Prepared rule participation | `PreparedRulePackage` supplies immutable creature inputs and definition/binding seeds; `RulesSnapshot.RuleBindings` alone controls whether compiled contributions participate. |
 | Migrated action slices | Stride, Strike, Reload, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
 
 Cutover never means “try rules, then fall back.” A detached `ActionController` exposes deliberately
@@ -42,14 +43,15 @@ features remain Unity-native. They must not dual-write a migrated slice or reviv
 [`UnityEncounterModuleSet`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterModuleSet.cs)
 constructs the only production module sequence:
 
-1. `RottingAuraEncounterModule`
-2. `SlowedEncounterModule`
-3. `UnityRageEncounterModule`
-4. `UnityStrikeEncounterModule`
-5. `UnitySpellcastingEncounterModule`
-6. `UnityLightEncounterModule`
-7. `UnityHealthProjectionModule`
-8. `UnityEncounterProjectionModule`
+1. `UnityPreparedRulesEncounterModule`
+2. `RottingAuraEncounterModule`
+3. `SlowedEncounterModule`
+4. `UnityRageEncounterModule`
+5. `UnityStrikeEncounterModule`
+6. `UnitySpellcastingEncounterModule`
+7. `UnityLightEncounterModule`
+8. `UnityHealthProjectionModule`
+9. `UnityEncounterProjectionModule`
 
 Before constructing that module array, `UnityEncounterModuleSet.Create` performs a separate,
 explicit static-composition pass that feature modules cannot defer to `ConfigureDispatcher`:
@@ -57,7 +59,8 @@ explicit static-composition pass that feature modules cannot defer to `Configure
 - It constructs `CombatActionCatalog` from `strideDefinition`, `strikeContext`, `spellCatalog`,
   `new UnitySpellBookProvider(creatures)`, and the Rage feature catalog, `rageDefinition`. The
   result implements `IActionCatalog`, `IStrikeActionCatalog`, and `ISpellActionCatalog`.
-- It composes a `RuleRegistryBuilder` with `RageRules.DefineRuleBindings(registryBuilder)`,
+- It composes a `RuleRegistryBuilder` with every deduplicated catalog-backed
+  `PreparedRuleDefinitionSpec`, `RageRules.DefineRuleBindings(registryBuilder)`,
   `registryBuilder.AddOutcomeRule()`,
   `registryBuilder.Define(UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId)`, and
   each distinct spell-effect `DefinitionId` from `spellCatalog.Definitions`, then calls
@@ -73,6 +76,13 @@ combatant-specific data remains encounter-live:
 data during static composition. This is an allowed named composition-root responsibility: the root
 may mention Rage and spell definitions to wire feature-owned catalogs and IDs, but it does not
 implement their conditions or workflow and does not permit static discovery or self-registration.
+
+Prepared definitions are compiled from the complete PF2e item catalog before registry construction,
+so a reinforcement cannot introduce an unknown definition. Per-creature `PreparedRulePackage`
+values then seed deterministic stateless bindings and immutable inputs. Generic prepared collectors
+evaluate those packages against the same `RulesSnapshot` used by registry selection; enable,
+disable, and remove operations affect the next frame without rebuilding the registry. Effect-backed
+bindings remain exclusively owned by active-effect lifecycle operations.
 
 [`UnityEncounterComposition`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterComposition.cs)
 copies that explicit sequence and never scans assemblies, scene objects, statics, or attributes.
@@ -164,6 +174,12 @@ of precomputed data and must not repeat fallible discovery or validation.
 
 Both routes call the same `PrepareCombatant` methods in the same module order and build the same
 `CombatantRulesState`.
+
+`UnityPreparedRulesEncounterModule` is the single prepared-rules enrollment capability. It creates
+the package seeds with the enrolled `CreatureId` and contributes them through `AddRuleBindings` for
+both routes. JSON, mutable build choices, and Unity components do not cross that boundary; runtime
+predicates and collectors receive only the frozen package, typed current context, and authoritative
+snapshot.
 
 - Initial participants call `SeedInitial`. Base creature, health, position, land speed, action
   economy, MAP, spell slots, bindings, and feature contributions enter the seed before the
@@ -342,7 +358,10 @@ shrink them through vertical migrations:
 - `UnityStrikeContext` and `UnitySpellAttackContext` adapt current creature/equipment/team/grid data
   into rule definitions and validation. They are feature-owned adapters, not alternate authorities.
 - Encounter preparation still reads serialized `CreatureComponent`, `ActionController`, `Team`,
-  prepared-character, spellbook, and restored-effect data to build authoritative state.
+  immutable prepared packages, spellbook, and restored-effect data to build authoritative state.
+  Mutable `PreparedCharacter.ActiveEffects` persistence and spell pools/preparations remain explicit
+  later-slice boundaries; migrated ownership, modifiers, dice, alterations, skills, predicates,
+  options, diagnostics, definitions, and binding seeds do not read those boundaries.
 - Unity action classes, selection coroutines, AI controllers, animation, combat logs, HUD, and scene
   transforms remain input/presentation adapters. Supported spell and Strike installers reconcile
   action lists at attachment.
