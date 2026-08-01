@@ -27,9 +27,10 @@ namespace GridPrivate
         /// Set to <see langword="true"/> only when the projected path suffix may continue.
         /// </param>
         /// <param name="pathInterrupted">
-        /// Set to <see langword="true"/> when the committed step projected successfully but the
-        /// remaining temporary exploration path must be abandoned. A rejected or blocked
-        /// projection leaves both result references <see langword="false"/>.
+        /// Set to <see langword="true"/> when the committed leader step projected successfully but
+        /// a follower projection or other interruption requires the remaining temporary
+        /// exploration path to be abandoned. A failure before leader projection leaves both result
+        /// references <see langword="false"/>.
         /// </param>
         /// <returns>A coroutine that completes after all committed member movement.</returns>
         IEnumerator ProjectCommittedStep(

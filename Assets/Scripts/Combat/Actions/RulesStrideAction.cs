@@ -136,7 +136,10 @@ public sealed class RulesStrideAction : EntityAction, ISelectionDrivenEntityActi
 
             try
             {
-                if (!pendingDispatch.GetAwaiter().GetResult())
+                bool resolved = pendingDispatch.GetAwaiter().GetResult();
+                if (resolver is IProjectedStrideContinuationReceiver receiver)
+                    receiver.RecordMayContinueRoute(resolved && !projection.WasRouteInterrupted);
+                if (!resolved)
                     Debug.LogWarning("Stride was rejected by current rules state.", target);
             }
             catch (Exception exception)

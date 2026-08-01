@@ -32,6 +32,12 @@ namespace Game.Rules.Unity
             this.startedInExploration = startedInExploration;
         }
 
+        /// <summary>
+        /// Gets whether the committed exploration step projected but invalidated its remaining
+        /// destination route.
+        /// </summary>
+        internal bool WasRouteInterrupted { get; private set; }
+
         /// <inheritdoc/>
         public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
         {
@@ -83,6 +89,7 @@ namespace Game.Rules.Unity
                             if (controller != null)
                                 controller.IsTakingAction = true;
                         }
+                        WasRouteInterrupted = true;
                         throw new ExplorationStrideProjectionInterruptedException();
                     }
                     throw new InvalidOperationException(
@@ -136,7 +143,8 @@ namespace Game.Rules.Unity
     }
 
     /// <summary>
-    /// Stops an obsolete temporary exploration root after its final committed step is projected.
+    /// Stops an obsolete temporary exploration root after its committed leader step is projected
+    /// and the coordinator determines that its remaining route must be abandoned.
     /// </summary>
     internal sealed class ExplorationStrideProjectionInterruptedException : Exception { }
 }

@@ -122,20 +122,20 @@ namespace Game.Combat.Exploration
             if (outcome is not AcceptedExplorationStepPlan accepted)
                 yield break;
 
+            bool leaderProjected = false;
             foreach (ExplorationMemberMove plannedMove in accepted.Moves)
             {
                 ActionController controller = controllersById[plannedMove.MemberId];
+                bool isLeader = plannedMove.MemberId == leaderId;
                 Ref<bool> moved = new(false);
-                yield return MoveMember(
-                    controller,
-                    plannedMove,
-                    tiles,
-                    movement,
-                    controller == selectedLeader(),
-                    moved
-                );
+                yield return MoveMember(controller, plannedMove, tiles, movement, isLeader, moved);
                 if (!moved.Value)
+                {
+                    pathInterrupted.Value = leaderProjected;
                     yield break;
+                }
+                if (isLeader)
+                    leaderProjected = true;
                 if (processEncounterBoundary())
                 {
                     pathInterrupted.Value = true;

@@ -798,14 +798,14 @@ namespace Game.Combat.Encounters
                         .Cells.Skip(currentIndex)
                         .Select(cell => new Vector3Int(cell.X, elevation, cell.Z))
                         .ToArray();
-                    selectedLeader.TakeAction(
-                        stride,
-                        new PlannedStrideSelectionResolver(remaining)
-                    );
+                    PlannedStrideSelectionResolver resolver = new(remaining);
+                    selectedLeader.TakeAction(stride, resolver);
                     if (!selectedLeader.IsTakingAction)
                         yield break;
                     while (selectedLeader.IsTakingAction && IsExplorationActive)
                         yield return null;
+                    if (!resolver.MayContinueRoute)
+                        yield break;
                     if (Vector3Int.RoundToInt(selectedLeader.transform.position) == current)
                         yield break;
                 }

@@ -15,6 +15,8 @@ using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
@@ -26,6 +28,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 {
     private const string GoblinJson = "DataFiles/pathfinder-monster-core/goblin-warrior";
     private readonly List<Object> cleanup = new();
+    private RuntimeTestCombatLog combatLog;
     private CombatManager manager;
     private TestTokenMovement movement;
     private UnityEngine.Random.State randomState;
@@ -38,7 +41,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         randomState = UnityEngine.Random.state;
         UnityEngine.Random.InitState(153);
 
-        Track(new GameObject("Exploration Test Combat Log")).AddComponent<RuntimeTestCombatLog>();
+        combatLog = Track(new GameObject("Exploration Test Combat Log"))
+            .AddComponent<RuntimeTestCombatLog>();
         TeamRules teamRules = Track(new GameObject("Exploration Test Team Rules"))
             .AddComponent<TeamRules>();
         teamRules.AddHostileTeam("Players");
@@ -63,6 +67,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 Object.DestroyImmediate(cleanup[index]);
         }
         cleanup.Clear();
+        combatLog = null;
         manager = null;
         movement = null;
         yield return null;
@@ -528,7 +533,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator DestinationTravelCancellationStopsQueuedStrides()
+    public IEnumerator DestinationTravelRightClickInputCancelsQueuedStridesFromIdleState()
     {
         RuntimeFixture fixture = CreateRuntimeFixture(
             new[] { new Vector3Int(1, 0, 2) },
@@ -541,10 +546,32 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             "OnGridCellClicked",
             BindingFlags.Instance | BindingFlags.NonPublic
         );
-        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(10, 0, 2) });
-        yield return null;
+        Mouse previousMouse = Mouse.current;
+        Mouse mouse = InputSystem.AddDevice<Mouse>();
+        try
+        {
+            mouse.MakeCurrent();
+            Assert.That(InputCompat.RightClickDown(), Is.False);
+            Assert.That(fixture.Grid.Fsm.CurrentState, Is.TypeOf<StateIdle>());
 
-        UniversalEvents.OnCancel.Invoke();
+            click.Invoke(fixture.Runtime, new object[] { new Vector3Int(10, 0, 2) });
+            InputState.Change(
+                mouse,
+                new MouseState().WithButton(MouseButton.Right),
+                InputUpdateType.Dynamic
+            );
+            mouse.MakeCurrent();
+            Assert.That(InputCompat.RightClickDown(), Is.True);
+            fixture.Grid.Fsm.InputUpdate();
+        }
+        finally
+        {
+            InputState.Change(mouse, new MouseState(), InputUpdateType.Dynamic);
+            InputSystem.RemoveDevice(mouse);
+            if (previousMouse != null && previousMouse.added)
+                previousMouse.MakeCurrent();
+        }
+
         int remainingFrames = 300;
         while (remainingFrames-- > 0 && fixture.Party[0].Controller.IsTakingAction)
             yield return null;
@@ -554,6 +581,55 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position),
             Is.Not.EqualTo(new Vector3Int(10, 0, 2))
         );
+    }
+
+    [UnityTest]
+    public IEnumerator PartialFollowerProjectionFailureStopsDestinationRouteAfterOneStride()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2), new Vector3Int(0, 0, 2) },
+            width: 12,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Partial Follower Failure Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        GameObject blockedFollower = fixture.Party[1].GameObject;
+        fixture
+            .Grid.GetTiles()[0, 2]
+            .OnExitTile.AddListener(data => PreventExitFor(data, blockedFollower));
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+        Assert.That(activeTravel, Is.Not.Null);
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(10, 0, 2) });
+        int remainingFrames = 300;
+        while (remainingFrames-- > 0 && (bool)activeTravel.GetValue(fixture.Runtime))
+            yield return null;
+
+        Assert.That(
+            remainingFrames,
+            Is.GreaterThan(0),
+            "Destination travel did not terminate after the partial follower failure."
+        );
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(2, 2), new DungeonCell(0, 2));
+        Assert.That(fixture.Grid.GetTiles()[1, 2].Occupants, Is.Empty);
+        Assert.That(
+            combatLog.Messages.Count(message =>
+                message == $"- {fixture.Party[0].GameObject.name} used Stride"
+            ),
+            Is.EqualTo(1),
+            "A partial follower failure must not start a later Stride from the moved leader cell."
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
     }
 
     [UnityTest]
@@ -1658,6 +1734,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 
     private sealed class RuntimeTestCombatLog : CombatLogInterface
     {
+        internal List<string> Messages { get; } = new();
+
         /// <inheritdoc/>
         public override void DevMode() { }
 
@@ -1671,7 +1749,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         public override void AddBlackList(string tag) { }
 
         /// <inheritdoc/>
-        public override void Log(string msg) { }
+        public override void Log(string msg) => Messages.Add(msg);
 
         /// <inheritdoc/>
         public override void DevLog(string msg) { }
@@ -1683,10 +1761,10 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         public override void DevLog(string msg, List<string> tags) { }
 
         /// <inheritdoc/>
-        public override void Log(string msg, string tag) { }
+        public override void Log(string msg, string tag) => Messages.Add(msg);
 
         /// <inheritdoc/>
-        public override void Log(string msg, List<string> tags) { }
+        public override void Log(string msg, List<string> tags) => Messages.Add(msg);
 
         /// <inheritdoc/>
         public override List<string> GetMessages() => new();

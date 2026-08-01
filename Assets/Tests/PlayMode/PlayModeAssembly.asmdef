@@ -4,6 +4,7 @@
     "references": [
         "GUID:27619889b8ba8c24980f49ee34dbb44a",
         "GUID:aabeeddbcaa7df944a4379268a84f168",
+        "GUID:75469ad4d38634e559750d17036d5f7c",
         "DungeonGeneration",
         "RulesRuntime"
     ],

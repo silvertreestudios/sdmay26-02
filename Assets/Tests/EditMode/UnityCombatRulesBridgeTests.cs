@@ -992,6 +992,44 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
+    [Test]
+    public void ProjectedStridePropagatesUnrelatedProjectionFailure()
+    {
+        GameObject creatureObject = new GameObject("failed-exploration-stride-creature");
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            creature.speed = 25;
+            BridgeTestActionController controller =
+                creatureObject.AddComponent<BridgeTestActionController>();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
+                controller,
+                CreateTiles(2)
+            );
+            CreatureId id = bridge.GetCreatureId(controller);
+            InvalidOperationException expected = new("unrelated projection failure");
+
+            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await bridge.DispatchProjectedStride(
+                        id,
+                        new MovementPath(
+                            new GridPosition(0, 0, 0),
+                            new[] { new GridPosition(1, 0, 0) }
+                        ),
+                        new FailingMovementObserver(expected)
+                    )
+            );
+
+            Assert.That(actual, Is.SameAs(expected));
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task CombatStridePreservesDirectionalFriendshipAcrossRegistrationOrder(
@@ -1302,6 +1340,16 @@ public sealed class UnityCombatRulesBridgeTests
             Facts.Add(fact);
             return default;
         }
+    }
+
+    private sealed class FailingMovementObserver : IFactObserver<TokenMovedFact>
+    {
+        private readonly Exception failure;
+
+        public FailingMovementObserver(Exception failure) => this.failure = failure;
+
+        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot) =>
+            new(Task.FromException(failure));
     }
 
     private sealed class RecordingEncounterModule
