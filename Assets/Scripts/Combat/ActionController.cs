@@ -48,7 +48,6 @@ public abstract class ActionController : MonoBehaviour
             : 0;
 
     //Events
-    public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
     public OnGetActions GetActionsEvent { get; protected set; } = new();
     public OnGetReactions GetReactionsEvent { get; protected set; } = new();
 
@@ -145,14 +144,6 @@ public abstract class ActionController : MonoBehaviour
             return false;
         }
         return TryGetAttachedCombatRules(out bridge, out creatureId);
-    }
-
-    /// <summary>Calculates the Unity Slowed contribution without owning turn state.</summary>
-    internal uint CalculateTurnStartActions()
-    {
-        Ref<uint> contribution = new(3);
-        ResetActionPointsEvent.Invoke(contribution);
-        return contribution.Value;
     }
 
     /// <summary>Enables or disables movement-only authority between dungeon encounters.</summary>

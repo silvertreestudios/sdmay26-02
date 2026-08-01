@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -368,10 +369,27 @@ namespace TestsUI
 
             Conditions conditions =
                 player.GetComponent<Conditions>() ?? player.AddComponent<Conditions>();
-            Condition slowed = DefinedConditions.TryGet("Slowed 1");
-            Assert.IsNotNull(slowed, "Slowed 1 condition definition was not found.");
-
-            slowed.Apply(new ConditionSource(), player);
+            Assert.That(
+                actionController.TryGetCombatRules(
+                    out UnityCombatRulesBridge bridge,
+                    out CreatureId playerId
+                ),
+                Is.True,
+                "Current combatant was not attached to the encounter rules bridge."
+            );
+            Assert.That(
+                bridge.Dispatch(
+                    new ApplyConditionOp(
+                        "Slowed",
+                        playerId,
+                        playerId,
+                        RuleSource.FromSlug("ui-slowed-test"),
+                        EffectDuration.Indefinite,
+                        new SlowedConditionState(1)
+                    )
+                ),
+                Is.TypeOf<ResolvedOpResult<ConditionCreationOutcome>>()
+            );
             CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
             int remainingTurns = combatants.Count + 1;
             do
@@ -389,8 +407,9 @@ namespace TestsUI
                 }
             );
 
-            Assert.IsTrue(
-                conditions.Contains("Slowed"),
+            Assert.That(
+                conditions.ActiveConditionNames,
+                Does.Contain("slowed"),
                 "Combatant should have the Slowed condition."
             );
             Assert.AreEqual(

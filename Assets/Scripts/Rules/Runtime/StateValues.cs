@@ -259,56 +259,6 @@ namespace Game.Rules.Runtime
             !left.Equals(right);
     }
 
-    public sealed class ConditionState : IEquatable<ConditionState>
-    {
-        public ConditionId Id { get; }
-        public RuleDefinitionId DefinitionId { get; }
-        public CreatureId Owner { get; }
-        public int Value { get; }
-        public RuleSource Source { get; }
-
-        public ConditionState(
-            ConditionId id,
-            RuleDefinitionId definitionId,
-            CreatureId owner,
-            int value,
-            RuleSource source
-        )
-        {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value));
-            if (id.IsEmpty)
-                throw new ArgumentException("A condition ID is required.", nameof(id));
-            if (definitionId.IsEmpty)
-                throw new ArgumentException(
-                    "A rule definition ID is required.",
-                    nameof(definitionId)
-                );
-            if (owner.IsEmpty)
-                throw new ArgumentException("An owner creature ID is required.", nameof(owner));
-            if (source.IsEmpty)
-                throw new ArgumentException("A rule source is required.", nameof(source));
-            Id = id;
-            DefinitionId = definitionId;
-            Owner = owner;
-            Value = value;
-            Source = source;
-        }
-
-        public bool Equals(ConditionState other) =>
-            other != null
-            && Id == other.Id
-            && DefinitionId == other.DefinitionId
-            && Owner == other.Owner
-            && Value == other.Value
-            && Source == other.Source;
-
-        public override bool Equals(object obj) => obj is ConditionState other && Equals(other);
-
-        public override int GetHashCode() =>
-            HashCode.Combine(Id, DefinitionId, Owner, Value, Source);
-    }
-
     public sealed class EquipmentState : IEquatable<EquipmentState>
     {
         public ItemId Id { get; }

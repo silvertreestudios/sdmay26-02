@@ -110,9 +110,9 @@ namespace Game.Tests.EditMode.RulesRuntime
         public async Task OrdinaryRageIgnoresQuickTemperedMovementRequirements()
         {
             TestRageConditionStateProvider provider = new TestRageConditionStateProvider(
-                CreateActorState(isEncumbered: true, wearsHeavyArmor: true)
+                CreateActorState(wearsHeavyArmor: true)
             );
-            RuleDispatcher dispatcher = CreateDispatcher(provider);
+            RuleDispatcher dispatcher = CreateDispatcher(provider, isEncumbered: true);
 
             OpResult<RageStartOutcome> result = await dispatcher.Dispatch(new RageActionOp(Actor));
 
@@ -124,9 +124,9 @@ namespace Game.Tests.EditMode.RulesRuntime
         public async Task FatiguedOrUnownedRageIsRejectedBeforeCost()
         {
             TestRageConditionStateProvider fatiguedProvider = new TestRageConditionStateProvider(
-                CreateActorState(isFatigued: true)
+                CreateActorState()
             );
-            RuleDispatcher fatigued = CreateDispatcher(fatiguedProvider);
+            RuleDispatcher fatigued = CreateDispatcher(fatiguedProvider, isFatigued: true);
             TestRageConditionStateProvider unownedProvider = new TestRageConditionStateProvider(
                 CreateActorState(ownsRage: false)
             );
@@ -152,9 +152,8 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
             RuleDispatcher allowed = CreateDispatcher(allowedProvider);
             RuleDispatcher encumbered = CreateDispatcher(
-                new TestRageConditionStateProvider(
-                    CreateActorState(ownsQuickTempered: true, isEncumbered: true)
-                )
+                new TestRageConditionStateProvider(CreateActorState(ownsQuickTempered: true)),
+                isEncumbered: true
             );
             RuleDispatcher heavy = CreateDispatcher(
                 new TestRageConditionStateProvider(
@@ -486,13 +485,19 @@ namespace Game.Tests.EditMode.RulesRuntime
             }
         }
 
-        private static RuleDispatcher CreateDispatcher(TestRageConditionStateProvider provider)
+        private static RuleDispatcher CreateDispatcher(
+            TestRageConditionStateProvider provider,
+            bool isFatigued = false,
+            bool isEncumbered = false
+        )
         {
             return CreateDispatcher(
                 provider,
                 new ScriptedRollService(10, 10),
                 actorInitiativeModifier: 10,
-                enemyInitiativeModifier: 0
+                enemyInitiativeModifier: 0,
+                isFatigued: isFatigued,
+                isEncumbered: isEncumbered
             );
         }
 
@@ -501,12 +506,16 @@ namespace Game.Tests.EditMode.RulesRuntime
             ScriptedRollService rolls,
             int actorInitiativeModifier,
             int enemyInitiativeModifier,
-            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null
+            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null,
+            bool isFatigued = false,
+            bool isEncumbered = false
         )
         {
             RageActionDefinition definition = new RageActionDefinition(provider);
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
+            registryBuilder.Define(ConditionRuleDefinitions.Fatigued);
+            registryBuilder.Define(ConditionRuleDefinitions.Encumbered);
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Actor, Party))
                 .SeedCreature(new CreatureState(Enemy, Opposition))
@@ -520,15 +529,21 @@ namespace Game.Tests.EditMode.RulesRuntime
             {
                 seed.SeedRuleBinding(binding);
             }
+            if (isFatigued)
+                SeedMarker(seed, ConditionRuleDefinitions.Fatigued, "fatigued");
+            if (isEncumbered)
+                SeedMarker(seed, ConditionRuleDefinitions.Encumbered, "encumbered");
 
             registryBuilder.AddOutcomeRule();
+            RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
                 new InMemoryRulesStore(seed),
                 rolls
             )
                 .UseHealthRules()
                 .UseMultipleAttackPenaltyRules()
-                .UseActiveEffectRules(registryBuilder.Build())
+                .UseActiveEffectRules(registry)
+                .UseConditionRules(registry)
                 .UseMovementBudgetResetRules()
                 .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>())
                 .UseActionLifecycle(definition)
@@ -619,21 +634,45 @@ namespace Game.Tests.EditMode.RulesRuntime
         private static RageActorState CreateActorState(
             bool ownsRage = true,
             bool ownsQuickTempered = false,
-            bool isFatigued = false,
-            bool isEncumbered = false,
             bool wearsHeavyArmor = false,
             bool hasInvulnerableRager = false
         ) =>
             new RageActorState(
                 ownsRage,
                 ownsQuickTempered,
-                isFatigued,
-                isEncumbered,
                 wearsHeavyArmor,
                 hasInvulnerableRager,
                 1,
                 2
             );
+
+        private static void SeedMarker(
+            RulesStateSeed seed,
+            RuleDefinitionId definition,
+            string slug
+        )
+        {
+            RuleSource source = RuleSource.FromSlug(slug);
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                new ActiveEffectId($"{slug}-effect"),
+                definition,
+                Actor,
+                source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            );
+            seed.SeedActiveEffect(effect)
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        new BindingId($"{slug}-binding"),
+                        definition,
+                        Actor,
+                        effect.Id,
+                        source,
+                        0
+                    )
+                );
+        }
 
         private static ResolvedOpResult<TResult> RequireResolved<TResult>(OpResult<TResult> result)
         {

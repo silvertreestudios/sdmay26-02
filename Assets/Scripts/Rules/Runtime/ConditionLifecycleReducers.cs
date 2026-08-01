@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -26,6 +27,36 @@ namespace Game.Rules.Runtime
         internal static string InvalidContract(RuleDefinitionId definitionId, IEffectState state) =>
             $"Rule definition {definitionId.Value} does not accept condition state "
             + $"{state.GetType().Name}.";
+
+        internal static bool TryGetBinding(
+            RulesStateDraft state,
+            ActiveEffectInstance effect,
+            out ActiveRuleBinding binding,
+            out string rejection
+        )
+        {
+            ActiveRuleBinding[] matches = state
+                .RuleBindings.Select(pair => pair.Value)
+                .Where(candidate =>
+                    candidate.EffectId.HasValue && candidate.EffectId.Value == effect.Id
+                )
+                .ToArray();
+            if (matches.Length != 1)
+            {
+                binding = null;
+                rejection = $"Condition effect {effect.Id.Value} requires exactly one binding.";
+                return false;
+            }
+            binding = matches[0];
+            return ActiveEffectReduction.TryGetAssociatedBinding(
+                state,
+                effect,
+                binding.Id,
+                true,
+                out binding,
+                out rejection
+            );
+        }
     }
 
     internal sealed class CreateConditionReducer
@@ -83,12 +114,13 @@ namespace Game.Rules.Runtime
         )
         {
             if (!state.ActiveEffects.TryGet(context.Op.EffectId, out ActiveEffectInstance effect))
-            {
-                return Delegate(context, state, facts);
-            }
+                return ReductionResult<ConditionStateUpdateOutcome>.Reject(
+                    $"Active effect {context.Op.EffectId.Value} is unknown."
+                );
             if (
                 !ConditionReduction.IsCondition(effect)
                 || !ConditionRuleDefinitions.Accepts(effect.DefinitionId, context.Op.State)
+                || context.Op.Source != effect.Source
             )
             {
                 return ReductionResult<ConditionStateUpdateOutcome>.Reject(
@@ -96,13 +128,25 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            return Delegate(context, state, facts);
+            if (
+                !ConditionReduction.TryGetBinding(
+                    state,
+                    effect,
+                    out ActiveRuleBinding binding,
+                    out string rejection
+                )
+            )
+                return ReductionResult<ConditionStateUpdateOutcome>.Reject(rejection);
+
+            return Delegate(context, state, facts, effect, binding);
         }
 
         private ReductionResult<ConditionStateUpdateOutcome> Delegate(
             ReductionContext<UpdateConditionStateOp> context,
             RulesStateDraft state,
-            FactSink facts
+            FactSink facts,
+            ActiveEffectInstance previous,
+            ActiveRuleBinding binding
         )
         {
             UpdateActiveEffectStateOp translated = UpdateActiveEffectStateOp.Create(
@@ -127,10 +171,11 @@ namespace Game.Rules.Runtime
                 );
             facts.Stage(
                 new ConditionStateUpdatedFact(
-                    updated.Id,
-                    updated.DefinitionId,
+                    updated,
+                    binding,
                     result.Value.PreviousVersion,
                     result.Value.CurrentVersion,
+                    previous.State,
                     updated.State
                 )
             );
@@ -157,14 +202,33 @@ namespace Game.Rules.Runtime
         )
         {
             if (
-                state.ActiveEffects.TryGet(context.Op.EffectId, out ActiveEffectInstance effect)
-                && !ConditionReduction.IsCondition(effect)
+                !ActiveEffectReduction.TryGetCurrent(
+                    state,
+                    context.Op.EffectId,
+                    context.Op.ExpectedVersion,
+                    true,
+                    out ActiveEffectInstance effect,
+                    out string rejection
+                )
+                || !ConditionReduction.IsCondition(effect)
+                || context.Op.Source != effect.Source
             )
-            {
                 return ReductionResult<ConditionExpirationOutcome>.Reject(
-                    ConditionReduction.InvalidContract(effect)
+                    rejection.Length > 0
+                        ? rejection
+                        : "The requested source does not own this canonical condition."
                 );
-            }
+            if (
+                !ActiveEffectReduction.TryGetAssociatedBinding(
+                    state,
+                    effect,
+                    context.Op.BindingId,
+                    true,
+                    out ActiveRuleBinding binding,
+                    out rejection
+                )
+            )
+                return ReductionResult<ConditionExpirationOutcome>.Reject(rejection);
 
             ExpireActiveEffectOp translated = new ExpireActiveEffectOp(
                 context.Op.EffectId,
@@ -180,17 +244,10 @@ namespace Game.Rules.Runtime
             if (result.IsRejected)
                 return ReductionResult<ConditionExpirationOutcome>.Reject(result.RejectionReason);
 
-            if (
-                !state.ActiveEffects.TryGet(result.Value.EffectId, out ActiveEffectInstance expired)
-            )
-                throw new InvalidOperationException(
-                    "An accepted condition expiration lost its effect."
-                );
             facts.Stage(
                 new ConditionExpiredFact(
-                    expired.Id,
-                    expired.DefinitionId,
-                    context.Op.BindingId,
+                    effect,
+                    binding,
                     context.Op.ExpectedVersion,
                     result.Value.Version
                 )
@@ -213,16 +270,34 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            ActiveEffectInstance effect = null;
             if (
-                state.ActiveEffects.TryGet(context.Op.EffectId, out effect)
-                && !ConditionReduction.IsCondition(effect)
+                !ActiveEffectReduction.TryGetCurrent(
+                    state,
+                    context.Op.EffectId,
+                    context.Op.ExpectedVersion,
+                    false,
+                    out ActiveEffectInstance effect,
+                    out string rejection
+                )
+                || !ConditionReduction.IsCondition(effect)
+                || context.Op.Source != effect.Source
             )
-            {
                 return ReductionResult<ConditionRemovalOutcome>.Reject(
-                    ConditionReduction.InvalidContract(effect)
+                    rejection.Length > 0
+                        ? rejection
+                        : "The requested source does not own this canonical condition."
                 );
-            }
+            if (
+                !ActiveEffectReduction.TryGetAssociatedBinding(
+                    state,
+                    effect,
+                    context.Op.BindingId,
+                    false,
+                    out ActiveRuleBinding binding,
+                    out rejection
+                )
+            )
+                return ReductionResult<ConditionRemovalOutcome>.Reject(rejection);
 
             RemoveActiveEffectOp translated = new RemoveActiveEffectOp(
                 context.Op.EffectId,
@@ -238,15 +313,7 @@ namespace Game.Rules.Runtime
             if (result.IsRejected)
                 return ReductionResult<ConditionRemovalOutcome>.Reject(result.RejectionReason);
 
-            facts.Stage(
-                new ConditionRemovedFact(
-                    effect.Id,
-                    effect.DefinitionId,
-                    result.Value.BindingId,
-                    effect.EffectStateVersion,
-                    effect.Status
-                )
-            );
+            facts.Stage(new ConditionRemovedFact(effect, binding));
             return ReductionResult<ConditionRemovalOutcome>.Accept(
                 new ConditionRemovalOutcome(result.Value.EffectId, result.Value.BindingId)
             );

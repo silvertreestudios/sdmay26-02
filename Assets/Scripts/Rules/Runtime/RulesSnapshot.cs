@@ -42,7 +42,6 @@ namespace Game.Rules.Runtime
             CreatureId,
             MultipleAttackPenaltyState
         > MultipleAttackPenalty { get; }
-        public StateSliceSnapshot<ConditionId, ConditionState> Conditions { get; }
         public StateSliceSnapshot<ItemId, EquipmentState> Equipment { get; }
 
         /// <summary>
@@ -96,7 +95,6 @@ namespace Game.Rules.Runtime
             MultipleAttackPenalty = new StateSliceSnapshot<CreatureId, MultipleAttackPenaltyState>(
                 data.MultipleAttackPenalty
             );
-            Conditions = new StateSliceSnapshot<ConditionId, ConditionState>(data.Conditions);
             Equipment = new StateSliceSnapshot<ItemId, EquipmentState>(data.Equipment);
             ActiveEffects = new StateSliceSnapshot<ActiveEffectId, ActiveEffectInstance>(
                 data.ActiveEffects

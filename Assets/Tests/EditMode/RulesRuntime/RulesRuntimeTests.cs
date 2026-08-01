@@ -75,13 +75,6 @@ namespace Game.Rules.Runtime.Tests
             List<Trait> callerTraits = new List<Trait> { Trait.FromSlug("humanoid") };
 
             PlayerId player = new PlayerId("player-1");
-            ConditionState condition = new ConditionState(
-                new ConditionId("condition-1"),
-                new RuleDefinitionId("frightened"),
-                Creature,
-                1,
-                TestSource
-            );
             EquipmentState item = new EquipmentState(
                 new ItemId("item-1"),
                 new ItemDefinitionId("longsword"),
@@ -125,7 +118,6 @@ namespace Game.Rules.Runtime.Tests
                 .SeedFocusPoints(Creature, new FocusPointState(1, 3))
                 .SeedAmmunition(ammunition)
                 .SeedMultipleAttackPenalty(Creature, new MultipleAttackPenaltyState(0))
-                .SeedCondition(condition)
                 .SeedEquipment(item)
                 .SeedActiveEffect(effect)
                 .SeedRuleBinding(binding)
@@ -147,7 +139,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(snapshot.FocusPoints[Creature], Is.EqualTo(new FocusPointState(1, 3)));
             Assert.That(snapshot.Ammunition[ammunition.Item], Is.EqualTo(ammunition));
             Assert.That(snapshot.MultipleAttackPenalty[Creature].AttackCount, Is.Zero);
-            Assert.That(snapshot.Conditions[condition.Id], Is.EqualTo(condition));
             Assert.That(snapshot.Equipment[item.Id], Is.EqualTo(item));
             Assert.That(snapshot.ActiveEffects[effect.Id], Is.EqualTo(effect));
             Assert.That(snapshot.RuleBindings[binding.Id], Is.EqualTo(binding));
@@ -374,24 +365,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<ArgumentException>(() => new CreatureState(Creature, default));
             Assert.Throws<ArgumentException>(() =>
                 new CreatureState(Creature, player, new[] { default(Trait) })
-            );
-            Assert.Throws<ArgumentException>(() =>
-                new ConditionState(default, definition, Creature, 1, TestSource)
-            );
-            Assert.Throws<ArgumentException>(() =>
-                new ConditionState(new ConditionId("condition-1"), default, Creature, 1, TestSource)
-            );
-            Assert.Throws<ArgumentException>(() =>
-                new ConditionState(
-                    new ConditionId("condition-1"),
-                    definition,
-                    default,
-                    1,
-                    TestSource
-                )
-            );
-            Assert.Throws<ArgumentException>(() =>
-                new ConditionState(new ConditionId("condition-1"), definition, Creature, 1, default)
             );
             Assert.Throws<ArgumentException>(() =>
                 new EquipmentState(

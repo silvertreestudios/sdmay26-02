@@ -314,10 +314,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
         Vector3 preservedPosition = new(4f, 0f, 7f);
-        ConditionSource preservedSource = new();
         player.GameObject.transform.position = preservedPosition;
         player.Creature.InitializeHealthBeforeEncounter(7, 10);
-        player.Conditions.Add("Off-Guard", preservedSource);
+        player.Conditions.RestoreApplications(
+            new[] { new ConditionApplicationSnapshot("Off-Guard", "suspension-test") }
+        );
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
         player.Controller.IsTakingAction = true;
@@ -331,7 +332,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         AssertTransientTurnStateCleared(enemy.Controller);
         Assert.That(player.Creature.hp, Is.EqualTo(7));
         Assert.That(player.GameObject.transform.position, Is.EqualTo(preservedPosition));
-        Assert.That(player.Conditions.Contains("Off-Guard", preservedSource), Is.True);
+        Assert.That(player.Conditions.ActiveConditionNames, Does.Contain("off-guard"));
     }
 
     /// <summary>

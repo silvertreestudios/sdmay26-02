@@ -1192,7 +1192,49 @@ namespace Game.Rules.Runtime
                 ),
             };
             attackCandidates.AddRange(data.AttackModifiers);
-            int armorClass = data.ArmorClass;
+            List<Modifier> defenseCandidates = new List<Modifier>
+            {
+                Modifier.Untyped(
+                    data.ArmorClass,
+                    RuleSource.FromSlug("base-armor-class"),
+                    Statistic.ArmorClass
+                ),
+            };
+            if (targeting.CoverBonus != 0)
+                defenseCandidates.Add(
+                    new Modifier(
+                        targeting.CoverBonus,
+                        ModifierType.Circumstance,
+                        RuleSource.FromSlug("cover"),
+                        Statistic.ArmorClass
+                    )
+                );
+            if (targeting.OffGuard)
+                defenseCandidates.Add(
+                    new Modifier(
+                        -2,
+                        ModifierType.Circumstance,
+                        RuleSource.FromSlug("flanking-off-guard"),
+                        Statistic.ArmorClass
+                    )
+                );
+            OpResult<ModifierCollection> defenseResult = await context.Dispatch(
+                new CollectDefenseModifiersOp(
+                    frame.Op.Target,
+                    defenseCandidates,
+                    CheckSource.From(frame.Id)
+                )
+            );
+            if (defenseResult is not ResolvedOpResult<ModifierCollection> resolvedDefense)
+                throw new InvalidOperationException("Strike defense collection did not resolve.");
+            int armorClass = Math.Max(1, resolvedDefense.Value.Total);
+            bool offGuard =
+                targeting.OffGuard
+                || ConditionSelectors.HasMarker(
+                    context.Snapshot,
+                    frame.Op.Target,
+                    ConditionRuleDefinitions.OffGuard
+                );
             OpResult<CheckOutcome> attackResult = await context.Dispatch(
                 new AttackCheckOp(
                     frame.Op.Actor,
@@ -1222,7 +1264,7 @@ namespace Game.Rules.Runtime
                 targeting.RangePenalty,
                 armorClass,
                 targeting.CoverBonus,
-                targeting.OffGuard,
+                offGuard,
                 degree,
                 damage,
                 finalDamage

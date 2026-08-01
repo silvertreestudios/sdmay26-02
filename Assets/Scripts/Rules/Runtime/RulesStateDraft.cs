@@ -41,7 +41,6 @@ namespace Game.Rules.Runtime
             CreatureId,
             MultipleAttackPenaltyState
         > MultipleAttackPenalty { get; }
-        public StateSliceDraft<ConditionId, ConditionState> Conditions { get; }
         public StateSliceDraft<ItemId, EquipmentState> Equipment { get; }
 
         /// <summary>
@@ -117,10 +116,6 @@ namespace Game.Rules.Runtime
                 data.MultipleAttackPenalty,
                 (id, value) => !id.IsEmpty
             );
-            Conditions = new StateSliceDraft<ConditionId, ConditionState>(
-                data.Conditions,
-                (id, value) => !id.IsEmpty && value != null && id == value.Id
-            );
             Equipment = new StateSliceDraft<ItemId, EquipmentState>(
                 data.Equipment,
                 (id, value) => !id.IsEmpty && value != null && id == value.Id
@@ -164,7 +159,6 @@ namespace Game.Rules.Runtime
             || FocusPoints.IsDirty
             || Ammunition.IsDirty
             || MultipleAttackPenalty.IsDirty
-            || Conditions.IsDirty
             || Equipment.IsDirty
             || ActiveEffects.IsDirty
             || RuleBindings.IsDirty
@@ -189,7 +183,6 @@ namespace Game.Rules.Runtime
                 FocusPoints.BuildCommittedValues(),
                 Ammunition.BuildCommittedValues(),
                 MultipleAttackPenalty.BuildCommittedValues(),
-                Conditions.BuildCommittedValues(),
                 Equipment.BuildCommittedValues(),
                 ActiveEffects.BuildCommittedValues(),
                 RuleBindings.BuildCommittedValues(),

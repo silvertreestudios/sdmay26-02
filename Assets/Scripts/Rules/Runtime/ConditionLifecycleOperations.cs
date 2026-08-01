@@ -15,11 +15,13 @@ namespace Game.Rules.Runtime
         public RuleSource Source => Effect.Source;
     }
 
-    internal sealed class UpdateConditionStateOp
+    /// <summary>Requests an optimistic typed state update for one exact condition.</summary>
+    public sealed class UpdateConditionStateOp
         : IRuleOp<ConditionStateUpdateOutcome>,
             IRuleSourcedOp
     {
-        internal UpdateConditionStateOp(
+        /// <summary>Creates one exact condition-state update.</summary>
+        public UpdateConditionStateOp(
             ActiveEffectId effectId,
             EffectStateVersion expectedVersion,
             IEffectState state,
@@ -32,12 +34,18 @@ namespace Game.Rules.Runtime
             Source = ActiveEffectOperationValidation.RequireSource(source);
         }
 
-        internal ActiveEffectId EffectId { get; }
-        internal EffectStateVersion ExpectedVersion { get; }
-        internal IEffectState State { get; }
+        /// <summary>Gets the effect to update.</summary>
+        public ActiveEffectId EffectId { get; }
+
+        /// <summary>Gets the expected optimistic version.</summary>
+        public EffectStateVersion ExpectedVersion { get; }
+
+        /// <summary>Gets the immutable replacement state.</summary>
+        public IEffectState State { get; }
         public RuleSource Source { get; }
 
-        internal static UpdateConditionStateOp Create<TState>(
+        /// <summary>Creates an update while preserving the typed state at the call site.</summary>
+        public static UpdateConditionStateOp Create<TState>(
             ActiveEffectId effectId,
             EffectStateVersion expectedVersion,
             TState state,
@@ -47,9 +55,11 @@ namespace Game.Rules.Runtime
             new UpdateConditionStateOp(effectId, expectedVersion, state, source);
     }
 
-    internal sealed class ExpireConditionOp : IRuleOp<ConditionExpirationOutcome>, IRuleSourcedOp
+    /// <summary>Requests expiration of one exact condition effect and binding.</summary>
+    public sealed class ExpireConditionOp : IRuleOp<ConditionExpirationOutcome>, IRuleSourcedOp
     {
-        internal ExpireConditionOp(
+        /// <summary>Creates one exact optimistic expiration.</summary>
+        public ExpireConditionOp(
             ActiveEffectId effectId,
             BindingId bindingId,
             EffectStateVersion expectedVersion,
@@ -62,15 +72,22 @@ namespace Game.Rules.Runtime
             Source = ActiveEffectOperationValidation.RequireSource(source);
         }
 
-        internal ActiveEffectId EffectId { get; }
-        internal BindingId BindingId { get; }
-        internal EffectStateVersion ExpectedVersion { get; }
+        /// <summary>Gets the effect identity.</summary>
+        public ActiveEffectId EffectId { get; }
+
+        /// <summary>Gets the exact binding identity.</summary>
+        public BindingId BindingId { get; }
+
+        /// <summary>Gets the expected optimistic version.</summary>
+        public EffectStateVersion ExpectedVersion { get; }
         public RuleSource Source { get; }
     }
 
-    internal sealed class RemoveConditionOp : IRuleOp<ConditionRemovalOutcome>, IRuleSourcedOp
+    /// <summary>Requests removal of one exact condition effect and binding.</summary>
+    public sealed class RemoveConditionOp : IRuleOp<ConditionRemovalOutcome>, IRuleSourcedOp
     {
-        internal RemoveConditionOp(
+        /// <summary>Creates one exact optimistic removal.</summary>
+        public RemoveConditionOp(
             ActiveEffectId effectId,
             BindingId bindingId,
             EffectStateVersion expectedVersion,
@@ -83,13 +100,19 @@ namespace Game.Rules.Runtime
             Source = ActiveEffectOperationValidation.RequireSource(source);
         }
 
-        internal ActiveEffectId EffectId { get; }
-        internal BindingId BindingId { get; }
-        internal EffectStateVersion ExpectedVersion { get; }
+        /// <summary>Gets the effect identity.</summary>
+        public ActiveEffectId EffectId { get; }
+
+        /// <summary>Gets the exact binding identity.</summary>
+        public BindingId BindingId { get; }
+
+        /// <summary>Gets the expected optimistic version.</summary>
+        public EffectStateVersion ExpectedVersion { get; }
         public RuleSource Source { get; }
     }
 
-    internal readonly struct ConditionCreationOutcome
+    /// <summary>Identifies a newly created condition registration.</summary>
+    public readonly struct ConditionCreationOutcome
     {
         internal ConditionCreationOutcome(
             ActiveEffectId effectId,
@@ -102,12 +125,18 @@ namespace Game.Rules.Runtime
             Version = version;
         }
 
-        internal ActiveEffectId EffectId { get; }
-        internal BindingId BindingId { get; }
-        internal EffectStateVersion Version { get; }
+        /// <summary>Gets the created effect ID.</summary>
+        public ActiveEffectId EffectId { get; }
+
+        /// <summary>Gets the created binding ID.</summary>
+        public BindingId BindingId { get; }
+
+        /// <summary>Gets the initial state version.</summary>
+        public EffectStateVersion Version { get; }
     }
 
-    internal readonly struct ConditionStateUpdateOutcome
+    /// <summary>Reports the version transition of a condition update.</summary>
+    public readonly struct ConditionStateUpdateOutcome
     {
         internal ConditionStateUpdateOutcome(
             ActiveEffectId effectId,
@@ -120,12 +149,18 @@ namespace Game.Rules.Runtime
             CurrentVersion = currentVersion;
         }
 
-        internal ActiveEffectId EffectId { get; }
-        internal EffectStateVersion PreviousVersion { get; }
-        internal EffectStateVersion CurrentVersion { get; }
+        /// <summary>Gets the updated effect ID.</summary>
+        public ActiveEffectId EffectId { get; }
+
+        /// <summary>Gets the prior version.</summary>
+        public EffectStateVersion PreviousVersion { get; }
+
+        /// <summary>Gets the committed version.</summary>
+        public EffectStateVersion CurrentVersion { get; }
     }
 
-    internal readonly struct ConditionExpirationOutcome
+    /// <summary>Reports an expired condition and its tombstone version.</summary>
+    public readonly struct ConditionExpirationOutcome
     {
         internal ConditionExpirationOutcome(ActiveEffectId effectId, EffectStateVersion version)
         {
@@ -133,11 +168,15 @@ namespace Game.Rules.Runtime
             Version = version;
         }
 
-        internal ActiveEffectId EffectId { get; }
-        internal EffectStateVersion Version { get; }
+        /// <summary>Gets the expired effect ID.</summary>
+        public ActiveEffectId EffectId { get; }
+
+        /// <summary>Gets the tombstone version.</summary>
+        public EffectStateVersion Version { get; }
     }
 
-    internal readonly struct ConditionRemovalOutcome
+    /// <summary>Reports the exact condition registration removed from the snapshot.</summary>
+    public readonly struct ConditionRemovalOutcome
     {
         internal ConditionRemovalOutcome(ActiveEffectId effectId, BindingId bindingId)
         {
@@ -145,7 +184,10 @@ namespace Game.Rules.Runtime
             BindingId = bindingId;
         }
 
-        internal ActiveEffectId EffectId { get; }
-        internal BindingId BindingId { get; }
+        /// <summary>Gets the removed effect ID.</summary>
+        public ActiveEffectId EffectId { get; }
+
+        /// <summary>Gets the removed binding ID.</summary>
+        public BindingId BindingId { get; }
     }
 }

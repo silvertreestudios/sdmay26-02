@@ -107,46 +107,6 @@ public class Pf2eRulesTests
     }
 
     [Test]
-    public void ZombiePassiveSlowAppliesAtCombatStart()
-    {
-        GameObject zombie = CreatureJsonConverter.CreateFromFile(
-            "DataFiles/pathfinder-monster-core/zombie-shambler"
-        );
-        created.Add(zombie);
-        TestActionController actionController = zombie.AddComponent<TestActionController>();
-
-        Assert.That(zombie.GetComponent<CreatureComponent>().passives, Does.Contain("Slow"));
-
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
-
-        Assert.That(zombie.GetComponent<Conditions>().Contains("Slowed"), Is.True);
-        Team team = zombie.AddComponent<Team>();
-        team.Name = "Players";
-        UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
-        bridge.StartEncounter("Players");
-        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
-    }
-
-    [Test]
-    public void ZombiePassiveSlowDoesNotStackWhenCombatStartRulesRunAgain()
-    {
-        GameObject zombie = CreatureJsonConverter.CreateFromFile(
-            "DataFiles/pathfinder-monster-core/zombie-shambler"
-        );
-        created.Add(zombie);
-        TestActionController actionController = zombie.AddComponent<TestActionController>();
-
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
-
-        Team team = zombie.AddComponent<Team>();
-        team.Name = "Players";
-        UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
-        bridge.StartEncounter("Players");
-        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
-    }
-
-    [Test]
     public void PredicateSupportsAtomicCompoundAndNumericChecks()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
@@ -700,7 +660,12 @@ public class Pf2eRulesTests
         StrikeResolutionContext normalContext = PrepareStrike(rogue, normalTarget, target);
         Assert.That(normalContext.DamageDice.Count, Is.EqualTo(1));
 
-        target.GetComponent<Conditions>().Add("Off-Guard", new ConditionSource());
+        target
+            .GetComponent<Conditions>()
+            .RestoreApplications(
+                new[] { new ConditionApplicationSnapshot("Off-Guard", "sneak-attack-test") }
+            );
+        AttachPreparedStrikeBridge(rogue, target);
         StrikeProfile offGuardTarget = CreateDogslicerStrike(rogue);
         StrikeResolutionContext offGuardContext = PrepareStrike(rogue, offGuardTarget, target);
         Assert.That(offGuardContext.DamageDice.Count, Is.EqualTo(2));
@@ -726,7 +691,12 @@ public class Pf2eRulesTests
     {
         CreatureComponent rogue = CreatePreparedRogue();
         CreatureComponent target = CreateTarget("Flat-Footed Target");
-        target.GetComponent<Conditions>().Add("Flat-Footed", new ConditionSource());
+        target
+            .GetComponent<Conditions>()
+            .RestoreApplications(
+                new[] { new ConditionApplicationSnapshot("Flat-Footed", "alias-test") }
+            );
+        AttachPreparedStrikeBridge(rogue, target);
 
         StrikeProfile shortbowStrike = new(
             new List<Dice> { new Dice(1, 6, "piercing") },
@@ -1081,6 +1051,20 @@ public class Pf2eRulesTests
                 $"Unknown prepared predicate {predicate.GetType().Name}."
             ),
         };
+
+    private void AttachPreparedStrikeBridge(CreatureComponent attacker, CreatureComponent target)
+    {
+        TestActionController attackerController =
+            attacker.GetComponent<TestActionController>()
+            ?? attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.GetComponent<TestActionController>()
+            ?? target.gameObject.AddComponent<TestActionController>();
+        UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController },
+            CreateTiles()
+        );
+    }
 
     private UnityCombatRulesBridge CreateActiveEncounter(ActionController protagonist)
     {

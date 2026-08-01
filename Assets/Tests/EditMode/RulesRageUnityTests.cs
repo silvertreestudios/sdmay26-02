@@ -145,13 +145,12 @@ public sealed class RulesRageUnityTests
     {
         CreatureComponent fatiguedCreature = CreateBarbarian();
         SetTeam(fatiguedCreature.gameObject, "players");
-        Conditions fatiguedConditions = fatiguedCreature.gameObject.AddComponent<Conditions>();
+        fatiguedCreature.gameObject.AddComponent<Conditions>();
         RageTestActionController fatiguedController =
             fatiguedCreature.gameObject.AddComponent<RageTestActionController>();
         CreatureComponent encumberedCreature = CreateBarbarian();
         SetTeam(encumberedCreature.gameObject, "enemies");
-        Conditions encumberedConditions = encumberedCreature.gameObject.AddComponent<Conditions>();
-        encumberedConditions.Add("encumbered", new ConditionSource());
+        encumberedCreature.gameObject.AddComponent<Conditions>();
         RageTestActionController encumberedController =
             encumberedCreature.gameObject.AddComponent<RageTestActionController>();
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
@@ -161,8 +160,26 @@ public sealed class RulesRageUnityTests
         );
         CreatureId fatiguedActor = bridge.GetCreatureId(fatiguedCreature);
         CreatureId encumberedActor = bridge.GetCreatureId(encumberedCreature);
-        ConditionSource fatiguedSource = new ConditionSource();
-        fatiguedConditions.Add("fatigued", fatiguedSource);
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "fatigued",
+                fatiguedActor,
+                fatiguedActor,
+                RuleSource.FromSlug("rage-test-fatigued"),
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            )
+        );
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "encumbered",
+                encumberedActor,
+                encumberedActor,
+                RuleSource.FromSlug("rage-test-encumbered"),
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            )
+        );
         bridge.StartEncounter("players");
 
         Assert.That(

@@ -37,7 +37,7 @@ namespace Game.Rules.Runtime.Tests
             );
             ConditionCreatedFact conditionFact = (ConditionCreatedFact)result.Facts[1];
             Assert.That(conditionFact.Owner, Is.EqualTo(Owner));
-            Assert.That(conditionFact.ConditionSource, Is.EqualTo(Source));
+            Assert.That(conditionFact.StableSource, Is.EqualTo(Source));
             Assert.That(conditionFact.State, Is.SameAs(effect.State));
             Assert.That(result.Facts.All(fact => fact.RootOpId == new OpId(1)), Is.True);
         }
@@ -64,6 +64,30 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(result.Snapshot.RuleBindings, Is.Empty);
             Assert.That(result.Snapshot.Version, Is.Zero);
+        }
+
+        [Test]
+        public void DuplicateConditionIdsRejectWithoutPartialCommitOrFacts()
+        {
+            ActiveEffectInstance effect = Effect(
+                "duplicate-effect",
+                ConditionRuleDefinitions.Deafened,
+                ConditionMarkerState.Instance
+            );
+            ActiveRuleBinding binding = Binding("duplicate-binding", effect, Owner, 0);
+            InMemoryRulesStore store = Seeded(effect, binding);
+
+            ReductionResult<ConditionCreationOutcome> result = store.Reduce(
+                Context(new CreateConditionOp(effect, binding)),
+                new CreateConditionReducer(Registry())
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(result.Snapshot.Version, Is.Zero);
+            Assert.That(result.Snapshot.ActiveEffects.Count, Is.EqualTo(1));
+            Assert.That(result.Snapshot.RuleBindings.Count, Is.EqualTo(1));
         }
 
         [Test]

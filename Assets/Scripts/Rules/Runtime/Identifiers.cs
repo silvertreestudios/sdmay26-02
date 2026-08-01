@@ -240,28 +240,6 @@ namespace Game.Rules.Runtime
             !left.Equals(right);
     }
 
-    public readonly struct ConditionId : IEquatable<ConditionId>
-    {
-        public string Value { get; }
-        public bool IsEmpty => string.IsNullOrEmpty(Value);
-
-        public ConditionId(string value) => Value = StableId.Require(value, nameof(value));
-
-        public bool Equals(ConditionId other) =>
-            string.Equals(Value, other.Value, StringComparison.Ordinal);
-
-        public override bool Equals(object obj) => obj is ConditionId other && Equals(other);
-
-        public override int GetHashCode() =>
-            StringComparer.Ordinal.GetHashCode(Value ?? string.Empty);
-
-        public override string ToString() => Value ?? string.Empty;
-
-        public static bool operator ==(ConditionId left, ConditionId right) => left.Equals(right);
-
-        public static bool operator !=(ConditionId left, ConditionId right) => !left.Equals(right);
-    }
-
     public readonly struct ActionDefinitionId : IEquatable<ActionDefinitionId>
     {
         public string Value { get; }

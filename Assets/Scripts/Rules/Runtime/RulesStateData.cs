@@ -17,7 +17,6 @@ namespace Game.Rules.Runtime
         public Dictionary<CreatureId, FocusPointState> FocusPoints { get; }
         public Dictionary<ItemId, AmmunitionState> Ammunition { get; }
         public Dictionary<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; }
-        public Dictionary<ConditionId, ConditionState> Conditions { get; }
         public Dictionary<ItemId, EquipmentState> Equipment { get; }
         public Dictionary<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; }
         public Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; }
@@ -41,7 +40,6 @@ namespace Game.Rules.Runtime
                 new Dictionary<CreatureId, FocusPointState>(seed.FocusPoints),
                 new Dictionary<ItemId, AmmunitionState>(seed.Ammunition),
                 new Dictionary<CreatureId, MultipleAttackPenaltyState>(seed.MultipleAttackPenalty),
-                new Dictionary<ConditionId, ConditionState>(seed.Conditions),
                 new Dictionary<ItemId, EquipmentState>(seed.Equipment),
                 new Dictionary<ActiveEffectId, ActiveEffectInstance>(seed.ActiveEffects),
                 new Dictionary<BindingId, ActiveRuleBinding>(seed.RuleBindings),
@@ -65,7 +63,6 @@ namespace Game.Rules.Runtime
             Dictionary<CreatureId, FocusPointState> focusPoints,
             Dictionary<ItemId, AmmunitionState> ammunition,
             Dictionary<CreatureId, MultipleAttackPenaltyState> multipleAttackPenalty,
-            Dictionary<ConditionId, ConditionState> conditions,
             Dictionary<ItemId, EquipmentState> equipment,
             Dictionary<ActiveEffectId, ActiveEffectInstance> activeEffects,
             Dictionary<BindingId, ActiveRuleBinding> ruleBindings,
@@ -88,7 +85,6 @@ namespace Game.Rules.Runtime
             FocusPoints = focusPoints;
             Ammunition = ammunition;
             MultipleAttackPenalty = multipleAttackPenalty;
-            Conditions = conditions;
             Equipment = equipment;
             ActiveEffects = activeEffects;
             RuleBindings = ruleBindings;

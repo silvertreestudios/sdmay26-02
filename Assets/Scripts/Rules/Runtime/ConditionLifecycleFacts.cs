@@ -2,31 +2,33 @@ namespace Game.Rules.Runtime
 {
     internal abstract class ConditionFact : RuleFact
     {
-        private protected ConditionFact(ActiveEffectId effectId, RuleDefinitionId definitionId)
+        private protected ConditionFact(ActiveEffectInstance effect, ActiveRuleBinding binding)
         {
-            EffectId = effectId;
-            DefinitionId = definitionId;
+            EffectId = effect.Id;
+            DefinitionId = effect.DefinitionId;
+            BindingId = binding.Id;
+            Owner = binding.Owner;
+            StableSource = effect.Source;
+            SourceCreature = effect.SourceCreature;
         }
 
         internal ActiveEffectId EffectId { get; }
         internal RuleDefinitionId DefinitionId { get; }
+        internal BindingId BindingId { get; }
+        internal CreatureId Owner { get; }
+        internal RuleSource StableSource { get; }
+        internal CreatureId SourceCreature { get; }
     }
 
     internal sealed class ConditionCreatedFact : ConditionFact
     {
         internal ConditionCreatedFact(ActiveEffectInstance effect, ActiveRuleBinding binding)
-            : base(effect.Id, effect.DefinitionId)
+            : base(effect, binding)
         {
-            BindingId = binding.Id;
-            Owner = binding.Owner;
-            ConditionSource = effect.Source;
             Version = effect.EffectStateVersion;
             State = effect.State;
         }
 
-        internal BindingId BindingId { get; }
-        internal CreatureId Owner { get; }
-        internal RuleSource ConditionSource { get; }
         internal EffectStateVersion Version { get; }
         internal IEffectState State { get; }
     }
@@ -34,17 +36,40 @@ namespace Game.Rules.Runtime
     internal sealed class ConditionStateUpdatedFact : ConditionFact
     {
         internal ConditionStateUpdatedFact(
-            ActiveEffectId effectId,
-            RuleDefinitionId definitionId,
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
             EffectStateVersion previousVersion,
             EffectStateVersion currentVersion,
-            IEffectState state
+            IEffectState previousState,
+            IEffectState currentState
         )
-            : base(effectId, definitionId)
+            : base(effect, binding)
         {
             PreviousVersion = previousVersion;
             CurrentVersion = currentVersion;
-            State = state;
+            PreviousState = previousState;
+            CurrentState = currentState;
+        }
+
+        internal EffectStateVersion PreviousVersion { get; }
+        internal EffectStateVersion CurrentVersion { get; }
+        internal IEffectState PreviousState { get; }
+        internal IEffectState CurrentState { get; }
+    }
+
+    internal sealed class ConditionExpiredFact : ConditionFact
+    {
+        internal ConditionExpiredFact(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            EffectStateVersion previousVersion,
+            EffectStateVersion currentVersion
+        )
+            : base(effect, binding)
+        {
+            PreviousVersion = previousVersion;
+            CurrentVersion = currentVersion;
+            State = effect.State;
         }
 
         internal EffectStateVersion PreviousVersion { get; }
@@ -52,45 +77,18 @@ namespace Game.Rules.Runtime
         internal IEffectState State { get; }
     }
 
-    internal sealed class ConditionExpiredFact : ConditionFact
-    {
-        internal ConditionExpiredFact(
-            ActiveEffectId effectId,
-            RuleDefinitionId definitionId,
-            BindingId bindingId,
-            EffectStateVersion previousVersion,
-            EffectStateVersion currentVersion
-        )
-            : base(effectId, definitionId)
-        {
-            BindingId = bindingId;
-            PreviousVersion = previousVersion;
-            CurrentVersion = currentVersion;
-        }
-
-        internal BindingId BindingId { get; }
-        internal EffectStateVersion PreviousVersion { get; }
-        internal EffectStateVersion CurrentVersion { get; }
-    }
-
     internal sealed class ConditionRemovedFact : ConditionFact
     {
-        internal ConditionRemovedFact(
-            ActiveEffectId effectId,
-            RuleDefinitionId definitionId,
-            BindingId bindingId,
-            EffectStateVersion removedVersion,
-            ActiveEffectStatus removedStatus
-        )
-            : base(effectId, definitionId)
+        internal ConditionRemovedFact(ActiveEffectInstance effect, ActiveRuleBinding binding)
+            : base(effect, binding)
         {
-            BindingId = bindingId;
-            RemovedVersion = removedVersion;
-            RemovedStatus = removedStatus;
+            RemovedVersion = effect.EffectStateVersion;
+            RemovedStatus = effect.Status;
+            RemovedState = effect.State;
         }
 
-        internal BindingId BindingId { get; }
         internal EffectStateVersion RemovedVersion { get; }
         internal ActiveEffectStatus RemovedStatus { get; }
+        internal IEffectState RemovedState { get; }
     }
 }

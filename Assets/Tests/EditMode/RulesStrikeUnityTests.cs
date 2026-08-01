@@ -78,7 +78,7 @@ public sealed class RulesStrikeUnityTests
         CreatureComponent target = CreateCreature("Target", "enemy", 100, 10);
         torgrim.gameObject.AddComponent<Conditions>();
         lena.gameObject.AddComponent<Conditions>();
-        target.gameObject.AddComponent<Conditions>().Add("Off-Guard", new ConditionSource());
+        target.gameObject.AddComponent<Conditions>();
         SpellEffectController effects = lena.gameObject.AddComponent<SpellEffectController>();
         effects.AddOrRefresh(new InfuseVitalitySpellEffect(torgrim.gameObject));
         TestActionController torgrimController =
@@ -101,6 +101,16 @@ public sealed class RulesStrikeUnityTests
         CreatureId torgrimId = bridge.GetCreatureId(torgrim);
         CreatureId lenaId = bridge.GetCreatureId(lena);
         CreatureId targetId = bridge.GetCreatureId(target);
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "Off-Guard",
+                targetId,
+                lenaId,
+                RuleSource.FromSlug("strike-test-off-guard"),
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            )
+        );
         bridge.BeginTurn(torgrimId, 3);
         if (
             !RageRules.GetActiveRollOptions(bridge.Snapshot, torgrimId).Contains("self:effect:rage")

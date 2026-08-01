@@ -1,233 +1,173 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using Game.Rules;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using UnityEngine;
 
-/// <summary>Pairs one condition identifier with its source object for persistence capture.</summary>
-internal readonly struct ConditionApplicationSnapshot
+/// <summary>Stores persistence inputs and projects authoritative store conditions read-only.</summary>
+/// <remarks>
+/// This component is not rules authority. Before enrollment it carries persistence input; after
+/// attachment every read is derived from the one encounter bridge snapshot.
+/// </remarks>
+public sealed class Conditions : MonoBehaviour
 {
-    internal ConditionApplicationSnapshot(string conditionId, ConditionSource source)
+    private static readonly RuleDefinitionId[] Definitions =
     {
-        ConditionId = conditionId;
-        Source = source;
-    }
+        ConditionRuleDefinitions.OffGuard,
+        ConditionRuleDefinitions.Deafened,
+        ConditionRuleDefinitions.Fatigued,
+        ConditionRuleDefinitions.Encumbered,
+        ConditionRuleDefinitions.Slowed,
+        ConditionRuleDefinitions.Stunned,
+        ConditionRuleDefinitions.Quickened,
+    };
 
-    internal string ConditionId { get; }
-    internal ConditionSource Source { get; }
-}
+    private IReadOnlyList<ConditionApplicationSnapshot> restored = Array.AsReadOnly(
+        Array.Empty<ConditionApplicationSnapshot>()
+    );
 
-/// <summary>
-/// Tracks condition sources and exposes condition names to both rules snapshots and PF2e modifier providers.
-/// </summary>
-public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
-{
-    protected Dictionary<string, List<ConditionSource>> AppliedConditions = new();
-
-    /// <summary>
-    /// Active condition names used by UI and condition modifier mapping; source details remain internal to this component.
-    /// </summary>
-    public IReadOnlyCollection<string> ActiveConditionNames => AppliedConditions.Keys;
-
-    /// <summary>
-    /// Adds a condition from a specific source, preserving multiple sources for the same condition.
-    /// </summary>
-    /// <param name="condition">The condition name to add.</param>
-    /// <param name="source">The source responsible for applying the condition.</param>
-    public void Add(string condition, ConditionSource source)
+    /// <summary>Gets canonical active condition slugs from the authoritative store.</summary>
+    public IReadOnlyCollection<string> ActiveConditionNames
     {
-        if (string.IsNullOrWhiteSpace(condition))
-            return;
-
-        List<ConditionSource> sources;
-        if (!AppliedConditions.TryGetValue(condition, out sources))
-            AppliedConditions.Add(condition, new List<ConditionSource>() { source });
-        else
-            sources.Add(source);
-    }
-
-    /// <summary>
-    /// Checks whether a condition is present from a specific source.
-    /// </summary>
-    /// <param name="condition">The condition name to check.</param>
-    /// <param name="source">The source that must be present.</param>
-    /// <returns>True when that source currently applies the condition.</returns>
-    public bool Contains(string condition, ConditionSource source)
-    {
-        List<ConditionSource> sources;
-        return AppliedConditions.TryGetValue(condition, out sources) && sources.Contains(source);
-    }
-
-    /// <summary>
-    /// Checks whether a condition is present from any source.
-    /// </summary>
-    /// <param name="condition">The condition name to check.</param>
-    /// <returns>True when the condition currently exists.</returns>
-    public bool Contains(string condition)
-    {
-        return AppliedConditions.TryGetValue(condition, out _);
-    }
-
-    /// <summary>
-    /// Returns a snapshot of active condition names for Unity-free rule evaluation.
-    /// </summary>
-    /// <returns>The active condition names without their source details.</returns>
-    public IReadOnlyCollection<string> GetConditionNames()
-    {
-        return new List<string>(AppliedConditions.Keys);
-    }
-
-    /// <summary>
-    /// Removes one source from a condition and clears the condition when no sources remain.
-    /// </summary>
-    /// <param name="condition">The condition name to remove.</param>
-    /// <param name="source">The source being removed.</param>
-    public void Remove(string condition, ConditionSource source)
-    {
-        List<ConditionSource> sources;
-        if (AppliedConditions.TryGetValue(condition, out sources))
+        get
         {
-            sources.Remove(source);
-            if (sources.Count < 1)
-                AppliedConditions.Remove(condition);
+            ActionController controller = GetComponent<ActionController>();
+            if (
+                controller != null
+                && controller.TryGetCombatRules(
+                    out UnityCombatRulesBridge bridge,
+                    out CreatureId owner
+                )
+            )
+                return ConditionSelectors.GetActiveSlugs(bridge.Snapshot, owner);
+            return restored.Select(entry => entry.ConditionId).Distinct().ToArray();
         }
-    }
-
-    /// <summary>
-    /// Replaces one sourced condition with another while preserving source-aware condition ownership.
-    /// </summary>
-    /// <param name="oldCondition">The condition name to remove.</param>
-    /// <param name="oldSource">The source to remove from the old condition.</param>
-    /// <param name="newCondition">The condition name to add.</param>
-    /// <param name="newSource">The source applying the new condition.</param>
-    public void Change(
-        string oldCondition,
-        ConditionSource oldSource,
-        string newCondition,
-        ConditionSource newSource
-    )
-    {
-        Remove(oldCondition, oldSource);
-        Add(newCondition, newSource);
-    }
-
-    /// <summary>
-    /// Provides rule-derived modifiers from active conditions without requiring CreatureComponent to know condition details.
-    /// </summary>
-    /// <param name="statistic">The statistic currently being resolved.</param>
-    /// <returns>Condition modifiers for the requested statistic.</returns>
-    public IEnumerable<Pf2eModifier> GetModifiers(Pf2eStatistic statistic)
-    {
-        return ConditionModifierRules.GetModifiers(ActiveConditionNames, statistic);
     }
 
     internal IReadOnlyList<ConditionApplicationSnapshot> CaptureApplications()
     {
-        return AppliedConditions
-            .OrderBy(entry => entry.Key, System.StringComparer.Ordinal)
-            .SelectMany(entry =>
-                entry.Value.Select(source => new ConditionApplicationSnapshot(entry.Key, source))
+        ActionController controller = GetComponent<ActionController>();
+        if (
+            controller == null
+            || !controller.TryGetCombatRules(
+                out UnityCombatRulesBridge bridge,
+                out CreatureId owner
             )
+        )
+            return restored;
+
+        return Definitions
+            .SelectMany(definition =>
+                ConditionSelectors.GetActiveInstances(bridge.Snapshot, owner, definition)
+            )
+            .Select(condition => new ConditionApplicationSnapshot(
+                condition.DefinitionIdSlug(),
+                condition.Source.Slug
+            ))
+            .OrderBy(entry => entry.ConditionId, StringComparer.Ordinal)
+            .ThenBy(entry => entry.SourceKey, StringComparer.Ordinal)
             .ToArray();
     }
 
     internal void RestoreApplications(IEnumerable<ConditionApplicationSnapshot> applications)
     {
         if (applications == null)
-            throw new System.ArgumentNullException(nameof(applications));
+            throw new ArgumentNullException(nameof(applications));
         ConditionApplicationSnapshot[] copied = applications.ToArray();
         if (
             copied.Any(application =>
-                string.IsNullOrWhiteSpace(application.ConditionId) || application.Source == null
+                string.IsNullOrWhiteSpace(application.ConditionId)
+                || string.IsNullOrWhiteSpace(application.SourceKey)
+                || !ConditionInputNormalizer.TryNormalize(application.ConditionId, out _)
             )
         )
-            throw new System.ArgumentException(
-                "Restored condition applications require an identifier and source.",
+            throw new ArgumentException(
+                "Restored conditions must be canonical and sourced.",
                 nameof(applications)
             );
+        restored = Array.AsReadOnly(
+            copied
+                .Select(application =>
+                {
+                    ConditionInputNormalizer.TryNormalize(
+                        application.ConditionId,
+                        out RuleDefinitionId definition
+                    );
+                    return new ConditionApplicationSnapshot(
+                        definition.Value.Substring("condition-".Length),
+                        application.SourceKey
+                    );
+                })
+                .ToArray()
+        );
+    }
 
-        AppliedConditions.Clear();
-        foreach (ConditionApplicationSnapshot application in copied)
-            Add(application.ConditionId, application.Source);
+    internal IReadOnlyList<ConditionRegistration> CreateRegistrations(CreatureId owner)
+    {
+        List<ConditionRegistration> registrations = new List<ConditionRegistration>();
+        int ordinal = 0;
+        foreach (ConditionApplicationSnapshot application in restored)
+        {
+            ConditionInputNormalizer.TryNormalize(
+                application.ConditionId,
+                out RuleDefinitionId definition
+            );
+            RuleSource source = RuleSource.FromSlug(application.SourceKey);
+            string suffix = $"{owner.Value}-{definition.Value}-{source.Slug}-{ordinal++}";
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                new ActiveEffectId($"condition-effect-{suffix}"),
+                definition,
+                owner,
+                source,
+                EffectDuration.Indefinite,
+                CreateState(definition)
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId($"condition-binding-{suffix}"),
+                definition,
+                owner,
+                effect.Id,
+                source,
+                ordinal
+            );
+            registrations.Add(new ConditionRegistration(effect, binding));
+        }
+        return registrations;
+    }
+
+    private static IEffectState CreateState(RuleDefinitionId definition)
+    {
+        if (
+            definition == ConditionRuleDefinitions.OffGuard
+            || definition == ConditionRuleDefinitions.Deafened
+            || definition == ConditionRuleDefinitions.Fatigued
+            || definition == ConditionRuleDefinitions.Encumbered
+        )
+            return ConditionMarkerState.Instance;
+        if (definition == ConditionRuleDefinitions.Slowed)
+            return new SlowedConditionState(1);
+        if (definition == ConditionRuleDefinitions.Stunned)
+            return new ValuedStunnedConditionState(1);
+        return QuickenedConditionState.Unrestricted;
     }
 }
 
-/// <summary>
-/// Maps active condition names to PF2e modifiers while keeping condition-specific math outside CreatureComponent.
-/// Add new condition modifiers here only when the condition itself directly changes a supported statistic.
-/// </summary>
-public static class ConditionModifierRules
+internal static class ConditionProjectionExtensions
 {
-    private static readonly Dictionary<string, Pf2eModifier[]> ModifiersByCondition = new()
+    internal static string DefinitionIdSlug(this ConditionSelection<IEffectState> condition) =>
+        condition.Effect.DefinitionId.Value.Substring("condition-".Length);
+}
+
+/// <summary>One serialized condition/source pair at the persistence boundary.</summary>
+internal readonly struct ConditionApplicationSnapshot
+{
+    internal ConditionApplicationSnapshot(string conditionId, string sourceKey)
     {
-        // Off-Guard/Flat-Footed: circumstance penalty to AC. Source: https://2e.aonprd.com/Conditions.aspx?ID=58
-        {
-            NormalizeConditionKey("off-guard"),
-            new[]
-            {
-                new Pf2eModifier(
-                    -2,
-                    Pf2eModifierType.Circumstance,
-                    "Off-Guard",
-                    Pf2eStatistic.ArmorClass
-                ),
-            }
-        },
-        {
-            NormalizeConditionKey("flat-footed"),
-            new[]
-            {
-                new Pf2eModifier(
-                    -2,
-                    Pf2eModifierType.Circumstance,
-                    "Off-Guard",
-                    Pf2eStatistic.ArmorClass
-                ),
-            }
-        },
-    };
-
-    /// <summary>
-    /// Converts active condition names into de-duplicated modifiers for the requested statistic.
-    /// </summary>
-    /// <param name="activeConditions">Condition names currently applied to a creature.</param>
-    /// <param name="statistic">The statistic currently being resolved.</param>
-    /// <returns>Condition modifiers that apply to the requested statistic.</returns>
-    public static IEnumerable<Pf2eModifier> GetModifiers(
-        IEnumerable<string> activeConditions,
-        Pf2eStatistic statistic
-    )
-    {
-        if (activeConditions == null)
-            yield break;
-
-        HashSet<string> emittedSources = new();
-        foreach (string activeCondition in activeConditions)
-        {
-            if (
-                !ModifiersByCondition.TryGetValue(
-                    NormalizeConditionKey(activeCondition),
-                    out Pf2eModifier[] modifiers
-                )
-            )
-                continue;
-
-            foreach (Pf2eModifier modifier in modifiers)
-            {
-                if (
-                    modifier.TargetStatistic != statistic
-                    || !emittedSources.Add(modifier.Source + modifier.TargetStatistic)
-                )
-                    continue;
-
-                yield return modifier;
-            }
-        }
+        ConditionId = conditionId;
+        SourceKey = sourceKey;
     }
 
-    private static string NormalizeConditionKey(string value)
-    {
-        return string.IsNullOrWhiteSpace(value)
-            ? string.Empty
-            : value.Trim().ToLowerInvariant().Replace(" ", string.Empty).Replace("-", string.Empty);
-    }
+    internal string ConditionId { get; }
+    internal string SourceKey { get; }
 }

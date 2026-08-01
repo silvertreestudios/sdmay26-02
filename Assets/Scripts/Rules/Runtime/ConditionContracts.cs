@@ -5,22 +5,42 @@ using System.Linq;
 
 namespace Game.Rules.Runtime
 {
-    internal static class ConditionRuleDefinitions
+    /// <summary>Declares the canonical condition definitions supported by the rules store.</summary>
+    public static class ConditionRuleDefinitions
     {
-        internal static readonly RuleDefinitionId OffGuard = Id("off-guard");
-        internal static readonly RuleDefinitionId Deafened = Id("deafened");
-        internal static readonly RuleDefinitionId Fatigued = Id("fatigued");
-        internal static readonly RuleDefinitionId Encumbered = Id("encumbered");
-        internal static readonly RuleDefinitionId Slowed = Id("slowed");
-        internal static readonly RuleDefinitionId Stunned = Id("stunned");
-        internal static readonly RuleDefinitionId Quickened = Id("quickened");
+        /// <summary>The canonical remastered Off-Guard definition.</summary>
+        public static readonly RuleDefinitionId OffGuard = Id("off-guard");
 
-        internal static RuleRegistryBuilder DefineAll(RuleRegistryBuilder builder)
+        /// <summary>The Deafened marker definition.</summary>
+        public static readonly RuleDefinitionId Deafened = Id("deafened");
+
+        /// <summary>The Fatigued marker definition.</summary>
+        public static readonly RuleDefinitionId Fatigued = Id("fatigued");
+
+        /// <summary>The Encumbered marker definition.</summary>
+        public static readonly RuleDefinitionId Encumbered = Id("encumbered");
+
+        /// <summary>The valued Slowed definition.</summary>
+        public static readonly RuleDefinitionId Slowed = Id("slowed");
+
+        /// <summary>The valued-or-duration-only Stunned definition.</summary>
+        public static readonly RuleDefinitionId Stunned = Id("stunned");
+
+        /// <summary>The Quickened definition with an immutable action allowance.</summary>
+        public static readonly RuleDefinitionId Quickened = Id("quickened");
+
+        /// <summary>Defines every canonical condition and its definition-local middleware.</summary>
+        public static RuleRegistryBuilder DefineAll(RuleRegistryBuilder builder)
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
 
-            builder.Define(OffGuard);
+            builder
+                .Define(OffGuard)
+                .Middleware<CollectDefenseModifiersOp, ModifierCollection>(
+                    RuleLifecyclePhase.Transformation,
+                    new OffGuardDefenseMiddleware()
+                );
             builder.Define(Deafened);
             builder.Define(Fatigued);
             builder.Define(Encumbered);
@@ -57,9 +77,11 @@ namespace Game.Rules.Runtime
             new RuleDefinitionId($"condition-{slug}");
     }
 
-    internal static class ConditionInputNormalizer
+    /// <summary>Normalizes external condition names to canonical runtime definitions.</summary>
+    public static class ConditionInputNormalizer
     {
-        internal static bool TryNormalize(string input, out RuleDefinitionId definitionId)
+        /// <summary>Attempts to normalize a user, JSON, or persistence condition name.</summary>
+        public static bool TryNormalize(string input, out RuleDefinitionId definitionId)
         {
             string slug = Pf2eSlug.FromName(input);
             // Flat-Footed is accepted only as external input. Authoritative state always uses the
@@ -106,16 +128,20 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class ConditionMarkerState : IEffectState
+    /// <summary>Represents presence-only condition state without an invented numeric value.</summary>
+    public sealed class ConditionMarkerState : IEffectState
     {
-        internal static ConditionMarkerState Instance { get; } = new ConditionMarkerState();
+        /// <summary>Gets the immutable marker singleton.</summary>
+        public static ConditionMarkerState Instance { get; } = new ConditionMarkerState();
 
         private ConditionMarkerState() { }
     }
 
-    internal sealed class SlowedConditionState : IEffectState, IEquatable<SlowedConditionState>
+    /// <summary>Stores the positive value of one Slowed source.</summary>
+    public sealed class SlowedConditionState : IEffectState, IEquatable<SlowedConditionState>
     {
-        internal SlowedConditionState(int value)
+        /// <summary>Creates a positive Slowed value.</summary>
+        public SlowedConditionState(int value)
         {
             if (value <= 0)
                 throw new ArgumentOutOfRangeException(
@@ -125,7 +151,8 @@ namespace Game.Rules.Runtime
             Value = value;
         }
 
-        internal int Value { get; }
+        /// <summary>Gets the source's Slowed value.</summary>
+        public int Value { get; }
 
         public bool Equals(SlowedConditionState other) => other != null && Value == other.Value;
 
@@ -135,16 +162,19 @@ namespace Game.Rules.Runtime
         public override int GetHashCode() => Value;
     }
 
-    internal abstract class StunnedConditionState : IEffectState
+    /// <summary>Base type for the mutually exclusive valued and duration-only Stunned forms.</summary>
+    public abstract class StunnedConditionState : IEffectState
     {
         private protected StunnedConditionState() { }
     }
 
-    internal sealed class ValuedStunnedConditionState
+    /// <summary>Stores the positive value of one valued Stunned source.</summary>
+    public sealed class ValuedStunnedConditionState
         : StunnedConditionState,
             IEquatable<ValuedStunnedConditionState>
     {
-        internal ValuedStunnedConditionState(int value)
+        /// <summary>Creates a positive valued Stunned state.</summary>
+        public ValuedStunnedConditionState(int value)
         {
             if (value <= 0)
                 throw new ArgumentOutOfRangeException(
@@ -154,7 +184,8 @@ namespace Game.Rules.Runtime
             Value = value;
         }
 
-        internal int Value { get; }
+        /// <summary>Gets the source's Stunned value.</summary>
+        public int Value { get; }
 
         public bool Equals(ValuedStunnedConditionState other) =>
             other != null && Value == other.Value;
@@ -165,22 +196,24 @@ namespace Game.Rules.Runtime
         public override int GetHashCode() => Value;
     }
 
-    internal sealed class DurationOnlyStunnedConditionState : StunnedConditionState
+    /// <summary>Represents duration-only Stunned, which dominates valued sources.</summary>
+    public sealed class DurationOnlyStunnedConditionState : StunnedConditionState
     {
-        internal static DurationOnlyStunnedConditionState Instance { get; } =
+        /// <summary>Gets the immutable duration-only singleton.</summary>
+        public static DurationOnlyStunnedConditionState Instance { get; } =
             new DurationOnlyStunnedConditionState();
 
         private DurationOnlyStunnedConditionState() { }
     }
 
-    internal sealed class QuickenedConditionState
-        : IEffectState,
-            IEquatable<QuickenedConditionState>
+    /// <summary>Stores an unrestricted or immutable restricted Quickened action allowance.</summary>
+    public sealed class QuickenedConditionState : IEffectState, IEquatable<QuickenedConditionState>
     {
         private readonly IReadOnlyList<ActionDefinitionId> allowedActions;
         private readonly HashSet<ActionDefinitionId> allowedActionLookup;
 
-        internal QuickenedConditionState(IEnumerable<ActionDefinitionId> allowedActions)
+        /// <summary>Creates a restricted Quickened source.</summary>
+        public QuickenedConditionState(IEnumerable<ActionDefinitionId> allowedActions)
         {
             if (allowedActions == null)
                 throw new ArgumentNullException(nameof(allowedActions));
@@ -202,14 +235,33 @@ namespace Game.Rules.Runtime
 
             this.allowedActions = new ReadOnlyCollection<ActionDefinitionId>(copied);
             allowedActionLookup = new HashSet<ActionDefinitionId>(copied);
+            IsRestricted = true;
         }
 
-        internal IReadOnlyList<ActionDefinitionId> AllowedActions => allowedActions;
+        private QuickenedConditionState()
+        {
+            allowedActions = Array.AsReadOnly(Array.Empty<ActionDefinitionId>());
+            allowedActionLookup = new HashSet<ActionDefinitionId>();
+            IsRestricted = false;
+        }
 
-        internal bool Allows(ActionDefinitionId action) => allowedActionLookup.Contains(action);
+        /// <summary>Gets the unrestricted Quickened state.</summary>
+        public static QuickenedConditionState Unrestricted { get; } = new QuickenedConditionState();
+
+        /// <summary>Gets whether this source restricts its additional action.</summary>
+        public bool IsRestricted { get; }
+
+        /// <summary>Gets the canonical allowed definitions, empty only when unrestricted.</summary>
+        public IReadOnlyList<ActionDefinitionId> AllowedActions => allowedActions;
+
+        /// <summary>Tests whether the source permits the supplied action.</summary>
+        public bool Allows(ActionDefinitionId action) =>
+            !IsRestricted || allowedActionLookup.Contains(action);
 
         public bool Equals(QuickenedConditionState other) =>
-            other != null && allowedActions.SequenceEqual(other.allowedActions);
+            other != null
+            && IsRestricted == other.IsRestricted
+            && allowedActions.SequenceEqual(other.allowedActions);
 
         public override bool Equals(object obj) =>
             obj is QuickenedConditionState other && Equals(other);

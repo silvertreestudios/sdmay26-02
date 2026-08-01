@@ -6,33 +6,31 @@ using Game.Rules.Unity.Composition;
 
 namespace Game.Creature.Rules
 {
-    /// <summary>Owns the transitional Unity action contribution for Slowed at turn start.</summary>
+    /// <summary>Projects authoritative Slowed state into the transitional turn-start contribution.</summary>
     internal sealed class SlowedEncounterModule : IUnityEncounterTurnStartModule
     {
-        private readonly UnityCombatRulesBridge owner;
-
-        internal SlowedEncounterModule(UnityCombatRulesBridge owner) =>
-            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
-
         /// <inheritdoc/>
-        public IEncounterTurnStartAdapter CreateTurnStartAdapter() => new TurnStartAdapter(owner);
+        public IEncounterTurnStartAdapter CreateTurnStartAdapter() => new TurnStartAdapter();
 
         private sealed class TurnStartAdapter : IEncounterTurnStartAdapter
         {
-            private readonly UnityCombatRulesBridge owner;
-
-            internal TurnStartAdapter(UnityCombatRulesBridge owner) => this.owner = owner;
-
             /// <inheritdoc/>
             public ValueTask<TurnStartContribution> Apply(
                 EncounterTurnStartContext context,
                 TurnStartContribution current
-            ) =>
-                new(
-                    new TurnStartContribution(
-                        checked((int)owner.GetController(context.Actor).CalculateTurnStartActions())
-                    )
+            )
+            {
+                int slowed = ConditionSelectors.TryGetSlowed(
+                    context.Snapshot,
+                    context.Actor,
+                    out ConditionSelection<SlowedConditionState> selected
+                )
+                    ? selected.State.Value
+                    : 0;
+                return new ValueTask<TurnStartContribution>(
+                    new TurnStartContribution(Math.Max(0, current.Actions - slowed))
                 );
+            }
         }
     }
 }

@@ -188,20 +188,14 @@ namespace Game.DungeonPersistence.Actors
             if (conditions == null)
                 return Array.Empty<DungeonConditionSaveState>();
 
-            Dictionary<ConditionSource, string> keys = new();
             List<DungeonConditionSaveState> captured = new();
             foreach (ConditionApplicationSnapshot application in conditions.CaptureApplications())
             {
-                if (!keys.TryGetValue(application.Source, out string sourceKey))
-                {
-                    sourceKey = $"source-{keys.Count + 1:D4}";
-                    keys.Add(application.Source, sourceKey);
-                }
                 captured.Add(
                     new DungeonConditionSaveState
                     {
                         ConditionId = application.ConditionId,
-                        SourceKey = sourceKey,
+                        SourceKey = application.SourceKey,
                     }
                 );
             }
@@ -212,17 +206,11 @@ namespace Game.DungeonPersistence.Actors
             IReadOnlyList<DungeonConditionSaveState> saved
         )
         {
-            Dictionary<string, ConditionSource> sources = new(StringComparer.Ordinal);
             return saved
-                .Select(application =>
-                {
-                    if (!sources.TryGetValue(application.SourceKey, out ConditionSource source))
-                    {
-                        source = new ConditionSource();
-                        sources.Add(application.SourceKey, source);
-                    }
-                    return new ConditionApplicationSnapshot(application.ConditionId, source);
-                })
+                .Select(application => new ConditionApplicationSnapshot(
+                    application.ConditionId,
+                    application.SourceKey
+                ))
                 .ToArray();
         }
 

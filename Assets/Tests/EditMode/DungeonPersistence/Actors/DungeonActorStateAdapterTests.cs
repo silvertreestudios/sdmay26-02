@@ -47,9 +47,13 @@ public sealed class DungeonActorStateAdapterTests
                 new[] { RuleSource.FromSlug("ward") }
             )
         );
-        ConditionSource sharedConditionSource = new();
-        source.Conditions.Add("Off-Guard", sharedConditionSource);
-        source.Conditions.Add("Slowed", sharedConditionSource);
+        source.Conditions.RestoreApplications(
+            new[]
+            {
+                new ConditionApplicationSnapshot("Off-Guard", "shared-test-source"),
+                new ConditionApplicationSnapshot("Slowed", "shared-test-source"),
+            }
+        );
         SpellEffectController
             .GetOrAdd(sourceObject)
             .AddOrRefresh(new BlessSpellEffect(effectSourceObject));
@@ -89,14 +93,17 @@ public sealed class DungeonActorStateAdapterTests
             Is.EquivalentTo(new[] { "ward" })
         );
         Assert.That(
-            restored.Conditions.GetConditionNames(),
-            Is.EquivalentTo(new[] { "Off-Guard", "Slowed" })
+            restored.Conditions.ActiveConditionNames,
+            Is.EquivalentTo(new[] { "off-guard", "slowed" })
         );
         ConditionApplicationSnapshot[] restoredConditions = restored
             .Conditions.CaptureApplications()
             .ToArray();
         Assert.That(restoredConditions, Has.Length.EqualTo(2));
-        Assert.That(restoredConditions[0].Source, Is.SameAs(restoredConditions[1].Source));
+        Assert.That(
+            restoredConditions.Select(entry => entry.SourceKey).Distinct().Count(),
+            Is.EqualTo(1)
+        );
         BlessSpellEffect bless = restoredObject
             .GetComponent<SpellEffectController>()
             .Effects.OfType<BlessSpellEffect>()

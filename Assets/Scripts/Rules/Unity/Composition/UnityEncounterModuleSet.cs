@@ -74,12 +74,15 @@ namespace Game.Rules.Unity.Composition
                     .Distinct()
             )
                 registryBuilder.Define(definitionId);
+            ConditionRuleDefinitions.DefineAll(registryBuilder);
+            RuleRegistry registry = registryBuilder.Build();
 
             IUnityEncounterModule[] modules =
             {
                 new UnityPreparedRulesEncounterModule(),
                 new RottingAuraEncounterModule(owner),
-                new SlowedEncounterModule(owner),
+                new ConditionEncounterModule(registry),
+                new SlowedEncounterModule(),
                 new UnityRageEncounterModule(rageDefinition),
                 new UnityStrikeEncounterModule(
                     strikeContext,
@@ -101,7 +104,7 @@ namespace Game.Rules.Unity.Composition
             return new UnityEncounterModuleSet(
                 new UnityEncounterComposition(modules),
                 actionCatalog,
-                registryBuilder.Build()
+                registry
             );
         }
     }

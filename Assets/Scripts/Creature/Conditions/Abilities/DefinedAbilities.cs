@@ -35,30 +35,6 @@ public static class DefinedAbilities
         return null;
     }
 
-    private static Ability Slow = new(
-        "Slow",
-        (GameObject g) =>
-        {
-            ActionController actionController = g.GetComponent<ActionController>();
-            if (actionController == null)
-                return;
-
-            Conditions conditions = g.GetComponent<Conditions>() ?? g.AddComponent<Conditions>();
-            if (conditions.Contains("Slowed", Slow))
-                return;
-
-            Condition slow;
-            if ((slow = DefinedConditions.TryGet("Slowed 1")) != null)
-            {
-                slow.Apply(Slow, g);
-            }
-
-            actionController.GetReactionsEvent.AddListener(
-                (List<EntityAction> reactions) => reactions.Clear()
-            );
-        }
-    );
-
     private static Ability FuryInstinct = new(
         "Fury-Instinct",
         (GameObject g) =>
@@ -84,7 +60,6 @@ public static class DefinedAbilities
     /// </summary>
     private static Dictionary<string, Ability> Abilities = new()
     {
-        { "Slow", Slow },
         { "Fury-Instinct", FuryInstinct },
         { "Zombie-Fist", ZombieFist },
     };

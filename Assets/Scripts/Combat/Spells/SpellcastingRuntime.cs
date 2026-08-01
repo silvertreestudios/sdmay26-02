@@ -4,12 +4,14 @@ using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
 using AdvanceMultipleAttackPenaltyOp = Game.Rules.Runtime.AdvanceMultipleAttackPenaltyOp;
 using CreatureId = Game.Rules.Runtime.CreatureId;
+using DegreeOfSuccess = Game.Creature.DegreeOfSuccess;
 using InvalidMapOpResult = Game.Rules.Runtime.InvalidOpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
 using MapOpResult = Game.Rules.Runtime.OpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
 using MultipleAttackPenaltyState = Game.Rules.Runtime.MultipleAttackPenaltyState;
@@ -298,12 +300,46 @@ namespace Game.Combat.Spells
             if (amount > 0)
                 targetCreature.ApplyFinalDamage(amount, source);
             if (applyDeafenedOnCriticalFailure && save.degree == DegreeOfSuccess.CriticalFail)
-                (target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>()).Add(
-                    "Deafened",
-                    new ConditionSource()
-                );
+                ApplyDeafened(caster, target, source);
             result.Targets.Add(target);
             result.Amount += amount;
+        }
+
+        private static void ApplyDeafened(GameObject caster, GameObject target, RuleSource source)
+        {
+            ActionController casterController = caster.GetComponent<ActionController>();
+            ActionController targetController = target.GetComponent<ActionController>();
+            if (
+                casterController == null
+                || targetController == null
+                || !casterController.TryGetCombatRules(
+                    out UnityCombatRulesBridge casterBridge,
+                    out CreatureId casterId
+                )
+                || !targetController.TryGetCombatRules(
+                    out UnityCombatRulesBridge targetBridge,
+                    out CreatureId targetId
+                )
+                || !ReferenceEquals(casterBridge, targetBridge)
+            )
+                throw new InvalidOperationException(
+                    "Deafened requires caster and target in the same authoritative rules store."
+                );
+
+            OpResult<ConditionCreationOutcome> applied = casterBridge.Dispatch(
+                new ApplyConditionOp(
+                    "Deafened",
+                    targetId,
+                    casterId,
+                    source,
+                    EffectDuration.Rounds(1),
+                    ConditionMarkerState.Instance
+                )
+            );
+            if (applied is not ResolvedOpResult<ConditionCreationOutcome>)
+                throw new InvalidOperationException(
+                    "Deafened condition application did not resolve."
+                );
         }
 
         public static bool IsUndead(CreatureComponent creature)
