@@ -663,7 +663,7 @@ public class Pf2eRulesTests
         target
             .GetComponent<Conditions>()
             .RestoreApplications(
-                new[] { new ConditionApplicationSnapshot("Off-Guard", "sneak-attack-test") }
+                new[] { PersistedOffGuard(target.gameObject, "sneak-attack-test") }
             );
         AttachPreparedStrikeBridge(rogue, target);
         StrikeProfile offGuardTarget = CreateDogslicerStrike(rogue);
@@ -693,9 +693,7 @@ public class Pf2eRulesTests
         CreatureComponent target = CreateTarget("Flat-Footed Target");
         target
             .GetComponent<Conditions>()
-            .RestoreApplications(
-                new[] { new ConditionApplicationSnapshot("Flat-Footed", "alias-test") }
-            );
+            .RestoreApplications(new[] { PersistedOffGuard(target.gameObject, "alias-test") });
         AttachPreparedStrikeBridge(rogue, target);
 
         StrikeProfile shortbowStrike = new(
@@ -715,6 +713,28 @@ public class Pf2eRulesTests
         Assert.That(shortbowContext.DamageDice.Last().numberOfDice, Is.EqualTo(1));
         Assert.That(shortbowContext.DamageDice.Last().sidesPerDie, Is.EqualTo(6));
         Assert.That(shortbowContext.DamageDice.Last().damageType, Is.EqualTo("precision"));
+    }
+
+    private static ConditionApplicationSnapshot PersistedOffGuard(
+        GameObject sourceCreature,
+        string identity
+    )
+    {
+        RuleSource source = RuleSource.FromSlug(identity);
+        return new ConditionApplicationSnapshot(
+            new ActiveEffectId($"effect-{identity}"),
+            new BindingId($"binding-{identity}"),
+            ConditionRuleDefinitions.OffGuard,
+            sourceCreature,
+            source,
+            EffectDuration.Indefinite,
+            EffectStateVersion.Initial,
+            ConditionMarkerState.Instance,
+            ActiveEffectStatus.Active,
+            1,
+            true,
+            null
+        );
     }
 
     private CreatureComponent CreatePreparedBarbarian()

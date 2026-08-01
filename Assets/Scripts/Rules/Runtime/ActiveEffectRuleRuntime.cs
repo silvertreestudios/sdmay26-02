@@ -40,6 +40,11 @@ namespace Game.Rules.Runtime
                     new CreateActiveEffectReducer(registry),
                     LifecycleSource
                 )
+                .RegisterReducer<AdoptActiveEffectRegistrationsOp, ActiveEffectAdoptionOutcome>(
+                    new AdoptActiveEffectRegistrationsReducer(registry),
+                    LifecycleSource,
+                    InvocationPolicy.ExternalAllowed
+                )
                 .RegisterReducer<UpdateActiveEffectStateOp, ActiveEffectStateUpdateOutcome>(
                     new UpdateActiveEffectStateReducer(),
                     LifecycleSource

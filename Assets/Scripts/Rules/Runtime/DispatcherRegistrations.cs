@@ -201,9 +201,10 @@ namespace Game.Rules.Runtime
         public ReducerRegistration(
             IOpReducer<TOp, TResult> reducer,
             RuleSource source,
+            InvocationPolicy policy = InvocationPolicy.NestedOnly,
             ResolverMiddlewarePolicy middlewarePolicy = ResolverMiddlewarePolicy.Enabled
         )
-            : base(InvocationPolicy.NestedOnly, middlewarePolicy)
+            : base(policy, middlewarePolicy)
         {
             this.reducer = reducer;
             this.source = source;

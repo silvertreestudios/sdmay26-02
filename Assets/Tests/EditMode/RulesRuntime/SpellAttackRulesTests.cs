@@ -228,6 +228,43 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task SpellAttackCollectsOffGuardOnceUntilLastSourceExpires()
+        {
+            ConditionRegistration first = OffGuard("spell-off-guard-first", 1);
+            ConditionRegistration second = OffGuard("spell-off-guard-second", 2);
+            InMemoryRulesStore store = CreateStore(conditions: new[] { first, second }, actions: 7);
+            RuleRegistryBuilder registryBuilder = new();
+            ConditionRuleDefinitions.DefineAll(registryBuilder);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                new TestResolutionDataProvider(Data(30), ActionValidationResult.Valid),
+                new ScriptedRollService(10, 10, 10),
+                registry,
+                useConditionRules: true
+            );
+
+            SpellAttackResolution both = (
+                await DispatchResolvedAttack(dispatcher, Cast(Target))
+            ).Attack;
+            Assert.That(both.ArmorClass, Is.EqualTo(28));
+            await dispatcher.Dispatch(
+                new CleanupConditionsFromSourceOp(first.Effect.Source, ConditionCleanupKind.Expire)
+            );
+            SpellAttackResolution one = (
+                await DispatchResolvedAttack(dispatcher, Cast(Target))
+            ).Attack;
+            Assert.That(one.ArmorClass, Is.EqualTo(28));
+            await dispatcher.Dispatch(
+                new CleanupConditionsFromSourceOp(second.Effect.Source, ConditionCleanupKind.Expire)
+            );
+            SpellAttackResolution none = (
+                await DispatchResolvedAttack(dispatcher, Cast(Target))
+            ).Attack;
+            Assert.That(none.ArmorClass, Is.EqualTo(30));
+        }
+
+        [Test]
         public async Task NaturalOneProducesCriticalFailureWithoutDamageAndAdvancesMap()
         {
             InMemoryRulesStore store = CreateStore();
@@ -371,7 +408,9 @@ namespace Game.Rules.Runtime.Tests
             int priorAttacks = 0,
             bool seedMap = true,
             IEnumerable<PreparedImmunityDescriptor> actorImmunities = null,
-            IEnumerable<PreparedImmunityDescriptor> targetImmunities = null
+            IEnumerable<PreparedImmunityDescriptor> targetImmunities = null,
+            IEnumerable<ConditionRegistration> conditions = null,
+            int actions = 3
         )
         {
             RulesStateSeed seed = new RulesStateSeed()
@@ -384,7 +423,7 @@ namespace Game.Rules.Runtime.Tests
                 .SeedPreparedInputs(Actor, PreparedInputs(actorImmunities))
                 .SeedPreparedInputs(Target, PreparedInputs(targetImmunities))
                 .SeedPreparedInputs(DeadTarget, PreparedCreatureInputs.Empty)
-                .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
+                .SeedActionEconomy(Actor, new ActionEconomyState(actions, true))
                 .SeedStatistics(
                     new CreatureStatisticsState(
                         Actor,
@@ -401,6 +440,11 @@ namespace Game.Rules.Runtime.Tests
                 seed.SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(priorAttacks));
             if (binding != null)
                 seed.SeedRuleBinding(binding);
+            foreach (
+                ConditionRegistration condition in conditions
+                    ?? Array.Empty<ConditionRegistration>()
+            )
+                seed.SeedActiveEffect(condition.Effect).SeedRuleBinding(condition.Binding);
             return new InMemoryRulesStore(seed);
         }
 
@@ -424,7 +468,8 @@ namespace Game.Rules.Runtime.Tests
             InMemoryRulesStore store,
             TestResolutionDataProvider provider,
             IRollService rolls,
-            RuleRegistry registry = null
+            RuleRegistry registry = null,
+            bool useConditionRules = false
         )
         {
             TestCatalog catalog = new();
@@ -434,9 +479,35 @@ namespace Game.Rules.Runtime.Tests
                 .UseCheckResolution()
                 .UseActionLifecycle(catalog)
                 .UseSpellcastingRules(catalog, provider);
-            if (registry != null)
+            if (useConditionRules)
+                builder.UseActiveEffectRules(registry).UseConditionRules(registry);
+            else if (registry != null)
                 builder.UseRuleRegistry(registry);
             return builder.Build();
+        }
+
+        private static ConditionRegistration OffGuard(string identity, long order)
+        {
+            RuleSource source = RuleSource.FromSlug(identity);
+            ActiveEffectInstance effect = new(
+                new ActiveEffectId($"effect-{identity}"),
+                ConditionRuleDefinitions.OffGuard,
+                Actor,
+                source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            );
+            return new ConditionRegistration(
+                effect,
+                new ActiveRuleBinding(
+                    new BindingId($"binding-{identity}"),
+                    effect.DefinitionId,
+                    Target,
+                    effect.Id,
+                    source,
+                    order
+                )
+            );
         }
 
         private static ResolvedOpResult<T> RequireResolved<T>(OpResult<T> result)

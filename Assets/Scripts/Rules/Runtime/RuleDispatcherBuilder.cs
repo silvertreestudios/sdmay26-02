@@ -98,12 +98,13 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Registers a transactional reducer as a nested-only resolver.
+        /// Registers a transactional reducer.
         /// </summary>
         /// <typeparam name="TOp">The operation reduced by <paramref name="reducer"/>.</typeparam>
         /// <typeparam name="TResult">The accepted value produced by the reducer.</typeparam>
         /// <param name="reducer">The reducer that validates and stages state changes and facts.</param>
         /// <param name="source">The rule source stamped onto facts committed by this reducer.</param>
+        /// <param name="policy">Whether the reducer may begin as a root dispatch.</param>
         /// <returns>This builder so registrations can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="reducer"/> is <see langword="null"/>.</exception>
         /// <exception cref="ArgumentException"><paramref name="source"/> is empty.</exception>
@@ -113,7 +114,8 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDispatcherBuilder RegisterReducer<TOp, TResult>(
             IOpReducer<TOp, TResult> reducer,
-            RuleSource source
+            RuleSource source,
+            InvocationPolicy policy = InvocationPolicy.NestedOnly
         )
             where TOp : IRuleOp<TResult>
         {
@@ -124,7 +126,7 @@ namespace Game.Rules.Runtime
                     "A reducer registration requires a rule source.",
                     nameof(source)
                 );
-            Add(new ReducerRegistration<TOp, TResult>(reducer, source));
+            Add(new ReducerRegistration<TOp, TResult>(reducer, source, policy));
             return this;
         }
 
@@ -145,6 +147,7 @@ namespace Game.Rules.Runtime
                 new ReducerRegistration<TOp, TResult>(
                     reducer,
                     source,
+                    InvocationPolicy.NestedOnly,
                     ResolverMiddlewarePolicy.Disabled
                 )
             );
@@ -454,6 +457,7 @@ namespace Game.Rules.Runtime
                     new ReducerRegistration<CommitActionCostsOp, ActionCostsOutcome>(
                         new CommitActionCostsReducer(),
                         RuleSource.FromSlug("action-lifecycle"),
+                        InvocationPolicy.NestedOnly,
                         ResolverMiddlewarePolicy.Disabled
                     )
                 );

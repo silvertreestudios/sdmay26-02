@@ -29,7 +29,10 @@ namespace Game.DungeonPersistence.Actors
             CreatureComponent creature = RequireCreature(controller);
             HealthState health = creature.Health;
 
-            IReadOnlyList<DungeonConditionSaveState> conditions = CaptureConditions(controller);
+            IReadOnlyList<DungeonConditionSaveState> conditions = CaptureConditions(
+                controller,
+                identifyActor
+            );
             IReadOnlyList<DungeonTimedEffectSaveState> timedEffects = CaptureTimedEffects(
                 controller,
                 identifyActor
@@ -108,7 +111,10 @@ namespace Game.DungeonPersistence.Actors
                 saved.RageWasActive
             );
 
-            ConditionApplicationSnapshot[] conditions = PrepareConditions(saved.Conditions);
+            ConditionApplicationSnapshot[] conditions = PrepareConditions(
+                saved.Conditions,
+                resolveActor
+            );
             ActiveSpellEffect[] timedEffects = saved
                 .TimedEffects.Select(effect => RestoreTimedEffect(effect, resolveActor))
                 .ToArray();
@@ -181,7 +187,8 @@ namespace Game.DungeonPersistence.Actors
         }
 
         private static IReadOnlyList<DungeonConditionSaveState> CaptureConditions(
-            ActionController controller
+            ActionController controller,
+            Func<GameObject, string> identifyActor
         )
         {
             Conditions conditions = controller.GetComponent<Conditions>();
@@ -191,11 +198,34 @@ namespace Game.DungeonPersistence.Actors
             List<DungeonConditionSaveState> captured = new();
             foreach (ConditionApplicationSnapshot application in conditions.CaptureApplications())
             {
+                string sourceActorId = identifyActor(application.SourceCreature);
+                if (string.IsNullOrWhiteSpace(sourceActorId))
+                    throw new InvalidOperationException(
+                        $"Condition {application.EffectId.Value} has no stable source actor."
+                    );
+                DungeonConditionStateKind stateKind = GetConditionStateKind(application.State);
                 captured.Add(
                     new DungeonConditionSaveState
                     {
-                        ConditionId = application.ConditionId,
-                        SourceKey = application.SourceKey,
+                        EffectId = application.EffectId.Value,
+                        BindingId = application.BindingId.Value,
+                        DefinitionId = application.DefinitionId.Value,
+                        SourceActorId = sourceActorId,
+                        RuleSource = application.Source.Slug,
+                        DurationKind = application.Duration.Kind,
+                        DurationAmount = application.Duration.Amount,
+                        Version = application.Version.Value,
+                        Status = application.Status,
+                        CreationOrder = application.CreationOrder,
+                        BindingEnabled = application.BindingEnabled,
+                        StateKind = stateKind,
+                        Value = GetConditionValue(application.State),
+                        AllowedActionIds = application.State is QuickenedConditionState quickened
+                            ? quickened.AllowedActions.Select(action => action.Value).ToArray()
+                            : Array.Empty<string>(),
+                        HasTiming = application.Timing != null,
+                        RemainingBoundaries = application.Timing?.RemainingBoundaries ?? 0,
+                        ExpiresWithEncounter = application.Timing?.ExpiresWithEncounter ?? false,
                     }
                 );
             }
@@ -203,16 +233,91 @@ namespace Game.DungeonPersistence.Actors
         }
 
         private static ConditionApplicationSnapshot[] PrepareConditions(
-            IReadOnlyList<DungeonConditionSaveState> saved
+            IReadOnlyList<DungeonConditionSaveState> saved,
+            Func<string, GameObject> resolveActor
         )
         {
             return saved
-                .Select(application => new ConditionApplicationSnapshot(
-                    application.ConditionId,
-                    application.SourceKey
-                ))
+                .Select(application =>
+                {
+                    GameObject sourceCreature = resolveActor(application.SourceActorId);
+                    if (sourceCreature == null)
+                        throw new InvalidOperationException(
+                            $"Condition source actor '{application.SourceActorId}' is unavailable."
+                        );
+                    return new ConditionApplicationSnapshot(
+                        new ActiveEffectId(application.EffectId),
+                        new BindingId(application.BindingId),
+                        new RuleDefinitionId(application.DefinitionId),
+                        sourceCreature,
+                        RuleSource.FromSlug(application.RuleSource),
+                        RestoreDuration(application),
+                        new EffectStateVersion(application.Version),
+                        RestoreConditionState(application),
+                        application.Status,
+                        application.CreationOrder,
+                        application.BindingEnabled,
+                        application.HasTiming
+                            ? new ConditionTimingSnapshot(
+                                application.RemainingBoundaries,
+                                application.ExpiresWithEncounter
+                            )
+                            : null
+                    );
+                })
                 .ToArray();
         }
+
+        private static DungeonConditionStateKind GetConditionStateKind(IEffectState state) =>
+            state switch
+            {
+                ConditionMarkerState => DungeonConditionStateKind.Marker,
+                SlowedConditionState => DungeonConditionStateKind.Slowed,
+                ValuedStunnedConditionState => DungeonConditionStateKind.StunnedValued,
+                DurationOnlyStunnedConditionState => DungeonConditionStateKind.StunnedDurationOnly,
+                QuickenedConditionState quickened when quickened.IsRestricted =>
+                    DungeonConditionStateKind.QuickenedRestricted,
+                QuickenedConditionState => DungeonConditionStateKind.QuickenedUnrestricted,
+                _ => throw new InvalidOperationException(
+                    $"Unsupported persisted condition state {state.GetType().Name}."
+                ),
+            };
+
+        private static int GetConditionValue(IEffectState state) =>
+            state switch
+            {
+                SlowedConditionState slowed => slowed.Value,
+                ValuedStunnedConditionState stunned => stunned.Value,
+                _ => 0,
+            };
+
+        private static EffectDuration RestoreDuration(DungeonConditionSaveState saved) =>
+            saved.DurationKind switch
+            {
+                EffectDurationKind.Indefinite => EffectDuration.Indefinite,
+                EffectDurationKind.Encounter => EffectDuration.Encounter,
+                EffectDurationKind.Rounds => EffectDuration.Rounds(saved.DurationAmount),
+                EffectDurationKind.Minutes => EffectDuration.Minutes(saved.DurationAmount),
+                _ => throw new InvalidOperationException("Unsupported condition duration kind."),
+            };
+
+        private static IEffectState RestoreConditionState(DungeonConditionSaveState saved) =>
+            saved.StateKind switch
+            {
+                DungeonConditionStateKind.Marker => ConditionMarkerState.Instance,
+                DungeonConditionStateKind.Slowed => new SlowedConditionState(saved.Value),
+                DungeonConditionStateKind.StunnedValued => new ValuedStunnedConditionState(
+                    saved.Value
+                ),
+                DungeonConditionStateKind.StunnedDurationOnly =>
+                    DurationOnlyStunnedConditionState.Instance,
+                DungeonConditionStateKind.QuickenedRestricted => new QuickenedConditionState(
+                    saved.AllowedActionIds.Select(action => new ActionDefinitionId(action))
+                ),
+                DungeonConditionStateKind.QuickenedUnrestricted =>
+                    QuickenedConditionState.Unrestricted,
+                _ => throw new InvalidOperationException("Unsupported condition state kind."),
+            };
 
         private static IReadOnlyList<DungeonTimedEffectSaveState> CaptureTimedEffects(
             ActionController controller,

@@ -5,169 +5,328 @@ using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using UnityEngine;
 
-/// <summary>Stores persistence inputs and projects authoritative store conditions read-only.</summary>
+/// <summary>Accepts one-shot restore input and projects authoritative store conditions read-only.</summary>
 /// <remarks>
-/// This component is not rules authority. Before enrollment it carries persistence input; after
-/// attachment every read is derived from the one encounter bridge snapshot.
+/// Pending restore input is consumed after successful enrollment and is never exposed as live
+/// condition state. Once detached, projections fail closed and persistence capture reports that
+/// authoritative state is unavailable.
 /// </remarks>
 public sealed class Conditions : MonoBehaviour
 {
-    private static readonly RuleDefinitionId[] Definitions =
-    {
-        ConditionRuleDefinitions.OffGuard,
-        ConditionRuleDefinitions.Deafened,
-        ConditionRuleDefinitions.Fatigued,
-        ConditionRuleDefinitions.Encumbered,
-        ConditionRuleDefinitions.Slowed,
-        ConditionRuleDefinitions.Stunned,
-        ConditionRuleDefinitions.Quickened,
-    };
-
-    private IReadOnlyList<ConditionApplicationSnapshot> restored = Array.AsReadOnly(
+    private IReadOnlyList<ConditionApplicationSnapshot> pending = Array.AsReadOnly(
         Array.Empty<ConditionApplicationSnapshot>()
     );
+    private long pendingGeneration;
+    private bool hasPending;
+    private bool wasEnrolled;
 
-    /// <summary>Gets canonical active condition slugs from the authoritative store.</summary>
+    /// <summary>Gets canonical active condition slugs from the attached authoritative store.</summary>
     public IReadOnlyCollection<string> ActiveConditionNames
     {
         get
         {
-            ActionController controller = GetComponent<ActionController>();
-            if (
-                controller != null
-                && controller.TryGetCombatRules(
-                    out UnityCombatRulesBridge bridge,
-                    out CreatureId owner
-                )
-            )
-                return ConditionSelectors.GetActiveSlugs(bridge.Snapshot, owner);
-            return restored.Select(entry => entry.ConditionId).Distinct().ToArray();
+            if (!TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner))
+                return Array.Empty<string>();
+            return ConditionSelectors.GetActiveSlugs(bridge.Snapshot, owner);
         }
     }
 
     internal IReadOnlyList<ConditionApplicationSnapshot> CaptureApplications()
     {
-        ActionController controller = GetComponent<ActionController>();
-        if (
-            controller == null
-            || !controller.TryGetCombatRules(
-                out UnityCombatRulesBridge bridge,
-                out CreatureId owner
-            )
-        )
-            return restored;
+        if (!TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner))
+        {
+            if (!wasEnrolled && !hasPending)
+                return Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
+            throw new InvalidOperationException(
+                "Condition persistence capture requires attached authoritative combat rules."
+            );
+        }
 
-        return Definitions
-            .SelectMany(definition =>
-                ConditionSelectors.GetActiveInstances(bridge.Snapshot, owner, definition)
+        List<ConditionApplicationSnapshot> captured = new List<ConditionApplicationSnapshot>();
+        foreach (
+            ActiveRuleBinding binding in bridge
+                .Snapshot.RuleBindings.Select(pair => pair.Value)
+                .Where(binding => binding.Owner == owner && binding.EffectId.HasValue)
+                .OrderBy(binding => binding.CreationOrder)
+                .ThenBy(binding => binding.Id.Value, StringComparer.Ordinal)
+                .ThenBy(binding => binding.EffectId.Value.Value, StringComparer.Ordinal)
+        )
+        {
+            if (!ConditionRuleDefinitions.IsConditionDefinition(binding.DefinitionId))
+                continue;
+            if (
+                !bridge.Snapshot.ActiveEffects.TryGet(
+                    binding.EffectId.Value,
+                    out ActiveEffectInstance effect
+                )
             )
-            .Select(condition => new ConditionApplicationSnapshot(
-                condition.DefinitionIdSlug(),
-                condition.Source.Slug
-            ))
-            .OrderBy(entry => entry.ConditionId, StringComparer.Ordinal)
-            .ThenBy(entry => entry.SourceKey, StringComparer.Ordinal)
-            .ToArray();
+                throw new InvalidOperationException(
+                    $"Condition binding {binding.Id.Value} has no authoritative effect."
+                );
+            if (
+                effect.DefinitionId != binding.DefinitionId
+                || effect.Source != binding.Source
+                || effect.Id != binding.EffectId.Value
+                || !ConditionRuleDefinitions.Accepts(effect.DefinitionId, effect.State)
+            )
+                throw new InvalidOperationException(
+                    $"Condition binding {binding.Id.Value} does not match its authoritative effect."
+                );
+            bridge.Snapshot.ActiveEffectTimings.TryGet(
+                effect.Id,
+                out ActiveEffectTimingState timing
+            );
+            captured.Add(
+                new ConditionApplicationSnapshot(
+                    effect.Id,
+                    binding.Id,
+                    effect.DefinitionId,
+                    bridge.GetController(effect.SourceCreature).gameObject,
+                    effect.Source,
+                    effect.Duration,
+                    effect.EffectStateVersion,
+                    effect.State,
+                    effect.Status,
+                    binding.CreationOrder,
+                    binding.IsEnabled,
+                    timing == null
+                        ? null
+                        : new ConditionTimingSnapshot(
+                            timing.RemainingBoundaries,
+                            timing.ExpiresWithEncounter
+                        )
+                )
+            );
+        }
+        return Array.AsReadOnly(captured.ToArray());
     }
 
     internal void RestoreApplications(IEnumerable<ConditionApplicationSnapshot> applications)
     {
         if (applications == null)
             throw new ArgumentNullException(nameof(applications));
+        if (TryGetAuthority(out _, out _))
+            throw new InvalidOperationException(
+                "Restore input cannot replace conditions while authoritative combat rules are attached."
+            );
         ConditionApplicationSnapshot[] copied = applications.ToArray();
-        if (
-            copied.Any(application =>
-                string.IsNullOrWhiteSpace(application.ConditionId)
-                || string.IsNullOrWhiteSpace(application.SourceKey)
-                || !ConditionInputNormalizer.TryNormalize(application.ConditionId, out _)
-            )
-        )
+        if (copied.Any(application => application == null))
             throw new ArgumentException(
-                "Restored conditions must be canonical and sourced.",
+                "Restored condition applications cannot contain null.",
                 nameof(applications)
             );
-        restored = Array.AsReadOnly(
-            copied
-                .Select(application =>
-                {
-                    ConditionInputNormalizer.TryNormalize(
-                        application.ConditionId,
-                        out RuleDefinitionId definition
-                    );
-                    return new ConditionApplicationSnapshot(
-                        definition.Value.Substring("condition-".Length),
-                        application.SourceKey
-                    );
-                })
-                .ToArray()
-        );
-    }
-
-    internal IReadOnlyList<ConditionRegistration> CreateRegistrations(CreatureId owner)
-    {
-        List<ConditionRegistration> registrations = new List<ConditionRegistration>();
-        int ordinal = 0;
-        foreach (ConditionApplicationSnapshot application in restored)
-        {
-            ConditionInputNormalizer.TryNormalize(
-                application.ConditionId,
-                out RuleDefinitionId definition
-            );
-            RuleSource source = RuleSource.FromSlug(application.SourceKey);
-            string suffix = $"{owner.Value}-{definition.Value}-{source.Slug}-{ordinal++}";
-            ActiveEffectInstance effect = new ActiveEffectInstance(
-                new ActiveEffectId($"condition-effect-{suffix}"),
-                definition,
-                owner,
-                source,
-                EffectDuration.Indefinite,
-                CreateState(definition)
-            );
-            ActiveRuleBinding binding = new ActiveRuleBinding(
-                new BindingId($"condition-binding-{suffix}"),
-                definition,
-                owner,
-                effect.Id,
-                source,
-                ordinal
-            );
-            registrations.Add(new ConditionRegistration(effect, binding));
-        }
-        return registrations;
-    }
-
-    private static IEffectState CreateState(RuleDefinitionId definition)
-    {
         if (
-            definition == ConditionRuleDefinitions.OffGuard
-            || definition == ConditionRuleDefinitions.Deafened
-            || definition == ConditionRuleDefinitions.Fatigued
-            || definition == ConditionRuleDefinitions.Encumbered
+            copied.Select(application => application.EffectId).Distinct().Count() != copied.Length
+            || copied.Select(application => application.BindingId).Distinct().Count()
+                != copied.Length
         )
-            return ConditionMarkerState.Instance;
-        if (definition == ConditionRuleDefinitions.Slowed)
-            return new SlowedConditionState(1);
-        if (definition == ConditionRuleDefinitions.Stunned)
-            return new ValuedStunnedConditionState(1);
-        return QuickenedConditionState.Unrestricted;
+            throw new ArgumentException(
+                "Restored condition applications require unique stable identities.",
+                nameof(applications)
+            );
+        pending = Array.AsReadOnly(copied);
+        pendingGeneration = checked(pendingGeneration + 1);
+        hasPending = copied.Length > 0;
     }
-}
 
-internal static class ConditionProjectionExtensions
-{
-    internal static string DefinitionIdSlug(this ConditionSelection<IEffectState> condition) =>
-        condition.Effect.DefinitionId.Value.Substring("condition-".Length);
-}
-
-/// <summary>One serialized condition/source pair at the persistence boundary.</summary>
-internal readonly struct ConditionApplicationSnapshot
-{
-    internal ConditionApplicationSnapshot(string conditionId, string sourceKey)
+    internal bool TryPrepareRestore(
+        CreatureId owner,
+        EncounterId encounter,
+        Func<GameObject, CreatureId> resolveSource,
+        out ConditionRestoreLease lease
+    )
     {
-        ConditionId = conditionId;
-        SourceKey = sourceKey;
+        if (owner.IsEmpty || encounter.IsEmpty)
+            throw new ArgumentException("Condition enrollment requires complete stable identity.");
+        if (resolveSource == null)
+            throw new ArgumentNullException(nameof(resolveSource));
+        if (!hasPending)
+        {
+            lease = null;
+            return false;
+        }
+
+        ConditionRegistration[] registrations = pending
+            .Select(application =>
+                application.CreateRegistration(
+                    owner,
+                    resolveSource(application.SourceCreature),
+                    encounter
+                )
+            )
+            .ToArray();
+        lease = new ConditionRestoreLease(this, pendingGeneration, registrations);
+        return true;
     }
 
-    internal string ConditionId { get; }
-    internal string SourceKey { get; }
+    private void ConsumePending(long generation)
+    {
+        if (!hasPending || generation != pendingGeneration)
+            throw new InvalidOperationException(
+                "Condition restore input changed during enrollment."
+            );
+        pending = Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
+        hasPending = false;
+    }
+
+    internal void CompleteEnrollment() => wasEnrolled = true;
+
+    private bool TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner)
+    {
+        ActionController controller = GetComponent<ActionController>();
+        if (controller != null && controller.TryGetCombatRules(out bridge, out owner))
+            return true;
+        bridge = null;
+        owner = default;
+        return false;
+    }
+
+    internal sealed class ConditionRestoreLease
+    {
+        private readonly Conditions owner;
+        private readonly long generation;
+
+        internal ConditionRestoreLease(
+            Conditions owner,
+            long generation,
+            IReadOnlyList<ConditionRegistration> registrations
+        )
+        {
+            this.owner = owner;
+            this.generation = generation;
+            Registrations = registrations;
+        }
+
+        internal IReadOnlyList<ConditionRegistration> Registrations { get; }
+
+        internal void Consume() => owner.ConsumePending(generation);
+    }
+}
+
+/// <summary>One exact condition instance at the Unity persistence boundary.</summary>
+internal sealed class ConditionApplicationSnapshot
+{
+    internal ConditionApplicationSnapshot(
+        ActiveEffectId effectId,
+        BindingId bindingId,
+        RuleDefinitionId definitionId,
+        GameObject sourceCreature,
+        RuleSource source,
+        EffectDuration duration,
+        EffectStateVersion version,
+        IEffectState state,
+        ActiveEffectStatus status,
+        long creationOrder,
+        bool bindingEnabled,
+        ConditionTimingSnapshot timing
+    )
+    {
+        if (effectId.IsEmpty || bindingId.IsEmpty || definitionId.IsEmpty || source.IsEmpty)
+            throw new ArgumentException("A persisted condition requires complete stable identity.");
+        if (sourceCreature == null)
+            throw new ArgumentNullException(nameof(sourceCreature));
+        if (!ConditionRuleDefinitions.Accepts(definitionId, state))
+            throw new ArgumentException(
+                "Persisted state does not match its condition definition.",
+                nameof(state)
+            );
+        if ((status == ActiveEffectStatus.Active) != bindingEnabled)
+            throw new ArgumentException("Persisted condition status and binding state must agree.");
+        if (
+            timing != null
+            && (
+                status != ActiveEffectStatus.Active
+                || duration.Kind == EffectDurationKind.Indefinite
+            )
+        )
+            throw new ArgumentException("Only an active finite condition may retain timing.");
+        if (
+            timing != null
+            && timing.ExpiresWithEncounter != (duration.Kind == EffectDurationKind.Encounter)
+        )
+            throw new ArgumentException("Persisted condition duration and timing disagree.");
+        if (creationOrder < 0)
+            throw new ArgumentOutOfRangeException(nameof(creationOrder));
+
+        EffectId = effectId;
+        BindingId = bindingId;
+        DefinitionId = definitionId;
+        SourceCreature = sourceCreature;
+        Source = source;
+        Duration = duration;
+        Version = version;
+        State = state;
+        Status = status;
+        CreationOrder = creationOrder;
+        BindingEnabled = bindingEnabled;
+        Timing = timing;
+    }
+
+    internal ActiveEffectId EffectId { get; }
+    internal BindingId BindingId { get; }
+    internal RuleDefinitionId DefinitionId { get; }
+    internal GameObject SourceCreature { get; }
+    internal RuleSource Source { get; }
+    internal EffectDuration Duration { get; }
+    internal EffectStateVersion Version { get; }
+    internal IEffectState State { get; }
+    internal ActiveEffectStatus Status { get; }
+    internal long CreationOrder { get; }
+    internal bool BindingEnabled { get; }
+    internal ConditionTimingSnapshot Timing { get; }
+
+    internal ConditionRegistration CreateRegistration(
+        CreatureId owner,
+        CreatureId sourceCreature,
+        EncounterId encounter
+    )
+    {
+        ActiveEffectInstance effect = new ActiveEffectInstance(
+            EffectId,
+            DefinitionId,
+            sourceCreature,
+            Source,
+            Duration,
+            State,
+            Version,
+            Status
+        );
+        ActiveRuleBinding binding = new ActiveRuleBinding(
+            BindingId,
+            DefinitionId,
+            owner,
+            EffectId,
+            Source,
+            CreationOrder,
+            BindingEnabled
+        );
+        ActiveEffectTimingState timing =
+            Timing == null
+                ? null
+                : new ActiveEffectTimingState(
+                    EffectId,
+                    encounter,
+                    BindingId,
+                    sourceCreature,
+                    Timing.RemainingBoundaries,
+                    Timing.ExpiresWithEncounter,
+                    CreationOrder
+                );
+        return new ConditionRegistration(effect, binding, timing);
+    }
+}
+
+/// <summary>Exact remaining encounter-clock state for one persisted finite condition.</summary>
+internal sealed class ConditionTimingSnapshot
+{
+    internal ConditionTimingSnapshot(int remainingBoundaries, bool expiresWithEncounter)
+    {
+        if (remainingBoundaries < 0)
+            throw new ArgumentOutOfRangeException(nameof(remainingBoundaries));
+        RemainingBoundaries = remainingBoundaries;
+        ExpiresWithEncounter = expiresWithEncounter;
+    }
+
+    internal int RemainingBoundaries { get; }
+    internal bool ExpiresWithEncounter { get; }
 }

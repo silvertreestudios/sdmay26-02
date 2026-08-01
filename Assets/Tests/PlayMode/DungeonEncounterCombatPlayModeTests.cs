@@ -317,7 +317,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.GameObject.transform.position = preservedPosition;
         player.Creature.InitializeHealthBeforeEncounter(7, 10);
         player.Conditions.RestoreApplications(
-            new[] { new ConditionApplicationSnapshot("Off-Guard", "suspension-test") }
+            new[] { PersistedOffGuard(player.GameObject, "suspension-test") }
         );
 
         manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
@@ -332,7 +332,29 @@ public sealed class DungeonEncounterCombatPlayModeTests
         AssertTransientTurnStateCleared(enemy.Controller);
         Assert.That(player.Creature.hp, Is.EqualTo(7));
         Assert.That(player.GameObject.transform.position, Is.EqualTo(preservedPosition));
-        Assert.That(player.Conditions.ActiveConditionNames, Does.Contain("off-guard"));
+        Assert.That(player.Conditions.ActiveConditionNames, Is.Empty);
+    }
+
+    private static ConditionApplicationSnapshot PersistedOffGuard(
+        GameObject sourceCreature,
+        string identity
+    )
+    {
+        RuleSource source = RuleSource.FromSlug(identity);
+        return new ConditionApplicationSnapshot(
+            new ActiveEffectId($"effect-{identity}"),
+            new BindingId($"binding-{identity}"),
+            ConditionRuleDefinitions.OffGuard,
+            sourceCreature,
+            source,
+            EffectDuration.Indefinite,
+            EffectStateVersion.Initial,
+            ConditionMarkerState.Instance,
+            ActiveEffectStatus.Active,
+            1,
+            true,
+            null
+        );
     }
 
     /// <summary>

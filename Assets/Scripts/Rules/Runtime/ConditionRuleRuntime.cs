@@ -24,11 +24,15 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<ApplyConditionOp, ConditionCreationOutcome>(
                     new ApplyConditionHandler()
                 )
-                .RegisterHandler<AdoptConditionRegistrationsOp, ConditionAdoptionOutcome>(
-                    new AdoptConditionRegistrationsHandler()
+                .RegisterReducer<AdoptConditionRegistrationsOp, ConditionAdoptionOutcome>(
+                    new AdoptConditionRegistrationsReducer(registry),
+                    LifecycleSource,
+                    InvocationPolicy.ExternalAllowed
                 )
-                .RegisterHandler<CleanupConditionsFromSourceOp, ConditionCleanupOutcome>(
-                    new CleanupConditionsFromSourceHandler()
+                .RegisterReducer<CleanupConditionsFromSourceOp, ConditionCleanupOutcome>(
+                    new CleanupConditionsFromSourceReducer(),
+                    LifecycleSource,
+                    InvocationPolicy.ExternalAllowed
                 )
                 .RegisterReducer<CreateConditionOp, ConditionCreationOutcome>(
                     new CreateConditionReducer(registry),

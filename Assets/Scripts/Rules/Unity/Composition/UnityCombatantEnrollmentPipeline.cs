@@ -53,6 +53,7 @@ namespace Game.Rules.Unity.Composition
             List<PreparedCombatantEnrollment> combatants = new();
             try
             {
+                List<UnityCombatantEnrollmentBuilder> builders = new();
                 foreach (ActionController controller in copied)
                 {
                     UnityCombatantEnrollmentBuilder builder =
@@ -79,6 +80,12 @@ namespace Game.Rules.Unity.Composition
                             )
                         )
                     );
+                    builders.Add(builder);
+                }
+                // Every identity is reserved before feature preparation so persisted cross-creature
+                // sources resolve independently of combatant enumeration order.
+                foreach (UnityCombatantEnrollmentBuilder builder in builders)
+                {
                     composition.PrepareCombatant(builder);
                     int initiativeModifier = builder.Creature.GetInitiative();
                     CombatantRegistration registration = new(

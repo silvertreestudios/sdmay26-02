@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -56,6 +58,74 @@ namespace Game.Rules.Runtime
             Effect = effect ?? throw new ArgumentNullException(nameof(effect));
             Binding = binding ?? throw new ArgumentNullException(nameof(binding));
         }
+    }
+
+    /// <summary>Pairs one prepared initial effect with its exact active binding.</summary>
+    public sealed class ActiveEffectRegistration
+    {
+        /// <summary>Creates one structurally matched registration pair.</summary>
+        public ActiveEffectRegistration(ActiveEffectInstance effect, ActiveRuleBinding binding)
+        {
+            Effect = effect ?? throw new ArgumentNullException(nameof(effect));
+            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            if (
+                !binding.EffectId.HasValue
+                || binding.EffectId.Value != effect.Id
+                || binding.DefinitionId != effect.DefinitionId
+                || binding.Source != effect.Source
+            )
+                throw new ArgumentException(
+                    "The binding does not match the active effect.",
+                    nameof(binding)
+                );
+        }
+
+        /// <summary>Gets the prepared effect.</summary>
+        public ActiveEffectInstance Effect { get; }
+
+        /// <summary>Gets the prepared binding.</summary>
+        public ActiveRuleBinding Binding { get; }
+    }
+
+    /// <summary>Atomically adopts a deterministic batch of prepared active-effect pairs.</summary>
+    public sealed class AdoptActiveEffectRegistrationsOp
+        : IRuleOp<ActiveEffectAdoptionOutcome>,
+            IRuleSourcedOp
+    {
+        private readonly IReadOnlyList<ActiveEffectRegistration> registrations;
+
+        /// <summary>Creates one all-or-nothing adoption request.</summary>
+        public AdoptActiveEffectRegistrationsOp(
+            IEnumerable<ActiveEffectRegistration> registrations,
+            RuleSource source
+        )
+        {
+            if (registrations == null)
+                throw new ArgumentNullException(nameof(registrations));
+            ActiveEffectRegistration[] copied = registrations.ToArray();
+            if (copied.Any(registration => registration == null))
+                throw new ArgumentException(
+                    "Active-effect registrations cannot contain null.",
+                    nameof(registrations)
+                );
+            this.registrations = Array.AsReadOnly(copied);
+            Source = ActiveEffectOperationValidation.RequireSource(source);
+        }
+
+        /// <summary>Gets prepared pairs in deterministic adoption order.</summary>
+        public IReadOnlyList<ActiveEffectRegistration> Registrations => registrations;
+
+        /// <inheritdoc/>
+        public RuleSource Source { get; }
+    }
+
+    /// <summary>Reports the number of effect pairs committed by one adoption transaction.</summary>
+    public readonly struct ActiveEffectAdoptionOutcome
+    {
+        internal ActiveEffectAdoptionOutcome(int created) => Created = created;
+
+        /// <summary>Gets the number of committed pairs.</summary>
+        public int Created { get; }
     }
 
     /// <summary>Requests an optimistic typed-state replacement for one active effect.</summary>

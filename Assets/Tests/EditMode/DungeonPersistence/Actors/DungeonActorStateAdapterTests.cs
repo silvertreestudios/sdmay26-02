@@ -37,6 +37,9 @@ public sealed class DungeonActorStateAdapterTests
         effectSourceObject = new GameObject("Effect Source");
         DungeonPersistenceTestActionController effectSource =
             effectSourceObject.AddComponent<DungeonPersistenceTestActionController>();
+        CreatureComponent effectSourceCreature =
+            effectSourceObject.AddComponent<CreatureComponent>();
+        effectSourceCreature.InitializeHealthBeforeEncounter(10, 10);
         SourceFixture source = CreateFixture("Source", out sourceObject);
         source.Creature.InitializeHealthBeforeEncounter(
             new HealthState(
@@ -50,8 +53,25 @@ public sealed class DungeonActorStateAdapterTests
         source.Conditions.RestoreApplications(
             new[]
             {
-                new ConditionApplicationSnapshot("Off-Guard", "shared-test-source"),
-                new ConditionApplicationSnapshot("Slowed", "shared-test-source"),
+                PersistedCondition(
+                    "off-guard-save",
+                    ConditionRuleDefinitions.OffGuard,
+                    effectSourceObject,
+                    RuleSource.FromSlug("shared-test-source"),
+                    ConditionMarkerState.Instance,
+                    EffectDuration.Indefinite,
+                    3
+                ),
+                PersistedCondition(
+                    "slowed-save",
+                    ConditionRuleDefinitions.Slowed,
+                    effectSourceObject,
+                    RuleSource.FromSlug("shared-test-source"),
+                    new SlowedConditionState(2),
+                    EffectDuration.Rounds(3),
+                    4,
+                    new ConditionTimingSnapshot(2, false)
+                ),
             }
         );
         SpellEffectController
@@ -66,12 +86,19 @@ public sealed class DungeonActorStateAdapterTests
             new AmmoCount { ammoName = "bolt", quantity = 3 },
         };
         source.Creature.unloadedWeapons = new() { "Heavy Crossbow" };
+        UnityCombatRulesBridge sourceBridge = UnityCombatRulesBridge.Create(
+            new[] { source.Controller, effectSource },
+            CreateTiles()
+        );
 
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             source.Controller,
             actor =>
-                actor == effectSourceObject ? "source-slot" : throw new InvalidOperationException()
+                actor == effectSourceObject ? "source-slot"
+                : actor == sourceObject ? "actor-slot"
+                : throw new InvalidOperationException()
         );
+        sourceBridge.ReleaseOwnership();
         SourceFixture restored = CreateFixture("Restored", out restoredObject);
         restored.Creature.Build = new CharacterBuild();
         restored.Creature.Prepared = null;
@@ -84,6 +111,10 @@ public sealed class DungeonActorStateAdapterTests
         );
 
         apply();
+        UnityCombatRulesBridge restoredBridge = UnityCombatRulesBridge.Create(
+            new[] { restored.Controller, effectSource },
+            CreateTiles()
+        );
 
         Assert.That(restored.Creature.Health.Current, Is.EqualTo(7));
         Assert.That(restored.Creature.Health.Temporary, Is.EqualTo(4));
@@ -101,8 +132,20 @@ public sealed class DungeonActorStateAdapterTests
             .ToArray();
         Assert.That(restoredConditions, Has.Length.EqualTo(2));
         Assert.That(
-            restoredConditions.Select(entry => entry.SourceKey).Distinct().Count(),
+            restoredConditions.Select(entry => entry.Source.Slug).Distinct().Count(),
             Is.EqualTo(1)
+        );
+        ConditionSelection<SlowedConditionState> slowed = ConditionSelectors.TryGetSlowed(
+            restoredBridge.Snapshot,
+            restoredBridge.GetCreatureId(restored.Creature),
+            out var selectedSlowed
+        )
+            ? selectedSlowed
+            : throw new AssertionException("Restored Slowed condition was unavailable.");
+        Assert.That(slowed.State.Value, Is.EqualTo(2));
+        Assert.That(
+            restoredBridge.Snapshot.ActiveEffectTimings[slowed.EffectId].RemainingBoundaries,
+            Is.EqualTo(2)
         );
         BlessSpellEffect bless = restoredObject
             .GetComponent<SpellEffectController>()
@@ -117,9 +160,165 @@ public sealed class DungeonActorStateAdapterTests
     }
 
     [Test]
+    public void ConditionPersistenceRoundTripsExactTypedLifecycleAndStableElection()
+    {
+        effectSourceObject = new GameObject("Condition Source");
+        DungeonPersistenceTestActionController effectSource =
+            effectSourceObject.AddComponent<DungeonPersistenceTestActionController>();
+        CreatureComponent effectCreature = effectSourceObject.AddComponent<CreatureComponent>();
+        effectCreature.InitializeHealthBeforeEncounter(10, 10);
+        SourceFixture source = CreateFixture("Condition Owner", out sourceObject);
+        RuleSource shared = RuleSource.FromSlug("shared-condition-source");
+        source.Conditions.RestoreApplications(
+            new[]
+            {
+                PersistedCondition(
+                    "marker",
+                    ConditionRuleDefinitions.OffGuard,
+                    effectSourceObject,
+                    shared,
+                    ConditionMarkerState.Instance,
+                    EffectDuration.Indefinite,
+                    1
+                ),
+                PersistedCondition(
+                    "slowed-first",
+                    ConditionRuleDefinitions.Slowed,
+                    effectSourceObject,
+                    RuleSource.FromSlug("slowed-first-source"),
+                    new SlowedConditionState(2),
+                    EffectDuration.Rounds(4),
+                    2,
+                    new ConditionTimingSnapshot(3, false),
+                    version: 5
+                ),
+                PersistedCondition(
+                    "slowed-equal",
+                    ConditionRuleDefinitions.Slowed,
+                    effectSourceObject,
+                    RuleSource.FromSlug("slowed-equal-source"),
+                    new SlowedConditionState(2),
+                    EffectDuration.Minutes(1),
+                    3,
+                    new ConditionTimingSnapshot(7, false),
+                    version: 6
+                ),
+                PersistedCondition(
+                    "stunned-valued",
+                    ConditionRuleDefinitions.Stunned,
+                    effectSourceObject,
+                    shared,
+                    new ValuedStunnedConditionState(4),
+                    EffectDuration.Indefinite,
+                    4
+                ),
+                PersistedCondition(
+                    "stunned-duration",
+                    ConditionRuleDefinitions.Stunned,
+                    effectSourceObject,
+                    shared,
+                    DurationOnlyStunnedConditionState.Instance,
+                    EffectDuration.Encounter,
+                    5,
+                    new ConditionTimingSnapshot(0, true)
+                ),
+                PersistedCondition(
+                    "quickened-restricted",
+                    ConditionRuleDefinitions.Quickened,
+                    effectSourceObject,
+                    shared,
+                    new QuickenedConditionState(
+                        new[] { new ActionDefinitionId("strike"), new ActionDefinitionId("stride") }
+                    ),
+                    EffectDuration.Rounds(2),
+                    6,
+                    new ConditionTimingSnapshot(1, false)
+                ),
+                PersistedCondition(
+                    "quickened-unrestricted",
+                    ConditionRuleDefinitions.Quickened,
+                    effectSourceObject,
+                    shared,
+                    QuickenedConditionState.Unrestricted,
+                    EffectDuration.Indefinite,
+                    7
+                ),
+                PersistedCondition(
+                    "expired-marker",
+                    ConditionRuleDefinitions.Fatigued,
+                    effectSourceObject,
+                    shared,
+                    ConditionMarkerState.Instance,
+                    EffectDuration.Rounds(1),
+                    8,
+                    status: ActiveEffectStatus.Expired,
+                    version: 9,
+                    bindingEnabled: false
+                ),
+            }
+        );
+        UnityCombatRulesBridge first = UnityCombatRulesBridge.Create(
+            new[] { source.Controller, effectSource },
+            CreateTiles()
+        );
+        Assert.That(
+            ConditionSelectors.TryGetSlowed(
+                first.Snapshot,
+                first.GetCreatureId(source.Creature),
+                out var selectedBefore
+            ),
+            Is.True
+        );
+        Assert.That(selectedBefore.EffectId.Value, Is.EqualTo("effect-slowed-first"));
+        DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
+            source.Controller,
+            actor => actor == effectSourceObject ? "source-slot" : "owner-slot"
+        );
+        DungeonSaveResult<DungeonActorSaveState> parsed = DungeonSaveJson.ParseActor(
+            DungeonSaveJson.SerializeActor(captured)
+        );
+        Assert.That(parsed.IsSuccess, Is.True);
+        first.ReleaseOwnership();
+
+        SourceFixture restored = CreateFixture("Restored Condition Owner", out restoredObject);
+        Action apply = DungeonActorStateAdapter.PrepareRestore(
+            restored.Controller,
+            parsed.Value,
+            12,
+            false,
+            actorId => actorId == "source-slot" ? effectSourceObject : restoredObject
+        );
+        apply();
+        UnityCombatRulesBridge second = UnityCombatRulesBridge.Create(
+            new[] { restored.Controller, effectSource },
+            CreateTiles()
+        );
+        DungeonActorSaveState recaptured = DungeonActorStateAdapter.Capture(
+            restored.Controller,
+            actor => actor == effectSourceObject ? "source-slot" : "owner-slot"
+        );
+
+        Assert.That(recaptured.Conditions, Has.Length.EqualTo(captured.Conditions.Length));
+        Assert.That(
+            recaptured.Conditions.Select(item => JsonUtility.ToJson(item)),
+            Is.EqualTo(captured.Conditions.Select(item => JsonUtility.ToJson(item)))
+        );
+        Assert.That(
+            ConditionSelectors.TryGetSlowed(
+                second.Snapshot,
+                second.GetCreatureId(restored.Creature),
+                out var selectedAfter
+            ),
+            Is.True
+        );
+        Assert.That(selectedAfter.EffectId, Is.EqualTo(selectedBefore.EffectId));
+    }
+
+    [Test]
     public void CaptureResolvesEquivalentSerializedEquipmentByStableName()
     {
         SourceFixture source = CreateFixture("Source", out sourceObject);
+        UnityEngine.Object.DestroyImmediate(source.Conditions);
         EquipmentArmor authoredArmor = new() { name = "Explorer's Clothing" };
         source.Creature.armor = new() { authoredArmor };
         source.Creature.equippedRightHand = new EquipmentWeapon
@@ -204,6 +403,7 @@ public sealed class DungeonActorStateAdapterTests
     public void PrepareRestoreRejectsEquipmentThatAuthoredActorDoesNotContain()
     {
         SourceFixture source = CreateFixture("Source", out sourceObject);
+        UnityEngine.Object.DestroyImmediate(source.Conditions);
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             source.Controller,
             _ => "unused"
@@ -269,6 +469,34 @@ public sealed class DungeonActorStateAdapterTests
         Conditions conditions = gameObject.AddComponent<Conditions>();
         return new SourceFixture(controller, creature, conditions, weapons);
     }
+
+    private static ConditionApplicationSnapshot PersistedCondition(
+        string identity,
+        RuleDefinitionId definition,
+        GameObject sourceCreature,
+        RuleSource source,
+        IEffectState state,
+        EffectDuration duration,
+        long creationOrder,
+        ConditionTimingSnapshot timing = null,
+        ActiveEffectStatus status = ActiveEffectStatus.Active,
+        long version = 2,
+        bool bindingEnabled = true
+    ) =>
+        new ConditionApplicationSnapshot(
+            new ActiveEffectId($"effect-{identity}"),
+            new BindingId($"binding-{identity}"),
+            definition,
+            sourceCreature,
+            source,
+            duration,
+            new EffectStateVersion(version),
+            state,
+            status,
+            creationOrder,
+            bindingEnabled,
+            timing
+        );
 
     private static Tile[,] CreateTiles()
     {

@@ -87,6 +87,143 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task AdoptionRejectsLaterLifecycleConflictWithoutStateOrFacts()
+        {
+            RuleSource source = RuleSource.FromSlug("atomic-adoption");
+            ConditionRegistration valid = Registration(
+                "valid",
+                Owner,
+                ConditionRuleDefinitions.Deafened,
+                source,
+                ConditionMarkerState.Instance,
+                1
+            );
+            ActiveEffectInstance conflictingEffect = new ActiveEffectInstance(
+                new ActiveEffectId("effect-conflicting"),
+                ConditionRuleDefinitions.Fatigued,
+                SourceCreature,
+                source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance,
+                new EffectStateVersion(2),
+                ActiveEffectStatus.Expired
+            );
+            ConditionRegistration conflicting = new ConditionRegistration(
+                conflictingEffect,
+                new ActiveRuleBinding(
+                    new BindingId("binding-conflicting"),
+                    conflictingEffect.DefinitionId,
+                    Owner,
+                    conflictingEffect.Id,
+                    source,
+                    2,
+                    isEnabled: true
+                )
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore();
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+
+            OpResult<ConditionAdoptionOutcome> result = await dispatcher.Dispatch(
+                new AdoptConditionRegistrationsOp(new[] { valid, conflicting })
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionAdoptionOutcome>>());
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+        }
+
+        [Test]
+        public async Task CleanupRejectsLaterConflictWithoutPartialCommitOrFacts()
+        {
+            RuleSource source = RuleSource.FromSlug("atomic-cleanup");
+            ConditionRegistration valid = Registration(
+                "cleanup-valid",
+                Owner,
+                ConditionRuleDefinitions.OffGuard,
+                source,
+                ConditionMarkerState.Instance,
+                1
+            );
+            ConditionRegistration conflicting = Registration(
+                "cleanup-conflict",
+                Owner,
+                ConditionRuleDefinitions.Deafened,
+                source,
+                ConditionMarkerState.Instance,
+                2,
+                isEnabled: false
+            );
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedActiveEffect(valid.Effect)
+                .SeedRuleBinding(valid.Binding)
+                .SeedActiveEffect(conflicting.Effect)
+                .SeedRuleBinding(conflicting.Binding);
+            InMemoryRulesStore store = new InMemoryRulesStore(seed);
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+
+            OpResult<ConditionCleanupOutcome> result = await dispatcher.Dispatch(
+                new CleanupConditionsFromSourceOp(source, ConditionCleanupKind.Remove)
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionCleanupOutcome>>());
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot.ActiveEffects.Contains(valid.Effect.Id), Is.True);
+            Assert.That(store.Snapshot.RuleBindings.Contains(valid.Binding.Id), Is.True);
+        }
+
+        [Test]
+        public async Task SourceWideCleanupSpansOwnersAndDefinitionsInStableOrder()
+        {
+            CreatureId otherOwner = new CreatureId("other-condition-owner");
+            RuleSource source = RuleSource.FromSlug("source-wide-cleanup");
+            ConditionRegistration later = Registration(
+                "later",
+                Owner,
+                ConditionRuleDefinitions.Slowed,
+                source,
+                new SlowedConditionState(1),
+                9
+            );
+            ConditionRegistration first = Registration(
+                "first",
+                otherOwner,
+                ConditionRuleDefinitions.Fatigued,
+                source,
+                ConditionMarkerState.Instance,
+                2
+            );
+            ConditionRegistration middle = Registration(
+                "middle",
+                Owner,
+                ConditionRuleDefinitions.Deafened,
+                source,
+                ConditionMarkerState.Instance,
+                5
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore();
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+            RequireResolved(
+                await dispatcher.Dispatch(
+                    new AdoptConditionRegistrationsOp(new[] { later, first, middle })
+                )
+            );
+
+            ResolvedOpResult<ConditionCleanupOutcome> cleanup = RequireResolved(
+                await dispatcher.Dispatch(
+                    new CleanupConditionsFromSourceOp(source, ConditionCleanupKind.Remove)
+                )
+            );
+
+            Assert.That(
+                cleanup.Value.Affected,
+                Is.EqualTo(new[] { first.Effect.Id, middle.Effect.Id, later.Effect.Id })
+            );
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+        }
+
+        [Test]
         public async Task SourceCleanupUsesStableOrderAndExposesLowerSlowedSource()
         {
             InMemoryRulesStore store = new InMemoryRulesStore();
@@ -307,6 +444,38 @@ namespace Game.Rules.Runtime.Tests
                 EffectDuration.Indefinite,
                 state
             );
+
+        private static ConditionRegistration Registration(
+            string identity,
+            CreatureId owner,
+            RuleDefinitionId definition,
+            RuleSource source,
+            IEffectState state,
+            long order,
+            bool isEnabled = true
+        )
+        {
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                new ActiveEffectId($"effect-{identity}"),
+                definition,
+                SourceCreature,
+                source,
+                EffectDuration.Indefinite,
+                state
+            );
+            return new ConditionRegistration(
+                effect,
+                new ActiveRuleBinding(
+                    new BindingId($"binding-{identity}"),
+                    definition,
+                    owner,
+                    effect.Id,
+                    source,
+                    order,
+                    isEnabled
+                )
+            );
+        }
 
         private static RuleDispatcher CreateDispatcher(InMemoryRulesStore store)
         {

@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -72,7 +74,15 @@ public sealed class ConditionUnityIntegrationTests
         CreatureFixture initial = CreateCreature("Initial", "Heroes", 100);
         CreatureFixture opponent = CreateCreature("Opponent", "Enemies", 0);
         initial.Conditions.RestoreApplications(
-            new[] { new ConditionApplicationSnapshot("Fatigued", "persisted-fatigue") }
+            new[]
+            {
+                Persisted(
+                    initial.GameObject,
+                    ConditionRuleDefinitions.Fatigued,
+                    "initial-fatigue",
+                    ConditionMarkerState.Instance
+                ),
+            }
         );
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { initial.Controller, opponent.Controller },
@@ -83,7 +93,15 @@ public sealed class ConditionUnityIntegrationTests
 
         CreatureFixture reinforcement = CreateCreature("Reinforcement", "Enemies", -1);
         reinforcement.Conditions.RestoreApplications(
-            new[] { new ConditionApplicationSnapshot("Encumbered", "persisted-load") }
+            new[]
+            {
+                Persisted(
+                    reinforcement.GameObject,
+                    ConditionRuleDefinitions.Encumbered,
+                    "reinforcement-load",
+                    ConditionMarkerState.Instance
+                ),
+            }
         );
         bridge.RegisterCombatants(new[] { reinforcement.Controller });
         CreatureId reinforcementId = bridge.GetCreatureId(reinforcement.Creature);
@@ -113,6 +131,87 @@ public sealed class ConditionUnityIntegrationTests
                 )
                 .Count,
             Is.EqualTo(1)
+        );
+    }
+
+    [Test]
+    public void ConsumedRestoreNeverBecomesDetachedAuthorityAndExplicitReRestoreReenrollsMutation()
+    {
+        CreatureFixture actor = CreateCreature("Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Slowed,
+                    "restored-slowed",
+                    new SlowedConditionState(1)
+                ),
+            }
+        );
+        UnityCombatRulesBridge first = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = first.GetCreatureId(actor.Creature);
+        Assert.That(
+            ConditionSelectors.TryGetSlowed(first.Snapshot, actorId, out var slowed),
+            Is.True
+        );
+        Assert.That(
+            first.Dispatch(
+                new CleanupConditionsFromSourceOp(
+                    slowed.Source,
+                    ConditionCleanupKind.Expire,
+                    actorId,
+                    ConditionRuleDefinitions.Slowed
+                )
+            ),
+            Is.TypeOf<ResolvedOpResult<ConditionCleanupOutcome>>()
+        );
+        ConditionApplicationSnapshot[] live = actor.Conditions.CaptureApplications().ToArray();
+
+        first.ReleaseOwnership();
+
+        Assert.That(actor.Conditions.ActiveConditionNames, Is.Empty);
+        Assert.Throws<InvalidOperationException>(() => actor.Conditions.CaptureApplications());
+        actor.Conditions.RestoreApplications(live);
+        UnityCombatRulesBridge second = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId reenrolledId = second.GetCreatureId(actor.Creature);
+        Assert.That(
+            ConditionSelectors.TryGetSlowed(second.Snapshot, reenrolledId, out _),
+            Is.False
+        );
+        ActiveEffectInstance restored = second.Snapshot.ActiveEffects[slowed.EffectId];
+        Assert.That(restored.Status, Is.EqualTo(ActiveEffectStatus.Expired));
+        Assert.That(restored.EffectStateVersion.Value, Is.EqualTo(1));
+    }
+
+    private static ConditionApplicationSnapshot Persisted(
+        GameObject sourceCreature,
+        RuleDefinitionId definition,
+        string identity,
+        IEffectState state
+    )
+    {
+        RuleSource source = RuleSource.FromSlug(identity);
+        return new ConditionApplicationSnapshot(
+            new ActiveEffectId($"effect-{identity}"),
+            new BindingId($"binding-{identity}"),
+            definition,
+            sourceCreature,
+            source,
+            EffectDuration.Indefinite,
+            EffectStateVersion.Initial,
+            state,
+            ActiveEffectStatus.Active,
+            1,
+            true,
+            null
         );
     }
 

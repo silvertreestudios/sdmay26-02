@@ -9,10 +9,15 @@ namespace Game.Rules.Runtime
     public sealed class ConditionRegistration
     {
         /// <summary>Creates one immutable registration pair.</summary>
-        public ConditionRegistration(ActiveEffectInstance effect, ActiveRuleBinding binding)
+        public ConditionRegistration(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            ActiveEffectTimingState timing = null
+        )
         {
             Effect = effect ?? throw new ArgumentNullException(nameof(effect));
             Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            Timing = timing;
             if (!ConditionRuleDefinitions.Accepts(effect.DefinitionId, effect.State))
                 throw new ArgumentException(
                     "The effect is not a canonical condition.",
@@ -28,6 +33,19 @@ namespace Game.Rules.Runtime
                     "The binding does not match the condition effect.",
                     nameof(binding)
                 );
+            if (
+                timing != null
+                && (
+                    timing.Effect != effect.Id
+                    || timing.Binding != binding.Id
+                    || timing.SourceCreature != effect.SourceCreature
+                    || timing.CreationOrder != binding.CreationOrder
+                )
+            )
+                throw new ArgumentException(
+                    "The timing does not match the condition registration.",
+                    nameof(timing)
+                );
         }
 
         /// <summary>Gets the active-effect half of the registration.</summary>
@@ -35,6 +53,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the exact active binding.</summary>
         public ActiveRuleBinding Binding { get; }
+
+        /// <summary>Gets the exact encounter timing, when the active finite effect is scheduled.</summary>
+        public ActiveEffectTimingState Timing { get; }
     }
 
     /// <summary>Requests creation of one canonical sourced condition.</summary>
@@ -153,17 +174,20 @@ namespace Game.Rules.Runtime
     {
         /// <summary>Creates one source-wide cleanup request.</summary>
         public CleanupConditionsFromSourceOp(
-            CreatureId target,
-            RuleDefinitionId definitionId,
             RuleSource source,
-            ConditionCleanupKind kind
+            ConditionCleanupKind kind,
+            CreatureId? target = null,
+            RuleDefinitionId? definitionId = null
         )
         {
-            if (target.IsEmpty)
-                throw new ArgumentException("A condition target is required.", nameof(target));
-            if (definitionId.IsEmpty)
+            if (target.HasValue && target.Value.IsEmpty)
                 throw new ArgumentException(
-                    "A condition definition is required.",
+                    "A condition target filter cannot be empty.",
+                    nameof(target)
+                );
+            if (definitionId.HasValue && definitionId.Value.IsEmpty)
+                throw new ArgumentException(
+                    "A condition definition filter cannot be empty.",
                     nameof(definitionId)
                 );
             if (source.IsEmpty)
@@ -176,11 +200,20 @@ namespace Game.Rules.Runtime
             Kind = kind;
         }
 
+        /// <summary>Creates a source cleanup request with both typed filters.</summary>
+        public CleanupConditionsFromSourceOp(
+            CreatureId target,
+            RuleDefinitionId definitionId,
+            RuleSource source,
+            ConditionCleanupKind kind
+        )
+            : this(source, kind, target, definitionId) { }
+
         /// <summary>Gets the affected creature.</summary>
-        public CreatureId Target { get; }
+        public CreatureId? Target { get; }
 
         /// <summary>Gets the canonical condition definition to match.</summary>
-        public RuleDefinitionId DefinitionId { get; }
+        public RuleDefinitionId? DefinitionId { get; }
 
         /// <inheritdoc/>
         public RuleSource Source { get; }
@@ -237,125 +270,274 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class AdoptConditionRegistrationsHandler
-        : IOpHandler<AdoptConditionRegistrationsOp, ConditionAdoptionOutcome>
+    internal sealed class AdoptConditionRegistrationsReducer
+        : IOpReducer<AdoptConditionRegistrationsOp, ConditionAdoptionOutcome>
     {
-        public async ValueTask<ConditionAdoptionOutcome> Handle(
-            OpFrame<AdoptConditionRegistrationsOp> frame,
-            OpHandlerContext context
+        private readonly RuleRegistry registry;
+
+        internal AdoptConditionRegistrationsReducer(RuleRegistry registry) =>
+            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
+
+        public ReductionResult<ConditionAdoptionOutcome> Reduce(
+            ReductionContext<AdoptConditionRegistrationsOp> context,
+            RulesStateDraft state,
+            FactSink facts
         )
         {
-            int created = 0;
-            foreach (ConditionRegistration registration in frame.Op.Registrations)
+            List<ConditionRegistration> pending = new List<ConditionRegistration>();
+            HashSet<ActiveEffectId> effectIds = new HashSet<ActiveEffectId>();
+            HashSet<BindingId> bindingIds = new HashSet<BindingId>();
+            foreach (ConditionRegistration registration in context.Op.Registrations)
             {
-                bool hasEffect = context.Snapshot.ActiveEffects.TryGet(
+                if (
+                    !effectIds.Add(registration.Effect.Id)
+                    || !bindingIds.Add(registration.Binding.Id)
+                )
+                    return ReductionResult<ConditionAdoptionOutcome>.Reject(
+                        "A condition adoption batch contains duplicate stable identities."
+                    );
+                if (!TryValidate(registration, state, out string rejection))
+                    return ReductionResult<ConditionAdoptionOutcome>.Reject(rejection);
+
+                bool hasEffect = state.ActiveEffects.TryGet(
                     registration.Effect.Id,
                     out ActiveEffectInstance effect
                 );
-                bool hasBinding = context.Snapshot.RuleBindings.TryGet(
+                bool hasBinding = state.RuleBindings.TryGet(
                     registration.Binding.Id,
                     out ActiveRuleBinding binding
                 );
                 if (hasEffect || hasBinding)
                 {
+                    bool hasTiming = state.ActiveEffectTimings.TryGet(
+                        registration.Effect.Id,
+                        out ActiveEffectTimingState timing
+                    );
+                    ActiveEffectTimingState expectedTiming = ResolveTiming(registration, state);
                     if (
                         hasEffect
                         && hasBinding
                         && effect.Equals(registration.Effect)
                         && binding.Equals(registration.Binding)
+                        && hasTiming == (expectedTiming != null)
+                        && (!hasTiming || timing.Equals(expectedTiming))
                     )
                         continue;
-                    throw new InvalidOperationException(
+                    return ReductionResult<ConditionAdoptionOutcome>.Reject(
                         "A condition registration ID is already used by different state."
                     );
                 }
-
-                OpResult<ConditionCreationOutcome> result = await context.Dispatch(
-                    new CreateConditionOp(registration.Effect, registration.Binding)
-                );
-                if (result is not ResolvedOpResult<ConditionCreationOutcome>)
-                    throw new InvalidOperationException("Prepared condition adoption failed.");
-                created++;
+                pending.Add(registration);
             }
-            return new ConditionAdoptionOutcome(created);
-        }
-    }
 
-    internal sealed class CleanupConditionsFromSourceHandler
-        : IOpHandler<CleanupConditionsFromSourceOp, ConditionCleanupOutcome>
-    {
-        public async ValueTask<ConditionCleanupOutcome> Handle(
-            OpFrame<CleanupConditionsFromSourceOp> frame,
-            OpHandlerContext context
+            foreach (ConditionRegistration registration in pending)
+            {
+                ActiveEffectTimingState timing = ResolveTiming(registration, state);
+                ActiveEffectReduction.CommitCreation(
+                    state,
+                    registration.Effect,
+                    registration.Binding,
+                    timing,
+                    facts
+                );
+                facts.Stage(new ConditionCreatedFact(registration.Effect, registration.Binding));
+            }
+            return ReductionResult<ConditionAdoptionOutcome>.Accept(
+                new ConditionAdoptionOutcome(pending.Count)
+            );
+        }
+
+        private bool TryValidate(
+            ConditionRegistration registration,
+            RulesStateDraft state,
+            out string rejection
         )
         {
-            ConditionSelection<IEffectState>[] matches = context
-                .Snapshot.RuleBindings.Select(pair => pair.Value)
-                .Where(binding =>
-                    binding.Owner == frame.Op.Target
-                    && binding.DefinitionId == frame.Op.DefinitionId
-                    && binding.Source == frame.Op.Source
-                    && binding.EffectId.HasValue
+            ActiveEffectInstance effect = registration.Effect;
+            ActiveRuleBinding binding = registration.Binding;
+            if (
+                !ActiveEffectReduction.TryValidateRegistration(
+                    registry,
+                    effect,
+                    binding,
+                    out rejection
                 )
-                .Select(binding =>
+            )
+                return false;
+            if ((effect.Status == ActiveEffectStatus.Active) != binding.IsEnabled)
+            {
+                rejection = "A restored condition's lifecycle status and binding state disagree.";
+                return false;
+            }
+            if (
+                registration.Timing != null
+                && (
+                    effect.Status != ActiveEffectStatus.Active
+                    || effect.Duration.Kind == EffectDurationKind.Indefinite
+                )
+            )
+            {
+                rejection = "Only an active finite condition can retain encounter timing.";
+                return false;
+            }
+            EncounterState encounter = ActiveEncounter(state);
+            if (registration.Timing != null)
+            {
+                if (encounter != null && registration.Timing.Encounter != encounter.Id)
                 {
-                    if (
-                        !context.Snapshot.ActiveEffects.TryGet(
-                            binding.EffectId.Value,
-                            out ActiveEffectInstance effect
-                        )
-                        || effect.DefinitionId != binding.DefinitionId
-                        || effect.Source != binding.Source
-                        || !ConditionRuleDefinitions.Accepts(effect.DefinitionId, effect.State)
-                        || (
-                            frame.Op.Kind == ConditionCleanupKind.Expire
-                            && (effect.Status != ActiveEffectStatus.Active || !binding.IsEnabled)
-                        )
+                    rejection = "Restored condition timing belongs to a different encounter.";
+                    return false;
+                }
+                if (
+                    registration.Timing.ExpiresWithEncounter
+                    != (effect.Duration.Kind == EffectDurationKind.Encounter)
+                )
+                {
+                    rejection = "Restored condition timing disagrees with its duration kind.";
+                    return false;
+                }
+            }
+            if (
+                encounter != null
+                && effect.Status == ActiveEffectStatus.Active
+                && effect.Duration.Kind != EffectDurationKind.Indefinite
+                && !encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature)
+            )
+            {
+                rejection = "The condition source is not in the active encounter roster.";
+                return false;
+            }
+            rejection = string.Empty;
+            return true;
+        }
+
+        private static ActiveEffectTimingState ResolveTiming(
+            ConditionRegistration registration,
+            RulesStateDraft state
+        )
+        {
+            if (registration.Timing != null)
+                return registration.Timing;
+            ActiveEffectInstance effect = registration.Effect;
+            EncounterState encounter = ActiveEncounter(state);
+            return
+                effect.Status == ActiveEffectStatus.Active
+                && effect.Duration.Kind != EffectDurationKind.Indefinite
+                && encounter != null
+                ? ActiveEffectTimingState.ForEncounter(effect, registration.Binding, encounter)
+                : null;
+        }
+
+        private static EncounterState ActiveEncounter(RulesStateDraft state) =>
+            state
+                .Encounters.Select(pair => pair.Value)
+                .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
+    }
+
+    internal sealed class CleanupConditionsFromSourceReducer
+        : IOpReducer<CleanupConditionsFromSourceOp, ConditionCleanupOutcome>
+    {
+        private readonly ExpireConditionReducer expire = new ExpireConditionReducer();
+        private readonly RemoveConditionReducer remove = new RemoveConditionReducer();
+
+        public ReductionResult<ConditionCleanupOutcome> Reduce(
+            ReductionContext<CleanupConditionsFromSourceOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            ActiveRuleBinding[] candidates = state
+                .RuleBindings.Select(pair => pair.Value)
+                .Where(binding =>
+                    binding.Source == context.Op.Source
+                    && ConditionRuleDefinitions.IsConditionDefinition(binding.DefinitionId)
+                    && (!context.Op.Target.HasValue || binding.Owner == context.Op.Target.Value)
+                    && (
+                        !context.Op.DefinitionId.HasValue
+                        || binding.DefinitionId == context.Op.DefinitionId.Value
                     )
-                        return null;
-                    return new ConditionSelection<IEffectState>(effect, binding, effect.State);
-                })
-                .Where(selection => selection != null)
-                .OrderBy(selection => selection.Binding.CreationOrder)
-                .ThenBy(selection => selection.BindingId.Value, StringComparer.Ordinal)
-                .ThenBy(selection => selection.EffectId.Value, StringComparer.Ordinal)
+                )
+                .OrderBy(binding => binding.CreationOrder)
+                .ThenBy(binding => binding.Id.Value, StringComparer.Ordinal)
+                .ThenBy(binding => binding.EffectId?.Value, StringComparer.Ordinal)
                 .ToArray();
+            List<ConditionSelection<IEffectState>> matches =
+                new List<ConditionSelection<IEffectState>>();
+            foreach (ActiveRuleBinding binding in candidates)
+            {
+                if (
+                    !binding.EffectId.HasValue
+                    || !state.ActiveEffects.TryGet(
+                        binding.EffectId.Value,
+                        out ActiveEffectInstance effect
+                    )
+                    || effect.DefinitionId != binding.DefinitionId
+                    || effect.Source != binding.Source
+                    || !ConditionRuleDefinitions.Accepts(effect.DefinitionId, effect.State)
+                )
+                    return ReductionResult<ConditionCleanupOutcome>.Reject(
+                        $"Source cleanup found invalid binding {binding.Id.Value}."
+                    );
+                if ((effect.Status == ActiveEffectStatus.Active) != binding.IsEnabled)
+                    return ReductionResult<ConditionCleanupOutcome>.Reject(
+                        $"Source cleanup found conflicting lifecycle state for {effect.Id.Value}."
+                    );
+                if (
+                    context.Op.Kind == ConditionCleanupKind.Expire
+                    && effect.Status == ActiveEffectStatus.Expired
+                )
+                    continue;
+                matches.Add(new ConditionSelection<IEffectState>(effect, binding, effect.State));
+            }
+
             List<ActiveEffectId> affected = new List<ActiveEffectId>();
             foreach (ConditionSelection<IEffectState> match in matches)
             {
-                if (frame.Op.Kind == ConditionCleanupKind.Expire)
+                if (context.Op.Kind == ConditionCleanupKind.Expire)
                 {
-                    OpResult<ConditionExpirationOutcome> expired = await context.Dispatch(
-                        new ExpireConditionOp(
-                            match.EffectId,
-                            match.BindingId,
-                            match.Version,
-                            frame.Op.Source
-                        )
+                    ReductionResult<ConditionExpirationOutcome> result = expire.Reduce(
+                        ConditionReduction.Translate(
+                            context,
+                            new ExpireConditionOp(
+                                match.EffectId,
+                                match.BindingId,
+                                match.Version,
+                                context.Op.Source
+                            )
+                        ),
+                        state,
+                        facts
                     );
-                    if (expired is not ResolvedOpResult<ConditionExpirationOutcome>)
-                        throw new InvalidOperationException(
-                            "Condition expiration failed during source cleanup."
+                    if (result.IsRejected)
+                        return ReductionResult<ConditionCleanupOutcome>.Reject(
+                            result.RejectionReason
                         );
                 }
                 else
                 {
-                    OpResult<ConditionRemovalOutcome> removed = await context.Dispatch(
-                        new RemoveConditionOp(
-                            match.EffectId,
-                            match.BindingId,
-                            match.Version,
-                            frame.Op.Source
-                        )
+                    ReductionResult<ConditionRemovalOutcome> result = remove.Reduce(
+                        ConditionReduction.Translate(
+                            context,
+                            new RemoveConditionOp(
+                                match.EffectId,
+                                match.BindingId,
+                                match.Version,
+                                context.Op.Source
+                            )
+                        ),
+                        state,
+                        facts
                     );
-                    if (removed is not ResolvedOpResult<ConditionRemovalOutcome>)
-                        throw new InvalidOperationException(
-                            "Condition removal failed during source cleanup."
+                    if (result.IsRejected)
+                        return ReductionResult<ConditionCleanupOutcome>.Reject(
+                            result.RejectionReason
                         );
                 }
                 affected.Add(match.EffectId);
             }
-            return new ConditionCleanupOutcome(affected);
+            return ReductionResult<ConditionCleanupOutcome>.Accept(
+                new ConditionCleanupOutcome(affected)
+            );
         }
     }
 }

@@ -12,10 +12,14 @@ namespace Game.Creature.Rules
         : IUnityEncounterDispatcherModule,
             IUnityCombatantEnrollmentModule
     {
+        private readonly UnityCombatRulesBridge owner;
         private readonly RuleRegistry registry;
 
-        internal ConditionEncounterModule(RuleRegistry registry) =>
+        internal ConditionEncounterModule(UnityCombatRulesBridge owner, RuleRegistry registry)
+        {
+            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        }
 
         /// <inheritdoc/>
         public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
@@ -24,13 +28,27 @@ namespace Game.Creature.Rules
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
-            List<ConditionRegistration> registrations = new List<ConditionRegistration>();
             Conditions persistence = builder.Controller.GetComponent<Conditions>();
-            if (persistence != null)
-                registrations.AddRange(persistence.CreateRegistrations(builder.CreatureId));
+            if (persistence == null)
+                return;
 
-            if (registrations.Count > 0)
-                builder.AddState(new ConditionEnrollmentContribution(registrations));
+            Conditions.ConditionRestoreLease lease = null;
+            if (
+                persistence.TryPrepareRestore(
+                    builder.CreatureId,
+                    owner.EncounterId,
+                    source => owner.GetCreatureId(source.GetComponent<CreatureComponent>()),
+                    out lease
+                )
+            )
+            {
+                builder.AddState(new ConditionEnrollmentContribution(lease.Registrations));
+                builder.AddInstallation(
+                    new CompleteRestoredConditionEnrollmentContribution(persistence, lease)
+                );
+            }
+            else
+                builder.AddInstallation(new CompleteConditionEnrollmentContribution(persistence));
         }
     }
 
@@ -46,11 +64,50 @@ namespace Game.Creature.Rules
         public void Seed(RulesStateSeed seed)
         {
             foreach (ConditionRegistration registration in registrations)
+            {
                 seed.SeedActiveEffect(registration.Effect).SeedRuleBinding(registration.Binding);
+                if (registration.Timing != null)
+                    seed.SeedActiveEffectTiming(registration.Timing);
+            }
         }
 
         /// <inheritdoc/>
         public void Register(UnityCombatRulesBridge bridge) =>
             bridge.DispatchRequired(new AdoptConditionRegistrationsOp(registrations));
+    }
+
+    internal sealed class CompleteConditionEnrollmentContribution
+        : IUnityCombatantInstallationContribution
+    {
+        private readonly Conditions conditions;
+
+        internal CompleteConditionEnrollmentContribution(Conditions conditions) =>
+            this.conditions = conditions ?? throw new ArgumentNullException(nameof(conditions));
+
+        /// <inheritdoc/>
+        public void Apply() => conditions.CompleteEnrollment();
+    }
+
+    internal sealed class CompleteRestoredConditionEnrollmentContribution
+        : IUnityCombatantInstallationContribution
+    {
+        private readonly Conditions conditions;
+        private readonly Conditions.ConditionRestoreLease lease;
+
+        internal CompleteRestoredConditionEnrollmentContribution(
+            Conditions conditions,
+            Conditions.ConditionRestoreLease lease
+        )
+        {
+            this.conditions = conditions ?? throw new ArgumentNullException(nameof(conditions));
+            this.lease = lease ?? throw new ArgumentNullException(nameof(lease));
+        }
+
+        /// <inheritdoc/>
+        public void Apply()
+        {
+            lease.Consume();
+            conditions.CompleteEnrollment();
+        }
     }
 }

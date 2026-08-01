@@ -50,7 +50,8 @@ namespace Game.Rules.Runtime
             return builder;
         }
 
-        internal static bool Accepts(RuleDefinitionId definitionId, IEffectState state)
+        /// <summary>Reports whether an exact typed state belongs to a canonical condition definition.</summary>
+        public static bool Accepts(RuleDefinitionId definitionId, IEffectState state)
         {
             if (state == null)
                 return false;
@@ -66,6 +67,13 @@ namespace Game.Rules.Runtime
                 return stateType == typeof(QuickenedConditionState);
             return false;
         }
+
+        /// <summary>Reports whether an ID names one of the canonical condition definitions.</summary>
+        public static bool IsConditionDefinition(RuleDefinitionId definitionId) =>
+            IsMarker(definitionId)
+            || definitionId == Slowed
+            || definitionId == Stunned
+            || definitionId == Quickened;
 
         internal static bool IsMarker(RuleDefinitionId definitionId) =>
             definitionId == OffGuard

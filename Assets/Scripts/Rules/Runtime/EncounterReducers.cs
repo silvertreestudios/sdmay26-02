@@ -239,10 +239,6 @@ namespace Game.Rules.Runtime
                     .OrderBy(effect => effect.Id.Value, StringComparer.Ordinal)
             )
             {
-                if (state.ActiveEffectTimings.Contains(effect.Id))
-                    return ReductionResult<EncounterStartOutcome>.Reject(
-                        $"Active effect {effect.Id.Value} already has encounter timing."
-                    );
                 ActiveRuleBinding[] bindings = state
                     .RuleBindings.Select(pair => pair.Value)
                     .Where(binding =>
@@ -259,9 +255,31 @@ namespace Game.Rules.Runtime
                     return ReductionResult<EncounterStartOutcome>.Reject(
                         $"Active effect {effect.Id.Value} requires one matching enabled binding."
                     );
-                adoptedTimings.Add(
-                    ActiveEffectTimingState.ForEncounter(effect, bindings[0], encounter)
-                );
+                if (
+                    state.ActiveEffectTimings.TryGet(
+                        effect.Id,
+                        out ActiveEffectTimingState restoredTiming
+                    )
+                )
+                {
+                    if (
+                        restoredTiming.Encounter != encounter.Id
+                        || restoredTiming.Binding != bindings[0].Id
+                        || restoredTiming.SourceCreature != effect.SourceCreature
+                        || restoredTiming.CreationOrder != bindings[0].CreationOrder
+                        || restoredTiming.ExpiresWithEncounter
+                            != (effect.Duration.Kind == EffectDurationKind.Encounter)
+                    )
+                        return ReductionResult<EncounterStartOutcome>.Reject(
+                            $"Active effect {effect.Id.Value} has invalid restored encounter timing."
+                        );
+                }
+                else
+                {
+                    adoptedTimings.Add(
+                        ActiveEffectTimingState.ForEncounter(effect, bindings[0], encounter)
+                    );
+                }
             }
             state.Encounters.Set(encounter.Id, encounter);
             state.RuleBindings.Set(outcomeBindingId, outcomeBinding);

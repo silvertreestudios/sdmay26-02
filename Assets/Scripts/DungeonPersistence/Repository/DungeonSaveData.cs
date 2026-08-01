@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
+using Game.Rules.Runtime;
 using UnityEngine;
 
 namespace Game.DungeonPersistence.Repository
@@ -80,10 +81,36 @@ namespace Game.DungeonPersistence.Repository
     }
 
     [Serializable]
+    internal enum DungeonConditionStateKind
+    {
+        Marker,
+        Slowed,
+        StunnedValued,
+        StunnedDurationOnly,
+        QuickenedRestricted,
+        QuickenedUnrestricted,
+    }
+
+    [Serializable]
     internal sealed class DungeonConditionSaveState
     {
-        public string ConditionId;
-        public string SourceKey;
+        public string EffectId;
+        public string BindingId;
+        public string DefinitionId;
+        public string SourceActorId;
+        public string RuleSource;
+        public EffectDurationKind DurationKind;
+        public int DurationAmount;
+        public long Version;
+        public ActiveEffectStatus Status;
+        public long CreationOrder;
+        public bool BindingEnabled;
+        public DungeonConditionStateKind StateKind;
+        public int Value;
+        public string[] AllowedActionIds;
+        public bool HasTiming;
+        public int RemainingBoundaries;
+        public bool ExpiresWithEncounter;
     }
 
     [Serializable]
@@ -442,6 +469,17 @@ namespace Game.DungeonPersistence.Repository
                         $"Timed effect source actor '{effect.SourceActorId}' is unavailable on '{floorPath}'."
                     );
             }
+            foreach (
+                DungeonConditionSaveState condition in allStates.SelectMany(state =>
+                    state.Conditions
+                )
+            )
+            {
+                if (!actorIds.Contains(condition.SourceActorId))
+                    throw new ArgumentException(
+                        $"Condition source actor '{condition.SourceActorId}' is unavailable on '{floorPath}'."
+                    );
+            }
         }
 
         private static void ValidateCurrentFloorParty(
@@ -680,11 +718,7 @@ namespace Game.DungeonPersistence.Repository
                 );
             if (
                 state.TemporaryHitPointImmunities.Any(string.IsNullOrWhiteSpace)
-                || state.Conditions.Any(item =>
-                    item == null
-                    || string.IsNullOrWhiteSpace(item.ConditionId)
-                    || string.IsNullOrWhiteSpace(item.SourceKey)
-                )
+                || !AreConditionsValid(state.Conditions)
                 || state.TimedEffects.Any(item =>
                     item == null
                     || !IsSupportedTimedEffect(item.Kind)
@@ -703,6 +737,96 @@ namespace Game.DungeonPersistence.Repository
                 || state.Equipment.UnloadedWeaponIds.Any(string.IsNullOrWhiteSpace)
             )
                 throw new ArgumentException("Saved actor state contains an invalid entry.");
+        }
+
+        private static bool AreConditionsValid(IReadOnlyList<DungeonConditionSaveState> conditions)
+        {
+            HashSet<string> effects = new(StringComparer.Ordinal);
+            HashSet<string> bindings = new(StringComparer.Ordinal);
+            foreach (DungeonConditionSaveState item in conditions)
+            {
+                if (
+                    item == null
+                    || string.IsNullOrWhiteSpace(item.EffectId)
+                    || string.IsNullOrWhiteSpace(item.BindingId)
+                    || string.IsNullOrWhiteSpace(item.DefinitionId)
+                    || string.IsNullOrWhiteSpace(item.SourceActorId)
+                    || string.IsNullOrWhiteSpace(item.RuleSource)
+                    || RuleSource.FromSlug(item.RuleSource).Slug != item.RuleSource
+                    || item.AllowedActionIds == null
+                    || item.Version < 0
+                    || item.CreationOrder < 0
+                    || item.RemainingBoundaries < 0
+                    || !effects.Add(item.EffectId)
+                    || !bindings.Add(item.BindingId)
+                    || !Enum.IsDefined(typeof(EffectDurationKind), item.DurationKind)
+                    || !Enum.IsDefined(typeof(ActiveEffectStatus), item.Status)
+                    || !Enum.IsDefined(typeof(DungeonConditionStateKind), item.StateKind)
+                    || !IsDurationValid(item)
+                    || !IsConditionStateValid(item)
+                    || (item.Status == ActiveEffectStatus.Active) != item.BindingEnabled
+                    || !IsTimingValid(item)
+                )
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool IsDurationValid(DungeonConditionSaveState item) =>
+            item.DurationKind is EffectDurationKind.Rounds or EffectDurationKind.Minutes
+                ? item.DurationAmount > 0
+                : item.DurationAmount == 0;
+
+        private static bool IsConditionStateValid(DungeonConditionSaveState item)
+        {
+            bool noActions = item.AllowedActionIds.Length == 0;
+            bool uniqueActions =
+                !item.AllowedActionIds.Any(string.IsNullOrWhiteSpace)
+                && item.AllowedActionIds.Distinct(StringComparer.Ordinal).Count()
+                    == item.AllowedActionIds.Length
+                && item.AllowedActionIds.SequenceEqual(
+                    item.AllowedActionIds.OrderBy(value => value, StringComparer.Ordinal)
+                );
+            if (!uniqueActions)
+                return false;
+            if (
+                item.DefinitionId == ConditionRuleDefinitions.OffGuard.Value
+                || item.DefinitionId == ConditionRuleDefinitions.Deafened.Value
+                || item.DefinitionId == ConditionRuleDefinitions.Fatigued.Value
+                || item.DefinitionId == ConditionRuleDefinitions.Encumbered.Value
+            )
+                return item.StateKind == DungeonConditionStateKind.Marker
+                    && item.Value == 0
+                    && noActions;
+            if (item.DefinitionId == ConditionRuleDefinitions.Slowed.Value)
+                return item.StateKind == DungeonConditionStateKind.Slowed
+                    && item.Value > 0
+                    && noActions;
+            if (item.DefinitionId == ConditionRuleDefinitions.Stunned.Value)
+                return (
+                        item.StateKind == DungeonConditionStateKind.StunnedValued
+                        && item.Value > 0
+                        && noActions
+                    )
+                    || (
+                        item.StateKind == DungeonConditionStateKind.StunnedDurationOnly
+                        && item.Value == 0
+                        && noActions
+                    );
+            if (item.DefinitionId != ConditionRuleDefinitions.Quickened.Value || item.Value != 0)
+                return false;
+            return item.StateKind == DungeonConditionStateKind.QuickenedUnrestricted && noActions
+                || item.StateKind == DungeonConditionStateKind.QuickenedRestricted
+                    && item.AllowedActionIds.Length > 0;
+        }
+
+        private static bool IsTimingValid(DungeonConditionSaveState item)
+        {
+            if (!item.HasTiming)
+                return item.RemainingBoundaries == 0 && !item.ExpiresWithEncounter;
+            return item.Status == ActiveEffectStatus.Active
+                && item.DurationKind != EffectDurationKind.Indefinite
+                && item.ExpiresWithEncounter == (item.DurationKind == EffectDurationKind.Encounter);
         }
 
         private static bool IsSupportedTimedEffect(string kind) =>

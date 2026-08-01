@@ -47,14 +47,8 @@ namespace Game.Combat.Spells
         }
 
         /// <inheritdoc/>
-        public void ConfigureDispatcher(RuleDispatcherBuilder builder)
-        {
-            builder
-                .UseSpellcastingRules(catalog, attackContext)
-                .RegisterHandler<AdoptRestoredSpellEffectsOp, bool>(
-                    new AdoptRestoredSpellEffectsHandler()
-                );
-        }
+        public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
+            builder.UseSpellcastingRules(catalog, attackContext);
 
         /// <inheritdoc/>
         public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
@@ -116,45 +110,6 @@ namespace Game.Combat.Spells
     }
 
     /// <summary>
-    /// Carries restored finite spell effects through the feature-owned root workflow used for
-    /// reinforcement enrollment.
-    /// </summary>
-    internal sealed class AdoptRestoredSpellEffectsOp : IRuleOp<bool>
-    {
-        internal AdoptRestoredSpellEffectsOp(
-            IEnumerable<RestoredSpellEffectRegistration> registrations
-        )
-        {
-            Registrations =
-                registrations?.ToArray() ?? throw new ArgumentNullException(nameof(registrations));
-        }
-
-        internal IReadOnlyList<RestoredSpellEffectRegistration> Registrations { get; }
-    }
-
-    internal sealed class AdoptRestoredSpellEffectsHandler
-        : IOpHandler<AdoptRestoredSpellEffectsOp, bool>
-    {
-        public async ValueTask<bool> Handle(
-            OpFrame<AdoptRestoredSpellEffectsOp> frame,
-            OpHandlerContext context
-        )
-        {
-            foreach (RestoredSpellEffectRegistration registration in frame.Op.Registrations)
-            {
-                OpResult<ActiveEffectCreationOutcome> result = await context.Dispatch(
-                    new CreateActiveEffectOp(registration.Effect, registration.Binding)
-                );
-                if (result is not ResolvedOpResult<ActiveEffectCreationOutcome>)
-                    throw new InvalidOperationException(
-                        "Restored spell-effect adoption did not resolve."
-                    );
-            }
-            return true;
-        }
-    }
-
-    /// <summary>
     /// Owns pre-encounter restored spell-effect state until the encounter releases its complete
     /// composition.
     /// </summary>
@@ -208,13 +163,22 @@ namespace Game.Combat.Spells
         {
             if (bridge == null)
                 throw new ArgumentNullException(nameof(bridge));
-            RestoredSpellEffectRegistration[] registrations = owned
+            ActiveEffectRegistration[] registrations = owned
                 .Select(projection => projection.CreateRegistration(owner))
+                .Select(registration => new ActiveEffectRegistration(
+                    registration.Effect,
+                    registration.Binding
+                ))
                 .ToArray();
-            OpResult<bool> result = bridge.Dispatch(new AdoptRestoredSpellEffectsOp(registrations));
-            if (result is ResolvedOpResult<bool>)
+            OpResult<ActiveEffectAdoptionOutcome> result = bridge.Dispatch(
+                new AdoptActiveEffectRegistrationsOp(
+                    registrations,
+                    RuleSource.FromSlug("restored-spell-effect-enrollment")
+                )
+            );
+            if (result is ResolvedOpResult<ActiveEffectAdoptionOutcome>)
                 return;
-            if (result is InvalidOpResult<bool> invalid)
+            if (result is InvalidOpResult<ActiveEffectAdoptionOutcome> invalid)
                 throw new InvalidOperationException(invalid.Reason);
             throw new InvalidOperationException(
                 "Restored spell-effect enrollment did not resolve."
