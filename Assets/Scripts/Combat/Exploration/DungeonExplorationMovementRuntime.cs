@@ -21,13 +21,15 @@ namespace Game.Combat.Exploration
         private readonly Func<bool> isCombatActive;
         private readonly Func<ActionController, bool> canParticipate;
         private readonly Func<bool> processEncounterBoundary;
+        private readonly Func<bool> shouldInterruptStrideSuffix;
 
         internal DungeonExplorationMovementRuntime(
             IEnumerable<ActionController> party,
             Func<ActionController> selectedLeader,
             Func<bool> isCombatActive,
             Func<ActionController, bool> canParticipate,
-            Func<bool> processEncounterBoundary
+            Func<bool> processEncounterBoundary,
+            Func<bool> shouldInterruptStrideSuffix
         )
         {
             this.party = party?.ToArray() ?? throw new ArgumentNullException(nameof(party));
@@ -40,6 +42,9 @@ namespace Game.Combat.Exploration
             this.processEncounterBoundary =
                 processEncounterBoundary
                 ?? throw new ArgumentNullException(nameof(processEncounterBoundary));
+            this.shouldInterruptStrideSuffix =
+                shouldInterruptStrideSuffix
+                ?? throw new ArgumentNullException(nameof(shouldInterruptStrideSuffix));
         }
 
         /// <inheritdoc/>
@@ -59,12 +64,16 @@ namespace Game.Combat.Exploration
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
-            Ref<bool> continuePath
+            Ref<bool> continuePath,
+            Ref<bool> pathInterrupted
         )
         {
             if (continuePath == null)
                 throw new ArgumentNullException(nameof(continuePath));
+            if (pathInterrupted == null)
+                throw new ArgumentNullException(nameof(pathInterrupted));
             continuePath.Value = false;
+            pathInterrupted.Value = false;
             if (
                 !Handles(leader)
                 || tiles == null
@@ -125,11 +134,21 @@ namespace Game.Combat.Exploration
                     controller == selectedLeader(),
                     moved
                 );
-                if (!moved.Value || processEncounterBoundary())
+                if (!moved.Value)
                     yield break;
+                if (processEncounterBoundary())
+                {
+                    pathInterrupted.Value = true;
+                    yield break;
+                }
             }
 
             ActionController currentLeader = selectedLeader();
+            if (shouldInterruptStrideSuffix())
+            {
+                pathInterrupted.Value = true;
+                yield break;
+            }
             continuePath.Value =
                 !isCombatActive() && currentLeader != null && currentLeader.IsInDungeonExploration;
         }

@@ -206,6 +206,10 @@ public class HUDController
         RestoreTacticsControlPresentation();
         tacticsModeButton.clicked -= OnTacticsModeClicked;
         tacticsModeButton.clicked += OnTacticsModeClicked;
+        tacticsModeButton.UnregisterCallback<PointerEnterEvent>(OnTacticsControlPointerEnter);
+        tacticsModeButton.UnregisterCallback<PointerLeaveEvent>(OnTacticsControlPointerLeave);
+        tacticsModeButton.RegisterCallback<PointerEnterEvent>(OnTacticsControlPointerEnter);
+        tacticsModeButton.RegisterCallback<PointerLeaveEvent>(OnTacticsControlPointerLeave);
         OnCombatOutcome.AddListener(OnCombatOutcomeChanged);
 
         if (dungeonRunStatusLabel != null)
@@ -274,7 +278,11 @@ public class HUDController
         if (dungeonMainMenuButton != null)
             dungeonMainMenuButton.clicked -= ReturnToMainMenu;
         if (tacticsModeButton != null)
+        {
             tacticsModeButton.clicked -= OnTacticsModeClicked;
+            tacticsModeButton.UnregisterCallback<PointerEnterEvent>(OnTacticsControlPointerEnter);
+            tacticsModeButton.UnregisterCallback<PointerLeaveEvent>(OnTacticsControlPointerLeave);
+        }
         if (resizeHandle != null)
         {
             resizeHandle.UnregisterCallback<PointerDownEvent>(OnResizeStart);
@@ -295,6 +303,18 @@ public class HUDController
         }
         SettingsMenuControl.OnLogOpacityChanged -= ApplyLogOpacity;
         DismissStairTraversal();
+    }
+
+    private void OnTacticsControlPointerEnter(PointerEnterEvent _)
+    {
+        _hudHoverCount++;
+        IsPointerOverHUD = true;
+    }
+
+    private void OnTacticsControlPointerLeave(PointerLeaveEvent _)
+    {
+        _hudHoverCount = Mathf.Max(0, _hudHoverCount - 1);
+        IsPointerOverHUD = _hudHoverCount > 0;
     }
 
     public void EnableUi()

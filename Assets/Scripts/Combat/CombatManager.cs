@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;

@@ -82,9 +82,12 @@ namespace Game.Combat.Encounters
         private GridBase grid;
         private IExplorationStrideCoordinator explorationMovement =
             NoExplorationStrideCoordinator.Instance;
-        private Coroutine destinationTravel;
+        private DestinationTravelOwner destinationTravelOwner;
         private bool travelCancelled;
         private DungeonCell? pendingDoorCell;
+
+        private bool HasActiveDestinationTravel =>
+            destinationTravelOwner != null && destinationTravelOwner.IsActive;
 
         /// <summary>Gets whether this component owns a fully constructed floor lifecycle.</summary>
         public bool IsInitialized { get; private set; }
@@ -559,10 +562,17 @@ namespace Game.Combat.Encounters
 
         private void ResetRuntime(bool destroyEncounterActors)
         {
-            if (destinationTravel != null)
+            DestinationTravelOwner travelOwner = destinationTravelOwner;
+            if (
+                travelOwner != null
+                && ReferenceEquals(destinationTravelOwner, travelOwner)
+                && travelOwner.TryRelease(out Coroutine runningCoroutine)
+            )
             {
-                StopCoroutine(destinationTravel);
-                destinationTravel = null;
+                destinationTravelOwner = null;
+                travelCancelled = true;
+                if (runningCoroutine != null)
+                    StopCoroutine(runningCoroutine);
                 OnCancel.RemoveListener(CancelDestinationTravel);
                 OnPreviewPath.Invoke(new List<Vector3Int>());
             }
@@ -703,7 +713,8 @@ namespace Game.Combat.Encounters
                 () => selectedLeader,
                 () => combatManager.IsCombatActive,
                 CanObserve,
-                ProcessImmediateExplorationBoundary
+                ProcessImmediateExplorationBoundary,
+                () => HasActiveDestinationTravel && travelCancelled
             );
             grid.BindExplorationStrideCoordinator(this);
         }
@@ -712,7 +723,7 @@ namespace Game.Combat.Encounters
         {
             DungeonCell clickedCell = new(cell.x, cell.z);
             if (
-                destinationTravel != null
+                HasActiveDestinationTravel
                 && doorsByCell.TryGetValue(clickedCell, out DungeonDoorController movingDoor)
                 && !movingDoor.IsOpen
             )
@@ -726,7 +737,7 @@ namespace Game.Combat.Encounters
                 travelCancelled = true;
                 return;
             }
-            if (!IsExplorationActive || HasActionInProgress || destinationTravel != null)
+            if (!IsExplorationActive || HasActionInProgress || HasActiveDestinationTravel)
                 return;
 
             Vector3Int origin = Vector3Int.RoundToInt(selectedLeader.transform.position);
@@ -742,10 +753,19 @@ namespace Game.Combat.Encounters
                 plan.Cells.Select(routeCell => new Vector3Int(routeCell.X, origin.y, routeCell.Z))
                     .ToList()
             );
-            destinationTravel = StartCoroutine(TravelToDestination(plan, origin.y));
+            DestinationTravelOwner travelOwner = new();
+            destinationTravelOwner = travelOwner;
+            Coroutine runningCoroutine = StartCoroutine(
+                TravelToDestination(travelOwner, plan, origin.y)
+            );
+            travelOwner.TryAttach(runningCoroutine);
         }
 
-        private IEnumerator TravelToDestination(ExplorationTravelPlan plan, int elevation)
+        private IEnumerator TravelToDestination(
+            DestinationTravelOwner travelOwner,
+            ExplorationTravelPlan plan,
+            int elevation
+        )
         {
             travelCancelled = false;
             OnCancel.AddListener(CancelDestinationTravel);
@@ -792,17 +812,65 @@ namespace Game.Combat.Encounters
             }
             finally
             {
-                OnCancel.RemoveListener(CancelDestinationTravel);
-                OnPreviewPath.Invoke(new List<Vector3Int>());
-                destinationTravel = null;
-                DungeonCell? queuedDoorCell = pendingDoorCell;
-                pendingDoorCell = null;
-                if (queuedDoorCell.HasValue && IsExplorationActive)
-                    TryOpenDoor(queuedDoorCell.Value);
+                CompleteDestinationTravel(travelOwner);
             }
         }
 
-        private void CancelDestinationTravel() => travelCancelled = true;
+        private void CompleteDestinationTravel(DestinationTravelOwner travelOwner)
+        {
+            if (
+                !ReferenceEquals(destinationTravelOwner, travelOwner)
+                || !travelOwner.TryRelease(out _)
+            )
+            {
+                return;
+            }
+
+            destinationTravelOwner = null;
+            OnCancel.RemoveListener(CancelDestinationTravel);
+            OnPreviewPath.Invoke(new List<Vector3Int>());
+            DungeonCell? queuedDoorCell = pendingDoorCell;
+            pendingDoorCell = null;
+            if (queuedDoorCell.HasValue && IsExplorationActive)
+                TryOpenDoor(queuedDoorCell.Value);
+        }
+
+        private void CancelDestinationTravel()
+        {
+            if (HasActiveDestinationTravel)
+                travelCancelled = true;
+        }
+
+        /// <summary>
+        /// Tracks logical destination-travel ownership independently from Unity's late coroutine
+        /// handle, which may be returned only after a synchronous iterator has already completed.
+        /// </summary>
+        private sealed class DestinationTravelOwner
+        {
+            private Coroutine runningCoroutine;
+
+            internal bool IsActive { get; private set; } = true;
+
+            internal bool TryAttach(Coroutine coroutine)
+            {
+                if (!IsActive)
+                    return false;
+
+                runningCoroutine = coroutine;
+                return true;
+            }
+
+            internal bool TryRelease(out Coroutine coroutine)
+            {
+                coroutine = runningCoroutine;
+                if (!IsActive)
+                    return false;
+
+                IsActive = false;
+                runningCoroutine = null;
+                return true;
+            }
+        }
 
         private readonly struct PreparedDoorInteraction
         {
@@ -833,7 +901,8 @@ namespace Game.Combat.Encounters
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
-            Ref<bool> continuePath
+            Ref<bool> continuePath,
+            Ref<bool> pathInterrupted
         ) =>
             explorationMovement.ProjectCommittedStep(
                 leader,
@@ -841,7 +910,8 @@ namespace Game.Combat.Encounters
                 destination,
                 tiles,
                 movement,
-                continuePath
+                continuePath,
+                pathInterrupted
             );
 
         private bool ProcessImmediateExplorationBoundary()

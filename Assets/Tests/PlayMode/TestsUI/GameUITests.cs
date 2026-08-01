@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using Game.Creature;
 using Game.Rules.Runtime;
 using NUnit.Framework;
@@ -349,6 +350,68 @@ namespace TestsUI
                 timeout,
                 () => root.Q<Button>("EndTurnButton") != null
             );
+        }
+
+        [UnityTest]
+        public IEnumerator TacticsModePointerGuardIsLifecycleSafeAcrossHudReenable()
+        {
+            HUDController hud = HUDController.GetInstance();
+            Button tacticsControl = root.Q<Button>("TacticsModeButton");
+            Assert.That(tacticsControl, Is.Not.Null);
+            FieldInfo hoverCount = typeof(HUDController).GetField(
+                "_hudHoverCount",
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
+            Assert.That(hoverCount, Is.Not.Null);
+
+            using (PointerEnterEvent pointerEnter = PointerEnterEvent.GetPooled())
+            {
+                pointerEnter.target = tacticsControl;
+                tacticsControl.SendEvent(pointerEnter);
+            }
+            Assert.That(HUDController.IsPointerOverHUD, Is.True);
+            Assert.That(hoverCount.GetValue(hud), Is.EqualTo(1));
+
+            using (PointerLeaveEvent pointerLeave = PointerLeaveEvent.GetPooled())
+            {
+                pointerLeave.target = tacticsControl;
+                tacticsControl.SendEvent(pointerLeave);
+            }
+            Assert.That(HUDController.IsPointerOverHUD, Is.False);
+            Assert.That(hoverCount.GetValue(hud), Is.EqualTo(0));
+
+            using (PointerEnterEvent pointerEnter = PointerEnterEvent.GetPooled())
+            {
+                pointerEnter.target = tacticsControl;
+                tacticsControl.SendEvent(pointerEnter);
+            }
+            hud.enabled = false;
+            yield return null;
+            Assert.That(HUDController.IsPointerOverHUD, Is.False);
+            Assert.That(hoverCount.GetValue(hud), Is.EqualTo(0));
+
+            hud.enabled = true;
+            yield return null;
+            Assert.That(root.Q<Button>("TacticsModeButton"), Is.SameAs(tacticsControl));
+            using (PointerEnterEvent pointerEnter = PointerEnterEvent.GetPooled())
+            {
+                pointerEnter.target = tacticsControl;
+                tacticsControl.SendEvent(pointerEnter);
+            }
+            Assert.That(HUDController.IsPointerOverHUD, Is.True);
+            Assert.That(
+                hoverCount.GetValue(hud),
+                Is.EqualTo(1),
+                "Re-enabling the HUD must register the tactics hover callback exactly once."
+            );
+
+            using (PointerLeaveEvent pointerLeave = PointerLeaveEvent.GetPooled())
+            {
+                pointerLeave.target = tacticsControl;
+                tacticsControl.SendEvent(pointerLeave);
+            }
+            Assert.That(HUDController.IsPointerOverHUD, Is.False);
+            Assert.That(hoverCount.GetValue(hud), Is.EqualTo(0));
         }
 
         [UnityTest]

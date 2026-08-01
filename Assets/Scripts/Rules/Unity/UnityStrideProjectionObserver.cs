@@ -59,24 +59,30 @@ namespace Game.Rules.Unity
             if (startedInExploration && exploration.Handles(character))
             {
                 Ref<bool> continuePath = new Ref<bool>(false);
+                Ref<bool> pathInterrupted = new Ref<bool>(false);
                 yield return exploration.ProjectCommittedStep(
                     character,
                     from,
                     to,
                     grid.GetTiles(),
                     TokenMovement.GetInstance(),
-                    continuePath
+                    continuePath,
+                    pathInterrupted
                 );
                 if (!continuePath.Value)
                 {
-                    if (!exploration.Handles(character))
+                    if (pathInterrupted.Value)
                     {
-                        // Encounter setup clears every controller's turn state before granting
-                        // initiative. Restore this still-running action's guard until its owner
-                        // finalizes, so no combat action can start and be cleared by that finalizer.
-                        ActionController controller = character.GetComponent<ActionController>();
-                        if (controller != null)
-                            controller.IsTakingAction = true;
+                        if (!exploration.Handles(character))
+                        {
+                            // Encounter setup clears every controller's turn state before granting
+                            // initiative. Restore this still-running action's guard until its owner
+                            // finalizes, so no combat action can start and be cleared by that finalizer.
+                            ActionController controller =
+                                character.GetComponent<ActionController>();
+                            if (controller != null)
+                                controller.IsTakingAction = true;
+                        }
                         throw new ExplorationStrideProjectionInterruptedException();
                     }
                     throw new InvalidOperationException(
@@ -130,7 +136,7 @@ namespace Game.Rules.Unity
     }
 
     /// <summary>
-    /// Stops an obsolete temporary exploration root after its committed boundary step starts combat.
+    /// Stops an obsolete temporary exploration root after its final committed step is projected.
     /// </summary>
     internal sealed class ExplorationStrideProjectionInterruptedException : Exception { }
 }

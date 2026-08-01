@@ -596,8 +596,8 @@ namespace Game.Rules.Unity
         /// <param name="path">The exact completed selection.</param>
         /// <param name="projection">The projection observer retained for this root only.</param>
         /// <returns>
-        /// Whether the rules root resolved, including a boundary step whose obsolete exploration
-        /// suffix was intentionally abandoned after combat took authority.
+        /// Whether the rules root resolved, including a final committed exploration step whose
+        /// obsolete temporary suffix was intentionally abandoned.
         /// </returns>
         public async ValueTask<bool> DispatchProjectedStride(
             CreatureId creature,
@@ -616,9 +616,9 @@ namespace Game.Rules.Unity
                 }
                 catch (ExplorationStrideProjectionInterruptedException)
                 {
-                    // The committed boundary step has already been projected. Encounter startup
-                    // creates the next authoritative composition from that Unity position, so the
-                    // temporary exploration root must not project its uncommitted path suffix.
+                    // The final committed step has already been projected. Cancellation or
+                    // encounter startup makes the temporary exploration suffix obsolete, so it
+                    // must not commit or project another step.
                     return true;
                 }
             }

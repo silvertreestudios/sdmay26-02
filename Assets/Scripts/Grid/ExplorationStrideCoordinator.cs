@@ -24,8 +24,12 @@ namespace GridPrivate
         /// <param name="tiles">The live grid occupancy and walkability array.</param>
         /// <param name="movement">The scene's serialized token movement presenter.</param>
         /// <param name="continuePath">
-        /// Set to <see langword="false"/> when movement is rejected, blocked, or interrupted by
-        /// encounter activation.
+        /// Set to <see langword="true"/> only when the projected path suffix may continue.
+        /// </param>
+        /// <param name="pathInterrupted">
+        /// Set to <see langword="true"/> when the committed step projected successfully but the
+        /// remaining temporary exploration path must be abandoned. A rejected or blocked
+        /// projection leaves both result references <see langword="false"/>.
         /// </param>
         /// <returns>A coroutine that completes after all committed member movement.</returns>
         IEnumerator ProjectCommittedStep(
@@ -34,7 +38,8 @@ namespace GridPrivate
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
-            Ref<bool> continuePath
+            Ref<bool> continuePath,
+            Ref<bool> pathInterrupted
         );
     }
 
@@ -52,7 +57,8 @@ namespace GridPrivate
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
-            Ref<bool> continuePath
+            Ref<bool> continuePath,
+            Ref<bool> pathInterrupted
         ) =>
             throw new InvalidOperationException(
                 "The null exploration coordinator cannot execute movement."
