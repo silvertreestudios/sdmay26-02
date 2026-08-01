@@ -178,6 +178,26 @@ namespace Game.Rules.Runtime
             : base(creature, origin) { }
     }
 
+    /// <summary>
+    /// Records that a zero-hit-point creature crossed the authoritative defeat boundary.
+    /// </summary>
+    /// <remarks>
+    /// Reaching zero hit points and committing defeat are separate lifecycle steps so reactions to
+    /// the damage Fact settle before encounter outcome observes the committed state.
+    /// </remarks>
+    public sealed class CreatureDefeatCommittedFact : RuleFact
+    {
+        /// <summary>Gets the creature whose defeat was committed.</summary>
+        public CreatureId Creature { get; }
+
+        /// <summary>Initializes an authoritative defeat transition record.</summary>
+        /// <param name="creature">The creature whose defeat was committed.</param>
+        public CreatureDefeatCommittedFact(CreatureId creature) =>
+            Creature = creature.IsEmpty
+                ? throw new ArgumentException("Creature is required.", nameof(creature))
+                : creature;
+    }
+
     /// <summary>Describes the exact damage distribution committed by the health reducer.</summary>
     public readonly struct DamageOutcome
     {

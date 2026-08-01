@@ -21,6 +21,8 @@ namespace Game.Rules.Runtime
         public Dictionary<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; }
         public Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; }
         public Dictionary<BindingId, FrequencyState> Frequencies { get; }
+        public Dictionary<EncounterId, EncounterState> Encounters { get; }
+        public Dictionary<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
 
         public RulesStateData(RulesStateSeed seed)
             : this(
@@ -40,7 +42,9 @@ namespace Game.Rules.Runtime
                 new Dictionary<ItemId, EquipmentState>(seed.Equipment),
                 new Dictionary<ActiveEffectId, ActiveEffectInstance>(seed.ActiveEffects),
                 new Dictionary<BindingId, ActiveRuleBinding>(seed.RuleBindings),
-                new Dictionary<BindingId, FrequencyState>(seed.Frequencies)
+                new Dictionary<BindingId, FrequencyState>(seed.Frequencies),
+                new Dictionary<EncounterId, EncounterState>(seed.Encounters),
+                new Dictionary<ActiveEffectId, ActiveEffectTimingState>(seed.ActiveEffectTimings)
             ) { }
 
         public RulesStateData(
@@ -60,7 +64,9 @@ namespace Game.Rules.Runtime
             Dictionary<ItemId, EquipmentState> equipment,
             Dictionary<ActiveEffectId, ActiveEffectInstance> activeEffects,
             Dictionary<BindingId, ActiveRuleBinding> ruleBindings,
-            Dictionary<BindingId, FrequencyState> frequencies
+            Dictionary<BindingId, FrequencyState> frequencies,
+            Dictionary<EncounterId, EncounterState> encounters,
+            Dictionary<ActiveEffectId, ActiveEffectTimingState> activeEffectTimings
         )
         {
             Version = version;
@@ -80,6 +86,8 @@ namespace Game.Rules.Runtime
             ActiveEffects = activeEffects;
             RuleBindings = ruleBindings;
             Frequencies = frequencies;
+            Encounters = encounters;
+            ActiveEffectTimings = activeEffectTimings;
         }
     }
 }

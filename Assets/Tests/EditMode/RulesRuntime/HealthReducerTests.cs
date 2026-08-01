@@ -46,6 +46,32 @@ namespace Game.Rules.Runtime.Tests
         private static readonly RuleSource Other = RuleSource.FromSlug("other-temp-hp");
 
         [Test]
+        public void HealthBatchRejectsRepeatedTargetBeforeDispatch()
+        {
+            HealthBatchChange damage = new HealthBatchChange(
+                HealthBatchChangeKind.Damage,
+                Creature,
+                10,
+                new HealthChangeOriginId("batch-lethal"),
+                Strike
+            );
+            HealthBatchChange healing = new HealthBatchChange(
+                HealthBatchChangeKind.Healing,
+                Creature,
+                1,
+                new HealthChangeOriginId("batch-healing"),
+                RuleSource.FromSlug("heal")
+            );
+
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new ApplyHealthBatchOp(new[] { damage, healing })
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("changes"));
+            Assert.That(error.Message, Does.Contain("cannot repeat a target"));
+        }
+
+        [Test]
         public void HealthCompositionCompletesSynchronouslyWithSynchronousCallbacks()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new HealthState(10, 10));
@@ -73,7 +99,11 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(resolved.Value.AppliedToTemporary, Is.EqualTo(3));
             Assert.That(resolved.Value.AppliedToCurrent, Is.EqualTo(5));
             Assert.That(resolved.Value.Applied, Is.EqualTo(8));
-            Assert.That(dispatcher.Snapshot.Health[Creature], Is.EqualTo(new HealthState(0, 10)));
+            HealthState defeated = dispatcher.Snapshot.Health[Creature];
+            Assert.That(defeated.Current, Is.Zero);
+            Assert.That(defeated.Maximum, Is.EqualTo(10));
+            Assert.That(defeated.Temporary, Is.Zero);
+            Assert.That(defeated.IsCommittedDefeated, Is.True);
             DamageAppliedFact damage = resolved.Facts.OfType<DamageAppliedFact>().Single();
             Assert.That(damage.AppliedToTemporary, Is.EqualTo(3));
             Assert.That(damage.AppliedToCurrent, Is.EqualTo(5));
@@ -82,6 +112,10 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(1)
             );
             Assert.That(resolved.Facts.OfType<CreatureReducedToZeroFact>().Count(), Is.EqualTo(1));
+            Assert.That(
+                resolved.Facts.OfType<CreatureDefeatCommittedFact>().Count(),
+                Is.EqualTo(1)
+            );
         }
 
         [Test]
@@ -118,7 +152,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task ReductionToZeroVacatesPositionButPreservesHealthAndIdentity()
+        public async Task ReductionToZeroCommitsDefeatWhenNoEncounterOwnsReactions()
         {
             GridPosition occupiedPosition = new GridPosition(2, 0, 3);
             RulesStateSeed seed = new RulesStateSeed()
@@ -133,9 +167,22 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(RequireResolved(result).Value.AppliedToCurrent, Is.EqualTo(2));
             Assert.That(dispatcher.Snapshot.Positions.Contains(Creature), Is.False);
-            Assert.That(dispatcher.Snapshot.Health[Creature], Is.EqualTo(new HealthState(0, 10)));
+            HealthState defeated = dispatcher.Snapshot.Health[Creature];
+            Assert.That(defeated.Current, Is.Zero);
             Assert.That(dispatcher.Snapshot.Creatures[Creature].Id, Is.EqualTo(Creature));
             Assert.That(result.Facts.OfType<CreatureReducedToZeroFact>().Count(), Is.EqualTo(1));
+            Assert.That(defeated.IsCommittedDefeated, Is.True);
+            Assert.That(result.Facts.OfType<CreatureDefeatCommittedFact>().Count(), Is.EqualTo(1));
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(
+                    new ApplyHealingOp(
+                        Creature,
+                        1,
+                        new HealthChangeOriginId("heal-committed-defeat"),
+                        RuleSource.FromSlug("healing")
+                    )
+                )
+            );
         }
 
         [Test]

@@ -67,6 +67,22 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task RegistrationTokenUnregistersObserverExactlyOnce()
+        {
+            CountingObserver observer = new CountingObserver();
+            RuleDispatcher dispatcher = CreateDispatcher(CreateStore());
+            IDisposable registration = dispatcher.RegisterFactObserver(observer);
+
+            await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
+            registration.Dispose();
+            registration.Dispose();
+            await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 2)));
+
+            Assert.That(observer.Count, Is.EqualTo(1));
+            Assert.That(dispatcher.UnregisterFactObserver(observer), Is.False);
+        }
+
+        [Test]
         public async Task MultipleFactsAndObserversUseFactThenRegistrationOrder()
         {
             List<string> deliveries = new List<string>();

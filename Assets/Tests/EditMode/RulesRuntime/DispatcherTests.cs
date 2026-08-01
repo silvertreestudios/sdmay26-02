@@ -62,6 +62,73 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void CompositeLifetimeCleansUpInReverseOrderOnceAndRejectsLateResources()
+        {
+            List<string> cleanupOrder = new List<string>();
+            TrackingDisposable first = new TrackingDisposable("first", cleanupOrder);
+            TrackingDisposable second = new TrackingDisposable("second", cleanupOrder);
+            TrackingDisposable late = new TrackingDisposable("late", cleanupOrder);
+            CompositeLifetime lifetime = new CompositeLifetime();
+
+            Assert.That(lifetime.Add(first), Is.SameAs(first));
+            lifetime.Add(second);
+            lifetime.Dispose();
+            lifetime.Dispose();
+
+            Assert.That(cleanupOrder, Is.EqualTo(new[] { "second", "first" }));
+            Assert.That(first.DisposeCount, Is.EqualTo(1));
+            Assert.That(second.DisposeCount, Is.EqualTo(1));
+            Assert.Throws<ObjectDisposedException>(() => lifetime.Add(late));
+            Assert.That(late.DisposeCount, Is.Zero);
+        }
+
+        [Test]
+        public void CompositeLifetimeAttemptsEveryCleanupAndPreservesReverseFailureOrder()
+        {
+            List<string> cleanupOrder = new List<string>();
+            InvalidOperationException firstFailure = new InvalidOperationException("first");
+            ApplicationException secondFailure = new ApplicationException("second");
+            CompositeLifetime lifetime = new CompositeLifetime();
+            lifetime.Add(new TrackingDisposable("first", cleanupOrder, firstFailure));
+            lifetime.Add(new TrackingDisposable("second", cleanupOrder, secondFailure));
+            lifetime.Add(new TrackingDisposable("third", cleanupOrder));
+
+            AggregateException error = Assert.Throws<AggregateException>(() => lifetime.Dispose());
+
+            Assert.That(cleanupOrder, Is.EqualTo(new[] { "third", "second", "first" }));
+            Assert.That(
+                error.InnerExceptions,
+                Is.EqualTo(new Exception[] { secondFailure, firstFailure })
+            );
+            Assert.DoesNotThrow(() => lifetime.Dispose());
+        }
+
+        [Test]
+        public async Task SettlementRegistrationTokensUnregisterEachObserverExactlyOnce()
+        {
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(10))
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .Build();
+            RecordingSettlementObserver observer = new RecordingSettlementObserver();
+            IDisposable rootRegistration = dispatcher.RegisterRootSettlementObserver(observer);
+            IDisposable treeRegistration = dispatcher.RegisterCausalTreeSettlementObserver(
+                observer
+            );
+
+            await dispatcher.Dispatch(new SettlementTokenOp());
+            treeRegistration.Dispose();
+            treeRegistration.Dispose();
+            rootRegistration.Dispose();
+            rootRegistration.Dispose();
+            await dispatcher.Dispatch(new SettlementTokenOp());
+
+            Assert.That(observer.RootSettlements, Is.EqualTo(1));
+            Assert.That(observer.TreeSettlements, Is.EqualTo(1));
+            Assert.That(dispatcher.UnregisterRootSettlementObserver(observer), Is.False);
+            Assert.That(dispatcher.UnregisterCausalTreeSettlementObserver(observer), Is.False);
+        }
+
+        [Test]
         public async Task TypedRootAndNestedHandlerReducerPathsRefreshSnapshotsAndAggregateFactsOnce()
         {
             InMemoryRulesStore store = CreateStore(10);
@@ -502,6 +569,84 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(new[] { new OpId(825) })
             );
             Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(10));
+        }
+
+        [Test]
+        [Timeout(10000)]
+        public async Task RootCallbackRejectsOverlapAndAllowsAwaitedSequentialDispatch()
+        {
+            SuspendedNestedHandler suspended = new SuspendedNestedHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                CreateStore(10),
+                new SequentialOpIdProvider(840)
+            )
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .RegisterHandler<SuspendedNestedOp, int>(suspended)
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+            OverlappingRootCallbackObserver observer = new OverlappingRootCallbackObserver(
+                dispatcher,
+                suspended
+            );
+
+            await dispatcher.Dispatch(new SettlementTokenOp(), observer);
+
+            Assert.That(observer.OverlapError, Is.Not.Null);
+            Assert.That(observer.OverlapError.Message, Does.Contain("await each dispatch"));
+            Assert.That(observer.FirstResult, Is.TypeOf<ResolvedOpResult<int>>());
+            Assert.That(observer.SequentialResult, Is.TypeOf<ResolvedOpResult<int>>());
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(12));
+            Assert.That(
+                dispatcher
+                    .Trace.OrderedFrames.Where(frame => !frame.ParentId.HasValue)
+                    .Select(frame => frame.RootId)
+                    .Distinct()
+                    .Count(),
+                Is.EqualTo(3)
+            );
+        }
+
+        [Test]
+        [Timeout(10000)]
+        public async Task RootCallbackSettlesUnawaitedCausalRootBeforeFailingAndReleasingOwnership()
+        {
+            SuspendedNestedHandler suspended = new SuspendedNestedHandler();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                CreateStore(10),
+                new SequentialOpIdProvider(845)
+            )
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .RegisterHandler<SuspendedNestedOp, int>(suspended)
+                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .Build();
+            UnawaitedRootCallbackObserver observer = new UnawaitedRootCallbackObserver(dispatcher);
+
+            Task<OpResult<int>> root = dispatcher
+                .Dispatch(new SettlementTokenOp(), observer)
+                .AsTask();
+            await suspended.Started;
+
+            Assert.That(root.IsCompleted, Is.False);
+            Task<OpResult<int>> queuedRoot = dispatcher
+                .Dispatch(new SingleIncrementRootOp())
+                .AsTask();
+            Assert.That(queuedRoot.IsCompleted, Is.False);
+
+            suspended.Release();
+            InvalidOperationException unawaited = await RequireFailure<InvalidOperationException>(
+                root
+            );
+            OpResult<int> queuedResult = await queuedRoot;
+
+            Assert.That(
+                unawaited.Message,
+                Does.Contain("returned before awaiting its causally linked dispatch")
+            );
+            Assert.That(RequireResolved(queuedResult).Value, Is.EqualTo(12));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(12));
+            Assert.That(queuedResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(848)));
         }
 
         /// <summary>
@@ -966,6 +1111,131 @@ namespace Game.Rules.Runtime.Tests
             public int Amount { get; }
 
             public RootOp(int amount) => Amount = amount;
+        }
+
+        private sealed class SettlementTokenOp : IRuleOp<int> { }
+
+        private sealed class SettlementTokenHandler : IOpHandler<SettlementTokenOp, int>
+        {
+            public ValueTask<int> Handle(
+                OpFrame<SettlementTokenOp> frame,
+                OpHandlerContext context
+            ) => new ValueTask<int>(1);
+        }
+
+        private sealed class RecordingSettlementObserver
+            : IRootSettlementObserver,
+                ICausalTreeSettlementObserver
+        {
+            public int RootSettlements { get; private set; }
+            public int TreeSettlements { get; private set; }
+
+            public ValueTask OnRootSettled(
+                OpId rootId,
+                OpId? causalParentRootId,
+                RulesSnapshot snapshot
+            )
+            {
+                RootSettlements++;
+                return default;
+            }
+
+            public ValueTask OnCausalTreeSettled(OpId rootId, RulesSnapshot snapshot)
+            {
+                TreeSettlements++;
+                return default;
+            }
+        }
+
+        private sealed class TrackingDisposable : IDisposable
+        {
+            private readonly string name;
+            private readonly List<string> cleanupOrder;
+            private readonly Exception failure;
+
+            public TrackingDisposable(
+                string name,
+                List<string> cleanupOrder,
+                Exception failure = null
+            )
+            {
+                this.name = name;
+                this.cleanupOrder = cleanupOrder;
+                this.failure = failure;
+            }
+
+            public int DisposeCount { get; private set; }
+
+            public void Dispose()
+            {
+                DisposeCount++;
+                cleanupOrder.Add(name);
+                if (failure != null)
+                    throw failure;
+            }
+        }
+
+        private sealed class OverlappingRootCallbackObserver : IRootResolutionObserver<int>
+        {
+            private readonly RuleDispatcher dispatcher;
+            private readonly SuspendedNestedHandler suspended;
+
+            public OverlappingRootCallbackObserver(
+                RuleDispatcher dispatcher,
+                SuspendedNestedHandler suspended
+            )
+            {
+                this.dispatcher = dispatcher;
+                this.suspended = suspended;
+            }
+
+            public InvalidOperationException OverlapError { get; private set; }
+            public OpResult<int> FirstResult { get; private set; }
+            public OpResult<int> SequentialResult { get; private set; }
+
+            public async ValueTask OnRootResolved(
+                OpId rootId,
+                OpResult<int> result,
+                RulesSnapshot snapshot
+            )
+            {
+                Task<OpResult<int>> first = dispatcher.Dispatch(new SuspendedNestedOp(1)).AsTask();
+                await suspended.Started;
+                try
+                {
+                    await dispatcher.Dispatch(new SingleIncrementRootOp());
+                }
+                catch (InvalidOperationException error)
+                {
+                    OverlapError = error;
+                }
+                finally
+                {
+                    suspended.Release();
+                }
+                FirstResult = await first;
+                SequentialResult = await dispatcher.Dispatch(new SingleIncrementRootOp());
+            }
+        }
+
+        private sealed class UnawaitedRootCallbackObserver : IRootResolutionObserver<int>
+        {
+            private readonly RuleDispatcher dispatcher;
+
+            public UnawaitedRootCallbackObserver(RuleDispatcher dispatcher)
+            {
+                this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+            }
+
+            public ValueTask OnRootResolved(
+                OpId rootId,
+                OpResult<int> result,
+                RulesSnapshot snapshot
+            )
+            {
+                _ = dispatcher.Dispatch(new SuspendedNestedOp(1));
+                return default;
+            }
         }
 
         private sealed class RootHandler : IOpHandler<RootOp, int>

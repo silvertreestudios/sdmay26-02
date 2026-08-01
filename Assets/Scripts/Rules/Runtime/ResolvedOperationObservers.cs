@@ -88,11 +88,15 @@ namespace Game.Rules.Runtime
         /// <typeparam name="TOp">The exact concrete operation type to observe.</typeparam>
         /// <typeparam name="TResult">The operation's declared resolved value type.</typeparam>
         /// <param name="observer">The observer appended to deterministic registration order.</param>
+        /// <returns>
+        /// An idempotent registration token. Disposing it removes this observer from later
+        /// notification passes.
+        /// </returns>
         /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// The same observer is already registered for this operation and result type.
         /// </exception>
-        public void RegisterResolvedOpObserver<TOp, TResult>(
+        public IDisposable RegisterResolvedOpObserver<TOp, TResult>(
             IResolvedOpObserver<TOp, TResult> observer
         )
             where TOp : IRuleOp<TResult>
@@ -117,6 +121,10 @@ namespace Game.Rules.Runtime
 
                 resolvedOpObservers.Add(new ResolvedOpObserverRegistration<TOp, TResult>(observer));
             }
+
+            return new DispatcherObserverRegistration(() =>
+                UnregisterResolvedOpObserver<TOp, TResult>(observer)
+            );
         }
 
         /// <summary>Removes one typed observer from later notification passes.</summary>

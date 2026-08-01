@@ -3,6 +3,11 @@ using System.Collections.Generic;
 
 namespace Game.Rules.Runtime
 {
+    internal interface ISettledOperationResult<TResult>
+    {
+        TResult Settle(RulesSnapshot snapshot);
+    }
+
     /// <summary>
     /// Provides the common contract for every structurally distinct operation outcome.
     /// </summary>

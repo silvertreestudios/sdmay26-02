@@ -83,6 +83,10 @@ namespace Game.Rules.Runtime
         /// </summary>
         /// <typeparam name="TFact">The Fact type to observe, including derived Fact types.</typeparam>
         /// <param name="observer">The observer appended to deterministic registration order.</param>
+        /// <returns>
+        /// An idempotent registration token. Disposing it removes this observer from later
+        /// notification passes.
+        /// </returns>
         /// <exception cref="ArgumentNullException"><paramref name="observer"/> is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// The same observer is already registered for <typeparamref name="TFact"/>.
@@ -92,7 +96,7 @@ namespace Game.Rules.Runtime
         /// registrations for the entire notification pass. Registration changes made during a
         /// callback therefore apply to later reductions only.
         /// </remarks>
-        public void RegisterFactObserver<TFact>(IFactObserver<TFact> observer)
+        public IDisposable RegisterFactObserver<TFact>(IFactObserver<TFact> observer)
             where TFact : RuleFact
         {
             if (observer == null)
@@ -114,6 +118,8 @@ namespace Game.Rules.Runtime
 
                 factObservers.Add(new FactObserverRegistration<TFact>(observer));
             }
+
+            return new DispatcherObserverRegistration(() => UnregisterFactObserver(observer));
         }
 
         /// <summary>
