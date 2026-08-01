@@ -214,8 +214,12 @@ namespace Game.Rules.Runtime
         ) =>
             builder
                 .RegisterHandler<CollectPreparedModifiersOp, IReadOnlyList<PreparedModifierValue>>(
-                    new EmptyPreparedModifierHandler()
+                    new PreparedModifierHandler()
                 )
+                .RegisterHandler<
+                    CollectPreparedModifierContributionsOp,
+                    PreparedModifierContributions
+                >(new EmptyPreparedModifierContributionsHandler())
                 .RegisterHandler<
                     CollectPreparedDamageDiceOp,
                     IReadOnlyList<PreparedDamageDiceSpec>
@@ -230,21 +234,16 @@ namespace Game.Rules.Runtime
             PreparedRuleDefinitionSpec specification
         )
         {
-            if (specification.Modifiers.Count > 0)
+            if (specification.Modifiers.Count > 0 || specification.Adjustments.Count > 0)
                 builder.Middleware<
-                    CollectPreparedModifiersOp,
-                    IReadOnlyList<PreparedModifierValue>
+                    CollectPreparedModifierContributionsOp,
+                    PreparedModifierContributions
                 >(
                     RuleLifecyclePhase.Transformation,
-                    new PreparedModifierMiddleware(specification.Modifiers)
-                );
-            if (specification.Adjustments.Count > 0)
-                builder.Middleware<
-                    CollectPreparedModifiersOp,
-                    IReadOnlyList<PreparedModifierValue>
-                >(
-                    RuleLifecyclePhase.Adjustment,
-                    new PreparedAdjustmentMiddleware(specification.Adjustments)
+                    new PreparedModifierContributionMiddleware(
+                        specification.Modifiers,
+                        specification.Adjustments
+                    )
                 );
             if (specification.DamageDice.Count > 0)
                 builder.Middleware<
@@ -273,75 +272,78 @@ namespace Game.Rules.Runtime
             return new PreparedPredicateContext(snapshot, owner, operation.Options());
         }
 
-        private sealed class EmptyPreparedModifierHandler
-            : IOpHandler<CollectPreparedModifiersOp, IReadOnlyList<PreparedModifierValue>>
+        private sealed class CollectPreparedModifierContributionsOp
+            : IRuleOp<PreparedModifierContributions>
         {
-            public ValueTask<IReadOnlyList<PreparedModifierValue>> Handle(
-                OpFrame<CollectPreparedModifiersOp> frame,
-                OpHandlerContext context
-            ) => new((IReadOnlyList<PreparedModifierValue>)Array.Empty<PreparedModifierValue>());
-        }
-
-        private sealed class EmptyPreparedDamageDiceHandler
-            : IOpHandler<CollectPreparedDamageDiceOp, IReadOnlyList<PreparedDamageDiceSpec>>
-        {
-            public ValueTask<IReadOnlyList<PreparedDamageDiceSpec>> Handle(
-                OpFrame<CollectPreparedDamageDiceOp> frame,
-                OpHandlerContext context
-            ) => new((IReadOnlyList<PreparedDamageDiceSpec>)Array.Empty<PreparedDamageDiceSpec>());
-        }
-
-        private sealed class EmptyPreparedItemAlterationHandler
-            : IOpHandler<
-                CollectPreparedItemAlterationsOp,
-                IReadOnlyList<PreparedItemAlterationSpec>
-            >
-        {
-            public ValueTask<IReadOnlyList<PreparedItemAlterationSpec>> Handle(
-                OpFrame<CollectPreparedItemAlterationsOp> frame,
-                OpHandlerContext context
-            ) =>
-                new(
-                    (IReadOnlyList<PreparedItemAlterationSpec>)
-                        Array.Empty<PreparedItemAlterationSpec>()
-                );
-        }
-
-        private sealed class PreparedModifierMiddleware
-            : IOpMiddleware<CollectPreparedModifiersOp, IReadOnlyList<PreparedModifierValue>>
-        {
-            private readonly IReadOnlyList<PreparedModifierSpec> modifiers;
-
-            internal PreparedModifierMiddleware(IReadOnlyList<PreparedModifierSpec> modifiers) =>
-                this.modifiers = modifiers;
-
-            public async ValueTask<OpResult<IReadOnlyList<PreparedModifierValue>>> Invoke(
-                OpFrame<CollectPreparedModifiersOp> frame,
-                OpMiddlewareContext context,
-                OpNext<IReadOnlyList<PreparedModifierValue>> next
+            internal CollectPreparedModifierContributionsOp(
+                CreatureId owner,
+                string selector,
+                PreparedContributionContext contributionContext
             )
             {
-                OpResult<IReadOnlyList<PreparedModifierValue>> result = await next();
-                if (
-                    result is not ResolvedOpResult<IReadOnlyList<PreparedModifierValue>> resolved
-                    || context.Binding.Owner != frame.Op.Owner
-                )
-                    return result;
-                PreparedPredicateContext predicate = PredicateContext(
-                    frame.Op.Owner,
-                    frame.Op.Context,
-                    context.Snapshot
+                Owner = owner;
+                Selector = selector;
+                Context = contributionContext;
+            }
+
+            internal CreatureId Owner { get; }
+            internal string Selector { get; }
+            internal PreparedContributionContext Context { get; }
+        }
+
+        private sealed class PreparedModifierContributions
+        {
+            internal static readonly PreparedModifierContributions Empty =
+                new PreparedModifierContributions(
+                    Array.Empty<PreparedModifierSpec>(),
+                    Array.Empty<PreparedAdjustmentSpec>()
                 );
-                List<PreparedModifierValue> values = resolved.Value.ToList();
-                foreach (
-                    PreparedModifierSpec value in modifiers.Where(value =>
-                        string.Equals(
-                            value.Selector,
-                            frame.Op.Selector,
-                            StringComparison.OrdinalIgnoreCase
-                        ) && value.Predicate.Evaluate(predicate)
+
+            private readonly IReadOnlyList<PreparedModifierSpec> modifiers;
+            private readonly IReadOnlyList<PreparedAdjustmentSpec> adjustments;
+
+            private PreparedModifierContributions(
+                IEnumerable<PreparedModifierSpec> modifiers,
+                IEnumerable<PreparedAdjustmentSpec> adjustments
+            )
+            {
+                this.modifiers = Array.AsReadOnly(modifiers.ToArray());
+                this.adjustments = Array.AsReadOnly(adjustments.ToArray());
+            }
+
+            internal IReadOnlyList<PreparedModifierSpec> Modifiers => modifiers;
+            internal IReadOnlyList<PreparedAdjustmentSpec> Adjustments => adjustments;
+
+            internal PreparedModifierContributions Append(
+                IEnumerable<PreparedModifierSpec> addedModifiers,
+                IEnumerable<PreparedAdjustmentSpec> addedAdjustments
+            ) => new(modifiers.Concat(addedModifiers), adjustments.Concat(addedAdjustments));
+        }
+
+        private sealed class PreparedModifierHandler
+            : IOpHandler<CollectPreparedModifiersOp, IReadOnlyList<PreparedModifierValue>>
+        {
+            public async ValueTask<IReadOnlyList<PreparedModifierValue>> Handle(
+                OpFrame<CollectPreparedModifiersOp> frame,
+                OpHandlerContext context
+            )
+            {
+                OpResult<PreparedModifierContributions> result = await context.Dispatch(
+                    new CollectPreparedModifierContributionsOp(
+                        frame.Op.Owner,
+                        frame.Op.Selector,
+                        frame.Op.Context
                     )
-                )
+                );
+                if (result is not ResolvedOpResult<PreparedModifierContributions> resolved)
+                {
+                    throw new InvalidOperationException(
+                        "Prepared modifier contribution collection must resolve."
+                    );
+                }
+
+                List<PreparedModifierValue> values = new();
+                foreach (PreparedModifierSpec value in resolved.Value.Modifiers)
                 {
                     int existing = values.FindLastIndex(candidate =>
                         string.Equals(
@@ -361,46 +363,11 @@ namespace Game.Rules.Runtime
                     else
                         values.Add(added);
                 }
-                return OpResult<IReadOnlyList<PreparedModifierValue>>.Resolved(
-                    Array.AsReadOnly(values.ToArray())
-                );
-            }
-        }
 
-        private sealed class PreparedAdjustmentMiddleware
-            : IOpMiddleware<CollectPreparedModifiersOp, IReadOnlyList<PreparedModifierValue>>
-        {
-            private readonly IReadOnlyList<PreparedAdjustmentSpec> adjustments;
-
-            internal PreparedAdjustmentMiddleware(
-                IReadOnlyList<PreparedAdjustmentSpec> adjustments
-            ) => this.adjustments = adjustments;
-
-            public async ValueTask<OpResult<IReadOnlyList<PreparedModifierValue>>> Invoke(
-                OpFrame<CollectPreparedModifiersOp> frame,
-                OpMiddlewareContext context,
-                OpNext<IReadOnlyList<PreparedModifierValue>> next
-            )
-            {
-                OpResult<IReadOnlyList<PreparedModifierValue>> result = await next();
-                if (
-                    result is not ResolvedOpResult<IReadOnlyList<PreparedModifierValue>> resolved
-                    || context.Binding.Owner != frame.Op.Owner
-                )
-                    return result;
-                PreparedPredicateContext predicate = PredicateContext(
-                    frame.Op.Owner,
-                    frame.Op.Context,
-                    context.Snapshot
-                );
-                List<PreparedModifierValue> values = resolved.Value.ToList();
                 foreach (
-                    PreparedAdjustmentSpec adjustment in adjustments.Where(value =>
-                        string.Equals(
-                            value.Selector,
-                            frame.Op.Selector,
-                            StringComparison.OrdinalIgnoreCase
-                        ) && value.Predicate.Evaluate(predicate)
+                    PreparedAdjustmentSpec adjustment in resolved.Value.Adjustments.OrderBy(
+                        value => value,
+                        PreparedAdjustmentComparer.Instance
                     )
                 )
                 {
@@ -441,9 +408,146 @@ namespace Game.Rules.Runtime
                         current.Ability
                     );
                 }
-                return OpResult<IReadOnlyList<PreparedModifierValue>>.Resolved(
-                    Array.AsReadOnly(values.ToArray())
+
+                return Array.AsReadOnly(values.ToArray());
+            }
+        }
+
+        private sealed class EmptyPreparedModifierContributionsHandler
+            : IOpHandler<CollectPreparedModifierContributionsOp, PreparedModifierContributions>
+        {
+            public ValueTask<PreparedModifierContributions> Handle(
+                OpFrame<CollectPreparedModifierContributionsOp> frame,
+                OpHandlerContext context
+            ) => new(PreparedModifierContributions.Empty);
+        }
+
+        private sealed class EmptyPreparedDamageDiceHandler
+            : IOpHandler<CollectPreparedDamageDiceOp, IReadOnlyList<PreparedDamageDiceSpec>>
+        {
+            public ValueTask<IReadOnlyList<PreparedDamageDiceSpec>> Handle(
+                OpFrame<CollectPreparedDamageDiceOp> frame,
+                OpHandlerContext context
+            ) => new((IReadOnlyList<PreparedDamageDiceSpec>)Array.Empty<PreparedDamageDiceSpec>());
+        }
+
+        private sealed class EmptyPreparedItemAlterationHandler
+            : IOpHandler<
+                CollectPreparedItemAlterationsOp,
+                IReadOnlyList<PreparedItemAlterationSpec>
+            >
+        {
+            public ValueTask<IReadOnlyList<PreparedItemAlterationSpec>> Handle(
+                OpFrame<CollectPreparedItemAlterationsOp> frame,
+                OpHandlerContext context
+            ) =>
+                new(
+                    (IReadOnlyList<PreparedItemAlterationSpec>)
+                        Array.Empty<PreparedItemAlterationSpec>()
                 );
+        }
+
+        private sealed class PreparedModifierContributionMiddleware
+            : IOpMiddleware<CollectPreparedModifierContributionsOp, PreparedModifierContributions>
+        {
+            private readonly IReadOnlyList<PreparedModifierSpec> modifiers;
+            private readonly IReadOnlyList<PreparedAdjustmentSpec> adjustments;
+
+            internal PreparedModifierContributionMiddleware(
+                IReadOnlyList<PreparedModifierSpec> modifiers,
+                IReadOnlyList<PreparedAdjustmentSpec> adjustments
+            )
+            {
+                this.modifiers = modifiers;
+                this.adjustments = adjustments;
+            }
+
+            public async ValueTask<OpResult<PreparedModifierContributions>> Invoke(
+                OpFrame<CollectPreparedModifierContributionsOp> frame,
+                OpMiddlewareContext context,
+                OpNext<PreparedModifierContributions> next
+            )
+            {
+                OpResult<PreparedModifierContributions> result = await next();
+                if (
+                    result is not ResolvedOpResult<PreparedModifierContributions> resolved
+                    || context.Binding.Owner != frame.Op.Owner
+                )
+                    return result;
+                PreparedPredicateContext predicate = PredicateContext(
+                    frame.Op.Owner,
+                    frame.Op.Context,
+                    context.Snapshot
+                );
+                PreparedModifierSpec[] matchedModifiers = modifiers
+                    .Where(value =>
+                        string.Equals(
+                            value.Selector,
+                            frame.Op.Selector,
+                            StringComparison.OrdinalIgnoreCase
+                        ) && value.Predicate.Evaluate(predicate)
+                    )
+                    .ToArray();
+                PreparedAdjustmentSpec[] matchedAdjustments = adjustments
+                    .Where(value =>
+                        string.Equals(
+                            value.Selector,
+                            frame.Op.Selector,
+                            StringComparison.OrdinalIgnoreCase
+                        ) && value.Predicate.Evaluate(predicate)
+                    )
+                    .ToArray();
+                return OpResult<PreparedModifierContributions>.Resolved(
+                    resolved.Value.Append(matchedModifiers, matchedAdjustments)
+                );
+            }
+        }
+
+        private sealed class PreparedAdjustmentComparer : IComparer<PreparedAdjustmentSpec>
+        {
+            internal static readonly PreparedAdjustmentComparer Instance = new();
+
+            public int Compare(PreparedAdjustmentSpec left, PreparedAdjustmentSpec right)
+            {
+                if (ReferenceEquals(left, right))
+                    return 0;
+                if (left == null)
+                    return -1;
+                if (right == null)
+                    return 1;
+
+                int priority = left.Priority.CompareTo(right.Priority);
+                if (priority != 0)
+                    return priority;
+
+                // Equal-priority rules use their immutable behavior, then definition identity, as
+                // a total semantic order. Binding source, creation order, and registry insertion
+                // order deliberately cannot affect the resolved modifier.
+                int selector = CompareText(left.Selector, right.Selector);
+                if (selector != 0)
+                    return selector;
+                int slug = CompareText(left.Slug, right.Slug);
+                if (slug != 0)
+                    return slug;
+                int mode = CompareText(left.Mode, right.Mode);
+                if (mode != 0)
+                    return mode;
+                int value = left.Value.CompareTo(right.Value);
+                if (value != 0)
+                    return value;
+                return string.Compare(
+                    left.DefinitionId.Value,
+                    right.DefinitionId.Value,
+                    StringComparison.Ordinal
+                );
+            }
+
+            private static int CompareText(string left, string right)
+            {
+                int semantic = string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+                return semantic != 0
+                    ? semantic
+                    : string.Compare(left, right, StringComparison.Ordinal);
             }
         }
 

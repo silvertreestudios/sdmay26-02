@@ -959,6 +959,12 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>Describes one immutable ordered modifier adjustment.</summary>
+    /// <remarks>
+    /// Matching adjustments resolve in ascending <see cref="Priority"/> order. Equal priorities use
+    /// the immutable selector, slug, mode, value, and definition identity as a total semantic
+    /// tie-break, so binding provenance, creation order, and catalog insertion order cannot change
+    /// modifier math.
+    /// </remarks>
     public sealed class PreparedAdjustmentSpec : PreparedContributionSpec
     {
         public PreparedAdjustmentSpec(

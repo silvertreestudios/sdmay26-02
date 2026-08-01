@@ -439,6 +439,99 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task ModifierAdjustmentsUseCompiledPriorityAcrossBindingRecreation()
+        {
+            RuleDefinitionId baseId = new("prepared:test:rage-base");
+            RuleDefinitionId furyId = new("prepared:test:fury-upgrade");
+            RuleDefinitionId agileId = new("prepared:test:rage-agile");
+            ActiveRuleBinding baseBinding = PreparedBinding("rage-base", baseId, 30);
+            ActiveRuleBinding furyBinding = PreparedBinding("fury-upgrade", furyId, 10);
+            ActiveRuleBinding agileBinding = PreparedBinding("rage-agile", agileId, 20);
+            (InMemoryRulesStore store, RuleDispatcher dispatcher, RuleRegistry registry) =
+                CreateAdjustmentRuntime(
+                    new[]
+                    {
+                        AdjustmentDefinition(agileId, "multiply", 0.5f, 95),
+                        ModifierDefinition(baseId, 2),
+                        AdjustmentDefinition(furyId, "upgrade", 3, 0),
+                    },
+                    new[] { baseBinding, furyBinding, agileBinding }
+                );
+
+            Assert.That(await RageValue(dispatcher), Is.EqualTo(1));
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(
+                            new RemoveStatelessRuleBindingOp(
+                                agileBinding.Id,
+                                agileBinding.CreationOrder,
+                                agileBinding.Source
+                            )
+                        ),
+                        new RemoveStatelessRuleBindingReducer()
+                    )
+                    .IsAccepted,
+                Is.True
+            );
+            Assert.That(await RageValue(dispatcher), Is.EqualTo(3));
+
+            ActiveRuleBinding recreated = PreparedBinding("rage-agile", agileId, 1000);
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(new CreateStatelessRuleBindingOp(recreated)),
+                        new CreateStatelessRuleBindingReducer(registry)
+                    )
+                    .IsAccepted,
+                Is.True
+            );
+            Assert.That(await RageValue(dispatcher), Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task EqualPriorityAdjustmentsUseSemanticOrderAcrossCatalogAndBindingOrder()
+        {
+            int[] values = new int[2];
+            for (int index = 0; index < values.Length; index++)
+            {
+                bool reversed = index == 1;
+                RuleDefinitionId baseId = new("prepared:test:tie-base");
+                RuleDefinitionId multiplyId = new("prepared:test:tie-multiply");
+                RuleDefinitionId upgradeId = new("prepared:test:tie-upgrade");
+                PreparedRuleDefinitionSpec baseDefinition = ModifierDefinition(baseId, 2);
+                PreparedRuleDefinitionSpec multiplyDefinition = AdjustmentDefinition(
+                    multiplyId,
+                    "multiply",
+                    0.5f,
+                    10
+                );
+                PreparedRuleDefinitionSpec upgradeDefinition = AdjustmentDefinition(
+                    upgradeId,
+                    "upgrade",
+                    3,
+                    10
+                );
+                PreparedRuleDefinitionSpec[] definitions = reversed
+                    ? new[] { upgradeDefinition, baseDefinition, multiplyDefinition }
+                    : new[] { multiplyDefinition, baseDefinition, upgradeDefinition };
+                ActiveRuleBinding[] bindings =
+                {
+                    PreparedBinding($"tie-base-{index}", baseId, 30),
+                    PreparedBinding($"tie-multiply-{index}", multiplyId, reversed ? 20 : 10),
+                    PreparedBinding($"tie-upgrade-{index}", upgradeId, reversed ? 10 : 20),
+                };
+                RuleDispatcher dispatcher = CreateAdjustmentRuntime(
+                    definitions,
+                    bindings
+                ).Dispatcher;
+                values[index] = await RageValue(dispatcher);
+            }
+
+            Assert.That(values, Is.EqualTo(new[] { 3, 3 }));
+        }
+
+        [Test]
         public void RulesRuntimeAssemblyHasNoUnityJsonOrMutablePreparedDependency()
         {
             string[] references = typeof(PreparedRulePackage)
@@ -516,6 +609,120 @@ namespace Game.Rules.Runtime.Tests
                 new[] { new PreparedBindingSeed("test:owned", Definition, Source, 1) },
                 Array.Empty<PreparedUnsupportedDiagnostic>()
             );
+        }
+
+        private static PreparedRuleDefinitionSpec DefinitionWith(
+            RuleDefinitionId id,
+            IEnumerable<PreparedModifierSpec> modifiers,
+            IEnumerable<PreparedAdjustmentSpec> adjustments
+        ) =>
+            new(
+                id,
+                Source,
+                "fixture",
+                id.Value,
+                id.Value,
+                modifiers,
+                adjustments,
+                Array.Empty<PreparedDamageDiceSpec>(),
+                Array.Empty<PreparedItemAlterationSpec>()
+            );
+
+        private static PreparedRuleDefinitionSpec ModifierDefinition(
+            RuleDefinitionId id,
+            int value
+        ) =>
+            DefinitionWith(
+                id,
+                new[]
+                {
+                    new PreparedModifierSpec(
+                        id,
+                        "strike-damage",
+                        "rage",
+                        value,
+                        string.Empty,
+                        string.Empty,
+                        PreparedPredicate.Always
+                    ),
+                },
+                Array.Empty<PreparedAdjustmentSpec>()
+            );
+
+        private static PreparedRuleDefinitionSpec AdjustmentDefinition(
+            RuleDefinitionId id,
+            string mode,
+            float value,
+            int priority
+        ) =>
+            DefinitionWith(
+                id,
+                Array.Empty<PreparedModifierSpec>(),
+                new[]
+                {
+                    new PreparedAdjustmentSpec(
+                        id,
+                        "strike-damage",
+                        "rage",
+                        mode,
+                        value,
+                        priority,
+                        PreparedPredicate.Always
+                    ),
+                }
+            );
+
+        private static ActiveRuleBinding PreparedBinding(
+            string id,
+            RuleDefinitionId definition,
+            long order
+        ) => new(new BindingId(id), definition, Owner, null, Source, order);
+
+        private static (
+            InMemoryRulesStore Store,
+            RuleDispatcher Dispatcher,
+            RuleRegistry Registry
+        ) CreateAdjustmentRuntime(
+            IEnumerable<PreparedRuleDefinitionSpec> definitions,
+            IEnumerable<ActiveRuleBinding> bindings
+        )
+        {
+            RuleRegistryBuilder registryBuilder = new();
+            foreach (PreparedRuleDefinitionSpec definition in definitions)
+                registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(
+                Owner,
+                CreatePackage().Inputs
+            );
+            foreach (ActiveRuleBinding binding in bindings)
+                seed.SeedRuleBinding(binding);
+            InMemoryRulesStore store = new(seed);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .UseRuleRegistry(registry)
+                .UseStatelessRuleBindingRules(registry)
+                .UsePreparedContributions()
+                .Build();
+            return (store, dispatcher, registry);
+        }
+
+        private static async Task<int> RageValue(RuleDispatcher dispatcher)
+        {
+            PreparedContributionContext contributionContext = new(
+                "test-weapon",
+                "martial",
+                false,
+                4,
+                new[] { "agile" },
+                Array.Empty<string>(),
+                Array.Empty<string>()
+            );
+            OpResult<IReadOnlyList<PreparedModifierValue>> result = await dispatcher.Dispatch(
+                new CollectPreparedModifiersOp(Owner, "strike-damage", contributionContext)
+            );
+            return ((ResolvedOpResult<IReadOnlyList<PreparedModifierValue>>)result)
+                .Value.Single()
+                .Value;
         }
 
         private static ReductionContext<TOp> Context<TOp>(TOp operation) =>

@@ -215,6 +215,57 @@ public class Pf2eRulesTests
         StrikeResolutionContext greataxeContext = PrepareStrike(creature, greataxe);
         Assert.That(greataxeContext.FlatDamages.Last().DamageAmount, Is.EqualTo(3));
 
+        PreparedRulePackage package = Compile(creature);
+        RuleDefinitionId agileAdjustmentDefinition = package
+            .Definitions.Single(definition =>
+                definition.Adjustments.Any(adjustment =>
+                    adjustment.Priority == 95
+                    && string.Equals(adjustment.Slug, "rage", StringComparison.OrdinalIgnoreCase)
+                )
+            )
+            .Id;
+        ActiveRuleBinding agileAdjustmentBinding = bridge
+            .Snapshot.RuleBindings.Single(pair =>
+                pair.Value.Owner == actor && pair.Value.DefinitionId == agileAdjustmentDefinition
+            )
+            .Value;
+        RuleDispatcher reorderedCollector = CreatePreparedDispatcher(
+            package,
+            actor,
+            bridge.Snapshot,
+            binding =>
+                binding.Id == agileAdjustmentBinding.Id
+                    ? new ActiveRuleBinding(
+                        binding.Id,
+                        binding.DefinitionId,
+                        binding.Owner,
+                        binding.EffectId,
+                        binding.Source,
+                        1_000_000,
+                        binding.IsEnabled
+                    )
+                    : binding
+        );
+        PreparedContributionContext agilePreparedContext = new(
+            "test-item",
+            string.Empty,
+            false,
+            4,
+            new[] { "agile" },
+            Array.Empty<string>(),
+            Array.Empty<string>()
+        );
+        Assert.That(
+            Resolve(
+                    reorderedCollector.Dispatch(
+                        new CollectPreparedModifiersOp(actor, "strike-damage", agilePreparedContext)
+                    )
+                )
+                .Single(value => value.Slug == "rage")
+                .Value,
+            Is.EqualTo(1)
+        );
+
         StrikeProfile agile = new(
             new List<Dice> { new Dice(1, 4, "Bludgeoning") },
             new List<DamageValue> { new DamageValue("Bludgeoning", 4) }
@@ -763,13 +814,20 @@ public class Pf2eRulesTests
         PreparedRulePackage package,
         CreatureId actor,
         RulesSnapshot sourceSnapshot
+    ) => CreatePreparedDispatcher(package, actor, sourceSnapshot, binding => binding);
+
+    private static RuleDispatcher CreatePreparedDispatcher(
+        PreparedRulePackage package,
+        CreatureId actor,
+        RulesSnapshot sourceSnapshot,
+        Func<ActiveRuleBinding, ActiveRuleBinding> mapBinding
     )
     {
         RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(actor, package.Inputs);
         foreach (KeyValuePair<BindingId, ActiveRuleBinding> binding in sourceSnapshot.RuleBindings)
         {
             if (binding.Value.Owner == actor)
-                seed.SeedRuleBinding(binding.Value);
+                seed.SeedRuleBinding(mapBinding(binding.Value));
         }
         RuleRegistryBuilder registryBuilder = new();
         foreach (PreparedRuleDefinitionSpec definition in package.Definitions)
