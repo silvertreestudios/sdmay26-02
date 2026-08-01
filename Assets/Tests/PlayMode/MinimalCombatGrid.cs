@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using Game.Rules.Runtime;
 using GridPrivate;
@@ -66,6 +67,8 @@ internal sealed class MinimalCombatGrid : GridAPI, GridAPIPrivate
         CoroutineResult<SelectionOutcome<MovementPath>> selection
     )
     {
+        if (selection == null)
+            throw new ArgumentNullException(nameof(selection));
         selection.Value = SelectionOutcome<MovementPath>.Cancelled;
         yield break;
     }
@@ -77,6 +80,7 @@ internal sealed class MinimalCombatGrid : GridAPI, GridAPIPrivate
         CoroutineResult<StrikeTargetResult> target
     )
     {
+        target.Value = null;
         yield break;
     }
 
@@ -87,6 +91,7 @@ internal sealed class MinimalCombatGrid : GridAPI, GridAPIPrivate
         CoroutineResult<AreaTargetResult> target
     )
     {
+        target.Value = null;
         yield break;
     }
 }
