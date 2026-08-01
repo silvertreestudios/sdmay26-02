@@ -1500,12 +1500,25 @@ namespace Game.Rules.Runtime
             StrikeCombatantRegistration registration = context.Op.Registration;
             if (!state.Creatures.Contains(registration.Actor))
                 return ReductionResult<bool>.Reject("The Strike combatant is not registered.");
-            if (
+            int existingEquipment = registration.Equipment.Count(item =>
+                state.Equipment.TryGet(item.Id, out EquipmentState committed)
+                && committed.Equals(item)
+            );
+            int existingAmmunition = registration.Ammunition.Count(pool =>
+                state.Ammunition.TryGet(pool.Item, out AmmunitionState committed)
+                && committed.Equals(pool)
+            );
+            bool anyRegistered =
                 registration.Equipment.Any(item => state.Equipment.Contains(item.Id))
-                || registration.Ammunition.Any(pool => state.Ammunition.Contains(pool.Item))
-            )
+                || registration.Ammunition.Any(pool => state.Ammunition.Contains(pool.Item));
+            bool exactReplay =
+                existingEquipment == registration.Equipment.Count
+                && existingAmmunition == registration.Ammunition.Count;
+            if (exactReplay)
+                return ReductionResult<bool>.Accept(false);
+            if (anyRegistered)
                 return ReductionResult<bool>.Reject(
-                    "Strike combatant state is already registered."
+                    "Strike combatant state conflicts with the committed registration."
                 );
             foreach (EquipmentState item in registration.Equipment)
                 state.Equipment.Set(item.Id, item);

@@ -220,7 +220,7 @@ namespace Game.Strikes
             UnityStrikeContext strikeContext
         )
         {
-            Prepare(controller, actor, strikeContext).Apply();
+            Prepare(controller, actor, strikeContext).Reconcile();
         }
 
         /// <summary>Prepares every fallible action-list read and Strike action construction.</summary>
@@ -235,12 +235,7 @@ namespace Game.Strikes
             if (strikeContext == null)
                 throw new ArgumentNullException(nameof(strikeContext));
 
-            List<EntityAction> removals = new();
-            foreach (EntityAction action in controller.GetActions())
-            {
-                if (action is RulesStrikeAction || action is RulesReloadWeaponAction)
-                    removals.Add(action);
-            }
+            _ = controller.GetActions();
             List<EntityAction> additions = new();
             foreach (StrikeItemDefinition item in strikeContext.GetItems(actor))
             {
@@ -248,7 +243,7 @@ namespace Game.Strikes
                 if (item.ReloadActions > 0)
                     additions.Add(new RulesReloadWeaponAction(item));
             }
-            return new UnityStrikeActionInstallationPlan(controller, removals, additions);
+            return new UnityStrikeActionInstallationPlan(controller, additions);
         }
     }
 
@@ -257,27 +252,22 @@ namespace Game.Strikes
         : IUnityCombatantInstallationContribution
     {
         private readonly ActionController controller;
-        private readonly IReadOnlyList<EntityAction> removals;
-        private readonly IReadOnlyList<EntityAction> additions;
+        private readonly IReadOnlyList<EntityAction> desired;
 
         internal UnityStrikeActionInstallationPlan(
             ActionController controller,
-            IReadOnlyList<EntityAction> removals,
-            IReadOnlyList<EntityAction> additions
+            IReadOnlyList<EntityAction> desired
         )
         {
             this.controller = controller;
-            this.removals = removals;
-            this.additions = additions;
+            this.desired = desired;
         }
 
         /// <inheritdoc/>
-        public void Apply()
-        {
-            foreach (EntityAction action in removals)
-                controller.RemoveAction(action);
-            foreach (EntityAction action in additions)
-                controller.AddAction(action);
-        }
+        public void Reconcile() =>
+            controller.ReconcileActions(
+                action => action is RulesStrikeAction || action is RulesReloadWeaponAction,
+                desired
+            );
     }
 }

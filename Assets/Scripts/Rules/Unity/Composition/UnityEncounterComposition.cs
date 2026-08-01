@@ -49,11 +49,16 @@ namespace Game.Rules.Unity.Composition
         void PrepareCombatant(UnityCombatantEnrollmentBuilder builder);
     }
 
-    /// <summary>Applies one precomputed Unity installation after authoritative state commits.</summary>
+    /// <summary>Reconciles one precomputed Unity installation after state commits.</summary>
+    /// <remarks>
+    /// Enrollment may invoke <see cref="Reconcile"/> again when an earlier call changed Unity
+    /// state and then threw. Implementations must converge their feature-owned projection to the
+    /// prepared result on every call, without duplicating entries or disturbing other features.
+    /// </remarks>
     internal interface IUnityCombatantInstallationContribution
     {
-        /// <summary>Applies the contribution without repeating fallible preparation reads.</summary>
-        void Apply();
+        /// <summary>Idempotently reconciles the prepared projection without new Unity reads.</summary>
+        void Reconcile();
     }
 
     /// <summary>Completes one-shot enrollment input after the entire batch is installed.</summary>
@@ -72,12 +77,17 @@ namespace Game.Rules.Unity.Composition
     }
 
     /// <summary>Provides feature state for initial seed or reinforcement registration.</summary>
+    /// <remarks>
+    /// A reinforcement <see cref="Register"/> call may commit and then surface an observer
+    /// failure. Retrying that call with the same prepared contribution must resolve as an exact
+    /// no-op with no new Facts or version; different committed state must still reject.
+    /// </remarks>
     internal interface IUnityCombatantStateContribution
     {
         /// <summary>Adds initial feature state to the store seed.</summary>
         void Seed(RulesStateSeed seed);
 
-        /// <summary>Registers the same feature state for a committed reinforcement.</summary>
+        /// <summary>Idempotently registers the same feature state for a reinforcement.</summary>
         void Register(UnityCombatRulesBridge bridge);
     }
 

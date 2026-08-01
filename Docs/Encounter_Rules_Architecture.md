@@ -170,11 +170,16 @@ module, captures initiative modifiers, and freezes `CombatantRulesState` plus in
 
 If any preparation read or preflight fails, the preparation `CompositeLifetime` rolls back maps,
 identity allocation, and feature-owned resources. Cleanup failures are retained with the original
-failure. Preparation must therefore perform every fallible Unity query needed by `Apply`.
+failure. Preparation must therefore perform every fallible Unity query needed by `Reconcile`.
 
 This is not a promise that arbitrary work after a reinforcement commit can roll back `RulesState`.
-The commit boundary is intentional: installation contributions must be deterministic applications
-of precomputed data and must not repeat fallible discovery or validation.
+The commit boundary is intentional. A root dispatch or state registration can commit and then
+surface an observer failure, so every reinforcement checkpoint must accept an exact replay as a
+no-op without new Facts or a version change while rejecting different committed state.
+Installation contributions have the same retry requirement at the Unity boundary: `Reconcile`
+must converge feature-owned projection from a partially changed live state without duplicating
+entries, skipping removals, or disturbing another feature's entries. It must not repeat fallible
+discovery or validation.
 
 ### Initial participants versus reinforcements
 
@@ -200,9 +205,13 @@ After either state path, call `AttachAndInstall`, `FinalizeBatch`, then
 `TransferTo(encounterLifetime)`. Finalization first validates every contribution; successful
 ownership transfer then applies the non-failing contributions and consumes one-shot input. A
 reinforcement plan whose store registration already committed remains the exact pending batch
-after a later failure; retry resumes its unapplied installation without rerolling initiative,
-redispatching state registration, or duplicating Facts. A new feature must support both paths;
-never assume all participants existed at encounter construction.
+after a later failure. Retry resumes at the uncertain checkpoint: an already committed Join or
+state contribution resolves as an exact no-op, and an installation reconciles the prepared result.
+This does not reroll initiative, duplicate Facts, or advance the store version. While such a plan is
+pending, unrelated bridge dispatches fail closed and turn authority reports unavailable so a
+partially enrolled roster cannot participate in play. Ownership release rejects new registration
+before preparation and disposes any pending plan once. A new feature must support both paths; never
+assume all participants existed at encounter construction.
 
 ### Restored-effect adoption
 

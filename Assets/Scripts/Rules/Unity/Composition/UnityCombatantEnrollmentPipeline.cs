@@ -207,7 +207,7 @@ namespace Game.Rules.Unity.Composition
             reinforcementCommitStarted = true;
             if (!joinCommitted)
             {
-                owner.DispatchRequired(
+                owner.DispatchEnrollmentRequired(
                     new JoinEncounterOp(
                         owner.EncounterId,
                         combatants.Select(combatant => new EncounterJoinParticipant(
@@ -230,7 +230,9 @@ namespace Game.Rules.Unity.Composition
                 ].State;
                 while (stateContributionIndex < contributions.Count)
                 {
+                    owner.EnsureEnrollmentCanContinue();
                     contributions[stateContributionIndex].Register(owner);
+                    owner.EnsureEnrollmentCanContinue();
                     stateContributionIndex++;
                 }
                 stateCombatantIndex++;
@@ -250,6 +252,7 @@ namespace Game.Rules.Unity.Composition
                 CombatantRegistration registration = combatant.Registration;
                 if (!healthAttached[index])
                 {
+                    owner.EnsureEnrollmentCanContinue();
                     registration.Creature.AttachHealthRules(owner, registration.State.Creature.Id);
                     lifetime.Add(
                         new RegistrationToken(() =>
@@ -263,6 +266,7 @@ namespace Game.Rules.Unity.Composition
                 }
                 if (!controllersAttached[index])
                 {
+                    owner.EnsureEnrollmentCanContinue();
                     registration.Controller.AttachCombatRules(
                         owner,
                         registration.State.Creature.Id
@@ -276,7 +280,9 @@ namespace Game.Rules.Unity.Composition
                 }
                 while (nextInstallation[index] < combatant.Installations.Count)
                 {
-                    combatant.Installations[nextInstallation[index]].Apply();
+                    owner.EnsureEnrollmentCanContinue();
+                    combatant.Installations[nextInstallation[index]].Reconcile();
+                    owner.EnsureEnrollmentCanContinue();
                     nextInstallation[index]++;
                 }
             }

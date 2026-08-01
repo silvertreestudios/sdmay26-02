@@ -255,6 +255,62 @@ public sealed class ConditionUnityIntegrationTests
     }
 
     [Test]
+    public void ConditionAdoptionPostCommitFailureRetriesWithoutDuplicateStateOrFacts()
+    {
+        CreatureFixture initial = CreateCreature("Adoption Retry Initial", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Adoption Retry Opponent", "Enemies", 0);
+        ScriptedRollService rolls = new ScriptedRollService(20, 10, 1);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { initial.Controller, opponent.Controller },
+            CreateTiles(),
+            rolls
+        );
+        bridge.StartEncounter("Heroes");
+        CreatureFixture reinforcement = CreateCreature(
+            "Adoption Retry Reinforcement",
+            "Enemies",
+            -1
+        );
+        reinforcement.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    reinforcement.GameObject,
+                    ConditionRuleDefinitions.Fatigued,
+                    "condition-post-commit-retry",
+                    ConditionMarkerState.Instance
+                ),
+            }
+        );
+        InvalidOperationException expected = new InvalidOperationException(
+            "Injected condition adoption observer failure."
+        );
+        ThrowOnceFactObserver<ActiveEffectAdoptedFact> observer = new(expected);
+        using IDisposable registration = GetDispatcher(bridge)
+            .RegisterFactObserver<ActiveEffectAdoptedFact>(observer);
+
+        InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
+            bridge.RegisterCombatants(new[] { reinforcement.Controller })
+        );
+
+        Assert.That(actual, Is.SameAs(expected));
+        Assert.That(observer.Count, Is.EqualTo(1));
+        Assert.That(reinforcement.Conditions.HasPendingRestore, Is.True);
+        Assert.That(rolls.Remaining, Is.Zero);
+        long failedVersion = bridge.Snapshot.Version;
+
+        Assert.DoesNotThrow(() => bridge.RegisterCombatants(new[] { reinforcement.Controller }));
+
+        ActiveEffectId effect = new ActiveEffectId("effect-condition-post-commit-retry");
+        Assert.That(observer.Count, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.ActiveEffects.Count(pair => pair.Key == effect), Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(failedVersion + 1));
+        Assert.That(reinforcement.Conditions.HasPendingRestore, Is.False);
+        Assert.That(rolls.Remaining, Is.Zero);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
     public void ConsumedRestoreNeverBecomesDetachedAuthorityAndExplicitReRestoreReenrollsMutation()
     {
         CreatureFixture actor = CreateCreature("Actor", "Heroes", 100);
@@ -388,7 +444,7 @@ public sealed class ConditionUnityIntegrationTests
                 this.targeted = targeted;
             }
 
-            public void Apply()
+            public void Reconcile()
             {
                 if (!targeted || owner.FailuresRemaining == 0)
                     return;
@@ -406,6 +462,24 @@ public sealed class ConditionUnityIntegrationTests
         public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
         {
             Count++;
+            return default;
+        }
+    }
+
+    private sealed class ThrowOnceFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly Exception failure;
+
+        internal ThrowOnceFactObserver(Exception failure) => this.failure = failure;
+
+        internal int Count { get; private set; }
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
+        {
+            Count++;
+            if (Count == 1)
+                throw failure;
             return default;
         }
     }

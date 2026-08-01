@@ -335,7 +335,10 @@ namespace Game.Rules.Unity
 
         /// <summary>Checks exact current-turn authority for one registered creature.</summary>
         public bool HasTurnAuthority(CreatureId creature) =>
-            Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter)
+            pendingReinforcementEnrollment == null
+            && !releaseRequested
+            && !ownershipReleased
+            && Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter)
             && encounter.Phase == EncounterPhase.Active
             && encounter.CurrentTurn.HasValue
             && encounter.CurrentTurn.Value.Actor == creature;
@@ -437,6 +440,10 @@ namespace Game.Rules.Unity
         /// <param name="reinforcements">New, unique controllers not already registered.</param>
         public void RegisterCombatants(IEnumerable<ActionController> reinforcements)
         {
+            if (releaseRequested || ownershipReleased)
+                throw new InvalidOperationException(
+                    "Combatants cannot register after encounter ownership release begins."
+                );
             if (reinforcements == null)
                 throw new ArgumentNullException(nameof(reinforcements));
             ActionController[] copied = reinforcements.ToArray();
@@ -452,22 +459,33 @@ namespace Game.Rules.Unity
             else
             {
                 enrollment = enrollmentPipeline.Prepare(copied, nameof(reinforcements));
+                pendingReinforcementEnrollment = enrollment;
             }
             try
             {
+                EnsureEnrollmentCanContinue();
                 enrollment.CommitReinforcements();
+                EnsureEnrollmentCanContinue();
                 enrollment.AttachAndInstall();
+                EnsureEnrollmentCanContinue();
                 enrollment.FinalizeBatch();
+                EnsureEnrollmentCanContinue();
                 enrollment.TransferTo(encounterLifetime);
                 pendingReinforcementEnrollment = null;
             }
             catch (Exception registrationFailure)
             {
-                if (enrollment.ReinforcementCommitStarted)
+                if (
+                    enrollment.ReinforcementCommitStarted
+                    && !releaseRequested
+                    && !ownershipReleased
+                )
                 {
                     pendingReinforcementEnrollment = enrollment;
                     throw;
                 }
+                if (ReferenceEquals(pendingReinforcementEnrollment, enrollment))
+                    pendingReinforcementEnrollment = null;
                 try
                 {
                     enrollment.Dispose();
@@ -523,17 +541,18 @@ namespace Game.Rules.Unity
             Action callbacks = ownershipReleasedCallbacks;
             ownershipReleasedCallbacks = delegate { };
             List<Exception> failures = new();
-            if (pendingReinforcementEnrollment != null)
+            UnityCombatantEnrollmentPlan pending = pendingReinforcementEnrollment;
+            pendingReinforcementEnrollment = null;
+            if (pending != null)
             {
                 try
                 {
-                    pendingReinforcementEnrollment.Dispose();
+                    pending.Dispose();
                 }
                 catch (Exception cleanupFailure)
                 {
                     AppendCleanupFailures(failures, cleanupFailure);
                 }
-                pendingReinforcementEnrollment = null;
             }
             try
             {
@@ -811,10 +830,34 @@ namespace Game.Rules.Unity
 
         /// <summary>Dispatches one prepared enrollment operation and requires resolution.</summary>
         internal TResult DispatchRequired<TResult>(IRuleOp<TResult> operation) =>
-            DispatchNow(operation);
+            DispatchEnrollmentRequired(operation);
 
-        private OpResult<TResult> DispatchResultNow<TResult>(IRuleOp<TResult> operation)
+        /// <summary>
+        /// Dispatches one retry-safe enrollment checkpoint while unrelated operations are closed.
+        /// </summary>
+        internal TResult DispatchEnrollmentRequired<TResult>(IRuleOp<TResult> operation)
         {
+            EnsureEnrollmentCanContinue();
+            OpResult<TResult> result = DispatchResultNow(operation, true);
+            EnsureEnrollmentCanContinue();
+            if (result is ResolvedOpResult<TResult> resolved)
+                return resolved.Value;
+            if (result is InvalidOpResult<TResult> invalid)
+                throw new InvalidOperationException(invalid.Reason);
+            throw new InvalidOperationException(
+                "The synchronous enrollment request did not resolve."
+            );
+        }
+
+        private OpResult<TResult> DispatchResultNow<TResult>(
+            IRuleOp<TResult> operation,
+            bool isEnrollmentCheckpoint = false
+        )
+        {
+            if (isEnrollmentCheckpoint)
+                EnsureEnrollmentCanContinue();
+            else
+                EnsureOperational();
             dispatchDepth++;
             topologyProvider.BeginResolution();
             try
@@ -835,6 +878,26 @@ namespace Game.Rules.Unity
                 if (dispatchDepth == 0 && releaseRequested)
                     CompleteReleaseOwnership();
             }
+        }
+
+        private void EnsureOperational()
+        {
+            if (releaseRequested || ownershipReleased)
+                throw new InvalidOperationException(
+                    "Encounter ownership is no longer available for rules operations."
+                );
+            if (pendingReinforcementEnrollment != null)
+                throw new InvalidOperationException(
+                    "Rules operations are unavailable until the pending reinforcement batch completes."
+                );
+        }
+
+        internal void EnsureEnrollmentCanContinue()
+        {
+            if (releaseRequested || ownershipReleased)
+                throw new InvalidOperationException(
+                    "Reinforcement enrollment cannot continue after ownership release begins."
+                );
         }
 
         internal void EnqueueEncounterPresentation(RuleFact fact, Action presentation)

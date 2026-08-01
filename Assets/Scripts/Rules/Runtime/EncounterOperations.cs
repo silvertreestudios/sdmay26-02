@@ -92,7 +92,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the complete same-store reinforcement registrations.</summary>
         public IReadOnlyList<EncounterJoinParticipant> Participants { get; }
 
-        /// <summary>Creates an atomic reinforcement request.</summary>
+        /// <summary>Creates an atomic, exact-replay-safe reinforcement request.</summary>
         /// <param name="encounter">The active encounter identity.</param>
         /// <param name="participants">Unique reinforcement creatures and initial health.</param>
         public JoinEncounterOp(

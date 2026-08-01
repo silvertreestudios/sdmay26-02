@@ -460,16 +460,7 @@ namespace Game.Rules.Unity.Strike
             {
                 if (bridge == null)
                     throw new ArgumentNullException(nameof(bridge));
-                OpResult<bool> result = bridge.Dispatch(
-                    new RegisterStrikeCombatantOp(registration)
-                );
-                if (result is ResolvedOpResult<bool>)
-                    return;
-                if (result is InvalidOpResult<bool> invalid)
-                    throw new InvalidOperationException(invalid.Reason);
-                throw new InvalidOperationException(
-                    "Strike combatant registration did not resolve."
-                );
+                _ = bridge.DispatchRequired(new RegisterStrikeCombatantOp(registration));
             }
 
             /// <inheritdoc/>

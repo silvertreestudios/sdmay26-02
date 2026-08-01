@@ -170,19 +170,13 @@ namespace Game.Combat.Spells
                     registration.Binding
                 ))
                 .ToArray();
-            OpResult<ActiveEffectAdoptionOutcome> result = bridge.Dispatch(
+            ActiveEffectAdoptionOutcome result = bridge.DispatchRequired(
                 new AdoptActiveEffectRegistrationsOp(
                     registrations,
                     RuleSource.FromSlug("restored-spell-effect-enrollment")
                 )
             );
-            if (result is ResolvedOpResult<ActiveEffectAdoptionOutcome>)
-                return;
-            if (result is InvalidOpResult<ActiveEffectAdoptionOutcome> invalid)
-                throw new InvalidOperationException(invalid.Reason);
-            throw new InvalidOperationException(
-                "Restored spell-effect enrollment did not resolve."
-            );
+            _ = result;
         }
 
         /// <inheritdoc/>

@@ -1290,6 +1290,426 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
+    [TestCase(ReinforcementFailureCheckpoint.Join)]
+    [TestCase(ReinforcementFailureCheckpoint.Strike)]
+    [TestCase(ReinforcementFailureCheckpoint.RestoredSpellEffect)]
+    public void ReinforcementPostCommitFailureRetriesExactCheckpointWithoutReplay(
+        ReinforcementFailureCheckpoint checkpoint
+    )
+    {
+        GameObject hostObject = new GameObject($"checkpoint-{checkpoint}-host");
+        GameObject anchorObject = new GameObject($"checkpoint-{checkpoint}-anchor");
+        GameObject reinforcementObject = new GameObject($"checkpoint-{checkpoint}-reinforcement");
+        try
+        {
+            BridgeTestActionController host = ConfigureCombatant(
+                hostObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            if (checkpoint == ReinforcementFailureCheckpoint.RestoredSpellEffect)
+            {
+                BlessSpellEffect restored = new BlessSpellEffect(hostObject)
+                {
+                    RemainingTargetTurnStarts = 2,
+                };
+                SpellEffectController
+                    .GetOrAdd(reinforcementObject)
+                    .RestoreEffects(new[] { restored });
+            }
+            ScriptedRollService rolls = new ScriptedRollService(20, 10, 1);
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { host, anchor },
+                CreateTiles(3),
+                rolls
+            );
+            bridge.StartEncounter("Players");
+            RuleDispatcher dispatcher = GetDispatcher(bridge);
+            InvalidOperationException expected = new InvalidOperationException(
+                $"Injected {checkpoint} post-commit failure."
+            );
+            IThrowOnceObserver observer;
+            IDisposable registration;
+            switch (checkpoint)
+            {
+                case ReinforcementFailureCheckpoint.Join:
+                    ThrowOnceFactObserver<EncounterJoinedFact> joinObserver = new(expected);
+                    observer = joinObserver;
+                    registration = dispatcher.RegisterFactObserver<EncounterJoinedFact>(
+                        joinObserver
+                    );
+                    break;
+                case ReinforcementFailureCheckpoint.Strike:
+                    ThrowOnceFactObserver<StrikeCombatantRegisteredFact> strikeObserver = new(
+                        expected
+                    );
+                    observer = strikeObserver;
+                    registration = dispatcher.RegisterFactObserver<StrikeCombatantRegisteredFact>(
+                        strikeObserver
+                    );
+                    break;
+                case ReinforcementFailureCheckpoint.RestoredSpellEffect:
+                    ThrowOnceFactObserver<ActiveEffectAdoptedFact> effectObserver = new(expected);
+                    observer = effectObserver;
+                    registration = dispatcher.RegisterFactObserver<ActiveEffectAdoptedFact>(
+                        effectObserver
+                    );
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(checkpoint));
+            }
+            using (registration)
+            {
+                InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
+                    bridge.RegisterCombatants(new ActionController[] { reinforcement })
+                );
+
+                Assert.That(actual, Is.SameAs(expected));
+                Assert.That(observer.Count, Is.EqualTo(1));
+                Assert.That(rolls.Remaining, Is.Zero);
+                long failedVersion = bridge.Snapshot.Version;
+                Assert.That(reinforcement.HasTurnAuthority, Is.False);
+                Assert.Throws<InvalidOperationException>(() =>
+                    bridge.ApplyHealing(
+                        bridge.GetCreatureId(host),
+                        1,
+                        RuleSource.FromSlug("pending-enrollment-test")
+                    )
+                );
+
+                Assert.DoesNotThrow(() =>
+                    bridge.RegisterCombatants(new ActionController[] { reinforcement })
+                );
+
+                Assert.That(observer.Count, Is.EqualTo(1));
+                Assert.That(rolls.Remaining, Is.Zero, "An exact Join replay must not reroll.");
+                Assert.That(bridge.GetEncounter().Roster, Has.Count.EqualTo(3));
+                Assert.That(
+                    bridge
+                        .Snapshot.Equipment.Select(pair => pair.Value)
+                        .Count(item => item.Holder == bridge.GetCreatureId(reinforcement)),
+                    Is.EqualTo(1)
+                );
+                if (
+                    checkpoint == ReinforcementFailureCheckpoint.Strike
+                    || checkpoint == ReinforcementFailureCheckpoint.RestoredSpellEffect
+                )
+                    Assert.That(bridge.Snapshot.Version, Is.EqualTo(failedVersion));
+                else
+                    Assert.That(bridge.Snapshot.Version, Is.EqualTo(failedVersion + 1));
+                if (checkpoint == ReinforcementFailureCheckpoint.RestoredSpellEffect)
+                    Assert.That(
+                        bridge.Snapshot.ActiveEffects.Count(pair =>
+                            pair.Value.DefinitionId
+                            == UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
+                        ),
+                        Is.EqualTo(1)
+                    );
+            }
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void PartialInstallationRetryReconcilesOwnedActionsAndPreservesRage()
+    {
+        GameObject hostObject = new GameObject("partial-install-host");
+        GameObject anchorObject = new GameObject("partial-install-anchor");
+        GameObject reinforcementObject = new GameObject("partial-install-reinforcement");
+        try
+        {
+            BridgeTestActionController host = ConfigureCombatant(
+                hostObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            RetryActionInstallationModule installation = new();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { host, anchor },
+                CreateTiles(3),
+                new ScriptedRollService(20, 10, 1),
+                new IUnityEncounterModule[] { installation }
+            );
+            bridge.StartEncounter("Players");
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            ConfigureRetryActionFeatures(reinforcementObject.GetComponent<CreatureComponent>());
+            installation.TargetName = reinforcementObject.name;
+            installation.FailuresRemaining = 1;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+            Assert.That(
+                reinforcement.GetActions().OfType<RetryMarkerAction>().Count(),
+                Is.EqualTo(2)
+            );
+            Assert.That(
+                reinforcement.GetActions().OfType<Game.Strikes.RulesStrikeAction>().Count(),
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                reinforcement.GetActions().OfType<RulesRageAction>().Count(),
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                reinforcement.GetActions().OfType<RulesCastSpellAction>().Count(),
+                Is.EqualTo(1)
+            );
+
+            Assert.DoesNotThrow(() =>
+                bridge.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+
+            Assert.That(
+                reinforcement.GetActions().OfType<RetryMarkerAction>().Count(),
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                reinforcement.GetActions().OfType<Game.Strikes.RulesStrikeAction>().Count(),
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                reinforcement.GetActions().OfType<RulesRageAction>().Count(),
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                reinforcement.GetActions().OfType<RulesCastSpellAction>().Count(),
+                Is.EqualTo(1)
+            );
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void InitialPartialInstallationIsReconciledByFreshEnrollmentRetry()
+    {
+        GameObject actorObject = new GameObject("initial-partial-install-actor");
+        GameObject opponentObject = new GameObject("initial-partial-install-opponent");
+        try
+        {
+            BridgeTestActionController actor = ConfigureCombatant(
+                actorObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController opponent = ConfigureCombatant(
+                opponentObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            ConfigureRetryActionFeatures(actorObject.GetComponent<CreatureComponent>());
+            RetryActionInstallationModule installation = new()
+            {
+                TargetName = actorObject.name,
+                FailuresRemaining = 1,
+            };
+
+            Assert.Throws<InvalidOperationException>(() =>
+                UnityCombatRulesBridge.CreateForTests(
+                    new ActionController[] { actor, opponent },
+                    CreateTiles(2),
+                    new RandomRollService(),
+                    new IUnityEncounterModule[] { installation }
+                )
+            );
+            Assert.That(actor.ActionPoints, Is.Zero);
+            Assert.That(actor.GetActions().OfType<RetryMarkerAction>().Count(), Is.EqualTo(2));
+
+            UnityCombatRulesBridge retry = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { actor, opponent },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { installation }
+            );
+
+            Assert.That(actor.GetActions().OfType<RetryMarkerAction>().Count(), Is.EqualTo(1));
+            Assert.That(
+                actor.GetActions().OfType<Game.Strikes.RulesStrikeAction>().Count(),
+                Is.EqualTo(1)
+            );
+            Assert.That(actor.GetActions().OfType<RulesRageAction>().Count(), Is.EqualTo(1));
+            Assert.That(actor.GetActions().OfType<RulesCastSpellAction>().Count(), Is.EqualTo(1));
+            retry.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(actorObject);
+            Object.DestroyImmediate(opponentObject);
+        }
+    }
+
+    [Test]
+    public void RegistrationRejectsBeforePreparationOnceReleaseStartsOrCompletes()
+    {
+        GameObject hostObject = new GameObject("release-registration-host");
+        GameObject candidateObject = new GameObject("release-registration-candidate");
+        try
+        {
+            BridgeTestActionController host = ConfigureCombatant(
+                hostObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController candidate = ConfigureCombatant(
+                candidateObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            PreparationCountingModule preparation = new();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { host },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { preparation }
+            );
+            int preparedBefore = preparation.Count;
+            int enumerations = 0;
+            IEnumerable<ActionController> CandidateBatch()
+            {
+                enumerations++;
+                yield return candidate;
+            }
+
+            bridge.ReleaseOwnership();
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.RegisterCombatants(CandidateBatch())
+            );
+            Assert.That(enumerations, Is.Zero);
+            Assert.That(preparation.Count, Is.EqualTo(preparedBefore));
+
+            UnityCombatRulesBridge requested = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { host },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { preparation }
+            );
+            Exception registrationFailure = null;
+            int requestedEnumerations = 0;
+            IEnumerable<ActionController> RequestedBatch()
+            {
+                requestedEnumerations++;
+                yield return candidate;
+            }
+            GetDispatcher(requested)
+                .RegisterFactObserver<HealthFact>(
+                    new CallbackFactObserver<HealthFact>(() =>
+                    {
+                        requested.ReleaseOwnership();
+                        registrationFailure = Assert.Throws<InvalidOperationException>(() =>
+                            requested.RegisterCombatants(RequestedBatch())
+                        );
+                    })
+                );
+            int requestedPreparedBefore = preparation.Count;
+
+            requested.ApplyFinalDamage(
+                requested.GetCreatureId(host),
+                1,
+                RuleSource.FromSlug("release-request-test")
+            );
+
+            Assert.That(registrationFailure, Is.Not.Null);
+            Assert.That(requestedEnumerations, Is.Zero);
+            Assert.That(preparation.Count, Is.EqualTo(requestedPreparedBefore));
+            Assert.That(host.ActionPoints, Is.Zero);
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(candidateObject);
+        }
+    }
+
+    [Test]
+    public void ReleaseDisposesPendingEnrollmentExactlyOnceUnderReentrancyAndFailure()
+    {
+        GameObject hostObject = new GameObject("pending-release-host");
+        GameObject anchorObject = new GameObject("pending-release-anchor");
+        GameObject reinforcementObject = new GameObject("pending-release-reinforcement");
+        try
+        {
+            BridgeTestActionController host = ConfigureCombatant(
+                hostObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            PendingLifetimeModule module = new();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { host, anchor },
+                CreateTiles(3),
+                new ScriptedRollService(20, 10, 1),
+                new IUnityEncounterModule[] { module }
+            );
+            bridge.StartEncounter("Players");
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            InvalidOperationException cleanupFailure = new("pending cleanup failure");
+            TrackingDisposable resource = new(() => bridge.ReleaseOwnership(), cleanupFailure);
+            module.TargetName = reinforcementObject.name;
+            module.Resource = resource;
+            module.FailuresRemaining = 1;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+
+            InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
+                bridge.ReleaseOwnership()
+            );
+            Assert.That(actual, Is.SameAs(cleanupFailure));
+            Assert.That(resource.DisposeCount, Is.EqualTo(1));
+            Assert.DoesNotThrow(() => bridge.ReleaseOwnership());
+            Assert.That(resource.DisposeCount, Is.EqualTo(1));
+            Assert.That(reinforcement.ActionPoints, Is.Zero);
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
     private static BridgeTestActionController ConfigureCombatant(
         GameObject combatant,
         string teamName,
@@ -1434,6 +1854,20 @@ public sealed class UnityCombatRulesBridgeTests
         creature.Prepared = prepared;
     }
 
+    private static void ConfigureRetryActionFeatures(CreatureComponent creature)
+    {
+        ConfigureFeatureState(creature);
+        creature.Prepared.SpellBook = new PreparedSpellBook(
+            new[]
+            {
+                PreparedSpellEntry.Cantrip(new SpellReference(new SpellId("divine-lance"), 1)),
+            },
+            Array.Empty<PreparedSpellSlotPool>(),
+            0
+        );
+        creature.InitializeRuntimeActions();
+    }
+
     private static void AssertFeatureState(RulesSnapshot snapshot, CreatureId creature)
     {
         Assert.That(snapshot.PreparedInputs.Contains(creature), Is.True);
@@ -1533,6 +1967,139 @@ public sealed class UnityCombatRulesBridgeTests
             Captured = builder.BuildState();
             throw failure;
         }
+    }
+
+
+    /// <summary>Identifies a committed reinforcement checkpoint used by retry test cases.</summary>
+    public enum ReinforcementFailureCheckpoint
+    {
+        Join,
+        Strike,
+        RestoredSpellEffect,
+    }
+
+    private interface IThrowOnceObserver
+    {
+        int Count { get; }
+    }
+
+    private sealed class ThrowOnceFactObserver<TFact> : IFactObserver<TFact>, IThrowOnceObserver
+        where TFact : RuleFact
+    {
+        private readonly Exception failure;
+
+        internal ThrowOnceFactObserver(Exception failure) => this.failure = failure;
+
+        public int Count { get; private set; }
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
+        {
+            Count++;
+            if (Count == 1)
+                throw failure;
+            return default;
+        }
+    }
+
+    private sealed class CallbackFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly Action callback;
+
+        internal CallbackFactObserver(Action callback) => this.callback = callback;
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
+        {
+            callback();
+            return default;
+        }
+    }
+
+    private sealed class PreparationCountingModule : IUnityCombatantEnrollmentModule
+    {
+        internal int Count { get; private set; }
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) => Count++;
+    }
+
+    private sealed class RetryActionInstallationModule : IUnityCombatantEnrollmentModule
+    {
+        internal string TargetName { get; set; } = string.Empty;
+        internal int FailuresRemaining { get; set; }
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
+        {
+            if (builder.Controller.gameObject.name != TargetName)
+                return;
+            builder.AddInstallation(new RetryActionInstallation(this, builder.Controller));
+        }
+
+        private sealed class RetryActionInstallation : IUnityCombatantInstallationContribution
+        {
+            private readonly RetryActionInstallationModule owner;
+            private readonly ActionController controller;
+            private readonly RetryMarkerAction desired = new();
+
+            internal RetryActionInstallation(
+                RetryActionInstallationModule owner,
+                ActionController controller
+            )
+            {
+                this.owner = owner;
+                this.controller = controller;
+            }
+
+            public void Reconcile()
+            {
+                controller.ReconcileActions(
+                    action => action is RetryMarkerAction,
+                    new[] { desired }
+                );
+                if (owner.FailuresRemaining == 0)
+                    return;
+                owner.FailuresRemaining--;
+                controller.AddAction(new RetryMarkerAction());
+                throw new InvalidOperationException("Injected partial installation failure.");
+            }
+        }
+    }
+
+    private sealed class PendingLifetimeModule : IUnityCombatantEnrollmentModule
+    {
+        internal string TargetName { get; set; } = string.Empty;
+        internal IDisposable Resource { get; set; }
+        internal int FailuresRemaining { get; set; }
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
+        {
+            if (builder.Controller.gameObject.name != TargetName)
+                return;
+            builder.Own(Resource);
+            builder.AddInstallation(new PendingFailureInstallation(this));
+        }
+
+        private sealed class PendingFailureInstallation : IUnityCombatantInstallationContribution
+        {
+            private readonly PendingLifetimeModule owner;
+
+            internal PendingFailureInstallation(PendingLifetimeModule owner) => this.owner = owner;
+
+            public void Reconcile()
+            {
+                if (owner.FailuresRemaining == 0)
+                    return;
+                owner.FailuresRemaining--;
+                throw new InvalidOperationException("Injected pending installation failure.");
+            }
+        }
+    }
+
+    private sealed class RetryMarkerAction : EntityAction
+    {
+        internal RetryMarkerAction()
+            : base(0) { }
+
+        public override string ActionName => "Retry Marker";
     }
 
     private sealed class RecordingEncounterModule

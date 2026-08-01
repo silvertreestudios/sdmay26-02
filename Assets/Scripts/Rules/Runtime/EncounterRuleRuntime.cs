@@ -256,6 +256,8 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException(
                     "Reinforcements require an active encounter turn."
                 );
+            if (TryResolveExactReplay(frame.Op, context.Snapshot, encounter, out var replay))
+                return replay;
             InitiativeEntry current = encounter.Roster[encounter.Cursor];
             InitiativeEntry[] additions = frame
                 .Op.Participants.Select(
@@ -302,6 +304,101 @@ namespace Game.Rules.Runtime
                 "reinforcement initiative assignment"
             );
             return joined;
+        }
+
+        private static bool TryResolveExactReplay(
+            JoinEncounterOp operation,
+            RulesSnapshot snapshot,
+            EncounterState encounter,
+            out EncounterJoinOutcome outcome
+        )
+        {
+            int committedCount = operation.Participants.Count(participant =>
+                encounter.Roster.Any(entry => entry.Creature == participant.Participant.Creature)
+            );
+            if (committedCount == 0)
+            {
+                outcome = default;
+                return false;
+            }
+            if (committedCount != operation.Participants.Count)
+                throw new InvalidOperationException(
+                    "The reinforcement batch conflicts with a partially matching encounter roster."
+                );
+
+            long firstRegistrationOrder = encounter.Roster.Count - operation.Participants.Count;
+            for (int index = 0; index < operation.Participants.Count; index++)
+            {
+                EncounterJoinParticipant participant = operation.Participants[index];
+                CombatantRulesState registration = participant.Combatant;
+                InitiativeEntry entry = encounter.Roster.Single(candidate =>
+                    candidate.Creature == participant.Participant.Creature
+                );
+                if (
+                    entry.Team != participant.Participant.Team
+                    || entry.Modifier != participant.Participant.InitiativeModifier
+                    || entry.RegistrationOrder != firstRegistrationOrder + index
+                    || !MatchesRegistration(snapshot, registration)
+                )
+                    throw new InvalidOperationException(
+                        $"Creature {participant.Participant.Creature.Value} conflicts with its committed reinforcement registration."
+                    );
+            }
+
+            outcome = new EncounterJoinOutcome(encounter);
+            return true;
+        }
+
+        private static bool MatchesRegistration(
+            RulesSnapshot snapshot,
+            CombatantRulesState registration
+        )
+        {
+            CreatureId creature = registration.Creature.Id;
+            return snapshot.Creatures.TryGet(creature, out CreatureState committedCreature)
+                && committedCreature.Equals(registration.Creature)
+                && snapshot.Health.TryGet(creature, out HealthState health)
+                && health.Equals(registration.Health)
+                && snapshot.Positions.TryGet(creature, out GridPosition position)
+                && position.Equals(registration.Position)
+                && snapshot.LandSpeeds.TryGet(creature, out GridDistance landSpeed)
+                && landSpeed.Equals(registration.LandSpeed)
+                && snapshot.ActionEconomy.TryGet(creature, out ActionEconomyState economy)
+                && economy.Equals(new ActionEconomyState(0, false))
+                && snapshot.MultipleAttackPenalty.TryGet(
+                    creature,
+                    out MultipleAttackPenaltyState penalty
+                )
+                && penalty.Equals(new MultipleAttackPenaltyState(0))
+                && MatchesOwned(
+                    registration.SpellSlots,
+                    snapshot
+                        .SpellSlots.Where(pair => pair.Value.Owner == creature)
+                        .Select(pair => pair.Value),
+                    value => value.Id
+                )
+                && MatchesOwned(
+                    registration.RuleBindings,
+                    snapshot
+                        .RuleBindings.Where(pair => pair.Value.Owner == creature)
+                        .Select(pair => pair.Value),
+                    value => value.Id
+                );
+        }
+
+        private static bool MatchesOwned<TValue, TId>(
+            IEnumerable<TValue> expected,
+            IEnumerable<TValue> actual,
+            Func<TValue, TId> identify
+        )
+        {
+            Dictionary<TId, TValue> expectedById = expected.ToDictionary(identify);
+            Dictionary<TId, TValue> actualById = actual.ToDictionary(identify);
+            return expectedById.Count == actualById.Count
+                && expectedById.All(pair =>
+                    actualById.TryGetValue(pair.Key, out TValue value)
+                    && EqualityComparer<TValue>.Default.Equals(pair.Value, value)
+                );
         }
     }
 
