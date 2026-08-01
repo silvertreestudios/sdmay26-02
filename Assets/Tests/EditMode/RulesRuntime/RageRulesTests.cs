@@ -11,9 +11,20 @@ namespace Game.Tests.EditMode.RulesRuntime
     {
         private static readonly CreatureId Actor = new CreatureId("actor");
         private static readonly CreatureId Enemy = new CreatureId("enemy");
+        private static readonly CreatureId Reinforcement = new CreatureId("reinforcement");
         private static readonly PlayerId Party = new PlayerId("party");
         private static readonly PlayerId Opposition = new PlayerId("opposition");
         private static readonly EncounterId Encounter = new EncounterId("encounter");
+
+        /// <summary>Identifies the post-commit boundary interrupted by a retry regression.</summary>
+        public enum JoinRetryFailurePoint
+        {
+            /// <summary>Interrupts delivery immediately after the roster transaction commits.</summary>
+            EncounterJoinedObserver,
+
+            /// <summary>Interrupts root settlement after Quick-Tempered finishes its mutations.</summary>
+            QuickTemperedRootSettlement,
+        }
 
         [Test]
         public void ActionProfilesKeepQuickTemperedTraitsDistinctFromRage()
@@ -187,6 +198,25 @@ namespace Game.Tests.EditMode.RulesRuntime
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
             );
             Assert.That(allowed.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+        }
+
+        [TestCase(JoinRetryFailurePoint.EncounterJoinedObserver)]
+        [TestCase(JoinRetryFailurePoint.QuickTemperedRootSettlement)]
+        public async Task ReinforcementJoinRetryConvergesToOneSuccessfulQuickTemperedWorkflow(
+            JoinRetryFailurePoint failurePoint
+        )
+        {
+            JoinRetrySignature expected = await RunQuickTemperedJoinScenario(null);
+            JoinRetrySignature retried = await RunQuickTemperedJoinScenario(failurePoint);
+
+            Assert.That(retried.Version, Is.EqualTo(expected.Version));
+            Assert.That(retried.Encounter, Is.EqualTo(expected.Encounter));
+            Assert.That(retried.Health, Is.EqualTo(expected.Health));
+            Assert.That(retried.ActionEconomy, Is.EqualTo(expected.ActionEconomy));
+            Assert.That(retried.AttackPenalty, Is.EqualTo(expected.AttackPenalty));
+            Assert.That(retried.ActiveEffects, Is.EqualTo(expected.ActiveEffects));
+            Assert.That(retried.RuleBindings, Is.EqualTo(expected.RuleBindings));
+            Assert.That(retried.Facts, Is.EqualTo(expected.Facts));
         }
 
         [Test]
@@ -646,6 +676,176 @@ namespace Game.Tests.EditMode.RulesRuntime
                 2
             );
 
+        private static async Task<JoinRetrySignature> RunQuickTemperedJoinScenario(
+            JoinRetryFailurePoint? failurePoint
+        )
+        {
+            RageActorState inactive = CreateActorState(ownsRage: false);
+            RageActorState quickTempered = CreateActorState(ownsQuickTempered: true);
+            DictionaryRageActorStateProvider provider = new DictionaryRageActorStateProvider(
+                new Dictionary<CreatureId, RageActorState>
+                {
+                    [Actor] = inactive,
+                    [Reinforcement] = quickTempered,
+                }
+            );
+            ScriptedRollService rolls = new ScriptedRollService(20, 10, 5);
+            RuleDispatcher dispatcher = CreateJoinRetryDispatcher(provider, rolls);
+            CombatantRulesState registration = new CombatantRulesState(
+                new CreatureState(Reinforcement, Opposition),
+                new HealthState(10, 10),
+                new GridPosition(2, 0, 0),
+                new GridDistance(25),
+                Array.Empty<SpellSlotState>(),
+                RageRules.CreateInitialBindings(Reinforcement, quickTempered)
+            );
+            JoinEncounterOp join = new JoinEncounterOp(
+                Encounter,
+                new[]
+                {
+                    new EncounterJoinParticipant(
+                        new EncounterParticipant(Reinforcement, Opposition, 0),
+                        registration
+                    ),
+                }
+            );
+            FactStampRecorder recorder = new FactStampRecorder();
+            using IDisposable recording = dispatcher.RegisterFactObserver<RuleFact>(recorder);
+            InvalidOperationException expectedFailure = new InvalidOperationException(
+                $"Injected {failurePoint} failure."
+            );
+            IDisposable failureRegistration = null;
+            if (failurePoint == JoinRetryFailurePoint.EncounterJoinedObserver)
+            {
+                failureRegistration = dispatcher.RegisterFactObserver<EncounterJoinedFact>(
+                    new ThrowOnceFactObserver<EncounterJoinedFact>(expectedFailure)
+                );
+            }
+            else if (failurePoint == JoinRetryFailurePoint.QuickTemperedRootSettlement)
+            {
+                failureRegistration = dispatcher.RegisterRootSettlementObserver(
+                    new ThrowOnceQuickTemperedSettlementObserver(Reinforcement, expectedFailure)
+                );
+            }
+
+            if (failurePoint.HasValue)
+            {
+                InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
+                    async () =>
+                        await dispatcher.Dispatch(join)
+                );
+                Assert.That(actual, Is.SameAs(expectedFailure));
+                long committedVersion = dispatcher.Snapshot.Version;
+                int committedFactCount = recorder.Facts.Count;
+
+                ResolvedOpResult<EncounterJoinOutcome> retry = RequireResolved(
+                    await dispatcher.Dispatch(join)
+                );
+
+                Assert.That(retry.Facts, Is.Empty);
+                Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+                Assert.That(recorder.Facts, Has.Count.EqualTo(committedFactCount));
+                Assert.That(rolls.Remaining, Is.Zero, "A Join retry must not reroll initiative.");
+
+                CombatantRulesState conflictingRegistration = new CombatantRulesState(
+                    registration.Creature,
+                    new HealthState(9, 10),
+                    registration.Position,
+                    registration.LandSpeed,
+                    registration.SpellSlots,
+                    registration.RuleBindings
+                );
+                JoinEncounterOp conflict = new JoinEncounterOp(
+                    Encounter,
+                    new[]
+                    {
+                        new EncounterJoinParticipant(
+                            new EncounterParticipant(Reinforcement, Opposition, 0),
+                            conflictingRegistration
+                        ),
+                    }
+                );
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await dispatcher.Dispatch(conflict)
+                );
+                Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+                failureRegistration.Dispose();
+            }
+            else
+            {
+                RequireResolved(await dispatcher.Dispatch(join));
+                Assert.That(rolls.Remaining, Is.Zero);
+            }
+
+            RulesSnapshot snapshot = dispatcher.Snapshot;
+            return new JoinRetrySignature(
+                snapshot.Version,
+                snapshot.Encounters[Encounter],
+                snapshot.Health[Reinforcement],
+                snapshot.ActionEconomy[Reinforcement],
+                snapshot.MultipleAttackPenalty[Reinforcement],
+                snapshot
+                    .ActiveEffects.Select(pair => pair.Value)
+                    .OrderBy(effect => effect.Id.Value, StringComparer.Ordinal)
+                    .ToArray(),
+                snapshot
+                    .RuleBindings.Select(pair => pair.Value)
+                    .OrderBy(binding => binding.Id.Value, StringComparer.Ordinal)
+                    .ToArray(),
+                recorder.Facts.ToArray()
+            );
+        }
+
+        private static RuleDispatcher CreateJoinRetryDispatcher(
+            IRageActorStateProvider provider,
+            ScriptedRollService rolls
+        )
+        {
+            RageActionDefinition definition = new RageActionDefinition(provider);
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
+            RageRules.DefineRuleBindings(registryBuilder);
+            registryBuilder.Define(ConditionRuleDefinitions.Fatigued);
+            registryBuilder.Define(ConditionRuleDefinitions.Encumbered);
+            registryBuilder.AddOutcomeRule();
+            RuleRegistry registry = registryBuilder.Build();
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Actor, Party))
+                .SeedCreature(new CreatureState(Enemy, Opposition))
+                .SeedHealth(Actor, new HealthState(10, 10))
+                .SeedHealth(Enemy, new HealthState(10, 10));
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(seed),
+                rolls
+            )
+                .UseHealthRules()
+                .UseMultipleAttackPenaltyRules()
+                .UseActiveEffectRules(registry)
+                .UseConditionRules(registry)
+                .UseMovementBudgetResetRules()
+                .UseEncounterRules(Array.Empty<IEncounterTurnStartAdapter>())
+                .UseActionLifecycle(definition)
+                .UseRageRules(definition)
+                .Build();
+            RequireResolved(
+                dispatcher
+                    .Dispatch(
+                        new StartEncounterOp(
+                            Encounter,
+                            Party,
+                            new[]
+                            {
+                                new EncounterParticipant(Actor, Party, 0),
+                                new EncounterParticipant(Enemy, Opposition, 0),
+                            }
+                        )
+                    )
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult()
+            );
+            return dispatcher;
+        }
+
         private static void SeedMarker(
             RulesStateSeed seed,
             RuleDefinitionId definition,
@@ -681,6 +881,133 @@ namespace Game.Tests.EditMode.RulesRuntime
                 : "The operation did not resolve.";
             Assert.That(result, Is.TypeOf<ResolvedOpResult<TResult>>(), failure);
             return (ResolvedOpResult<TResult>)result;
+        }
+
+        private sealed class JoinRetrySignature
+        {
+            internal JoinRetrySignature(
+                long version,
+                EncounterState encounter,
+                HealthState health,
+                ActionEconomyState actionEconomy,
+                MultipleAttackPenaltyState attackPenalty,
+                ActiveEffectInstance[] activeEffects,
+                ActiveRuleBinding[] ruleBindings,
+                string[] facts
+            )
+            {
+                Version = version;
+                Encounter = encounter;
+                Health = health;
+                ActionEconomy = actionEconomy;
+                AttackPenalty = attackPenalty;
+                ActiveEffects = activeEffects;
+                RuleBindings = ruleBindings;
+                Facts = facts;
+            }
+
+            internal long Version { get; }
+            internal EncounterState Encounter { get; }
+            internal HealthState Health { get; }
+            internal ActionEconomyState ActionEconomy { get; }
+            internal MultipleAttackPenaltyState AttackPenalty { get; }
+            internal ActiveEffectInstance[] ActiveEffects { get; }
+            internal ActiveRuleBinding[] RuleBindings { get; }
+            internal string[] Facts { get; }
+        }
+
+        private sealed class FactStampRecorder : IFactObserver<RuleFact>
+        {
+            internal List<string> Facts { get; } = new List<string>();
+
+            public ValueTask OnFactCommitted(RuleFact fact, RulesSnapshot currentSnapshot)
+            {
+                Facts.Add(
+                    $"{fact.GetType().Name}:{fact.Id.Value}:{fact.SourceOpId.Value}:{fact.RootOpId.Value}:{fact.Source.Slug}"
+                );
+                return default;
+            }
+        }
+
+        private sealed class ThrowOnceFactObserver<TFact> : IFactObserver<TFact>
+            where TFact : RuleFact
+        {
+            private readonly Exception failure;
+            private bool thrown;
+
+            internal ThrowOnceFactObserver(Exception failure) => this.failure = failure;
+
+            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
+            {
+                if (!thrown)
+                {
+                    thrown = true;
+                    throw failure;
+                }
+                return default;
+            }
+        }
+
+        private sealed class ThrowOnceQuickTemperedSettlementObserver : IRootSettlementObserver
+        {
+            private readonly CreatureId actor;
+            private readonly Exception failure;
+            private bool thrown;
+
+            internal ThrowOnceQuickTemperedSettlementObserver(CreatureId actor, Exception failure)
+            {
+                this.actor = actor;
+                this.failure = failure;
+            }
+
+            public ValueTask OnRootSettled(
+                OpId rootId,
+                OpId? causalParentRootId,
+                RulesSnapshot snapshot
+            )
+            {
+                BindingId quickTempered = new BindingId($"quick-tempered-{actor.Value}");
+                if (
+                    !thrown
+                    && RageRules.IsRaging(snapshot, actor)
+                    && snapshot.RuleBindings.TryGet(quickTempered, out ActiveRuleBinding binding)
+                    && !binding.IsEnabled
+                )
+                {
+                    thrown = true;
+                    throw failure;
+                }
+                return default;
+            }
+        }
+
+        private sealed class DictionaryRageActorStateProvider : IRageActorStateProvider
+        {
+            private readonly IReadOnlyDictionary<CreatureId, RageActorState> states;
+
+            internal DictionaryRageActorStateProvider(
+                IReadOnlyDictionary<CreatureId, RageActorState> states
+            ) => this.states = states;
+
+            public RageActorState Get(CreatureId actor) =>
+                states.TryGetValue(actor, out RageActorState state)
+                    ? state
+                    : throw new InvalidOperationException("Unknown Rage test actor.");
+        }
+
+        private sealed class TestRageActorStateProvider : IRageActorStateProvider
+        {
+            private readonly RageActorState state;
+
+            public TestRageActorStateProvider(RageActorState state) =>
+                this.state = state ?? throw new ArgumentNullException(nameof(state));
+
+            public RageActorState Get(CreatureId actor)
+            {
+                if (actor != Actor)
+                    throw new InvalidOperationException("Unknown Rage test actor.");
+                return state;
+            }
         }
 
         private sealed class TestRageConditionStateProvider : IRageConditionStateProvider

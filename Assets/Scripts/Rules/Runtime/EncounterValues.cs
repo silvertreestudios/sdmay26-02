@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 
 namespace Game.Rules.Runtime
@@ -300,6 +301,11 @@ namespace Game.Rules.Runtime
     public sealed class EncounterState : IEquatable<EncounterState>
     {
         private readonly IReadOnlyList<InitiativeEntry> roster;
+        private readonly IReadOnlyDictionary<
+            CreatureId,
+            CombatantRulesState
+        > reinforcementRegistrations;
+        private readonly IReadOnlyList<CreatureId> publishedInitiativeAssignments;
 
         /// <summary>Gets the stable encounter identity.</summary>
         public EncounterId Id { get; }
@@ -334,6 +340,12 @@ namespace Game.Rules.Runtime
         /// </summary>
         public bool IsInitiativeBoundaryPending { get; }
 
+        internal IReadOnlyDictionary<CreatureId, CombatantRulesState> ReinforcementRegistrations =>
+            reinforcementRegistrations;
+
+        internal IReadOnlyList<CreatureId> PublishedInitiativeAssignments =>
+            publishedInitiativeAssignments;
+
         /// <summary>Creates a validated immutable encounter snapshot.</summary>
         /// <param name="id">The stable encounter identity.</param>
         /// <param name="phase">The committed lifecycle phase.</param>
@@ -360,6 +372,35 @@ namespace Game.Rules.Runtime
             EncounterOutcome? outcome,
             bool isInitiativeBoundaryPending = false
         )
+            : this(
+                id,
+                phase,
+                protagonistTeam,
+                round,
+                roster,
+                cursor,
+                currentTurn,
+                nextTurnSequence,
+                outcome,
+                isInitiativeBoundaryPending,
+                Array.Empty<KeyValuePair<CreatureId, CombatantRulesState>>(),
+                Array.Empty<CreatureId>()
+            ) { }
+
+        private EncounterState(
+            EncounterId id,
+            EncounterPhase phase,
+            PlayerId protagonistTeam,
+            RoundNumber round,
+            IEnumerable<InitiativeEntry> roster,
+            int cursor,
+            TurnIdentity? currentTurn,
+            long nextTurnSequence,
+            EncounterOutcome? outcome,
+            bool isInitiativeBoundaryPending,
+            IEnumerable<KeyValuePair<CreatureId, CombatantRulesState>> reinforcementRegistrations,
+            IEnumerable<CreatureId> publishedInitiativeAssignments
+        )
         {
             if (id.IsEmpty || protagonistTeam.IsEmpty)
                 throw new ArgumentException(
@@ -383,6 +424,34 @@ namespace Game.Rules.Runtime
                     "A pending initiative boundary requires an active encounter, a reached cursor, and no open turn.",
                     nameof(isInitiativeBoundaryPending)
                 );
+            Dictionary<CreatureId, CombatantRulesState> copiedRegistrations =
+                reinforcementRegistrations?.ToDictionary(pair => pair.Key, pair => pair.Value)
+                ?? throw new ArgumentNullException(nameof(reinforcementRegistrations));
+            if (
+                copiedRegistrations.Any(pair =>
+                    pair.Key.IsEmpty
+                    || pair.Value == null
+                    || pair.Value.Creature.Id != pair.Key
+                    || copied.All(entry => entry.Creature != pair.Key)
+                )
+            )
+                throw new ArgumentException(
+                    "Every reinforcement receipt must identify a creature in the encounter roster.",
+                    nameof(reinforcementRegistrations)
+                );
+            CreatureId[] copiedAssignments =
+                publishedInitiativeAssignments?.ToArray()
+                ?? throw new ArgumentNullException(nameof(publishedInitiativeAssignments));
+            if (
+                copiedAssignments.Any(creature =>
+                    creature.IsEmpty || copied.All(entry => entry.Creature != creature)
+                )
+                || copiedAssignments.Distinct().Count() != copiedAssignments.Length
+            )
+                throw new ArgumentException(
+                    "Published initiative assignments must identify unique roster creatures.",
+                    nameof(publishedInitiativeAssignments)
+                );
             Id = id;
             Phase = phase;
             ProtagonistTeam = protagonistTeam;
@@ -393,6 +462,11 @@ namespace Game.Rules.Runtime
             NextTurnSequence = nextTurnSequence;
             Outcome = outcome;
             IsInitiativeBoundaryPending = isInitiativeBoundaryPending;
+            this.reinforcementRegistrations = new ReadOnlyDictionary<
+                CreatureId,
+                CombatantRulesState
+            >(copiedRegistrations);
+            this.publishedInitiativeAssignments = Array.AsReadOnly(copiedAssignments);
         }
 
         internal EncounterState Replace(
@@ -404,7 +478,10 @@ namespace Game.Rules.Runtime
             bool clearCurrentTurn = false,
             long? nextTurnSequence = null,
             EncounterOutcome? outcome = null,
-            bool? isInitiativeBoundaryPending = null
+            bool? isInitiativeBoundaryPending = null,
+            IEnumerable<KeyValuePair<CreatureId, CombatantRulesState>> reinforcementRegistrations =
+                null,
+            IEnumerable<CreatureId> publishedInitiativeAssignments = null
         ) =>
             new EncounterState(
                 Id,
@@ -416,7 +493,9 @@ namespace Game.Rules.Runtime
                 clearCurrentTurn ? (TurnIdentity?)null : currentTurn ?? CurrentTurn,
                 nextTurnSequence ?? NextTurnSequence,
                 outcome ?? Outcome,
-                isInitiativeBoundaryPending ?? IsInitiativeBoundaryPending
+                isInitiativeBoundaryPending ?? IsInitiativeBoundaryPending,
+                reinforcementRegistrations ?? this.reinforcementRegistrations,
+                publishedInitiativeAssignments ?? this.publishedInitiativeAssignments
             );
 
         /// <inheritdoc/>
@@ -431,7 +510,13 @@ namespace Game.Rules.Runtime
             && NextTurnSequence == other.NextTurnSequence
             && Outcome == other.Outcome
             && IsInitiativeBoundaryPending == other.IsInitiativeBoundaryPending
-            && roster.SequenceEqual(other.roster);
+            && roster.SequenceEqual(other.roster)
+            && reinforcementRegistrations.Count == other.reinforcementRegistrations.Count
+            && reinforcementRegistrations.All(pair =>
+                other.reinforcementRegistrations.TryGetValue(pair.Key, out var registration)
+                && pair.Value.Equals(registration)
+            )
+            && publishedInitiativeAssignments.SequenceEqual(other.publishedInitiativeAssignments);
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is EncounterState other && Equals(other);
@@ -451,6 +536,21 @@ namespace Game.Rules.Runtime
             hash.Add(IsInitiativeBoundaryPending);
             foreach (InitiativeEntry entry in roster)
                 hash.Add(entry);
+            foreach (
+                KeyValuePair<
+                    CreatureId,
+                    CombatantRulesState
+                > registration in reinforcementRegistrations.OrderBy(
+                    pair => pair.Key.Value,
+                    StringComparer.Ordinal
+                )
+            )
+            {
+                hash.Add(registration.Key);
+                hash.Add(registration.Value);
+            }
+            foreach (CreatureId assignment in publishedInitiativeAssignments)
+                hash.Add(assignment);
             return hash.ToHashCode();
         }
     }

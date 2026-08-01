@@ -636,18 +636,7 @@ namespace Game.Rules.Unity
         public async ValueTask<OpResult<MovePathOutcome>> DispatchStride(
             CreatureId creature,
             MovementPath path
-        )
-        {
-            topologyProvider.BeginResolution();
-            try
-            {
-                return await dispatcher.Dispatch(new StrideActionOp(creature, path));
-            }
-            finally
-            {
-                topologyProvider.EndResolution();
-            }
-        }
+        ) => await DispatchResult(new StrideActionOp(creature, path));
 
         /// <summary>
         /// Dispatches Stride while awaiting one Unity projection for each committed movement Fact.
@@ -854,12 +843,7 @@ namespace Game.Rules.Unity
             bool isEnrollmentCheckpoint = false
         )
         {
-            if (isEnrollmentCheckpoint)
-                EnsureEnrollmentCanContinue();
-            else
-                EnsureOperational();
-            dispatchDepth++;
-            topologyProvider.BeginResolution();
+            BeginDispatch(isEnrollmentCheckpoint);
             try
             {
                 ValueTask<OpResult<TResult>> pending = dispatcher.Dispatch(operation);
@@ -873,11 +857,41 @@ namespace Game.Rules.Unity
             }
             finally
             {
-                topologyProvider.EndResolution();
-                dispatchDepth--;
-                if (dispatchDepth == 0 && releaseRequested)
-                    CompleteReleaseOwnership();
+                EndDispatch();
             }
+        }
+
+        private async ValueTask<OpResult<TResult>> DispatchResult<TResult>(
+            IRuleOp<TResult> operation
+        )
+        {
+            BeginDispatch(false);
+            try
+            {
+                return await dispatcher.Dispatch(operation);
+            }
+            finally
+            {
+                EndDispatch();
+            }
+        }
+
+        private void BeginDispatch(bool isEnrollmentCheckpoint)
+        {
+            if (isEnrollmentCheckpoint)
+                EnsureEnrollmentCanContinue();
+            else
+                EnsureOperational();
+            topologyProvider.BeginResolution();
+            dispatchDepth++;
+        }
+
+        private void EndDispatch()
+        {
+            topologyProvider.EndResolution();
+            dispatchDepth--;
+            if (dispatchDepth == 0 && releaseRequested)
+                CompleteReleaseOwnership();
         }
 
         private void EnsureOperational()

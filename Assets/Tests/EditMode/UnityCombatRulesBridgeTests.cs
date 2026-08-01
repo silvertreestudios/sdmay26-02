@@ -1077,6 +1077,127 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void PendingReinforcementEnrollmentClosesStrideBeforeDispatch()
+    {
+        GameObject hostObject = new GameObject("pending-stride-host");
+        GameObject anchorObject = new GameObject("pending-stride-anchor");
+        GameObject reinforcementObject = new GameObject("pending-stride-reinforcement");
+        try
+        {
+            BridgeTestActionController host = ConfigureCombatant(
+                hostObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            RetryActionInstallationModule installation = new();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { host, anchor },
+                CreateTiles(3),
+                new ScriptedRollService(20, 10, 1),
+                new IUnityEncounterModule[] { installation }
+            );
+            bridge.StartEncounter("Players");
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            installation.TargetName = reinforcementObject.name;
+            installation.FailuresRemaining = 1;
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+            CreatureId hostId = bridge.GetCreatureId(host);
+            long version = bridge.Snapshot.Version;
+            ActionEconomyState economy = bridge.Snapshot.ActionEconomy[hostId];
+
+            InvalidOperationException failure = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await bridge.DispatchStride(
+                        hostId,
+                        new MovementPath(
+                            new GridPosition(0, 0, 0),
+                            new[] { new GridPosition(1, 0, 0) }
+                        )
+                    )
+            );
+
+            Assert.That(failure.Message, Does.Contain("pending reinforcement batch"));
+            Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
+            Assert.That(bridge.Snapshot.Positions[hostId], Is.EqualTo(new GridPosition(0, 0, 0)));
+            Assert.That(bridge.Snapshot.ActionEconomy[hostId], Is.EqualTo(economy));
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public async Task StrideCallbackDefersOwnershipReleaseUntilRootCompletes()
+    {
+        GameObject moverObject = new GameObject("stride-release-mover");
+        GameObject opponentObject = new GameObject("stride-release-opponent");
+        try
+        {
+            BridgeTestActionController mover = ConfigureCombatant(
+                moverObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController opponent = ConfigureCombatant(
+                opponentObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { mover, opponent },
+                CreateTiles(3),
+                new ScriptedRollService(20, 10)
+            );
+            CreatureId moverId = bridge.GetCreatureId(mover);
+            bridge.StartEncounter("Players");
+            bool callbackReturned = false;
+            using (
+                GetDispatcher(bridge)
+                    .RegisterFactObserver<TokenMovedFact>(
+                        new CallbackFactObserver<TokenMovedFact>(() =>
+                        {
+                            bridge.ReleaseOwnership();
+                            callbackReturned = true;
+                        })
+                    )
+            )
+            {
+                OpResult<MovePathOutcome> result = await bridge.DispatchStride(
+                    moverId,
+                    new MovementPath(new GridPosition(0, 0, 0), new[] { new GridPosition(1, 0, 0) })
+                );
+
+                Assert.That(result, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>());
+            }
+
+            Assert.That(callbackReturned, Is.True);
+            Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(1, 0, 0)));
+            Assert.That(mover.TryGetCombatRules(out _, out _), Is.False);
+            Assert.That(mover.ActionPoints, Is.Zero);
+        }
+        finally
+        {
+            Object.DestroyImmediate(moverObject);
+            Object.DestroyImmediate(opponentObject);
+        }
+    }
+
+    [Test]
     public async Task ExplorationStrideProjectsRulesFactsWithoutClaimingCombatActionPoints()
     {
         GameObject creatureObject = new GameObject("exploration-stride-creature");

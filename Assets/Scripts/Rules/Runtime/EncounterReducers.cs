@@ -323,6 +323,11 @@ namespace Game.Rules.Runtime
             HashSet<CreatureId> existing = new HashSet<CreatureId>(
                 encounter.Roster.Select(entry => entry.Creature)
             );
+            Dictionary<CreatureId, CombatantRulesState> reinforcementRegistrations =
+                encounter.ReinforcementRegistrations.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value
+                );
             HashSet<SpellSlotPoolId> incomingSpellSlots = new HashSet<SpellSlotPoolId>();
             HashSet<BindingId> incomingRuleBindings = new HashSet<BindingId>();
             if (context.Op.Registrations.Count != context.Op.Additions.Count)
@@ -355,6 +360,10 @@ namespace Game.Rules.Runtime
                 )
                     return ReductionResult<EncounterJoinOutcome>.Reject(
                         $"Creature {entry.Creature.Value} collides with existing registration state."
+                    );
+                if (!reinforcementRegistrations.TryAdd(entry.Creature, registration))
+                    return ReductionResult<EncounterJoinOutcome>.Reject(
+                        $"Creature {entry.Creature.Value} already has a reinforcement receipt."
                     );
                 foreach (SpellSlotState slot in registration.SpellSlots)
                     if (state.SpellSlots.Contains(slot.Id) || !incomingSpellSlots.Add(slot.Id))
@@ -410,7 +419,8 @@ namespace Game.Rules.Runtime
             EncounterState updated = encounter.Replace(
                 roster: roster,
                 cursor: cursor,
-                currentTurn: encounter.CurrentTurn.Value
+                currentTurn: encounter.CurrentTurn.Value,
+                reinforcementRegistrations: reinforcementRegistrations
             );
             state.Encounters.Set(updated.Id, updated);
             foreach (InitiativeEntry entry in context.Op.Additions)
@@ -446,6 +456,12 @@ namespace Game.Rules.Runtime
                     "At least one initiative assignment is required."
                 );
 
+            CreatureId[] assignments = context.Op.Entries.Select(entry => entry.Creature).ToArray();
+            if (assignments.Distinct().Count() != assignments.Length)
+                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
+                    "An initiative assignment batch cannot contain duplicate creatures."
+                );
+
             foreach (InitiativeEntry entry in context.Op.Entries)
             {
                 InitiativeEntry committed = encounter.Roster.SingleOrDefault(candidate =>
@@ -456,8 +472,26 @@ namespace Game.Rules.Runtime
                         $"Creature {entry.Creature.Value} has no matching committed initiative slot."
                     );
             }
+            int alreadyPublished = assignments.Count(creature =>
+                encounter.PublishedInitiativeAssignments.Contains(creature)
+            );
+            if (alreadyPublished == assignments.Length)
+                return ReductionResult<InitiativeAssignmentsOutcome>.Accept(
+                    new InitiativeAssignmentsOutcome(0)
+                );
+            if (alreadyPublished != 0)
+                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
+                    "The initiative assignment batch conflicts with a partially published checkpoint."
+                );
+
+            EncounterState updated = encounter.Replace(
+                publishedInitiativeAssignments: encounter.PublishedInitiativeAssignments.Concat(
+                    assignments
+                )
+            );
+            state.Encounters.Set(updated.Id, updated);
             foreach (InitiativeEntry entry in context.Op.Entries)
-                facts.Stage(new InitiativeAssignedFact(encounter.Id, entry));
+                facts.Stage(new InitiativeAssignedFact(updated.Id, entry));
             return ReductionResult<InitiativeAssignmentsOutcome>.Accept(
                 new InitiativeAssignmentsOutcome(context.Op.Entries.Count)
             );

@@ -201,6 +201,13 @@ snapshot.
   round. Additional `IUnityCombatantStateContribution` objects then run their rules-owned
   registration workflows.
 
+The encounter stores the immutable reinforcement registration receipt separately from mutable live
+combatant state, and checkpoints initiative-assignment publication separately from roster joining.
+An exact replay therefore converges both checkpoints even when roster Fact delivery failed, while
+state legitimately changed by an assignment listener does not make the original registration look
+conflicting. A post-commit roster observer failure is preserved for the caller only after the
+assignment checkpoint is attempted, so retry cannot alter causation, Facts, or version.
+
 After either state path, call `AttachAndInstall`, `FinalizeBatch`, then
 `TransferTo(encounterLifetime)`. Finalization first validates every contribution; successful
 ownership transfer then applies the non-failing contributions and consumes one-shot input. A
@@ -393,7 +400,9 @@ shrink them through vertical migrations:
   `GetStrideAvailability`, `CreateStrideSelectionWorkflow`, `DispatchStride`, and
   `DispatchProjectedStride` helpers. They are a transitional exception to the feature-agnostic
   bridge direction and must not be copied, expanded, or used to justify new feature helpers; new
-  slices should use feature-owned adapters and the bridge's generic dispatch boundary.
+  slices should use feature-owned adapters and the bridge's generic dispatch boundary. Stride's
+  asynchronous dispatch enters that same guarded boundary: pending enrollment and released
+  ownership fail closed, and ownership release requested by a callback waits for the root to exit.
 - Other actions, conditions, feats, spells, equipment behaviors, exploration systems, and scene
   flows not named as migrated above can still be Unity-native. Migrate them one vertical slice at a
   time; do not describe the whole game as rules-native.

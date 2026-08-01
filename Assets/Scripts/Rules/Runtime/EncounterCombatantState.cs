@@ -5,7 +5,7 @@ using System.Linq;
 namespace Game.Rules.Runtime
 {
     /// <summary>Provides the complete initial rules state for one encounter participant.</summary>
-    public sealed class CombatantRulesState
+    public sealed class CombatantRulesState : IEquatable<CombatantRulesState>
     {
         /// <summary>Creates one immutable participant registration.</summary>
         public CombatantRulesState(
@@ -48,6 +48,35 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets participant-owned rule bindings activated by registration.</summary>
         public IReadOnlyList<ActiveRuleBinding> RuleBindings { get; }
+
+        /// <inheritdoc/>
+        public bool Equals(CombatantRulesState other) =>
+            other != null
+            && Creature.Equals(other.Creature)
+            && Health.Equals(other.Health)
+            && Position.Equals(other.Position)
+            && LandSpeed.Equals(other.LandSpeed)
+            && SpellSlots.SequenceEqual(other.SpellSlots)
+            && RuleBindings.SequenceEqual(other.RuleBindings);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) =>
+            obj is CombatantRulesState other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode()
+        {
+            HashCode hash = new HashCode();
+            hash.Add(Creature);
+            hash.Add(Health);
+            hash.Add(Position);
+            hash.Add(LandSpeed);
+            foreach (SpellSlotState slot in SpellSlots)
+                hash.Add(slot);
+            foreach (ActiveRuleBinding binding in RuleBindings)
+                hash.Add(binding);
+            return hash.ToHashCode();
+        }
 
         private static IReadOnlyList<SpellSlotState> CopyOwned(
             IReadOnlyList<SpellSlotState> values,
