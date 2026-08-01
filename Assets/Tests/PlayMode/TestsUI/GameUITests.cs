@@ -271,6 +271,87 @@ namespace TestsUI
         }
 
         [UnityTest]
+        public IEnumerator ExplorationGuidanceIsOwnedByExplorationMode()
+        {
+            player = CombatManagerInterface
+                .GetInstance()
+                .GetCombatants()
+                .Find(combatant => combatant.GetComponent<PlayerActionController>() != null);
+            ActionController controller = player.GetComponent<ActionController>();
+            HUDController hud = HUDController.GetInstance();
+
+            hud.ShowExploration(new[] { controller }, controller, candidate => candidate != null);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => root.Q<Label>("ExplorationGuidance") != null
+            );
+
+            Assert.That(root.Q<Button>("StrideButton"), Is.Null);
+            Assert.That(root.Q<Button>("EndTurnButton"), Is.Null);
+            Assert.That(
+                root.Query<Label>(className: "exploration-guidance").ToList(),
+                Has.Count.EqualTo(1)
+            );
+
+            hud.HideExploration();
+            Assert.That(root.Q<Label>("ExplorationGuidance"), Is.Null);
+
+            hud.ShowExploration(new[] { controller }, controller, candidate => candidate != null);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => root.Q<Label>("ExplorationGuidance") != null
+            );
+            Assert.That(
+                root.Query<Label>(className: "exploration-guidance").ToList(),
+                Has.Count.EqualTo(1)
+            );
+        }
+
+        [UnityTest]
+        public IEnumerator TacticsModeControlIsReusedAfterHudReenable()
+        {
+            HUDController hud = HUDController.GetInstance();
+            Button original = root.Q<Button>("TacticsModeButton");
+            Assert.That(original, Is.Not.Null);
+            int returnRequests = 0;
+            hud.ConfigureTacticsControl(
+                () => Assert.Fail("The tactics callback should not run in Tactics."),
+                () =>
+                {
+                    returnRequests++;
+                    return true;
+                }
+            );
+            hud.ShowTactics();
+
+            hud.enabled = false;
+            yield return null;
+            hud.enabled = true;
+            yield return null;
+
+            Assert.That(root.Q<Button>("TacticsModeButton"), Is.SameAs(original));
+            Assert.That(
+                root.Query<Button>(name: "TacticsModeButton").ToList(),
+                Has.Count.EqualTo(1)
+            );
+            Assert.That(original.text, Is.EqualTo("Return to Exploration"));
+            Assert.That(original.resolvedStyle.display, Is.EqualTo(DisplayStyle.Flex));
+
+            PushButton(original);
+            yield return null;
+            Assert.That(returnRequests, Is.EqualTo(1));
+
+            GameObject currentTurn = CombatManagerInterface.GetInstance().WhosTurn();
+            Assert.That(currentTurn, Is.Not.Null);
+            root.Q<VisualElement>("ButtonGrid").Clear();
+            OnNextTurn.Invoke(currentTurn);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => root.Q<Button>("EndTurnButton") != null
+            );
+        }
+
+        [UnityTest]
         public IEnumerator PlayerCardsShowRenderedCreaturePortraits()
         {
             VisualElement cardHolder = null;

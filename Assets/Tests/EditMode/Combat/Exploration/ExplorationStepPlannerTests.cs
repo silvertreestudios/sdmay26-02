@@ -287,6 +287,32 @@ namespace Game.Tests.Combat.Exploration
         private static TestCellAvailability OpenCells(params DungeonCell[] unavailable) =>
             new(unavailable);
 
+        [Test]
+        public void TravelPlan_CopiesCompleteAdjacentRoute()
+        {
+            DungeonCell[] route = { Cell(0, 0), Cell(1, 0), Cell(2, 1), Cell(3, 1) };
+
+            ExplorationTravelPlan plan = ExplorationTravelPlanner.Plan(route);
+            route[1] = Cell(99, 99);
+
+            Assert.That(
+                plan.Cells,
+                Is.EqualTo(new[] { Cell(0, 0), Cell(1, 0), Cell(2, 1), Cell(3, 1) })
+            );
+            Assert.That(plan.Destination, Is.EqualTo(Cell(3, 1)));
+        }
+
+        [Test]
+        public void TravelPlan_RejectsMissingOrNonAdjacentRoute()
+        {
+            Assert.Throws<ArgumentException>(() =>
+                ExplorationTravelPlanner.Plan(new[] { Cell(0, 0) })
+            );
+            Assert.Throws<ArgumentException>(() =>
+                ExplorationTravelPlanner.Plan(new[] { Cell(0, 0), Cell(2, 0) })
+            );
+        }
+
         private static int[] Cells(ExplorationPartyState party) =>
             party.Members.SelectMany(member => new[] { member.Cell.X, member.Cell.Z }).ToArray();
 

@@ -11,8 +11,8 @@ using UnityEngine;
 namespace Game.Combat.Exploration
 {
     /// <summary>
-    /// Projects live Unity party/grid state into the pure step planner and commits its ordered
-    /// movement one member at a time.
+    /// Projects each rules-committed leader step into the pure follower planner and commits its
+    /// ordered Unity movement one member at a time during destination travel.
     /// </summary>
     internal sealed class DungeonExplorationMovementRuntime : IExplorationStrideCoordinator
     {

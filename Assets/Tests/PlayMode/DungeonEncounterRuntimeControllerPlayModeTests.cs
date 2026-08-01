@@ -48,10 +48,10 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
     }
 
     /// <summary>
-    /// Verifies room transitions are retained and suspension waits for party and enemy actions.
+    /// Verifies room transitions activate Tactics and living opposition prevents withdrawal.
     /// </summary>
     [UnityTest]
-    public IEnumerator PartyRoomTransitionsActivateAndSuspendEncounter()
+    public IEnumerator PartyRoomTransitionsKeepTacticsActiveWithLivingOpposition()
     {
         Track(new GameObject("Test Combat Log")).AddComponent<RuntimeTestCombatLog>();
         Track(new GameObject("Team Rules")).AddComponent<TeamRules>();
@@ -96,12 +96,12 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         player.IsTakingAction = false;
         yield return null;
 
-        Assert.That(manager.IsCombatActive, Is.False);
-        Assert.That(player.IsInDungeonExploration, Is.True);
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(player.IsInDungeonExploration, Is.False);
         Assert.That(presentation.HideCount, Is.EqualTo(1));
         Assert.That(
             runtime.Lifecycle.GetRoomEncounter(1).State,
-            Is.EqualTo(DungeonEncounterGroupState.Suspended)
+            Is.EqualTo(DungeonEncounterGroupState.Active)
         );
         Assert.That(
             runtime.GetComponentsInChildren<DungeonEncounterMember>(),
@@ -112,56 +112,24 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
             .GetComponentsInChildren<DungeonEncounterMember>()
             .Single()
             .GetComponent<RuntimeTestActionController>();
-        enemy.transform.position = new Vector3(2f, 0f, 2f);
-        player.transform.position = new Vector3(1f, 0f, 2f);
-        int hideCountAfterRetreat = presentation.HideCount;
-        int showCountAfterRetreat = presentation.ShowCount;
-        yield return null;
-        yield return null;
-
-        Assert.That(manager.IsCombatActive, Is.False);
-        Assert.That(player.IsInDungeonExploration, Is.True);
-        Assert.That(presentation.HideCount, Is.EqualTo(hideCountAfterRetreat));
-        Assert.That(presentation.ShowCount, Is.EqualTo(showCountAfterRetreat));
-        Assert.That(
-            runtime.Lifecycle.GetRoomEncounter(1).State,
-            Is.EqualTo(DungeonEncounterGroupState.Suspended),
-            "An in-room survivor must not resume combat with a party member outside the room."
-        );
-
-        player.transform.position = new Vector3(2f, 0f, 2f);
+        player.transform.position = Vector3.zero;
         yield return null;
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(player.IsInDungeonExploration, Is.False);
-        Assert.That(presentation.HideCount, Is.EqualTo(2));
+        Assert.That(presentation.ShowCount, Is.EqualTo(1));
+        Assert.That(manager.GetCombatants(), Does.Contain(enemy.gameObject));
         Assert.That(
             runtime.Lifecycle.GetRoomEncounter(1).State,
             Is.EqualTo(DungeonEncounterGroupState.Active)
         );
-
-        enemy.IsTakingAction = true;
-        player.transform.position = Vector3.zero;
-        yield return null;
-        Assert.That(manager.IsCombatActive, Is.True);
-        Assert.That(enemy.IsTakingAction, Is.True);
-
-        enemy.IsTakingAction = false;
-        yield return null;
-        Assert.That(manager.IsCombatActive, Is.False);
-        Assert.That(player.IsInDungeonExploration, Is.True);
-        Assert.That(presentation.ShowCount, Is.EqualTo(3));
-        Assert.That(
-            runtime.Lifecycle.GetRoomEncounter(1).State,
-            Is.EqualTo(DungeonEncounterGroupState.Suspended)
-        );
     }
 
     /// <summary>
-    /// Verifies a floor reset detaches suspended survivors before the destination grid rebinds.
+    /// Verifies a floor reset detaches stopped encounter survivors before the destination grid rebinds.
     /// </summary>
     [UnityTest]
-    public IEnumerator FloorResetDetachesSuspendedSurvivorsFromGridAndCombatManager()
+    public IEnumerator FloorResetDetachesStoppedSurvivorsFromGridAndCombatManager()
     {
         MinimalCombatGrid minimalGrid = Object.FindFirstObjectByType<MinimalCombatGrid>();
         Assert.That(minimalGrid, Is.Not.Null);
@@ -237,8 +205,9 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         yield return null;
         Assert.That(
             runtime.Lifecycle.GetRoomEncounter(1).State,
-            Is.EqualTo(DungeonEncounterGroupState.Suspended)
+            Is.EqualTo(DungeonEncounterGroupState.Active)
         );
+        manager.ReleaseTacticsForTeardown();
 
         MethodInfo reset = typeof(DungeonEncounterRuntimeController).GetMethod(
             "ResetForFloorTransition",

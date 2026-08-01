@@ -13,6 +13,13 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// <summary>Starts legacy scene combat with every living registered controller.</summary>
     public abstract void StartCombat();
 
+    /// <summary>Starts player-selected Tactics using all living registered player controllers.</summary>
+    public abstract void EnterTactics();
+
+    /// <summary>Attempts to return to Exploration when no living enrolled opposition or work blocks exit.</summary>
+    /// <returns>Whether Tactics ended and ownership was released.</returns>
+    public abstract bool TryReturnToExploration();
+
     /// <summary>
     /// Starts a dungeon-directed combat using only the supplied registered participants.
     /// </summary>
@@ -24,11 +31,6 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// </summary>
     /// <param name="reinforcements">Newly activated registered controllers.</param>
     public abstract void AddDungeonReinforcements(IReadOnlyList<ActionController> reinforcements);
-
-    /// <summary>
-    /// Leaves dungeon combat without declaring a winner and clears transient turn state.
-    /// </summary>
-    public abstract void SuspendDungeonCombat();
 
     /// <summary>
     /// Refreshes the immutable rules topology after the live grid changes between actions.

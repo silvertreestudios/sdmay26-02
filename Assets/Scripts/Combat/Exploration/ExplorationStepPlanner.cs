@@ -347,4 +347,50 @@ namespace Game.Combat.Exploration
         private static long ManhattanDistance(DungeonCell first, DungeonCell second) =>
             Math.Abs((long)first.X - second.X) + Math.Abs((long)first.Z - second.Z);
     }
+
+    /// <summary>Contains one immutable complete destination route, including its origin.</summary>
+    public sealed class ExplorationTravelPlan
+    {
+        private readonly ReadOnlyCollection<DungeonCell> cells;
+
+        internal ExplorationTravelPlan(IEnumerable<DungeonCell> cells) =>
+            this.cells = Array.AsReadOnly(cells.ToArray());
+
+        /// <summary>Gets the complete ordered route from origin through destination.</summary>
+        public IReadOnlyList<DungeonCell> Cells => cells;
+
+        /// <summary>Gets the selected destination.</summary>
+        public DungeonCell Destination => cells[cells.Count - 1];
+    }
+
+    /// <summary>Validates and freezes a pathfinder-produced exploration destination route.</summary>
+    public static class ExplorationTravelPlanner
+    {
+        /// <summary>Creates a complete route plan without mutating or retaining the supplied list.</summary>
+        /// <param name="route">Ordered adjacent cells including both origin and destination.</param>
+        /// <returns>The immutable complete travel plan.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="route"/> is null.</exception>
+        /// <exception cref="ArgumentException">The route is empty or contains a non-adjacent step.</exception>
+        public static ExplorationTravelPlan Plan(IEnumerable<DungeonCell> route)
+        {
+            DungeonCell[] copied =
+                route?.ToArray() ?? throw new ArgumentNullException(nameof(route));
+            if (copied.Length < 2)
+                throw new ArgumentException(
+                    "Destination travel requires an origin and a different destination.",
+                    nameof(route)
+                );
+            for (int index = 1; index < copied.Length; index++)
+            {
+                long x = Math.Abs((long)copied[index].X - copied[index - 1].X);
+                long z = Math.Abs((long)copied[index].Z - copied[index - 1].Z);
+                if (x > 1 || z > 1 || x + z == 0)
+                    throw new ArgumentException(
+                        "Every destination route step must enter one adjacent cell.",
+                        nameof(route)
+                    );
+            }
+            return new ExplorationTravelPlan(copied);
+        }
+    }
 }

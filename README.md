@@ -2,6 +2,16 @@
 
 Unity project for a turn-based Pathfinder-style tactics game.
 
+## Gameplay Modes
+
+- **Exploration** uses one-click destination travel. The selected party leader follows the previewed
+  route while the rest of the living party follows, stopping for cancellation, blockage, doors, or
+  an activated encounter.
+- **Tactics** uses initiative, three-action turns, multiple-attack penalty, effects, and the normal
+  action bar. It starts automatically when enemies engage, or can be entered manually with the HUD
+  control. Returning to Exploration is available only when no living enrolled opposition or action
+  resolution remains.
+
 ## Rules Documentation
 
 - [Authoritative encounter rules architecture](Docs/Encounter_Rules_Architecture.md)

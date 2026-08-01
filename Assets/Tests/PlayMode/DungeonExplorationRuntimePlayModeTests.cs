@@ -448,6 +448,160 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         AssertPartyCells(fixture, new DungeonCell(2, 2), new DungeonCell(2, 1));
     }
 
+    [UnityTest]
+    public IEnumerator DestinationTravelAutomaticallyExecutesMultipleStridesWithFollowers()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2), new Vector3Int(0, 0, 2) },
+            width: 10,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Destination Travel Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(8, 0, 2) });
+
+        int remainingFrames = 600;
+        while (
+            remainingFrames-- > 0
+            && (
+                Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position)
+                    != new Vector3Int(8, 0, 2)
+                || fixture.Party[0].Controller.IsTakingAction
+            )
+        )
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Destination travel timed out.");
+        AssertPartyCells(fixture, new DungeonCell(8, 2), new DungeonCell(7, 2));
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    [UnityTest]
+    public IEnumerator DestinationTravelCancellationStopsQueuedStrides()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 12,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Cancelled Travel Coroutine Runner")).AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(10, 0, 2) });
+        yield return null;
+
+        UniversalEvents.OnCancel.Invoke();
+        int remainingFrames = 300;
+        while (remainingFrames-- > 0 && fixture.Party[0].Controller.IsTakingAction)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Cancelled destination travel timed out.");
+        Assert.That(
+            Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position),
+            Is.Not.EqualTo(new Vector3Int(10, 0, 2))
+        );
+    }
+
+    [UnityTest]
+    public IEnumerator ClosedDoorClickDuringDestinationTravelStopsAndOpensDoor()
+    {
+        DoorSpec door = new("travel-priority-door", new DungeonCell(2, 3));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 10,
+            doors: new[] { door },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().speed = 5;
+            }
+        );
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(1, 0, 8) });
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(2, 0, 3) });
+
+        int remainingFrames = 300;
+        while (
+            remainingFrames-- > 0
+            && (
+                fixture.Party[0].Controller.IsTakingAction
+                || !fixture.Doors[door.Cell].Controller.IsOpen
+            )
+        )
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Door interruption timed out.");
+        Assert.That(fixture.Doors[door.Cell].Controller.IsOpen, Is.True);
+        Assert.That(
+            Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position),
+            Is.Not.EqualTo(new Vector3Int(1, 0, 8))
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    [UnityTest]
+    public IEnumerator DestinationTravelStopsAtImmediateEncounterBoundary()
+    {
+        DungeonRoom room = new(1, 4, 2, 7, 7);
+        DungeonEncounterPlan encounter = new(
+            "destination-boundary",
+            room.Id,
+            DungeonEncounterThreat.Trivial,
+            40,
+            new[] { new DungeonCell(7, 6) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(4, 0, 1), new Vector3Int(3, 0, 1) },
+            width: 10,
+            height: 10,
+            rooms: new[] { room },
+            encounterPlans: new[] { encounter },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().initiative = 1000;
+            }
+        );
+        Track(new GameObject("Boundary Destination Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(4, 0, 6) });
+        int remainingFrames = 300;
+        while (remainingFrames-- > 0 && !manager.IsCombatActive)
+            yield return null;
+        while (remainingFrames-- > 0 && fixture.Party[0].Controller.IsTakingAction)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Encounter interruption timed out.");
+        Assert.That(manager.IsCombatActive, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(4, 2), new DungeonCell(3, 1));
+        Assert.That(
+            Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position),
+            Is.Not.EqualTo(new Vector3Int(4, 0, 6))
+        );
+    }
+
     /// <summary>
     /// Verifies repeated rules-backed Strides cross a generated two-room floor, open its connecting
     /// door, and continue to the center of the second room without losing exploration authority.
@@ -545,6 +699,28 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(opened, Is.EqualTo(new[] { zDoor.Id, aDoor.Id }));
         Assert.That(fixture.Runtime.CaptureOpenDoorIds(), Is.EqualTo(new[] { aDoor.Id, zDoor.Id }));
         yield break;
+    }
+
+    [Test]
+    public void ClosedDoorClickTakesPriorityOverDestinationTravel()
+    {
+        DoorSpec door = new("priority-door", new DungeonCell(2, 2));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            doors: new[] { door },
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(2, 0, 2) });
+
+        Assert.That(fixture.Doors[door.Cell].Controller.IsOpen, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(1, 2));
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
     }
 
     /// <summary>

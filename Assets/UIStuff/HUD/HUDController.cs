@@ -18,6 +18,7 @@ using UniversalEvents;
 public class HUDController
     : SingletonMonoBehaviour<HUDController>,
         IDungeonExplorationPresentation,
+        IDungeonTacticsPresentation,
         IDungeonStairTraversalPresentation
 {
     public VisualElement ui;
@@ -58,6 +59,11 @@ public class HUDController
     private Label dungeonRunStatusLabel;
     private bool isReturningToMainMenu;
     private Button dungeonMainMenuButton;
+    private Button tacticsModeButton;
+    private Action enterTactics = delegate { };
+    private Func<bool> returnToExploration = () => false;
+    private bool tacticsControlConfigured;
+    private bool tacticsControlIsInExploration = true;
 
     private const float LogMinHeight = 150f;
     private const float LogMaxHeight = 800f;
@@ -101,7 +107,6 @@ public class HUDController
             EnableUi();
             Setup();
         });
-        OnNextTurn.AddListener(OnTurnChanged);
         OnActionConfirm.AddListener(() => canCancelAction = false);
         OnActionComplete.AddListener(() => canCancelAction = true);
         //Copiloy made this so I could point it to another UXML file for a template
@@ -131,6 +136,9 @@ public class HUDController
     {
         //Debug.Log("OnEnable called");
         //####Button Setup####
+
+        OnNextTurn.RemoveListener(OnTurnChanged);
+        OnNextTurn.AddListener(OnTurnChanged);
 
         buttonGrid = ui.Q<VisualElement>("ButtonGrid");
         panel = ui.Q<VisualElement>("Panel");
@@ -185,6 +193,19 @@ public class HUDController
         }
         dungeonMainMenuButton.style.display = DisplayStyle.None;
         dungeonMainMenuButton.clicked += ReturnToMainMenu;
+        tacticsModeButton = ui.Q<Button>("TacticsModeButton");
+        if (tacticsModeButton == null)
+        {
+            tacticsModeButton = new Button { name = "TacticsModeButton", text = "Enter Tactics" };
+            tacticsModeButton.AddToClassList("btn-speed");
+            VisualElement tacticsControlHost = ui.Q<VisualElement>("SpeedControlBar");
+            if (tacticsControlHost == null)
+                throw new InvalidOperationException("The HUD is missing SpeedControlBar.");
+            tacticsControlHost.Add(tacticsModeButton);
+        }
+        RestoreTacticsControlPresentation();
+        tacticsModeButton.clicked -= OnTacticsModeClicked;
+        tacticsModeButton.clicked += OnTacticsModeClicked;
         OnCombatOutcome.AddListener(OnCombatOutcomeChanged);
 
         if (dungeonRunStatusLabel != null)
@@ -252,6 +273,8 @@ public class HUDController
             speedToggleButton.clicked -= ToggleSpeedBar;
         if (dungeonMainMenuButton != null)
             dungeonMainMenuButton.clicked -= ReturnToMainMenu;
+        if (tacticsModeButton != null)
+            tacticsModeButton.clicked -= OnTacticsModeClicked;
         if (resizeHandle != null)
         {
             resizeHandle.UnregisterCallback<PointerDownEvent>(OnResizeStart);
@@ -763,6 +786,9 @@ public class HUDController
         if (buttonGrid == null)
             return;
         buttonGrid.Query<VisualElement>(className: "btn-row").ForEach(r => r.RemoveFromHierarchy());
+        buttonGrid
+            .Query<VisualElement>(className: "exploration-guidance")
+            .ForEach(guidance => guidance.RemoveFromHierarchy());
     }
 
     private Button AddButtonToGrid(string label, string colorClass, System.Action onClick = null)
@@ -918,6 +944,13 @@ public class HUDController
         needToUpdateCards = true;
         currentTurnAC = selected;
         trySelectExplorationLeader = trySelectLeader;
+        if (tacticsModeButton != null)
+        {
+            tacticsControlIsInExploration = true;
+            tacticsModeButton.text = "Enter Tactics";
+            tacticsModeButton.style.display = DisplayStyle.Flex;
+            tacticsModeButton.SetEnabled(true);
+        }
         if (slideCoroutine != null)
             StopCoroutine(slideCoroutine);
         slideCoroutine = StartCoroutine(ExplorationTransitionRoutine(selected));
@@ -940,6 +973,50 @@ public class HUDController
         SetSelectedButton(null);
         ClearAllRows();
         UpdateHudButtonStates();
+    }
+
+    /// <inheritdoc/>
+    public void ConfigureTacticsControl(Action enter, Func<bool> returnToExplorationRequest)
+    {
+        enterTactics = enter ?? throw new ArgumentNullException(nameof(enter));
+        returnToExploration =
+            returnToExplorationRequest
+            ?? throw new ArgumentNullException(nameof(returnToExplorationRequest));
+        tacticsControlConfigured = true;
+        RestoreTacticsControlPresentation();
+    }
+
+    /// <inheritdoc/>
+    public void ShowTactics()
+    {
+        tacticsControlIsInExploration = false;
+        if (tacticsModeButton == null)
+            return;
+        tacticsModeButton.text = "Return to Exploration";
+        tacticsModeButton.style.display = DisplayStyle.Flex;
+        tacticsModeButton.SetEnabled(true);
+    }
+
+    private void OnTacticsModeClicked()
+    {
+        if (tacticsControlIsInExploration)
+            enterTactics();
+        else if (!returnToExploration())
+            combatLog?.Log("Tactics cannot end while opposition or an action is active.");
+    }
+
+    private void RestoreTacticsControlPresentation()
+    {
+        if (tacticsModeButton == null)
+            return;
+
+        tacticsModeButton.text = tacticsControlIsInExploration
+            ? "Enter Tactics"
+            : "Return to Exploration";
+        tacticsModeButton.style.display = tacticsControlConfigured
+            ? DisplayStyle.Flex
+            : DisplayStyle.None;
+        tacticsModeButton.SetEnabled(true);
     }
 
     /// <inheritdoc/>
@@ -1029,7 +1106,11 @@ public class HUDController
     {
         yield return StartCoroutine(Slide(false));
         ClearAllRows();
-        BuildActionButtons(selected.gameObject, selected.GetExplorationActions(), false);
+        Label guidance = new("Click a destination to travel. Click a closed door to open it.");
+        guidance.name = "ExplorationGuidance";
+        guidance.AddToClassList("exploration-guidance");
+        guidance.style.whiteSpace = WhiteSpace.Normal;
+        buttonGrid.Add(guidance);
         yield return StartCoroutine(Slide(true));
         slideCoroutine = null;
     }
@@ -1205,6 +1286,9 @@ public class HUDController
 
     private void UpdateActionPointMedallions(VisualElement card, ActionController actionController)
     {
+        VisualElement container = card.Q<VisualElement>("ActionPointContainer");
+        if (container != null)
+            container.style.display = isDungeonExploration ? DisplayStyle.None : DisplayStyle.Flex;
         List<VisualElement> medallions = card.Query<VisualElement>(className: ActionMedallionClass)
             .ToList();
         int actionPoints =

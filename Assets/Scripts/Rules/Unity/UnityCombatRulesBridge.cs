@@ -119,6 +119,9 @@ namespace Game.Rules.Unity
             }
         }
 
+        /// <summary>Gets whether an operation root or its Unity projection is still resolving.</summary>
+        public bool IsResolutionActive => dispatchDepth > 0;
+
         /// <summary>Creates the complete rules composition for one combat encounter.</summary>
         /// <param name="encounterControllers">The non-empty, unique participant sequence.</param>
         /// <param name="tiles">The initialized live grid used to take an immutable topology snapshot.</param>
@@ -321,8 +324,12 @@ namespace Game.Rules.Unity
 
         /// <summary>Starts initiative and advances to the first eligible turn.</summary>
         /// <param name="protagonistTeamName">The registered team used for player-relative outcome.</param>
+        /// <param name="conclusionPolicy">The rules-owned automatic conclusion policy.</param>
         /// <returns>The authoritative state after start-turn causal work settles.</returns>
-        public EncounterState StartEncounter(string protagonistTeamName)
+        public EncounterState StartEncounter(
+            string protagonistTeamName,
+            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
+        )
         {
             if (
                 string.IsNullOrWhiteSpace(protagonistTeamName)
@@ -332,13 +339,17 @@ namespace Game.Rules.Unity
                     "The protagonist team must be registered in this composition.",
                     nameof(protagonistTeamName)
                 );
-            return StartEncounter(protagonistTeam);
+            return StartEncounter(protagonistTeam, conclusionPolicy);
         }
 
         /// <summary>Starts initiative for a registered protagonist team identity.</summary>
         /// <param name="protagonistTeam">The registered player-relative protagonist team.</param>
+        /// <param name="conclusionPolicy">The rules-owned automatic conclusion policy.</param>
         /// <returns>The authoritative state after start-turn causal work settles.</returns>
-        public EncounterState StartEncounter(PlayerId protagonistTeam)
+        public EncounterState StartEncounter(
+            PlayerId protagonistTeam,
+            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
+        )
         {
             if (
                 protagonistTeam.IsEmpty
@@ -356,7 +367,7 @@ namespace Game.Rules.Unity
                 ))
                 .ToArray();
             EncounterStartOutcome outcome = DispatchNow(
-                new StartEncounterOp(encounterId, protagonistTeam, participants)
+                new StartEncounterOp(encounterId, protagonistTeam, participants, conclusionPolicy)
             );
             return outcome.State;
         }
