@@ -438,6 +438,69 @@ public sealed class DungeonActorStateAdapterTests
         );
     }
 
+    [Test]
+    public void ActorParserRejectsPaddedPersistedRuleIdsBeforeCanonicalUniqueness()
+    {
+        DungeonActorSaveState paddedEffect = ValidSavedActor(
+            SavedMarkerCondition("effect-x", "binding-a", 1),
+            SavedMarkerCondition(" effect-x ", "binding-b", 2)
+        );
+        DungeonActorSaveState paddedBinding = ValidSavedActor(
+            SavedMarkerCondition("effect-a", "binding-x", 1),
+            SavedMarkerCondition("effect-b", " binding-x ", 2)
+        );
+        DungeonConditionSaveState paddedDefinition = SavedMarkerCondition(
+            "effect-definition",
+            "binding-definition",
+            1
+        );
+        paddedDefinition.DefinitionId = $" {ConditionRuleDefinitions.Fatigued.Value} ";
+
+        Assert.That(
+            DungeonSaveJson.ParseActor(JsonUtility.ToJson(paddedEffect)).IsSuccess,
+            Is.False
+        );
+        Assert.That(
+            DungeonSaveJson.ParseActor(JsonUtility.ToJson(paddedBinding)).IsSuccess,
+            Is.False
+        );
+        Assert.That(
+            DungeonSaveJson
+                .ParseActor(JsonUtility.ToJson(ValidSavedActor(paddedDefinition)))
+                .IsSuccess,
+            Is.False
+        );
+    }
+
+    [Test]
+    public void ActorParserRejectsPaddedAndOutOfOrderQuickenedActionIds()
+    {
+        DungeonConditionSaveState padded = SavedQuickenedCondition(new[] { "stride", " strike " });
+        DungeonConditionSaveState outOfOrder = SavedQuickenedCondition(
+            new[] { "strike", "stride" }
+        );
+
+        Assert.That(
+            DungeonSaveJson.ParseActor(JsonUtility.ToJson(ValidSavedActor(padded))).IsSuccess,
+            Is.False
+        );
+        Assert.That(
+            DungeonSaveJson.ParseActor(JsonUtility.ToJson(ValidSavedActor(outOfOrder))).IsSuccess,
+            Is.False
+        );
+    }
+
+    [Test]
+    public void ActorParserRejectsConditionInstancesOutsideCanonicalStableOrder()
+    {
+        DungeonActorSaveState actor = ValidSavedActor(
+            SavedMarkerCondition("effect-later", "binding-later", 2),
+            SavedMarkerCondition("effect-first", "binding-first", 1)
+        );
+
+        Assert.That(DungeonSaveJson.ParseActor(JsonUtility.ToJson(actor)).IsSuccess, Is.False);
+    }
+
     private static SourceFixture CreateFixture(string name, out GameObject gameObject)
     {
         gameObject = new GameObject(name);
@@ -468,6 +531,66 @@ public sealed class DungeonActorStateAdapterTests
         creature.Prepared = new PreparedCharacter();
         Conditions conditions = gameObject.AddComponent<Conditions>();
         return new SourceFixture(controller, creature, conditions, weapons);
+    }
+
+    private static DungeonActorSaveState ValidSavedActor(
+        params DungeonConditionSaveState[] conditions
+    ) =>
+        new DungeonActorSaveState
+        {
+            TemporaryHitPoints = 0,
+            TemporaryHitPointSource = string.Empty,
+            TemporaryHitPointImmunities = Array.Empty<string>(),
+            Conditions = conditions,
+            TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
+            Equipment = new DungeonEquipmentSaveState
+            {
+                LeftHandId = string.Empty,
+                RightHandId = string.Empty,
+                ArmorId = string.Empty,
+                Ammunition = Array.Empty<AmmoCount>(),
+                UnloadedWeaponIds = Array.Empty<string>(),
+            },
+        };
+
+    private static DungeonConditionSaveState SavedMarkerCondition(
+        string effectId,
+        string bindingId,
+        long creationOrder
+    ) =>
+        new DungeonConditionSaveState
+        {
+            EffectId = effectId,
+            BindingId = bindingId,
+            DefinitionId = ConditionRuleDefinitions.Fatigued.Value,
+            SourceActorId = "actor-source",
+            RuleSource = "saved-condition-source",
+            DurationKind = EffectDurationKind.Indefinite,
+            DurationAmount = 0,
+            Version = 0,
+            Status = ActiveEffectStatus.Active,
+            CreationOrder = creationOrder,
+            BindingEnabled = true,
+            StateKind = DungeonConditionStateKind.Marker,
+            Value = 0,
+            AllowedActionIds = Array.Empty<string>(),
+            HasTiming = false,
+            RemainingBoundaries = 0,
+            ExpiresWithEncounter = false,
+        };
+
+    private static DungeonConditionSaveState SavedQuickenedCondition(string[] actionIds)
+    {
+        DungeonConditionSaveState condition = SavedMarkerCondition(
+            "effect-quickened",
+            "binding-quickened",
+            1
+        );
+        condition.DefinitionId = ConditionRuleDefinitions.Quickened.Value;
+        condition.StateKind = DungeonConditionStateKind.QuickenedRestricted;
+        condition.AllowedActionIds = actionIds;
+        return condition;
     }
 
     private static ConditionApplicationSnapshot PersistedCondition(

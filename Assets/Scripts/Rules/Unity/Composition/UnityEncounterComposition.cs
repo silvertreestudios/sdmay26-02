@@ -56,6 +56,21 @@ namespace Game.Rules.Unity.Composition
         void Apply();
     }
 
+    /// <summary>Completes one-shot enrollment input after the entire batch is installed.</summary>
+    /// <remarks>
+    /// <see cref="Validate"/> performs every fallible check for the contribution. After every
+    /// contribution in the batch validates, <see cref="Apply"/> must complete without throwing.
+    /// This keeps one-shot input available when attachment or installation fails earlier.
+    /// </remarks>
+    internal interface IUnityCombatantBatchFinalizationContribution
+    {
+        /// <summary>Validates that finalization can complete without changing state.</summary>
+        void Validate();
+
+        /// <summary>Applies the already validated, non-failing finalization.</summary>
+        void Apply();
+    }
+
     /// <summary>Provides feature state for initial seed or reinforcement registration.</summary>
     internal interface IUnityCombatantStateContribution
     {
@@ -71,6 +86,7 @@ namespace Game.Rules.Unity.Composition
     {
         private readonly List<IUnityCombatantStateContribution> stateContributions = new();
         private readonly List<IUnityCombatantInstallationContribution> installations = new();
+        private readonly List<IUnityCombatantBatchFinalizationContribution> finalizations = new();
         private readonly List<SpellSlotState> spellSlots = new();
         private readonly List<ActiveRuleBinding> ruleBindings = new();
         private readonly CompositeLifetime preparationLifetime;
@@ -154,10 +170,18 @@ namespace Game.Rules.Unity.Composition
                 contribution ?? throw new ArgumentNullException(nameof(contribution))
             );
 
+        /// <summary>Adds one finalization that runs only after the complete batch is installed.</summary>
+        internal void AddFinalization(IUnityCombatantBatchFinalizationContribution contribution) =>
+            finalizations.Add(
+                contribution ?? throw new ArgumentNullException(nameof(contribution))
+            );
+
         internal IReadOnlyList<IUnityCombatantStateContribution> StateContributions =>
             stateContributions;
         internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations =>
             installations;
+        internal IReadOnlyList<IUnityCombatantBatchFinalizationContribution> Finalizations =>
+            finalizations;
 
         /// <summary>Freezes the prepared base and feature contributions into one immutable state.</summary>
         internal CombatantRulesState BuildState() =>

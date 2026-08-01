@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using GridPrivate;
 using NUnit.Framework;
 using UnityEngine;
@@ -135,6 +137,124 @@ public sealed class ConditionUnityIntegrationTests
     }
 
     [Test]
+    public void InitialInstallationFailurePreservesRestoreUntilWholeBatchRetryFinalizes()
+    {
+        CreatureFixture actor = CreateCreature("Initial Restore Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Initial Restore Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Stunned,
+                    "initial-failed-stunned",
+                    new ValuedStunnedConditionState(2)
+                ),
+            }
+        );
+        ControllableInstallationModule installer = new ControllableInstallationModule
+        {
+            TargetName = actor.GameObject.name,
+            FailuresRemaining = 1,
+        };
+
+        Assert.Throws<InvalidOperationException>(() =>
+            UnityCombatRulesBridge.CreateForTests(
+                new[] { actor.Controller, opponent.Controller },
+                CreateTiles(),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { installer }
+            )
+        );
+
+        Assert.That(actor.Conditions.HasPendingRestore, Is.True);
+        UnityCombatRulesBridge retry = UnityCombatRulesBridge.CreateForTests(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles(),
+            new RandomRollService(),
+            new IUnityEncounterModule[] { installer }
+        );
+        CreatureId actorId = retry.GetCreatureId(actor.Creature);
+        Assert.That(actor.Conditions.HasPendingRestore, Is.False);
+        Assert.That(
+            ConditionSelectors.TryGetStunned(retry.Snapshot, actorId, out var stunned),
+            Is.True
+        );
+        Assert.That(stunned.State, Is.TypeOf<ValuedStunnedConditionState>());
+        Assert.That(((ValuedStunnedConditionState)stunned.State).Value, Is.EqualTo(2));
+        retry.ReleaseOwnership();
+    }
+
+    [Test]
+    public void ReinforcementInstallationFailureRetriesCommittedBatchWithoutDuplicateStateOrFacts()
+    {
+        CreatureFixture initial = CreateCreature("Retry Initial", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Retry Opponent", "Enemies", 0);
+        ControllableInstallationModule installer = new ControllableInstallationModule();
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+            new[] { initial.Controller, opponent.Controller },
+            CreateTiles(),
+            new RandomRollService(),
+            new IUnityEncounterModule[] { installer }
+        );
+        bridge.StartEncounter("Heroes");
+        CreatureFixture reinforcement = CreateCreature("Retry Reinforcement", "Enemies", -1);
+        reinforcement.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    reinforcement.GameObject,
+                    ConditionRuleDefinitions.Fatigued,
+                    "reinforcement-failed-fatigue",
+                    ConditionMarkerState.Instance
+                ),
+            }
+        );
+        installer.TargetName = reinforcement.GameObject.name;
+        installer.FailuresRemaining = 1;
+        CountingFactObserver<EncounterJoinedFact> joined =
+            new CountingFactObserver<EncounterJoinedFact>();
+        CountingFactObserver<ActiveEffectAdoptedFact> adopted =
+            new CountingFactObserver<ActiveEffectAdoptedFact>();
+        CountingFactObserver<ActiveEffectCreatedFact> created =
+            new CountingFactObserver<ActiveEffectCreatedFact>();
+        RuleDispatcher dispatcher = GetDispatcher(bridge);
+        using IDisposable joinedRegistration = dispatcher.RegisterFactObserver<EncounterJoinedFact>(
+            joined
+        );
+        using IDisposable adoptedRegistration =
+            dispatcher.RegisterFactObserver<ActiveEffectAdoptedFact>(adopted);
+        using IDisposable createdRegistration =
+            dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(created);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            bridge.RegisterCombatants(new[] { reinforcement.Controller })
+        );
+
+        ActiveEffectId effectId = new ActiveEffectId("effect-reinforcement-failed-fatigue");
+        Assert.That(reinforcement.Conditions.HasPendingRestore, Is.True);
+        Assert.That(bridge.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+        Assert.That(joined.Count, Is.EqualTo(1));
+        Assert.That(adopted.Count, Is.EqualTo(1));
+        Assert.That(created.Count, Is.Zero);
+        long committedVersion = bridge.Snapshot.Version;
+
+        Assert.DoesNotThrow(() => bridge.RegisterCombatants(new[] { reinforcement.Controller }));
+
+        Assert.That(reinforcement.Conditions.HasPendingRestore, Is.False);
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Count(pair => pair.Key == effectId),
+            Is.EqualTo(1)
+        );
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(committedVersion));
+        Assert.That(bridge.GetEncounter().Roster, Has.Count.EqualTo(3));
+        Assert.That(joined.Count, Is.EqualTo(1));
+        Assert.That(adopted.Count, Is.EqualTo(1));
+        Assert.That(created.Count, Is.Zero);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
     public void ConsumedRestoreNeverBecomesDetachedAuthorityAndExplicitReRestoreReenrollsMutation()
     {
         CreatureFixture actor = CreateCreature("Actor", "Heroes", 100);
@@ -235,6 +355,60 @@ public sealed class ConditionUnityIntegrationTests
         {
             { new Tile() },
         };
+
+    private static RuleDispatcher GetDispatcher(UnityCombatRulesBridge bridge)
+    {
+        var field = typeof(UnityCombatRulesBridge).GetField(
+            "dispatcher",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private sealed class ControllableInstallationModule : IUnityCombatantEnrollmentModule
+    {
+        internal string TargetName { get; set; } = string.Empty;
+        internal int FailuresRemaining { get; set; }
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
+        {
+            bool targeted = builder.Controller.gameObject.name == TargetName;
+            builder.AddInstallation(new ControllableInstallation(this, targeted));
+        }
+
+        private sealed class ControllableInstallation : IUnityCombatantInstallationContribution
+        {
+            private readonly ControllableInstallationModule owner;
+            private readonly bool targeted;
+
+            internal ControllableInstallation(ControllableInstallationModule owner, bool targeted)
+            {
+                this.owner = owner;
+                this.targeted = targeted;
+            }
+
+            public void Apply()
+            {
+                if (!targeted || owner.FailuresRemaining == 0)
+                    return;
+                owner.FailuresRemaining--;
+                throw new InvalidOperationException("Injected late installation failure.");
+            }
+        }
+    }
+
+    private sealed class CountingFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        internal int Count { get; private set; }
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
+        {
+            Count++;
+            return default;
+        }
+    }
 
     private sealed class ConditionTestActionController : ActionController
     {

@@ -151,10 +151,10 @@ namespace Game.Rules.Runtime
     /// <summary>Reports how many prepared registrations were newly committed.</summary>
     public readonly struct ConditionAdoptionOutcome
     {
-        internal ConditionAdoptionOutcome(int created) => Created = created;
+        internal ConditionAdoptionOutcome(int adopted) => Adopted = adopted;
 
-        /// <summary>Gets the number of newly created registrations.</summary>
-        public int Created { get; }
+        /// <summary>Gets the number of newly adopted registrations.</summary>
+        public int Adopted { get; }
     }
 
     /// <summary>Selects whether source-wide cleanup expires or removes matching conditions.</summary>
@@ -284,7 +284,8 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            List<ConditionRegistration> pending = new List<ConditionRegistration>();
+            List<(ConditionRegistration Registration, ActiveEffectTimingState Timing)> pending =
+                new List<(ConditionRegistration Registration, ActiveEffectTimingState Timing)>();
             HashSet<ActiveEffectId> effectIds = new HashSet<ActiveEffectId>();
             HashSet<BindingId> bindingIds = new HashSet<BindingId>();
             foreach (ConditionRegistration registration in context.Op.Registrations)
@@ -296,7 +297,17 @@ namespace Game.Rules.Runtime
                     return ReductionResult<ConditionAdoptionOutcome>.Reject(
                         "A condition adoption batch contains duplicate stable identities."
                     );
-                if (!TryValidate(registration, state, out string rejection))
+                if (
+                    !ActiveEffectReduction.TryResolveAdoptionTiming(
+                        registry,
+                        state,
+                        registration.Effect,
+                        registration.Binding,
+                        registration.Timing,
+                        out ActiveEffectTimingState expectedTiming,
+                        out string rejection
+                    )
+                )
                     return ReductionResult<ConditionAdoptionOutcome>.Reject(rejection);
 
                 bool hasEffect = state.ActiveEffects.TryGet(
@@ -313,7 +324,6 @@ namespace Game.Rules.Runtime
                         registration.Effect.Id,
                         out ActiveEffectTimingState timing
                     );
-                    ActiveEffectTimingState expectedTiming = ResolveTiming(registration, state);
                     if (
                         hasEffect
                         && hasBinding
@@ -327,111 +337,23 @@ namespace Game.Rules.Runtime
                         "A condition registration ID is already used by different state."
                     );
                 }
-                pending.Add(registration);
+                pending.Add((registration, expectedTiming));
             }
 
-            foreach (ConditionRegistration registration in pending)
+            foreach (var item in pending)
             {
-                ActiveEffectTimingState timing = ResolveTiming(registration, state);
-                ActiveEffectReduction.CommitCreation(
+                ActiveEffectReduction.CommitAdoption(
                     state,
-                    registration.Effect,
-                    registration.Binding,
-                    timing,
+                    item.Registration.Effect,
+                    item.Registration.Binding,
+                    item.Timing,
                     facts
                 );
-                facts.Stage(new ConditionCreatedFact(registration.Effect, registration.Binding));
             }
             return ReductionResult<ConditionAdoptionOutcome>.Accept(
                 new ConditionAdoptionOutcome(pending.Count)
             );
         }
-
-        private bool TryValidate(
-            ConditionRegistration registration,
-            RulesStateDraft state,
-            out string rejection
-        )
-        {
-            ActiveEffectInstance effect = registration.Effect;
-            ActiveRuleBinding binding = registration.Binding;
-            if (
-                !ActiveEffectReduction.TryValidateRegistration(
-                    registry,
-                    effect,
-                    binding,
-                    out rejection
-                )
-            )
-                return false;
-            if ((effect.Status == ActiveEffectStatus.Active) != binding.IsEnabled)
-            {
-                rejection = "A restored condition's lifecycle status and binding state disagree.";
-                return false;
-            }
-            if (
-                registration.Timing != null
-                && (
-                    effect.Status != ActiveEffectStatus.Active
-                    || effect.Duration.Kind == EffectDurationKind.Indefinite
-                )
-            )
-            {
-                rejection = "Only an active finite condition can retain encounter timing.";
-                return false;
-            }
-            EncounterState encounter = ActiveEncounter(state);
-            if (registration.Timing != null)
-            {
-                if (encounter != null && registration.Timing.Encounter != encounter.Id)
-                {
-                    rejection = "Restored condition timing belongs to a different encounter.";
-                    return false;
-                }
-                if (
-                    registration.Timing.ExpiresWithEncounter
-                    != (effect.Duration.Kind == EffectDurationKind.Encounter)
-                )
-                {
-                    rejection = "Restored condition timing disagrees with its duration kind.";
-                    return false;
-                }
-            }
-            if (
-                encounter != null
-                && effect.Status == ActiveEffectStatus.Active
-                && effect.Duration.Kind != EffectDurationKind.Indefinite
-                && !encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature)
-            )
-            {
-                rejection = "The condition source is not in the active encounter roster.";
-                return false;
-            }
-            rejection = string.Empty;
-            return true;
-        }
-
-        private static ActiveEffectTimingState ResolveTiming(
-            ConditionRegistration registration,
-            RulesStateDraft state
-        )
-        {
-            if (registration.Timing != null)
-                return registration.Timing;
-            ActiveEffectInstance effect = registration.Effect;
-            EncounterState encounter = ActiveEncounter(state);
-            return
-                effect.Status == ActiveEffectStatus.Active
-                && effect.Duration.Kind != EffectDurationKind.Indefinite
-                && encounter != null
-                ? ActiveEffectTimingState.ForEncounter(effect, registration.Binding, encounter)
-                : null;
-        }
-
-        private static EncounterState ActiveEncounter(RulesStateDraft state) =>
-            state
-                .Encounters.Select(pair => pair.Value)
-                .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
     }
 
     internal sealed class CleanupConditionsFromSourceReducer

@@ -36,7 +36,8 @@ namespace Game.Rules.Unity.Composition
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             Tile[,] tiles,
             StrideActionDefinition strideDefinition,
-            bool installUnityAuthority
+            bool installUnityAuthority,
+            IEnumerable<IUnityEncounterModule> additionalModules = null
         )
         {
             if (owner == null)
@@ -77,7 +78,7 @@ namespace Game.Rules.Unity.Composition
             ConditionRuleDefinitions.DefineAll(registryBuilder);
             RuleRegistry registry = registryBuilder.Build();
 
-            IUnityEncounterModule[] modules =
+            IUnityEncounterModule[] productionModules =
             {
                 new UnityPreparedRulesEncounterModule(),
                 new RottingAuraEncounterModule(owner),
@@ -101,6 +102,14 @@ namespace Game.Rules.Unity.Composition
                 new UnityHealthProjectionModule(creatures, installUnityAuthority),
                 new UnityEncounterProjectionModule(owner),
             };
+            IUnityEncounterModule[] extensions =
+                additionalModules?.ToArray() ?? Array.Empty<IUnityEncounterModule>();
+            if (extensions.Any(module => module == null))
+                throw new ArgumentException(
+                    "Additional encounter modules cannot contain null.",
+                    nameof(additionalModules)
+                );
+            IUnityEncounterModule[] modules = productionModules.Concat(extensions).ToArray();
             return new UnityEncounterModuleSet(
                 new UnityEncounterComposition(modules),
                 actionCatalog,

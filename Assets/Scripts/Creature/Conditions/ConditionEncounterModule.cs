@@ -43,12 +43,12 @@ namespace Game.Creature.Rules
             )
             {
                 builder.AddState(new ConditionEnrollmentContribution(lease.Registrations));
-                builder.AddInstallation(
+                builder.AddFinalization(
                     new CompleteRestoredConditionEnrollmentContribution(persistence, lease)
                 );
             }
             else
-                builder.AddInstallation(new CompleteConditionEnrollmentContribution(persistence));
+                builder.AddFinalization(new CompleteConditionEnrollmentContribution(persistence));
         }
     }
 
@@ -77,7 +77,7 @@ namespace Game.Creature.Rules
     }
 
     internal sealed class CompleteConditionEnrollmentContribution
-        : IUnityCombatantInstallationContribution
+        : IUnityCombatantBatchFinalizationContribution
     {
         private readonly Conditions conditions;
 
@@ -85,11 +85,14 @@ namespace Game.Creature.Rules
             this.conditions = conditions ?? throw new ArgumentNullException(nameof(conditions));
 
         /// <inheritdoc/>
+        public void Validate() { }
+
+        /// <inheritdoc/>
         public void Apply() => conditions.CompleteEnrollment();
     }
 
     internal sealed class CompleteRestoredConditionEnrollmentContribution
-        : IUnityCombatantInstallationContribution
+        : IUnityCombatantBatchFinalizationContribution
     {
         private readonly Conditions conditions;
         private readonly Conditions.ConditionRestoreLease lease;
@@ -104,9 +107,12 @@ namespace Game.Creature.Rules
         }
 
         /// <inheritdoc/>
+        public void Validate() => lease.Validate();
+
+        /// <inheritdoc/>
         public void Apply()
         {
-            lease.Consume();
+            lease.ConsumeValidated();
             conditions.CompleteEnrollment();
         }
     }

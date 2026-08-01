@@ -67,6 +67,67 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void AdoptionUsesExactStatusFactAndIsIdempotentWithoutCreation()
+        {
+            ActiveEffectInstance active = CreateEffect(new AuraEffectState(3));
+            ActiveRuleBinding activeBinding = CreateBinding(active);
+            ActiveEffectInstance expired = new ActiveEffectInstance(
+                new ActiveEffectId("effect-expired"),
+                DefinitionId,
+                SourceCreature,
+                Source,
+                EffectDuration.Encounter,
+                new AuraEffectState(5),
+                new EffectStateVersion(6),
+                ActiveEffectStatus.Expired
+            );
+            ActiveRuleBinding expiredBinding = new ActiveRuleBinding(
+                new BindingId("binding-expired"),
+                DefinitionId,
+                Owner,
+                expired.Id,
+                Source,
+                2,
+                isEnabled: false
+            );
+            AdoptActiveEffectRegistrationsOp operation = new AdoptActiveEffectRegistrationsOp(
+                new[]
+                {
+                    new ActiveEffectRegistration(active, activeBinding),
+                    new ActiveEffectRegistration(expired, expiredBinding),
+                },
+                Source
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore(CreateActiveEncounterSeed());
+            AdoptActiveEffectRegistrationsReducer reducer =
+                new AdoptActiveEffectRegistrationsReducer(CreateRegistry());
+
+            ReductionResult<ActiveEffectAdoptionOutcome> first = store.Reduce(
+                Context(operation),
+                reducer
+            );
+            long committedVersion = store.Snapshot.Version;
+            ReductionResult<ActiveEffectAdoptionOutcome> retry = store.Reduce(
+                Context(operation),
+                reducer
+            );
+
+            Assert.That(first.IsAccepted, Is.True);
+            Assert.That(first.Value.Adopted, Is.EqualTo(2));
+            Assert.That(first.Facts.OfType<ActiveEffectCreatedFact>(), Is.Empty);
+            ActiveEffectAdoptedFact[] facts = first.Facts.Cast<ActiveEffectAdoptedFact>().ToArray();
+            Assert.That(facts.Select(fact => fact.Effect), Is.EqualTo(new[] { active, expired }));
+            Assert.That(
+                facts.Select(fact => fact.Binding),
+                Is.EqualTo(new[] { activeBinding, expiredBinding })
+            );
+            Assert.That(retry.IsAccepted, Is.True);
+            Assert.That(retry.Value.Adopted, Is.Zero);
+            Assert.That(retry.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
+        }
+
+        [Test]
         public void CreateRejectsUnknownDefinitionWithoutPartialBindingWrite()
         {
             RuleDefinitionId unknownDefinition = new RuleDefinitionId("unknown-effect");

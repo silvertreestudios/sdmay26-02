@@ -45,13 +45,14 @@ constructs the only production module sequence:
 
 1. `UnityPreparedRulesEncounterModule`
 2. `RottingAuraEncounterModule`
-3. `SlowedEncounterModule`
-4. `UnityRageEncounterModule`
-5. `UnityStrikeEncounterModule`
-6. `UnitySpellcastingEncounterModule`
-7. `UnityLightEncounterModule`
-8. `UnityHealthProjectionModule`
-9. `UnityEncounterProjectionModule`
+3. `ConditionEncounterModule`
+4. `SlowedEncounterModule`
+5. `UnityRageEncounterModule`
+6. `UnityStrikeEncounterModule`
+7. `UnitySpellcastingEncounterModule`
+8. `UnityLightEncounterModule`
+9. `UnityHealthProjectionModule`
+10. `UnityEncounterProjectionModule`
 
 Before constructing that module array, `UnityEncounterModuleSet.Create` performs a separate,
 explicit static-composition pass that feature modules cannot defer to `ConfigureDispatcher`:
@@ -114,7 +115,9 @@ registration side effects.
 5. Invoke `ConfigureDispatcher` for feature modules in module order, build the dispatcher, then
    invoke `RegisterRuntime` in module order.
 6. Call `AttachAndInstall`.
-7. Transfer the prepared plan to the encounter's single `CompositeLifetime`.
+7. Call `FinalizeBatch`, then transfer the prepared plan to the encounter's single
+   `CompositeLifetime`. The transfer applies the already validated, non-failing finalizations only
+   after ownership succeeds.
 
 `AttachAndInstall` is deliberately after authoritative state and runtime observers exist. For each
 combatant it attaches health authority first, attaches `ActionController` combat authority second,
@@ -162,6 +165,8 @@ module, captures initiative modifiers, and freezes `CombatantRulesState` plus in
   reinforcement registration;
 - `AddSpellSlots` and `AddRuleBindings` for atomic base combatant state;
 - `AddInstallation(IUnityCombatantInstallationContribution)` for precomputed Unity changes.
+- `AddFinalization(IUnityCombatantBatchFinalizationContribution)` for one-shot input that may be
+  consumed only after every attachment and installation in the batch succeeds.
 
 If any preparation read or preflight fails, the preparation `CompositeLifetime` rolls back maps,
 identity allocation, and feature-owned resources. Cleanup failures are retained with the original
@@ -191,8 +196,13 @@ snapshot.
   round. Additional `IUnityCombatantStateContribution` objects then run their rules-owned
   registration workflows.
 
-After either state path, call `AttachAndInstall`, then `TransferTo(encounterLifetime)`. A new feature
-must support both paths; never assume all participants existed at encounter construction.
+After either state path, call `AttachAndInstall`, `FinalizeBatch`, then
+`TransferTo(encounterLifetime)`. Finalization first validates every contribution; successful
+ownership transfer then applies the non-failing contributions and consumes one-shot input. A
+reinforcement plan whose store registration already committed remains the exact pending batch
+after a later failure; retry resumes its unapplied installation without rerolling initiative,
+redispatching state registration, or duplicating Facts. A new feature must support both paths;
+never assume all participants existed at encounter construction.
 
 ### Restored-effect adoption
 
@@ -200,9 +210,11 @@ must support both paths; never assume all participants existed at encounter cons
 routes. During preparation it converts supported `SpellEffectController` entries into
 `RestoredSpellEffectContribution` objects with stable `ActiveEffectId` and `BindingId` values.
 Initial participants seed the effect and binding directly. Reinforcements dispatch the
-feature-owned `AdoptRestoredSpellEffectsOp`, whose handler composes `CreateActiveEffectOp` for each
-registration. `RestoredSpellEffectTimingObserver` projects initiative-boundary counts and removes
-expired or removed Unity effects. Do not bypass the active-effect runtime for restored effects.
+generic `AdoptActiveEffectRegistrationsOp`, whose atomic reducer publishes
+`ActiveEffectAdoptedFact` with exact effect and binding provenance. Adoption never publishes
+`ActiveEffectCreatedFact`, so restore cannot trigger gameplay-creation listeners.
+`RestoredSpellEffectTimingObserver` projects initiative-boundary counts and removes expired or
+removed Unity effects. Do not bypass the active-effect runtime for restored effects.
 
 ## Dispatcher and encounter runtime
 

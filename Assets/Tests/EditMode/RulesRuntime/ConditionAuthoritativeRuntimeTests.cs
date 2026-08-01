@@ -78,12 +78,89 @@ namespace Game.Rules.Runtime.Tests
                 await dispatcher.Dispatch(adopt)
             );
 
-            Assert.That(first.Value.Created, Is.EqualTo(1));
-            Assert.That(first.Facts, Has.Count.EqualTo(2));
-            Assert.That(repeated.Value.Created, Is.Zero);
+            Assert.That(first.Value.Adopted, Is.EqualTo(1));
+            Assert.That(first.Facts, Has.Count.EqualTo(1));
+            Assert.That(first.Facts.Single(), Is.TypeOf<ActiveEffectAdoptedFact>());
+            Assert.That(repeated.Value.Adopted, Is.Zero);
             Assert.That(repeated.Facts, Is.Empty);
             Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
             Assert.That(store.Snapshot.ActiveEffects[effect.Id], Is.EqualTo(effect));
+        }
+
+        [Test]
+        public async Task AdoptionPublishesExactActiveAndExpiredProvenanceWithoutCreationFacts()
+        {
+            RuleSource source = RuleSource.FromSlug("restored-stunned-source");
+            ActiveEffectInstance active = new ActiveEffectInstance(
+                new ActiveEffectId("active-stunned-effect"),
+                ConditionRuleDefinitions.Stunned,
+                SourceCreature,
+                source,
+                EffectDuration.Indefinite,
+                new ValuedStunnedConditionState(2),
+                new EffectStateVersion(4),
+                ActiveEffectStatus.Active
+            );
+            ActiveRuleBinding activeBinding = new ActiveRuleBinding(
+                new BindingId("active-stunned-binding"),
+                active.DefinitionId,
+                Owner,
+                active.Id,
+                source,
+                3
+            );
+            ActiveEffectInstance expired = new ActiveEffectInstance(
+                new ActiveEffectId("expired-stunned-effect"),
+                ConditionRuleDefinitions.Stunned,
+                SourceCreature,
+                source,
+                EffectDuration.Encounter,
+                DurationOnlyStunnedConditionState.Instance,
+                new EffectStateVersion(7),
+                ActiveEffectStatus.Expired
+            );
+            ActiveRuleBinding expiredBinding = new ActiveRuleBinding(
+                new BindingId("expired-stunned-binding"),
+                expired.DefinitionId,
+                Owner,
+                expired.Id,
+                source,
+                8,
+                isEnabled: false
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore();
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+            CountingConditionCreatedObserver created = new CountingConditionCreatedObserver();
+            using IDisposable registration = dispatcher.RegisterFactObserver<ConditionCreatedFact>(
+                created
+            );
+
+            ResolvedOpResult<ConditionAdoptionOutcome> result = RequireResolved(
+                await dispatcher.Dispatch(
+                    new AdoptConditionRegistrationsOp(
+                        new[]
+                        {
+                            new ConditionRegistration(active, activeBinding),
+                            new ConditionRegistration(expired, expiredBinding),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(result.Value.Adopted, Is.EqualTo(2));
+            Assert.That(created.Count, Is.Zero, "Restore must not trigger creation listeners.");
+            Assert.That(result.Facts.OfType<ActiveEffectCreatedFact>(), Is.Empty);
+            Assert.That(result.Facts.OfType<ConditionCreatedFact>(), Is.Empty);
+            ActiveEffectAdoptedFact[] adopted = result
+                .Facts.Cast<ActiveEffectAdoptedFact>()
+                .ToArray();
+            Assert.That(adopted.Select(fact => fact.Effect), Is.EqualTo(new[] { active, expired }));
+            Assert.That(
+                adopted.Select(fact => fact.Binding),
+                Is.EqualTo(new[] { activeBinding, expiredBinding })
+            );
+            Assert.That(adopted[0].Effect.Status, Is.EqualTo(ActiveEffectStatus.Active));
+            Assert.That(adopted[1].Effect.Status, Is.EqualTo(ActiveEffectStatus.Expired));
         }
 
         [Test]
@@ -508,6 +585,20 @@ namespace Game.Rules.Runtime.Tests
 
             internal CreatureId Defender { get; }
             internal bool IncludeFlanking { get; }
+        }
+
+        private sealed class CountingConditionCreatedObserver : IFactObserver<ConditionCreatedFact>
+        {
+            internal int Count { get; private set; }
+
+            public ValueTask OnFactCommitted(
+                ConditionCreatedFact fact,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Count++;
+                return default;
+            }
         }
 
         private sealed class DefenseWorkflowHandler

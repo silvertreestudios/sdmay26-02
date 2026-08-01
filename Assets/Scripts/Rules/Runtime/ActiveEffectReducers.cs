@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Game.Rules.Runtime
@@ -45,6 +46,89 @@ namespace Game.Rules.Runtime
             state.ActiveEffects.Set(effect.Id, effect);
             state.RuleBindings.Set(binding.Id, binding);
             facts.Stage(new ActiveEffectCreatedFact(effect, binding.Id));
+        }
+
+        public static void CommitAdoption(
+            RulesStateDraft state,
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            ActiveEffectTimingState timing,
+            FactSink facts
+        )
+        {
+            if (timing != null)
+                state.ActiveEffectTimings.Set(effect.Id, timing);
+            state.ActiveEffects.Set(effect.Id, effect);
+            state.RuleBindings.Set(binding.Id, binding);
+            facts.Stage(new ActiveEffectAdoptedFact(effect, binding));
+        }
+
+        public static bool TryResolveAdoptionTiming(
+            RuleRegistry registry,
+            RulesStateDraft state,
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            ActiveEffectTimingState suppliedTiming,
+            out ActiveEffectTimingState timing,
+            out string rejection
+        )
+        {
+            timing = null;
+            if (!TryValidateRegistration(registry, effect, binding, out rejection))
+                return false;
+            if ((effect.Status == ActiveEffectStatus.Active) != binding.IsEnabled)
+            {
+                rejection = "An adopted effect's lifecycle status and binding state disagree.";
+                return false;
+            }
+            if (
+                suppliedTiming != null
+                && (
+                    effect.Status != ActiveEffectStatus.Active
+                    || effect.Duration.Kind == EffectDurationKind.Indefinite
+                    || suppliedTiming.Effect != effect.Id
+                    || suppliedTiming.Binding != binding.Id
+                    || suppliedTiming.SourceCreature != effect.SourceCreature
+                    || suppliedTiming.CreationOrder != binding.CreationOrder
+                    || suppliedTiming.ExpiresWithEncounter
+                        != (effect.Duration.Kind == EffectDurationKind.Encounter)
+                )
+            )
+            {
+                rejection = "Adopted effect timing does not match its exact registration.";
+                return false;
+            }
+            EncounterState encounter = state
+                .Encounters.Select(pair => pair.Value)
+                .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
+            if (
+                suppliedTiming != null
+                && encounter != null
+                && suppliedTiming.Encounter != encounter.Id
+            )
+            {
+                rejection = "Adopted effect timing belongs to a different encounter.";
+                return false;
+            }
+            if (
+                encounter != null
+                && effect.Status == ActiveEffectStatus.Active
+                && effect.Duration.Kind != EffectDurationKind.Indefinite
+            )
+            {
+                if (!encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature))
+                {
+                    rejection = "The adopted effect source is not in the active encounter roster.";
+                    return false;
+                }
+                timing =
+                    suppliedTiming
+                    ?? ActiveEffectTimingState.ForEncounter(effect, binding, encounter);
+            }
+            else
+                timing = suppliedTiming;
+            rejection = string.Empty;
+            return true;
         }
 
         public static bool TryGetCurrent(
@@ -250,12 +334,10 @@ namespace Game.Rules.Runtime
     internal sealed class AdoptActiveEffectRegistrationsReducer
         : IOpReducer<AdoptActiveEffectRegistrationsOp, ActiveEffectAdoptionOutcome>
     {
-        private readonly CreateActiveEffectReducer create;
+        private readonly RuleRegistry registry;
 
         internal AdoptActiveEffectRegistrationsReducer(RuleRegistry registry) =>
-            create = new CreateActiveEffectReducer(
-                registry ?? throw new ArgumentNullException(nameof(registry))
-            );
+            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
 
         public ReductionResult<ActiveEffectAdoptionOutcome> Reduce(
             ReductionContext<AdoptActiveEffectRegistrationsOp> context,
@@ -263,29 +345,70 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
+            HashSet<ActiveEffectId> effectIds = new HashSet<ActiveEffectId>();
+            HashSet<BindingId> bindingIds = new HashSet<BindingId>();
+            List<(ActiveEffectRegistration Registration, ActiveEffectTimingState Timing)> pending =
+                new List<(ActiveEffectRegistration Registration, ActiveEffectTimingState Timing)>();
             foreach (ActiveEffectRegistration registration in context.Op.Registrations)
             {
-                CreateActiveEffectOp operation = new CreateActiveEffectOp(
-                    registration.Effect,
-                    registration.Binding
+                if (
+                    !effectIds.Add(registration.Effect.Id)
+                    || !bindingIds.Add(registration.Binding.Id)
+                )
+                    return ReductionResult<ActiveEffectAdoptionOutcome>.Reject(
+                        "An active-effect adoption batch contains duplicate stable identities."
+                    );
+                if (
+                    !ActiveEffectReduction.TryResolveAdoptionTiming(
+                        registry,
+                        state,
+                        registration.Effect,
+                        registration.Binding,
+                        null,
+                        out ActiveEffectTimingState timing,
+                        out string rejection
+                    )
+                )
+                    return ReductionResult<ActiveEffectAdoptionOutcome>.Reject(rejection);
+                bool hasEffect = state.ActiveEffects.TryGet(
+                    registration.Effect.Id,
+                    out ActiveEffectInstance existingEffect
                 );
-                ReductionResult<ActiveEffectCreationOutcome> result = create.Reduce(
-                    new ReductionContext<CreateActiveEffectOp>(
-                        operation,
-                        context.SourceOpId,
-                        context.RootOpId,
-                        context.Source
-                    ),
+                bool hasBinding = state.RuleBindings.TryGet(
+                    registration.Binding.Id,
+                    out ActiveRuleBinding existingBinding
+                );
+                if (hasEffect || hasBinding)
+                {
+                    bool hasTiming = state.ActiveEffectTimings.TryGet(
+                        registration.Effect.Id,
+                        out ActiveEffectTimingState existingTiming
+                    );
+                    if (
+                        hasEffect
+                        && hasBinding
+                        && existingEffect.Equals(registration.Effect)
+                        && existingBinding.Equals(registration.Binding)
+                        && hasTiming == (timing != null)
+                        && (!hasTiming || existingTiming.Equals(timing))
+                    )
+                        continue;
+                    return ReductionResult<ActiveEffectAdoptionOutcome>.Reject(
+                        "An adopted active-effect ID is already used by different state."
+                    );
+                }
+                pending.Add((registration, timing));
+            }
+            foreach (var item in pending)
+                ActiveEffectReduction.CommitAdoption(
                     state,
+                    item.Registration.Effect,
+                    item.Registration.Binding,
+                    item.Timing,
                     facts
                 );
-                if (result.IsRejected)
-                    return ReductionResult<ActiveEffectAdoptionOutcome>.Reject(
-                        result.RejectionReason
-                    );
-            }
             return ReductionResult<ActiveEffectAdoptionOutcome>.Accept(
-                new ActiveEffectAdoptionOutcome(context.Op.Registrations.Count)
+                new ActiveEffectAdoptionOutcome(pending.Count)
             );
         }
     }

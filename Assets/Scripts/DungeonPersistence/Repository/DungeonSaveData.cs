@@ -741,8 +741,9 @@ namespace Game.DungeonPersistence.Repository
 
         private static bool AreConditionsValid(IReadOnlyList<DungeonConditionSaveState> conditions)
         {
-            HashSet<string> effects = new(StringComparer.Ordinal);
-            HashSet<string> bindings = new(StringComparer.Ordinal);
+            HashSet<ActiveEffectId> effects = new();
+            HashSet<BindingId> bindings = new();
+            (long CreationOrder, string BindingId, string EffectId)? previous = null;
             foreach (DungeonConditionSaveState item in conditions)
             {
                 if (
@@ -757,8 +758,6 @@ namespace Game.DungeonPersistence.Repository
                     || item.Version < 0
                     || item.CreationOrder < 0
                     || item.RemainingBoundaries < 0
-                    || !effects.Add(item.EffectId)
-                    || !bindings.Add(item.BindingId)
                     || !Enum.IsDefined(typeof(EffectDurationKind), item.DurationKind)
                     || !Enum.IsDefined(typeof(ActiveEffectStatus), item.Status)
                     || !Enum.IsDefined(typeof(DungeonConditionStateKind), item.StateKind)
@@ -768,8 +767,47 @@ namespace Game.DungeonPersistence.Repository
                     || !IsTimingValid(item)
                 )
                     return false;
+                ActiveEffectId effectId;
+                BindingId bindingId;
+                RuleDefinitionId definitionId;
+                try
+                {
+                    effectId = new ActiveEffectId(item.EffectId);
+                    bindingId = new BindingId(item.BindingId);
+                    definitionId = new RuleDefinitionId(item.DefinitionId);
+                }
+                catch (ArgumentException)
+                {
+                    return false;
+                }
+                if (
+                    effectId.Value != item.EffectId
+                    || bindingId.Value != item.BindingId
+                    || definitionId.Value != item.DefinitionId
+                    || !effects.Add(effectId)
+                    || !bindings.Add(bindingId)
+                )
+                    return false;
+                var current = (item.CreationOrder, bindingId.Value, effectId.Value);
+                if (previous.HasValue && CompareConditionOrder(previous.Value, current) > 0)
+                    return false;
+                previous = current;
             }
             return true;
+        }
+
+        private static int CompareConditionOrder(
+            (long CreationOrder, string BindingId, string EffectId) left,
+            (long CreationOrder, string BindingId, string EffectId) right
+        )
+        {
+            int byCreation = left.CreationOrder.CompareTo(right.CreationOrder);
+            if (byCreation != 0)
+                return byCreation;
+            int byBinding = StringComparer.Ordinal.Compare(left.BindingId, right.BindingId);
+            return byBinding != 0
+                ? byBinding
+                : StringComparer.Ordinal.Compare(left.EffectId, right.EffectId);
         }
 
         private static bool IsDurationValid(DungeonConditionSaveState item) =>
@@ -780,14 +818,7 @@ namespace Game.DungeonPersistence.Repository
         private static bool IsConditionStateValid(DungeonConditionSaveState item)
         {
             bool noActions = item.AllowedActionIds.Length == 0;
-            bool uniqueActions =
-                !item.AllowedActionIds.Any(string.IsNullOrWhiteSpace)
-                && item.AllowedActionIds.Distinct(StringComparer.Ordinal).Count()
-                    == item.AllowedActionIds.Length
-                && item.AllowedActionIds.SequenceEqual(
-                    item.AllowedActionIds.OrderBy(value => value, StringComparer.Ordinal)
-                );
-            if (!uniqueActions)
+            if (!AreActionDefinitionIdsCanonical(item.AllowedActionIds))
                 return false;
             if (
                 item.DefinitionId == ConditionRuleDefinitions.OffGuard.Value
@@ -818,6 +849,32 @@ namespace Game.DungeonPersistence.Repository
             return item.StateKind == DungeonConditionStateKind.QuickenedUnrestricted && noActions
                 || item.StateKind == DungeonConditionStateKind.QuickenedRestricted
                     && item.AllowedActionIds.Length > 0;
+        }
+
+        private static bool AreActionDefinitionIdsCanonical(IReadOnlyList<string> serialized)
+        {
+            HashSet<ActionDefinitionId> ids = new();
+            string previous = null;
+            foreach (string value in serialized)
+            {
+                ActionDefinitionId id;
+                try
+                {
+                    id = new ActionDefinitionId(value);
+                }
+                catch (ArgumentException)
+                {
+                    return false;
+                }
+                if (
+                    id.Value != value
+                    || !ids.Add(id)
+                    || (previous != null && StringComparer.Ordinal.Compare(previous, id.Value) > 0)
+                )
+                    return false;
+                previous = id.Value;
+            }
+            return true;
         }
 
         private static bool IsTimingValid(DungeonConditionSaveState item)

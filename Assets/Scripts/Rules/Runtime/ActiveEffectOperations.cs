@@ -122,10 +122,10 @@ namespace Game.Rules.Runtime
     /// <summary>Reports the number of effect pairs committed by one adoption transaction.</summary>
     public readonly struct ActiveEffectAdoptionOutcome
     {
-        internal ActiveEffectAdoptionOutcome(int created) => Created = created;
+        internal ActiveEffectAdoptionOutcome(int adopted) => Adopted = adopted;
 
-        /// <summary>Gets the number of committed pairs.</summary>
-        public int Created { get; }
+        /// <summary>Gets the number of newly adopted pairs.</summary>
+        public int Adopted { get; }
     }
 
     /// <summary>Requests an optimistic typed-state replacement for one active effect.</summary>

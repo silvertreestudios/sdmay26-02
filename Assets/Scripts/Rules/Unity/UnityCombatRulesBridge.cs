@@ -47,6 +47,7 @@ namespace Game.Rules.Unity
         private bool releaseRequested;
         private bool ownershipReleased;
         private Action ownershipReleasedCallbacks = delegate { };
+        private UnityCombatantEnrollmentPlan pendingReinforcementEnrollment;
 
         /// <summary>Raised after an exact authoritative turn begins.</summary>
         public event Action<TurnIdentity> TurnBegan = delegate { };
@@ -64,7 +65,8 @@ namespace Game.Rules.Unity
             IReadOnlyList<ActionController> encounterControllers,
             Tile[,] tiles,
             bool attachControllers,
-            IRollService rollService
+            IRollService rollService,
+            IEnumerable<IUnityEncounterModule> additionalModules = null
         )
         {
             currentTiles = tiles;
@@ -79,7 +81,8 @@ namespace Game.Rules.Unity
                 controllers,
                 tiles,
                 strideDefinition,
-                attachControllers
+                attachControllers,
+                additionalModules
             );
             composition = modules.Composition;
             enrollmentPipeline = new UnityCombatantEnrollmentPipeline(
@@ -113,6 +116,7 @@ namespace Game.Rules.Unity
                 dispatcher = dispatcherBuilder.Build();
                 composition.RegisterRuntime(dispatcher, encounterLifetime);
                 enrollment.AttachAndInstall();
+                enrollment.FinalizeBatch();
                 enrollment.TransferTo(encounterLifetime);
             }
             catch (Exception constructionFailure)
@@ -148,6 +152,21 @@ namespace Game.Rules.Unity
             ActionController[] copied = encounterControllers.ToArray();
             ValidateTiles(tiles);
             return new UnityCombatRulesBridge(copied, tiles, true, rollService);
+        }
+
+        /// <summary>Creates a production composition with explicit test-only tail modules.</summary>
+        internal static UnityCombatRulesBridge CreateForTests(
+            IEnumerable<ActionController> encounterControllers,
+            Tile[,] tiles,
+            IRollService rollService,
+            IEnumerable<IUnityEncounterModule> additionalModules
+        )
+        {
+            if (encounterControllers == null)
+                throw new ArgumentNullException(nameof(encounterControllers));
+            ActionController[] copied = encounterControllers.ToArray();
+            ValidateTiles(tiles);
+            return new UnityCombatRulesBridge(copied, tiles, true, rollService, additionalModules);
         }
 
         /// <summary>
@@ -418,18 +437,37 @@ namespace Game.Rules.Unity
         /// <param name="reinforcements">New, unique controllers not already registered.</param>
         public void RegisterCombatants(IEnumerable<ActionController> reinforcements)
         {
-            UnityCombatantEnrollmentPlan enrollment = enrollmentPipeline.Prepare(
-                reinforcements,
-                nameof(reinforcements)
-            );
+            if (reinforcements == null)
+                throw new ArgumentNullException(nameof(reinforcements));
+            ActionController[] copied = reinforcements.ToArray();
+            UnityCombatantEnrollmentPlan enrollment;
+            if (pendingReinforcementEnrollment != null)
+            {
+                if (!pendingReinforcementEnrollment.Matches(copied))
+                    throw new InvalidOperationException(
+                        "A failed reinforcement batch must be retried before another batch can register."
+                    );
+                enrollment = pendingReinforcementEnrollment;
+            }
+            else
+            {
+                enrollment = enrollmentPipeline.Prepare(copied, nameof(reinforcements));
+            }
             try
             {
                 enrollment.CommitReinforcements();
                 enrollment.AttachAndInstall();
+                enrollment.FinalizeBatch();
                 enrollment.TransferTo(encounterLifetime);
+                pendingReinforcementEnrollment = null;
             }
             catch (Exception registrationFailure)
             {
+                if (enrollment.ReinforcementCommitStarted)
+                {
+                    pendingReinforcementEnrollment = enrollment;
+                    throw;
+                }
                 try
                 {
                     enrollment.Dispose();
@@ -485,6 +523,18 @@ namespace Game.Rules.Unity
             Action callbacks = ownershipReleasedCallbacks;
             ownershipReleasedCallbacks = delegate { };
             List<Exception> failures = new();
+            if (pendingReinforcementEnrollment != null)
+            {
+                try
+                {
+                    pendingReinforcementEnrollment.Dispose();
+                }
+                catch (Exception cleanupFailure)
+                {
+                    AppendCleanupFailures(failures, cleanupFailure);
+                }
+                pendingReinforcementEnrollment = null;
+            }
             try
             {
                 encounterLifetime.Dispose();

@@ -159,17 +159,23 @@ public sealed class Conditions : MonoBehaviour
         return true;
     }
 
-    private void ConsumePending(long generation)
+    private void ConsumePending()
+    {
+        pending = Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
+        hasPending = false;
+    }
+
+    private void ValidatePending(long generation)
     {
         if (!hasPending || generation != pendingGeneration)
             throw new InvalidOperationException(
                 "Condition restore input changed during enrollment."
             );
-        pending = Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
-        hasPending = false;
     }
 
     internal void CompleteEnrollment() => wasEnrolled = true;
+
+    internal bool HasPendingRestore => hasPending;
 
     private bool TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner)
     {
@@ -199,7 +205,9 @@ public sealed class Conditions : MonoBehaviour
 
         internal IReadOnlyList<ConditionRegistration> Registrations { get; }
 
-        internal void Consume() => owner.ConsumePending(generation);
+        internal void Validate() => owner.ValidatePending(generation);
+
+        internal void ConsumeValidated() => owner.ConsumePending();
     }
 }
 
