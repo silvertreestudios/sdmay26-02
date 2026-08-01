@@ -1,8 +1,14 @@
 # Operations-Based Rules Architecture
 
-- **Status:** Proposed architecture
+- **Status:** Implemented foundation with documented production slices and deferred examples
 - **Audience:** Gameplay and rules engineers
 - **Scope:** Rules execution, reactions, state changes, active effects, and rule-facing Unity integration
+
+For the canonical production composition, encounter authority, enrollment order, cleanup boundary,
+cutover behavior, and vertical-feature recipe, read the
+[authoritative encounter rules architecture](Encounter_Rules_Architecture.md). This document remains
+the conceptual design and rationale for the operations model. Its worked examples are illustrative;
+the status matrix in Section 17 identifies which slices exist in production.
 
 This architecture uses a Redux-like unidirectional data flow, extended with typed results, nested operations, and explicit lifecycle operations for Pathfinder 2e timing rules.
 
@@ -29,7 +35,7 @@ PF2e **actions** remain a rules concept. We avoid calling every message an “ac
 - Make nested activities such as Strike, Tumble Through, spellcasting, and chained damage composable.
 - Make active feats, spells, conditions, and equipment extend the engine without central feature switches.
 - Retain enough provenance to answer “what caused this damage?” and “which spell caused this creature to reach 0 HP?”
-- Allow incremental migration from the current Unity gameplay code.
+- Allow vertical migration from Unity gameplay code without dual authority for any migrated slice.
 
 ### Non-goals
 
@@ -334,7 +340,11 @@ public interface IRulesStore
 
 Only reducers receive controlled write access. Handlers, middleware, selectors, prompt adapters, and Unity presenters receive read-only snapshots.
 
-During migration, existing Unity components may remain the storage authority for systems not yet moved. A migrated slice must still have exactly one owner: the reducer updates rules state and a Unity adapter projects that committed state into scene objects.
+Unity components may remain the storage authority for systems that have not moved. At each explicit
+cutover, a migrated slice has exactly one owner: the reducer updates rules state and a Unity adapter
+projects that committed state into scene objects. Production encounter cutover and unavailable-read
+behavior are defined in the
+[as-built encounter guide](Encounter_Rules_Architecture.md#authority-after-encounter-cutover).
 
 ### 4.2 Small state-changing Ops use reducers
 
@@ -1021,7 +1031,14 @@ whether the feature can instead:
 
 ---
 
-## 8. Worked example: normal Strike
+## 8. Conceptual worked example: normal Strike
+
+Sections 8–12 preserve the design reasoning and may use representative names or capabilities that
+are not implemented. Production currently includes rules-backed Strike, Stride, Rage, Reload,
+supported spellcasting, checks, movement lifecycle, active effects, and encounter lifecycle.
+Reactive Strike, the Bless aura-state example, Tumble Through, and Cranial Detonation remain
+deferred. Do not copy an example into shared infrastructure or claim that it exists without checking
+the Section 17 matrix and current code.
 
 This complete sketch keeps the action data, validation, action handler, and reusable strike-resolution handler together. The engine-provided `ActionOp` pipeline still owns validation/cost/lifecycle ordering.
 
@@ -1221,11 +1238,14 @@ public sealed class StrikeActionHandler
 }
 ```
 
-The existing `StrikeResolutionPipeline.Resolve` reaches `ApplyDefenseAndDamageAdjustment.Apply`, which calls `TakeDamage`. Before migrating Strike, split that pipeline into pure roll/damage calculation and one HP mutation through `ApplyDamageOp`; otherwise damage would be applied twice. The runner attaches action-cost, damage, reduced-to-zero, and MAP Facts to the root result automatically.
+Production Strike now separates rules-owned roll/damage calculation from the reducer-backed
+`ApplyDamageOp`; health is mutated once and projected to Unity after commit. The current production
+types differ in details from this preserved sketch; use `StrikeRules`,
+`UnityStrikeEncounterModule`, and `RulesStrikeAction` as the implementation references.
 
 ---
 
-## 9. Worked example: Reactive Strike
+## 9. Conceptual worked example: Reactive Strike (deferred)
 
 Reactive Strike demonstrates pre-emption, reactions, trusted provenance, and the difference between action-level and movement-level timing. The engine always supplies lifecycle Ops for valid actions and movement timing points. Reactive Strike owns both the `CanTriggerReactions` eligibility check and its feature-specific trigger matching.
 
@@ -1441,7 +1461,7 @@ The triggering action has already committed its costs before this middleware run
 
 ---
 
-## 10. Worked example: Bless
+## 10. Conceptual worked example: Bless (deferred feature semantics)
 
 Bless demonstrates spellcasting costs, active effect state, derived bonuses, stacking, sustaining, and movement-safe aura membership. Project data supplies its two-action cost, traits, 15-foot starting emanation, one-minute duration, and 10-foot Sustain expansion.
 
@@ -1651,7 +1671,7 @@ Stride, forced movement, teleportation, spawning, and aura expansion all use cur
 
 ---
 
-## 11. Worked example: Tumble Through
+## 11. Conceptual worked example: Tumble Through (deferred)
 
 Tumble Through demonstrates a composite move action, a skill check, occupied-space permission, movement Facts, and a synthetic reaction trigger on failure.
 
@@ -1866,7 +1886,7 @@ The action-begin timing point and the failed-entry synthetic departure are disti
 
 ---
 
-## 12. Worked example: Cranial Detonation
+## 12. Conceptual worked example: Cranial Detonation (deferred)
 
 Cranial Detonation is intentionally a stress test. It combines a completed spell trigger, one prompt for multiple initial creatures, once-per-round use, forced death, overlapping emanations, basic saves, alternate mode selection, and chained explosions.
 
@@ -2278,50 +2298,33 @@ Use PlayMode tests only for adapter behavior that needs Unity objects: selection
 
 ---
 
-## 17. Incremental migration plan
+## 17. Implemented and deferred status
 
-This architecture can be introduced vertically. It does not require rewriting every rule before the first feature works.
+The architecture is being delivered vertically. The table is authoritative for the proposal's
+examples; the [as-built encounter guide](Encounter_Rules_Architecture.md) is authoritative for
+production composition and operational procedure.
 
-### Phase 1: runtime foundation
+| Area | Status | Current production boundary or deferred work |
+| --- | --- | --- |
+| Runtime foundation | Implemented | `RulesState`, immutable snapshots, structural results, frames, nested/causal dispatch, reducers, middleware, typed Fact observers/listeners, active bindings, typed prompts, deterministic rolls, trace, and root/causal-tree settlement are in `Game.Rules.Runtime`. |
+| Encounter lifecycle | Implemented | Rules own roster, initiative, round/cursor, exact turns, action economy, reaction availability, MAP reset, outcome, reinforcement joins, defeat finalization, and active-effect clocks. Unity presentation waits for causal settlement. |
+| Explicit Unity composition and enrollment | Implemented | `UnityEncounterModuleSet`, capability-based `UnityEncounterComposition`, reversible `UnityCombatantEnrollmentPipeline`, initial seed, reinforcement `JoinEncounterOp`, exact attachments, and one `CompositeLifetime` cleanup boundary are production. |
+| Health | Implemented for encounter cutover | Reducer-backed damage, healing, temporary HP, immunity, zero-HP and defeat Facts are authoritative and project to `CreatureComponent`. Some upstream damage calculations outside migrated actions remain transitional. |
+| Strike and Reload | Implemented production slice | `StrikeActionOp`, `ResolveStrikeOp`, action costs, rules rolls/damage, ammunition/loaded state, MAP, validation, Unity action installation, and presentation are rules-backed. |
+| Movement and Stride | Implemented production slice | Authoritative positions, budgets, permissions, topology provider, movement timing Ops/Facts, relocation, selection, and Stride are rules-backed. Step and Tumble Through are not production actions. |
+| Checks and saves | Foundation implemented | Generic check, skill-check, saving-throw, modifier collection, deterministic roll, and degree-of-success paths exist. Additional action/content integrations remain vertical work. |
+| Active effects and bindings | Foundation implemented | Generic create/update/expire/remove state, encounter timing, restored finite spell-effect adoption, and typed binding selection exist. The conceptual Bless aura state and Sustain workflow do not. |
+| Rage | Implemented production slice | Rules own availability, costs, active effect/binding behavior, temporary HP interaction, and Quick-Tempered listener behavior; Unity prepared-character extraction remains an adapter. |
+| Spellcasting | Partially implemented production slice | Generic Cast a Spell lifecycle, spell slots, supported definitions/variants, spell attacks, selected effects, restored-effect timing, action installation, and presentation are rules-backed. The full spell catalog and every targeting/effect form are not migrated. |
+| Reactions | Runtime capability implemented; content deferred | Reaction costs and `ActionBegunOp` middleware timing exist. The Reactive Strike example is not implemented. |
+| Bless example | Deferred | The conceptual `BlessAuraState`, derived aura middleware, and Sustain Bless action are not production types. Existing imported/restored Bless presentation does not imply this example exists. |
+| Tumble Through example | Deferred | `TumbleThroughActionOp` and its occupied-crossing feature workflow are not implemented, although shared movement timing and permissions exist. |
+| Cranial Detonation example | Deferred | Feature action, batch trigger, area workflow, rule death workflow, and chaining semantics are not implemented. |
+| Remaining game migration | Ongoing | Rotting Aura and Slowed turn-start behavior, portions of Unity data extraction, AI/UI/FSM presentation, and unlisted actions, feats, spells, conditions, and equipment remain explicit adapters or Unity-native systems. |
 
-- Add ID and immutable data types needed by the first slice.
-- Implement `RulesState`, snapshots, dispatcher, frames, results, handler/reducer registration, and deterministic tracing.
-- Implement middleware, typed fact listeners, active bindings, typed prompts, and test-only scripted prompt fixtures.
-- Add architecture tests for validation, costs, interruption, provenance, and Facts.
-
-### Phase 2: split and migrate Strike
-
-- Separate the current Strike pipeline's calculation from `TakeDamage` mutation.
-- Implement action-cost, damage, and MAP reducers.
-- Implement `StrikeActionOp`, `ResolveStrikeOp`, and modifier collection.
-- Adapt the existing FSM/UI to dispatch `StrikeActionOp` and present its result.
-- Keep exactly one HP mutation path.
-
-### Phase 3: movement lifecycle
-
-- Move authoritative positions and movement budget accounting behind reducers.
-- Implement `MovePathOp`, `MovementLeavingSquareOp`, movement Facts, and permissions.
-- Adapt Stride and Step, explicitly testing their different reaction semantics.
-
-### Phase 4: active rules and Bless
-
-- Add typed active effect state and generic create/update/expire reducers.
-- Add derived modifier middleware and presentation selectors.
-- Migrate Bless casting and Sustain.
-
-### Phase 5: reactions and Tumble Through
-
-- Add reaction cost support and `ActionBegunOp` middleware arbitration.
-- Implement Reactive Strike using trusted active bindings.
-- Implement Tumble Through on the shared movement and skill-check Ops.
-
-### Phase 6: broader spell and feat composition
-
-- Add generic saving throw, area, death, frequency, and spell-causation workflows.
-- Use Cranial Detonation as a late stress test, not as the first production rule.
-- Migrate additional content by composing existing Ops before adding new engine concepts.
-
-At each phase, old and new systems may coexist only at explicit adapter seams. Avoid dual-writing the same HP, position, action, condition, or effect field.
+For every future slice, old and new systems may coexist only at explicit adapter seams. Never
+dual-read or dual-write HP, position, action economy, MAP, roster, initiative, outcome, condition, or
+effect state after that slice's cutover.
 
 ---
 
@@ -2411,4 +2414,8 @@ validate -> commit costs -> ActionBegunOp -> feature handler
 
 That small addition is what makes a Redux-like approach fit PF2e. It centralizes the easy-to-forget timing work while leaving feature code to compose typed Ops. Explicit lifecycle Ops handle pre-emption and modification; Facts handle reactions to committed changes; typed active bindings keep content extensible.
 
-Strike, Reactive Strike, Bless, Tumble Through, and Cranial Detonation all use the same contracts. None requires handlers to mutate state, manually publish audit envelopes, trust bypass flags, or keep feature-specific mirrors of derived state.
+The implemented Strike slice and the deferred Reactive Strike, Bless, Tumble Through, and Cranial
+Detonation examples are designed around the same contracts. The examples show how to avoid handlers
+mutating state, manually publishing audit envelopes, trusting bypass flags, or keeping
+feature-specific mirrors of derived state; consult Section 17 before treating any example as
+production behavior.

@@ -9,7 +9,7 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 
 ## Workflow
 
-1. Read `AGENTS.md`, `ProjectSettings/ProjectVersion.txt`, relevant asmdefs, and nearby code before editing.
+1. Read `AGENTS.md`, `ProjectSettings/ProjectVersion.txt`, relevant asmdefs, and nearby code before editing. For encounter, action, effect, bridge, or enrollment work, also read the canonical as-built `Docs/Encounter_Rules_Architecture.md`; use `Docs/Ops_Based_Rules_Proposal.md` for rationale and deferred concepts.
 2. Create or use a task-specific Git worktree under `../sdmay26-02-worktrees/`; do not edit the main checkout directly.
 3. Keep changes within existing runtime and test assemblies unless a new boundary is clearly needed.
 4. Prefer pure, deterministic logic for combat/rules calculations and thin MonoBehaviour integration.
@@ -23,11 +23,17 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 - Follow the C# XML documentation requirements in `AGENTS.md` for new or modified public APIs and complex internal behavior; keep existing documentation synchronized with every behavior change.
 - Avoid new global state. If existing singleton/static-event behavior is involved, isolate it behind a seam before expanding it.
 - Follow the feature-ownership boundary in `AGENTS.md` and
-  `Docs/Ops_Based_Rules_Proposal.md`: feature modules own feature-specific operations, validation,
-  handlers, listeners, selectors, state, and Unity adapters.
+  `Docs/Encounter_Rules_Architecture.md`: feature modules own feature-specific operations,
+  validation, handlers, listeners, selectors, state, and Unity adapters.
+- Compose encounter features explicitly in `UnityEncounterModuleSet`, implement only the required
+  capability interfaces documented in `Docs/Encounter_Rules_Architecture.md`, and preserve supplied
+  module order. Enrollment must work for both initial participants and reinforcements;
+  registrations and resources belong to the one encounter `CompositeLifetime`.
 - Keep Unity bridges, managers, and facades feature-agnostic. Composition may install a named
   feature, but shared code must not implement its conditions or workflow. Prefer feature-created Ops
   and feature listeners for generic Facts over feature-specific bridge helpers.
+- Never add a legacy fallback or dual authority for a migrated slice, static feature discovery or
+  self-registration, manual observer cleanup, or detach logic that ignores exact bridge identity.
 - Save and restore random state in tests that touch randomness.
 - Keep generated Unity files and results out of version control.
 - Remove the task worktree after the work is merged, closed, or abandoned.

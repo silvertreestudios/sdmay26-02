@@ -90,6 +90,15 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
   own its feature-specific operations, validation, handlers, listeners, selectors, persistent state,
   and Unity data extraction or presentation adapters. Feature ownership does not require putting all
   of those responsibilities in one class.
+- For encounter, action, effect, bridge, or combatant-enrollment work, read and follow
+  `Docs/Encounter_Rules_Architecture.md` before editing. It is the canonical as-built guide;
+  `Docs/Ops_Based_Rules_Proposal.md` provides the conceptual rationale and clearly marked deferred
+  examples.
+- Add encounter features only through the explicit ordered `UnityEncounterModuleSet` and the exact
+  capability interfaces they need. Support both initial seeding and reinforcement enrollment, put
+  all observer/resource cleanup in the encounter `CompositeLifetime`, and preserve exact bridge
+  identity on detach. Do not use static discovery, self-registration, legacy fallback, or dual
+  authority for a migrated state slice.
 - Keep shared rules runtime, bridge, manager, and facade APIs feature-agnostic. A composition root may
   name a feature to register its definitions or seed its bindings, but general-purpose classes must
   not implement the feature's conditions or workflow. Avoid feature-named methods, fields, caches,
