@@ -51,6 +51,25 @@ constructs the only production module sequence:
 7. `UnityHealthProjectionModule`
 8. `UnityEncounterProjectionModule`
 
+Before constructing that module array, `UnityEncounterModuleSet.Create` performs a separate,
+explicit static-composition pass that feature modules cannot defer to `ConfigureDispatcher`:
+
+- It constructs `CombatActionCatalog` from `strideDefinition`, `strikeContext`, `spellCatalog`,
+  `new UnitySpellBookProvider(creatures)`, and the Rage feature catalog, `rageDefinition`. The
+  result implements `IActionCatalog`, `IStrikeActionCatalog`, and `ISpellActionCatalog`.
+- It composes a `RuleRegistryBuilder` with `RageRules.DefineRuleBindings(registryBuilder)`,
+  `registryBuilder.AddOutcomeRule()`,
+  `registryBuilder.Define(UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId)`, and
+  each distinct spell-effect `DefinitionId` from `spellCatalog.Definitions`, then calls
+  `registryBuilder.Build()`.
+
+Both immutable objects therefore exist before `UnityCombatRulesBridge` supplies them to
+`UseActionLifecycle(modules.ActionCatalog)` and `UseActiveEffectRules(modules.Registry)`, and before
+any module's `ConfigureDispatcher` pass. This is an allowed named composition-root responsibility:
+the root may mention Rage and spell definitions to wire feature-owned catalogs and IDs, but it does
+not implement their conditions or workflow and does not permit static discovery or
+self-registration.
+
 [`UnityEncounterComposition`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterComposition.cs)
 copies that explicit sequence and never scans assemblies, scene objects, statics, or attributes.
 Each pass filters the same sequence by capability, preserving supplied order:
@@ -220,13 +239,7 @@ framework.
 1. **Define the rules-owned slice.** Put immutable Ops, results, validators, handlers, reducers,
    Facts, selectors, and typed effect state with the feature. Use `ActionOp<TResult>` for a PF2e
    action and ordinary `IRuleOp<TResult>` for nested work. `StrideRules`, `StrikeRules`,
-   `RageRules`, and `SpellcastingRules` show current contracts. For a new `ActionOp<TResult>` with a
-   default profile, make its definition an `IActionCatalog` and include that definition in the
-   production `CombatActionCatalog` constructed by `UnityEncounterModuleSet.Create` before
-   `UnityCombatRulesBridge` passes `modules.ActionCatalog` to `UseActionLifecycle`. Rage is the
-   current example: `RageActionOp` names `RageActionDefinition.DefinitionId`,
-   `RageActionDefinition` implements `IActionCatalog`, and `rageDefinition` is supplied as a
-   `CombatActionCatalog` feature catalog.
+   `RageRules`, and `SpellcastingRules` show current contracts.
 2. **Register dispatcher behavior explicitly.** Implement
    `IUnityEncounterDispatcherModule.ConfigureDispatcher(RuleDispatcherBuilder)` and call existing
    `Use...Rules` extensions or exact `RegisterHandler`, `RegisterReducer`, and
@@ -236,12 +249,7 @@ framework.
    `IUnityCombatantEnrollmentModule.PrepareCombatant(UnityCombatantEnrollmentBuilder)`. Add base
    slots/bindings directly, or implement `IUnityCombatantStateContribution.Seed` and `Register`
    when feature state needs different seed and operation-based adoption mechanics. Use `Own` for
-   every provisional disposable. Before seeding or adopting any `ActiveRuleBinding` or
-   `ActiveEffectInstance` that uses a new `RuleDefinitionId`, define that ID on the production
-   `RuleRegistryBuilder` before `registryBuilder.Build()`. Current composition calls
-   `RageRules.DefineRuleBindings(registryBuilder)` for Rage's definitions and explicitly defines
-   `UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId` for the matching restored
-   effect and binding.
+   every provisional disposable.
 4. **Precompute Unity installation.** If the feature changes action lists or adapters, return an
    `IUnityCombatantInstallationContribution` from preparation. Its `Apply` method may only apply
    frozen work. `UnityStrikeActionInstallationPlan` and `UnitySpellActionInstallationPlan` are the
@@ -254,8 +262,26 @@ framework.
    `IUnityEncounterTopologyModule` for a live geometry adapter. Use
    `IUnityEncounterTurnStartModule` only for a transitional Unity-owned calculation that cannot yet
    be a rules feature; Rotting Aura and Slowed are current seams, not templates for new rules.
-7. **Add the module once to `UnityEncounterModuleSet.Create`.** Its array position is its position
-   in every applicable composition pass. Do not self-register.
+7. **Complete static composition, then add the module once.** In
+   `UnityEncounterModuleSet.Create`, define every `RuleDefinitionId` used by an
+   `ActiveRuleBinding` or `ActiveEffectInstance` on the production `RuleRegistryBuilder` before
+   `registryBuilder.Build()`. `RageRules.DefineRuleBindings(registryBuilder)` defines Rage's effect
+   and listener bindings; spell composition explicitly defines
+   `UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId` and every distinct
+   `effect.DefinitionId` from `spellCatalog.Definitions`.
+
+   Also compose every action-profile dependency before dispatcher construction.
+   `ActionOp<TResult>.GetBaseProfile(IActionCatalog)` defaults to
+   `catalog.GetBaseProfile(DefinitionId)`, and the dispatcher freezes that profile before
+   validation. A feature using that default must implement `IActionCatalog` and pass its catalog to
+   the production `CombatActionCatalog`; `RageActionDefinition` and the `rageDefinition` constructor
+   argument are the current example. An override that needs a typed catalog must have that
+   capability composed too, as `CombatActionCatalog` does for `IStrikeActionCatalog` and
+   `ISpellActionCatalog`.
+
+   Finally, add the feature module to the explicit module array. Its array position is its position
+   in every applicable composition pass. These named root references are wiring, not feature
+   semantics; do not move rules into the root or self-register.
 8. **Test the vertical boundary.** Add deterministic EditMode tests for reducers, handlers,
    lifecycle, initial seed, reinforcement registration, failure rollback, ordering, exact identity,
    and cleanup. Add PlayMode coverage only for scene/FSM/presentation behavior. Verify unavailable

@@ -27,8 +27,11 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
   validation, handlers, listeners, selectors, state, and Unity adapters.
 - Compose encounter features explicitly in `UnityEncounterModuleSet`, implement only the required
   capability interfaces documented in `Docs/Encounter_Rules_Architecture.md`, and preserve supplied
-  module order. Enrollment must work for both initial participants and reinforcements;
-  registrations and resources belong to the one encounter `CompositeLifetime`.
+  module order. In `UnityEncounterModuleSet.Create`, define every feature-used `RuleDefinitionId`
+  and compose every required action profile or typed catalog before dispatcher construction. This
+  named root wiring is allowed, but features must not self-register. Enrollment must work for both
+  initial participants and reinforcements; registrations and resources belong to the one encounter
+  `CompositeLifetime`.
 - Keep Unity bridges, managers, and facades feature-agnostic. Composition may install a named
   feature, but shared code must not implement its conditions or workflow. Prefer feature-created Ops
   and feature listeners for generic Facts over feature-specific bridge helpers.

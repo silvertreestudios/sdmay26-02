@@ -29,9 +29,11 @@ conceptual model and its implemented/deferred matrix; do not treat conceptual ex
    timing Facts or dispatching generic Ops so the feature module can decide how its rule responds.
 5. Add horizontal infrastructure only when the current vertical slice requires it, and keep the
    shared API free of feature terminology.
-6. For encounter features, register an explicit module in `UnityEncounterModuleSet`, support both
-   initial seed and reinforcement enrollment, transfer every observer/resource to the encounter
-   `CompositeLifetime`, and preserve exact bridge identity at cleanup.
+6. For encounter features, explicitly compose every feature-used `RuleDefinitionId` and required
+   action profile or typed catalog in `UnityEncounterModuleSet.Create` before dispatcher build, then
+   register the module once. Support both initial seed and reinforcement enrollment, transfer every
+   observer/resource to the encounter `CompositeLifetime`, and preserve exact bridge identity at
+   cleanup.
 7. Never introduce legacy fallback or dual authority for a migrated state slice, static discovery
    or self-registration, manual observer cleanup, or feature semantics in shared bridges.
 8. Add deterministic tests for rules math before refactoring broad behavior.

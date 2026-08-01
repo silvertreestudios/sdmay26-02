@@ -95,15 +95,17 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
   `Docs/Ops_Based_Rules_Proposal.md` provides the conceptual rationale and clearly marked deferred
   examples.
 - Add encounter features only through the explicit ordered `UnityEncounterModuleSet` and the exact
-  capability interfaces they need. Support both initial seeding and reinforcement enrollment, put
-  all observer/resource cleanup in the encounter `CompositeLifetime`, and preserve exact bridge
-  identity on detach. Do not use static discovery, self-registration, legacy fallback, or dual
-  authority for a migrated state slice.
+  capability interfaces they need. In that composition root, define every feature-used
+  `RuleDefinitionId` and compose every required action profile or typed catalog before dispatcher
+  construction. Support both initial seeding and reinforcement enrollment, put all observer/resource
+  cleanup in the encounter `CompositeLifetime`, and preserve exact bridge identity on detach. Do not
+  use static discovery, self-registration, legacy fallback, or dual authority for a migrated state
+  slice.
 - Keep shared rules runtime, bridge, manager, and facade APIs feature-agnostic. A composition root may
-  name a feature to register its definitions or seed its bindings, but general-purpose classes must
-  not implement the feature's conditions or workflow. Avoid feature-named methods, fields, caches,
-  trigger flags, and switches when the feature can construct a generic operation, listen to a generic
-  Fact, or query its own selector.
+  name a feature to wire its definitions and catalogs or seed its bindings, but general-purpose
+  classes must not implement the feature's conditions or workflow. Avoid feature-named methods,
+  fields, caches, trigger flags, and switches when the feature can construct a generic operation,
+  listen to a generic Fact, or query its own selector.
 - Add horizontal/shared infrastructure only when the current vertical slice proves it necessary, and
   keep that API free of feature terminology. See `Docs/Ops_Based_Rules_Proposal.md`, especially
   "Feature modules own feature semantics."
