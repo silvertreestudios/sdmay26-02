@@ -447,6 +447,7 @@ namespace Game.Rules.Unity
             if (reinforcements == null)
                 throw new ArgumentNullException(nameof(reinforcements));
             ActionController[] copied = reinforcements.ToArray();
+            EnsureEnrollmentCanContinue();
             UnityCombatantEnrollmentPlan enrollment;
             if (pendingReinforcementEnrollment != null)
             {
@@ -700,7 +701,7 @@ namespace Game.Rules.Unity
             int finalDamage,
             RuleSource source
         ) =>
-            DispatchNow(
+            DispatchNow(() =>
                 new ApplyDamageOp(target, finalDamage, AllocateHealthOrigin(source), source)
             );
 
@@ -710,7 +711,9 @@ namespace Game.Rules.Unity
         /// <param name="source">The rule source responsible for the healing.</param>
         /// <returns>The exact committed healing outcome.</returns>
         public HealingOutcome ApplyHealing(CreatureId target, int healing, RuleSource source) =>
-            DispatchNow(new ApplyHealingOp(target, healing, AllocateHealthOrigin(source), source));
+            DispatchNow(() =>
+                new ApplyHealingOp(target, healing, AllocateHealthOrigin(source), source)
+            );
 
         /// <summary>Attempts a source-owned temporary Hit Point grant.</summary>
         /// <param name="target">The registered creature receiving the offer.</param>
@@ -722,7 +725,7 @@ namespace Game.Rules.Unity
             int amount,
             RuleSource source
         ) =>
-            DispatchNow(
+            DispatchNow(() =>
                 new GrantTemporaryHitPointsOp(target, amount, AllocateHealthOrigin(source), source)
             );
 
@@ -734,7 +737,7 @@ namespace Game.Rules.Unity
             CreatureId target,
             RuleSource source
         ) =>
-            DispatchNow(
+            DispatchNow(() =>
                 new RemoveTemporaryHitPointsOp(target, AllocateHealthOrigin(source), source)
             );
 
@@ -746,7 +749,7 @@ namespace Game.Rules.Unity
             CreatureId target,
             RuleSource source
         ) =>
-            DispatchNow(
+            DispatchNow(() =>
                 new AddTemporaryHitPointImmunityOp(target, AllocateHealthOrigin(source), source)
             );
 
@@ -809,7 +812,16 @@ namespace Game.Rules.Unity
 
         private TResult DispatchNow<TResult>(IRuleOp<TResult> operation)
         {
-            OpResult<TResult> result = DispatchResultNow(operation);
+            return RequireResolvedDispatch(DispatchResultNow(operation));
+        }
+
+        private TResult DispatchNow<TResult>(Func<IRuleOp<TResult>> operationFactory)
+        {
+            return RequireResolvedDispatch(DispatchResultNow(operationFactory));
+        }
+
+        private static TResult RequireResolvedDispatch<TResult>(OpResult<TResult> result)
+        {
             if (result is ResolvedOpResult<TResult> resolved)
                 return resolved.Value;
             if (result is InvalidOpResult<TResult> invalid)
@@ -841,11 +853,23 @@ namespace Game.Rules.Unity
         private OpResult<TResult> DispatchResultNow<TResult>(
             IRuleOp<TResult> operation,
             bool isEnrollmentCheckpoint = false
+        ) => DispatchResultNow(() => operation, isEnrollmentCheckpoint);
+
+        private OpResult<TResult> DispatchResultNow<TResult>(
+            Func<IRuleOp<TResult>> operationFactory,
+            bool isEnrollmentCheckpoint = false
         )
         {
+            if (operationFactory == null)
+                throw new ArgumentNullException(nameof(operationFactory));
             BeginDispatch(isEnrollmentCheckpoint);
             try
             {
+                IRuleOp<TResult> operation =
+                    operationFactory()
+                    ?? throw new InvalidOperationException(
+                        "A guarded rules operation factory returned null."
+                    );
                 ValueTask<OpResult<TResult>> pending = dispatcher.Dispatch(operation);
                 if (!pending.IsCompleted)
                 {

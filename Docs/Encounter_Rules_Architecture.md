@@ -31,7 +31,9 @@ Cutover never means “try rules, then fall back.” A detached `ActionControlle
 unavailable read projections (`HasTurnAuthority == false`, zero action points, `Reacted == false`,
 and zero MAP). A rules-backed action reports unavailable when `TryGetCombatRules` fails. Operations
 that require authority, such as positive action spending or health mutation, throw when the bridge
-is absent or structurally incomplete. `CreatureComponent.Health` may still read serialized or
+is absent or structurally incomplete. The bridge performs that operational check before allocating
+a health-origin identity, so blocked gameplay cannot change the provenance of a later committed
+health Fact. `CreatureComponent.Health` may still read serialized or
 initialized health before attachment and after final projection; that is an initialization and
 persistence boundary, not competing combat authority.
 
@@ -128,6 +130,12 @@ from frozen prepared data, and post-commit projections such as `UnityHealthProje
 update Unity health and presentation from committed Facts. Neither may mutate authoritative
 `RulesState` or maintain a competing feature mirror.
 
+A rules-native spell action permanently closes over its action definition and catalog. Spell
+installation may retain an existing action only when both references belong to the current
+encounter catalog; matching spell and variant values alone do not prove ownership. Fresh encounter
+composition therefore replaces actions left by a failed or released encounter, including when
+registration order reassigns the controller's creature ID.
+
 ### One cleanup boundary
 
 `UnityCombatRulesBridge` owns exactly one encounter-level `CompositeLifetime`. Encounter-scoped
@@ -171,6 +179,9 @@ module, captures initiative modifiers, and freezes `CombatantRulesState` plus in
 If any preparation read or preflight fails, the preparation `CompositeLifetime` rolls back maps,
 identity allocation, and feature-owned resources. Cleanup failures are retained with the original
 failure. Preparation must therefore perform every fallible Unity query needed by `Reconcile`.
+`RegisterCombatants` checks ownership both before and immediately after it materializes the caller's
+enumerable, before `Prepare`; an iterator that begins release cannot cause provisional feature reads
+or reservations after ownership is gone.
 
 This is not a promise that arbitrary work after a reinforcement commit can roll back `RulesState`.
 The commit boundary is intentional. A root dispatch or state registration can commit and then
@@ -386,6 +397,9 @@ shrink them through vertical migrations:
   `ActionController.CalculateTurnStartActions` and legacy `ResetActionPointsEvent` listeners.
 - `UnityStrikeContext` and `UnitySpellAttackContext` adapt current creature/equipment/team/grid data
   into rule definitions and validation. They are feature-owned adapters, not alternate authorities.
+- Strike reinforcement replay compares the complete actor-owned equipment and ammunition
+  collections plus the contribution-owned zero MAP state. Exact state is a no-op; extra, missing,
+  or changed state rejects instead of being accepted as the original registration.
 - Encounter preparation still reads serialized `CreatureComponent`, `ActionController`, `Team`,
   immutable prepared packages, spellbook, and restored-effect data to build authoritative state.
   Mutable `PreparedCharacter.ActiveEffects` persistence and spell pools/preparations remain explicit

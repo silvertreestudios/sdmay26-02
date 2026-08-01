@@ -724,6 +724,18 @@ namespace Game.Rules.Runtime
                     "Every ammunition pool must belong to the registered actor.",
                     nameof(ammunition)
                 );
+            if (
+                copiedEquipment.Select(item => item.Id).Distinct().Count() != copiedEquipment.Length
+            )
+                throw new ArgumentException("Strike item IDs must be unique.", nameof(equipment));
+            if (
+                copiedAmmunition.Select(pool => pool.Item).Distinct().Count()
+                != copiedAmmunition.Length
+            )
+                throw new ArgumentException(
+                    "Strike ammunition pool IDs must be unique.",
+                    nameof(ammunition)
+                );
             Actor = actor;
             this.equipment = Array.AsReadOnly(copiedEquipment);
             this.ammunition = Array.AsReadOnly(copiedAmmunition);
@@ -1500,22 +1512,42 @@ namespace Game.Rules.Runtime
             StrikeCombatantRegistration registration = context.Op.Registration;
             if (!state.Creatures.Contains(registration.Actor))
                 return ReductionResult<bool>.Reject("The Strike combatant is not registered.");
-            int existingEquipment = registration.Equipment.Count(item =>
-                state.Equipment.TryGet(item.Id, out EquipmentState committed)
-                && committed.Equals(item)
+            MultipleAttackPenaltyState expectedPenalty = new MultipleAttackPenaltyState(0);
+            if (
+                !state.MultipleAttackPenalty.TryGet(
+                    registration.Actor,
+                    out MultipleAttackPenaltyState committedPenalty
+                ) || !committedPenalty.Equals(expectedPenalty)
+            )
+                return ReductionResult<bool>.Reject(
+                    "Strike combatant MAP conflicts with the committed registration."
+                );
+
+            EquipmentState[] committedEquipment = state
+                .Equipment.Select(pair => pair.Value)
+                .Where(item => item.Holder == registration.Actor)
+                .ToArray();
+            AmmunitionState[] committedAmmunition = state
+                .Ammunition.Select(pair => pair.Value)
+                .Where(pool => pool.Owner == registration.Actor)
+                .ToArray();
+            bool equipmentExact = CompleteCollectionMatches(
+                registration.Equipment,
+                committedEquipment,
+                item => item.Id
             );
-            int existingAmmunition = registration.Ammunition.Count(pool =>
-                state.Ammunition.TryGet(pool.Item, out AmmunitionState committed)
-                && committed.Equals(pool)
+            bool ammunitionExact = CompleteCollectionMatches(
+                registration.Ammunition,
+                committedAmmunition,
+                pool => pool.Item
             );
-            bool anyRegistered =
-                registration.Equipment.Any(item => state.Equipment.Contains(item.Id))
-                || registration.Ammunition.Any(pool => state.Ammunition.Contains(pool.Item));
-            bool exactReplay =
-                existingEquipment == registration.Equipment.Count
-                && existingAmmunition == registration.Ammunition.Count;
-            if (exactReplay)
+            if (equipmentExact && ammunitionExact)
                 return ReductionResult<bool>.Accept(false);
+            bool anyRegistered =
+                committedEquipment.Length > 0
+                || committedAmmunition.Length > 0
+                || registration.Equipment.Any(item => state.Equipment.Contains(item.Id))
+                || registration.Ammunition.Any(pool => state.Ammunition.Contains(pool.Item));
             if (anyRegistered)
                 return ReductionResult<bool>.Reject(
                     "Strike combatant state conflicts with the committed registration."
@@ -1524,9 +1556,23 @@ namespace Game.Rules.Runtime
                 state.Equipment.Set(item.Id, item);
             foreach (AmmunitionState pool in registration.Ammunition)
                 state.Ammunition.Set(pool.Item, pool);
-            state.MultipleAttackPenalty.Set(registration.Actor, new MultipleAttackPenaltyState(0));
             facts.Stage(new StrikeCombatantRegisteredFact(registration.Actor));
             return ReductionResult<bool>.Accept(true);
+        }
+
+        private static bool CompleteCollectionMatches<TValue, TId>(
+            IEnumerable<TValue> expected,
+            IEnumerable<TValue> committed,
+            Func<TValue, TId> identify
+        )
+        {
+            Dictionary<TId, TValue> expectedById = expected.ToDictionary(identify);
+            Dictionary<TId, TValue> committedById = committed.ToDictionary(identify);
+            return expectedById.Count == committedById.Count
+                && expectedById.All(pair =>
+                    committedById.TryGetValue(pair.Key, out TValue value)
+                    && EqualityComparer<TValue>.Default.Equals(pair.Value, value)
+                );
         }
     }
 }

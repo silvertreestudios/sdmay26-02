@@ -1774,6 +1774,153 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void RegistrationRechecksReleaseAfterLazyBatchMaterialization()
+    {
+        GameObject hostObject = new GameObject("lazy-release-host");
+        GameObject candidateObject = new GameObject("lazy-release-candidate");
+        try
+        {
+            BridgeTestActionController host = ConfigureCombatant(
+                hostObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController candidate = ConfigureCombatant(
+                candidateObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            PreparationCountingModule preparation = new();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { host },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { preparation }
+            );
+            int preparedBefore = preparation.Count;
+            int enumerations = 0;
+            IEnumerable<ActionController> ReleasingBatch()
+            {
+                enumerations++;
+                bridge.ReleaseOwnership();
+                yield return candidate;
+            }
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.RegisterCombatants(ReleasingBatch())
+            );
+
+            Assert.That(enumerations, Is.EqualTo(1));
+            Assert.That(preparation.Count, Is.EqualTo(preparedBefore));
+            Assert.That(candidate.TryGetCombatRules(out _, out _), Is.False);
+            Assert.That(
+                candidateObject.GetComponent<CreatureComponent>().Health,
+                Is.EqualTo(new HealthState(10, 10))
+            );
+            Assert.That(GetPendingEnrollment(bridge), Is.Null);
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(candidateObject);
+        }
+    }
+
+    [Test]
+    public void BlockedHealthRequestsDoNotAllocateOriginsDuringPendingEnrollment()
+    {
+        GameObject hostObject = new GameObject("pending-health-host");
+        GameObject anchorObject = new GameObject("pending-health-anchor");
+        GameObject reinforcementObject = new GameObject("pending-health-reinforcement");
+        try
+        {
+            BridgeTestActionController host = ConfigureCombatant(
+                hostObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            RetryActionInstallationModule installation = new();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { host, anchor },
+                CreateTiles(3),
+                new ScriptedRollService(20, 10, 1),
+                new IUnityEncounterModule[] { installation }
+            );
+            bridge.StartEncounter("Players");
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            installation.TargetName = reinforcementObject.name;
+            installation.FailuresRemaining = 1;
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.RegisterCombatants(new ActionController[] { reinforcement })
+            );
+            CreatureId hostId = bridge.GetCreatureId(host);
+            RuleSource blockedSource = RuleSource.FromSlug("blocked-pending-health");
+            long pendingVersion = bridge.Snapshot.Version;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.ApplyFinalDamage(hostId, 1, blockedSource)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.ApplyHealing(hostId, 1, blockedSource)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.GrantTemporaryHitPoints(hostId, 1, blockedSource)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.RemoveTemporaryHitPoints(hostId, blockedSource)
+            );
+            Assert.Throws<InvalidOperationException>(() =>
+                bridge.AddTemporaryHitPointImmunity(hostId, blockedSource)
+            );
+
+            Assert.That(bridge.Snapshot.Version, Is.EqualTo(pendingVersion));
+            Assert.That(
+                bridge.TryGetOriginSource(new HealthChangeOriginId("health-origin-1"), out _),
+                Is.False
+            );
+            bridge.RegisterCombatants(new ActionController[] { reinforcement });
+            DamageAppliedFact committed = null;
+            using (
+                GetDispatcher(bridge)
+                    .RegisterFactObserver<DamageAppliedFact>(
+                        new CapturingFactObserver<DamageAppliedFact>(fact => committed = fact)
+                    )
+            )
+            {
+                bridge.ApplyFinalDamage(hostId, 1, RuleSource.FromSlug("first-committed-health"));
+            }
+
+            Assert.That(committed, Is.Not.Null);
+            Assert.That(committed.Origin, Is.EqualTo(new HealthChangeOriginId("health-origin-1")));
+            Assert.That(
+                bridge.TryGetOriginSource(committed.Origin, out RuleSource committedSource),
+                Is.True
+            );
+            Assert.That(committedSource, Is.EqualTo(RuleSource.FromSlug("first-committed-health")));
+            Assert.That(
+                bridge.TryGetOriginSource(new HealthChangeOriginId("health-origin-2"), out _),
+                Is.False
+            );
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
     public void ReleaseDisposesPendingEnrollmentExactlyOnceUnderReentrancyAndFailure()
     {
         GameObject hostObject = new GameObject("pending-release-host");
@@ -2042,6 +2189,16 @@ public sealed class UnityCombatRulesBridgeTests
         return (RuleDispatcher)field.GetValue(bridge);
     }
 
+    private static UnityCombatantEnrollmentPlan GetPendingEnrollment(UnityCombatRulesBridge bridge)
+    {
+        FieldInfo field = typeof(UnityCombatRulesBridge).GetField(
+            "pendingReinforcementEnrollment",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (UnityCombatantEnrollmentPlan)field.GetValue(bridge);
+    }
+
     private sealed class CompletedFailureObserver : IFactObserver<HealthFact>
     {
         private readonly Exception failure;
@@ -2132,6 +2289,20 @@ public sealed class UnityCombatRulesBridgeTests
         public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
         {
             callback();
+            return default;
+        }
+    }
+
+    private sealed class CapturingFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly Action<TFact> capture;
+
+        internal CapturingFactObserver(Action<TFact> capture) => this.capture = capture;
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
+        {
+            capture(fact);
             return default;
         }
     }

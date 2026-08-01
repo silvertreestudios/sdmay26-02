@@ -9,6 +9,7 @@ using Game.Creature.Rules;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using Game.Rules.Unity.Light;
 using GridPrivate;
 using GridPublic;
@@ -146,6 +147,80 @@ public sealed class SpellcastingPresentationPlayModeTests
             Is.Empty,
             "Reinforcement composition must remove Shield and every other legacy spell action."
         );
+    }
+
+    [UnityTest]
+    public IEnumerator FailedAndReorderedEncounterRebindSpellActionsToCurrentCatalog()
+    {
+        InstallCoroutineRunner();
+        CreatureComponent caster = CreateCreature("Catalog Retry Caster", 0, prepared: true);
+        TestActionController casterController =
+            caster.gameObject.AddComponent<TestActionController>();
+        CreatureComponent noncaster = CreateCreature("Catalog Retry Noncaster", 1, prepared: false);
+        noncaster.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController noncasterController =
+            noncaster.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, caster.gameObject);
+        Occupy(tiles, noncaster.gameObject);
+        FailingSpellInstallationModule failure = new(casterController) { FailuresRemaining = 1 };
+
+        Assert.Throws<InvalidOperationException>(() =>
+            UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { casterController, noncasterController },
+                tiles,
+                new ScriptedRollService(20, 10),
+                new IUnityEncounterModule[] { failure }
+            )
+        );
+        RulesCastSpellAction failedAction = LightActions(casterController).Single();
+        Assert.That(failedAction.IsAvailable(casterController), Is.False);
+
+        UnityCombatRulesBridge retry = UnityCombatRulesBridge.CreateForTests(
+            new ActionController[] { casterController, noncasterController },
+            tiles,
+            new ScriptedRollService(20, 10),
+            new IUnityEncounterModule[] { failure }
+        );
+        RulesCastSpellAction retriedAction = LightActions(casterController).Single();
+        Assert.That(retriedAction, Is.Not.SameAs(failedAction));
+        retry.StartEncounter("players");
+        CreatureId retryActor = retry.GetCreatureId(casterController);
+        Assert.That(retryActor.Value, Is.EqualTo("combat-creature-1"));
+        retry.BeginTurn(retryActor, 3);
+        Assert.That(retriedAction.IsAvailable(casterController), Is.True);
+        casterController.IsTakingAction = true;
+        retriedAction.Invoke(caster.gameObject);
+        for (int frame = 0; frame < 10 && casterController.IsTakingAction; frame++)
+            yield return null;
+        Assert.That(casterController.ActionPoints, Is.EqualTo(1));
+        Assert.That(VisualLights(caster), Has.Count.EqualTo(1));
+
+        retry.ReleaseOwnership();
+        yield return null;
+        Assert.That(VisualLights(caster), Is.Empty);
+
+        UnityCombatRulesBridge reordered = UnityCombatRulesBridge.Create(
+            new ActionController[] { noncasterController, casterController },
+            tiles,
+            new ScriptedRollService(10, 20)
+        );
+        RulesCastSpellAction reboundAction = LightActions(casterController).Single();
+        Assert.That(reboundAction, Is.Not.SameAs(retriedAction));
+        reordered.StartEncounter("players");
+        CreatureId reorderedActor = reordered.GetCreatureId(casterController);
+        Assert.That(reorderedActor.Value, Is.EqualTo("combat-creature-2"));
+        reordered.BeginTurn(reorderedActor, 3);
+        Assert.That(reboundAction.IsAvailable(casterController), Is.True);
+        casterController.IsTakingAction = true;
+        reboundAction.Invoke(caster.gameObject);
+        for (int frame = 0; frame < 10 && casterController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(casterController.ActionPoints, Is.EqualTo(1));
+        Assert.That(VisualLights(caster), Has.Count.EqualTo(1));
+        reordered.ReleaseOwnership();
     }
 
     [Test]
@@ -666,6 +741,37 @@ public sealed class SpellcastingPresentationPlayModeTests
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class FailingSpellInstallationModule : IUnityCombatantEnrollmentModule
+    {
+        private readonly ActionController target;
+
+        internal FailingSpellInstallationModule(ActionController target) => this.target = target;
+
+        internal int FailuresRemaining { get; set; }
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
+        {
+            if (ReferenceEquals(builder.Controller, target))
+                builder.AddInstallation(new FailingInstallation(this));
+        }
+
+        private sealed class FailingInstallation : IUnityCombatantInstallationContribution
+        {
+            private readonly FailingSpellInstallationModule owner;
+
+            internal FailingInstallation(FailingSpellInstallationModule owner) =>
+                this.owner = owner;
+
+            public void Reconcile()
+            {
+                if (owner.FailuresRemaining == 0)
+                    return;
+                owner.FailuresRemaining--;
+                throw new InvalidOperationException("Injected spell installation failure.");
+            }
+        }
     }
 
     private sealed class SelectingGridApi : GridAPI

@@ -83,7 +83,11 @@ namespace Game.Combat.Spells
             foreach (RulesCastSpellAction action in currentActions.OfType<RulesCastSpellAction>())
             {
                 var key = (action.Spell, action.Variant);
-                if (desired.Contains(key) && !retained.ContainsKey(key))
+                if (
+                    desired.Contains(key)
+                    && action.IsOwnedBy(catalog)
+                    && !retained.ContainsKey(key)
+                )
                     retained.Add(key, action);
             }
             List<EntityAction> desiredActions = new();
@@ -99,12 +103,7 @@ namespace Game.Combat.Spells
                     out RulesCastSpellAction current
                 )
                     ? current
-                    : new RulesCastSpellAction(
-                        key.Spell,
-                        key.Variant,
-                        new CastSpellActionDefinition(catalog),
-                        catalog
-                    );
+                    : new RulesCastSpellAction(key.Spell, key.Variant, catalog);
                 desiredActions.Add(action);
                 desiredCreatureActionNames.Add(action.ActionName);
             }

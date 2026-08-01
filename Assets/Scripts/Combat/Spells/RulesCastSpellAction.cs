@@ -17,6 +17,7 @@ namespace Game.Combat.Spells
         private readonly SpellActionVariant variant;
         private readonly CastSpellActionDefinition actionDefinition;
         private readonly ISpellDefinitionCatalog catalog;
+        private readonly ISpellActionCatalog ownerCatalog;
 
         /// <summary>Creates one rules-native action-bar entry for an exact spell variant.</summary>
         /// <param name="spell">The exact installed spell identity and rank.</param>
@@ -29,6 +30,22 @@ namespace Game.Combat.Spells
             CastSpellActionDefinition actionDefinition,
             ISpellDefinitionCatalog catalog
         )
+            : this(spell, variant, actionDefinition, catalog, null) { }
+
+        internal RulesCastSpellAction(
+            SpellReference spell,
+            SpellActionVariant variant,
+            ISpellActionCatalog catalog
+        )
+            : this(spell, variant, new CastSpellActionDefinition(catalog), catalog, catalog) { }
+
+        private RulesCastSpellAction(
+            SpellReference spell,
+            SpellActionVariant variant,
+            CastSpellActionDefinition actionDefinition,
+            ISpellDefinitionCatalog catalog,
+            ISpellActionCatalog ownerCatalog
+        )
             : base((uint)variant.Actions)
         {
             this.spell = spell;
@@ -36,6 +53,7 @@ namespace Game.Combat.Spells
             this.actionDefinition =
                 actionDefinition ?? throw new ArgumentNullException(nameof(actionDefinition));
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            this.ownerCatalog = ownerCatalog;
         }
 
         /// <summary>Gets the exact installed spell identity and rank.</summary>
@@ -43,6 +61,9 @@ namespace Game.Combat.Spells
 
         /// <summary>Gets the installed definition-owned action variant.</summary>
         public SpellActionVariant Variant => variant;
+
+        internal bool IsOwnedBy(ISpellActionCatalog candidate) =>
+            ReferenceEquals(ownerCatalog, candidate);
 
         /// <inheritdoc/>
         public override string ActionName
