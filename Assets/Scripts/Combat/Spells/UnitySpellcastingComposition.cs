@@ -77,28 +77,12 @@ namespace Game.Combat.Spells
             CreatureComponent creature = controller.GetComponent<CreatureComponent>();
             List<EntityAction> currentActions = controller.GetActions();
             List<EntityAction> removals = currentActions
-                .OfType<CastSpellAction>()
-                .Cast<EntityAction>()
+                .Where(action => action is CastSpellAction || action is RulesCastSpellAction)
                 .ToList();
-
-            Dictionary<
-                (SpellReference Spell, SpellActionVariant Variant),
-                RulesCastSpellAction
-            > retained = new();
-            foreach (RulesCastSpellAction action in currentActions.OfType<RulesCastSpellAction>())
-            {
-                var key = (action.Spell, action.Variant);
-                if (!desired.Contains(key) || retained.ContainsKey(key))
-                    removals.Add(action);
-                else
-                    retained.Add(key, action);
-            }
             List<EntityAction> additions = new();
             List<string> creatureActionNames = new();
             foreach (var key in desired)
             {
-                if (retained.ContainsKey(key))
-                    continue;
                 RulesCastSpellAction action = new(
                     key.Spell,
                     key.Variant,

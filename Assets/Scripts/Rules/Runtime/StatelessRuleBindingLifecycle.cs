@@ -194,8 +194,45 @@ namespace Game.Rules.Runtime
                     $"Active binding {id.Value} source {binding.Source.Slug} does not match {expectedSource.Slug}.";
                 return false;
             }
+            if (
+                !state.StatelessRuleBindingGenerations.TryGet(id, out long latestGeneration)
+                || latestGeneration != binding.CreationOrder
+            )
+            {
+                rejection =
+                    $"Active binding {id.Value} does not match its authoritative stateless generation history.";
+                return false;
+            }
             rejection = string.Empty;
             return true;
+        }
+
+        internal static bool CanCreate(
+            RulesStateDraft state,
+            ActiveRuleBinding binding,
+            out string rejection
+        )
+        {
+            if (
+                state.StatelessRuleBindingGenerations.TryGet(binding.Id, out long latestGeneration)
+                && binding.CreationOrder <= latestGeneration
+            )
+            {
+                rejection =
+                    $"Stateless binding {binding.Id.Value} generation {binding.CreationOrder} must be newer than committed generation {latestGeneration}.";
+                return false;
+            }
+            rejection = string.Empty;
+            return true;
+        }
+
+        internal static void Record(RulesStateDraft state, ActiveRuleBinding binding)
+        {
+            if (binding.EffectId.HasValue)
+                throw new InvalidOperationException(
+                    "Effect-backed bindings do not use stateless generation history."
+                );
+            state.StatelessRuleBindingGenerations.Set(binding.Id, binding.CreationOrder);
         }
     }
 
@@ -230,7 +267,10 @@ namespace Game.Rules.Runtime
                 return ReductionResult<StatelessRuleBindingCreatedOutcome>.Reject(
                     $"Active binding {binding.Id.Value} already exists."
                 );
+            if (!StatelessBindingReduction.CanCreate(state, binding, out string rejection))
+                return ReductionResult<StatelessRuleBindingCreatedOutcome>.Reject(rejection);
             state.RuleBindings.Set(binding.Id, binding);
+            StatelessBindingReduction.Record(state, binding);
             facts.Stage(new StatelessRuleBindingCreatedFact(binding));
             return ReductionResult<StatelessRuleBindingCreatedOutcome>.Accept(
                 new StatelessRuleBindingCreatedOutcome(binding.Id)

@@ -142,10 +142,9 @@ namespace Game.Rules.Unity.Composition
         {
             RageActorState state = CreateEnrollmentState(builder.PreparedInputs);
             builder.AddRuleBindings(RageRules.CreateInitialBindings(builder.CreatureId, state));
-            if (state.OwnsRage)
-                builder.AddInstallation(
-                    new UnityRageActionInstallation(builder.Controller, definition)
-                );
+            builder.AddInstallation(
+                new UnityRageActionInstallation(builder.Controller, definition, state.OwnsRage)
+            );
         }
 
         private static RageActorState CreateEnrollmentState(PreparedCreatureInputs inputs)
@@ -167,21 +166,32 @@ namespace Game.Rules.Unity.Composition
         private sealed class UnityRageActionInstallation : IUnityCombatantInstallationContribution
         {
             private readonly ActionController controller;
-            private readonly RageActionDefinition definition;
+            private readonly IReadOnlyList<EntityAction> removals;
+            private readonly IReadOnlyList<EntityAction> additions;
 
             internal UnityRageActionInstallation(
                 ActionController controller,
-                RageActionDefinition definition
+                RageActionDefinition definition,
+                bool ownsRage
             )
             {
                 this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
-                this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
+                if (definition == null)
+                    throw new ArgumentNullException(nameof(definition));
+                removals = Array.AsReadOnly(
+                    controller.GetActions().Where(action => action is RulesRageAction).ToArray()
+                );
+                additions = ownsRage
+                    ? Array.AsReadOnly<EntityAction>(new[] { new RulesRageAction(definition) })
+                    : Array.AsReadOnly(Array.Empty<EntityAction>());
             }
 
             public void Apply()
             {
-                if (!controller.GetActions().Any(action => action is RulesRageAction))
-                    controller.AddAction(new RulesRageAction(definition));
+                foreach (EntityAction action in removals)
+                    controller.RemoveAction(action);
+                foreach (EntityAction action in additions)
+                    controller.AddAction(action);
             }
         }
     }

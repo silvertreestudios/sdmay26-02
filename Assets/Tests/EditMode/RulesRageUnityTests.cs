@@ -48,6 +48,58 @@ public sealed class RulesRageUnityTests
     }
 
     [Test]
+    public void ReusedControllerReplacesOrRemovesEncounterOwnedRageAction()
+    {
+        CreatureComponent creature = CreateBarbarian();
+        RageTestActionController controller =
+            creature.gameObject.AddComponent<RageTestActionController>();
+        CreatureComponent opponent = CreateBarbarian();
+        RageTestActionController opponentController =
+            opponent.gameObject.AddComponent<RageTestActionController>();
+
+        UnityCombatRulesBridge first = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
+        CreatureId firstId = first.GetCreatureId(controller);
+        RulesRageAction firstAction = controller.GetActions().OfType<RulesRageAction>().Single();
+        first.ReleaseOwnership();
+
+        UnityCombatRulesBridge second = UnityCombatRulesBridge.Create(
+            new ActionController[] { opponentController, controller },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
+        CreatureId secondId = second.GetCreatureId(controller);
+        RulesRageAction secondAction = controller.GetActions().OfType<RulesRageAction>().Single();
+
+        Assert.That(secondId, Is.Not.EqualTo(firstId));
+        Assert.That(secondAction, Is.Not.SameAs(firstAction));
+        second.ReleaseOwnership();
+
+        creature.Build = new CharacterBuild
+        {
+            ClassName = "Rogue",
+            SubclassName = "Thief",
+            ClassFeatName = "Nimble Dodge",
+        };
+        UnityCombatRulesBridge third = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
+
+        Assert.That(controller.GetActions().OfType<RulesRageAction>(), Is.Empty);
+        Assert.That(
+            third
+                .Snapshot.PreparedInputs[third.GetCreatureId(controller)]
+                .BoundOptions.Any(option => option.Option == "item:owned:rage"),
+            Is.False
+        );
+    }
+
+    [Test]
     public void RageListenersOwnQuickTemperedCleanupOneShotAndLaterRageCost()
     {
         CreatureComponent creature = CreateBarbarian();

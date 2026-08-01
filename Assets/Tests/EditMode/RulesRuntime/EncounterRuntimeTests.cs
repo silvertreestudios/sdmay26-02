@@ -973,6 +973,71 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void ReinforcementRegistrationAdvancesStatelessBindingGenerationHistory()
+        {
+            BindingId bindingId = new BindingId("reinforcement-generation-binding");
+            SpellSlotPoolId slotId = new SpellSlotPoolId("reinforcement-generation-slot");
+            InitiativeEntry hero = Entry(Hero, Players, 15, 0);
+            EncounterState active = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                new[] { hero },
+                0,
+                new TurnIdentity(Encounter, new TurnId(1), Hero, RoundNumber.First, 0),
+                2,
+                null
+            );
+            InitiativeEntry addition = new InitiativeEntry(
+                Reinforcement,
+                Enemies,
+                10,
+                0,
+                1,
+                RoundNumber.First
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedEncounter(active)
+                    .SeedStatelessRuleBindingGeneration(bindingId, 3)
+            );
+
+            ReductionResult<EncounterJoinOutcome> stale = Commit(
+                CreateJoinRegistration(Reinforcement, slotId, bindingId, 3)
+            );
+            Assert.That(stale.IsRejected, Is.True);
+            Assert.That(stale.Facts, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(store.Snapshot.StatelessRuleBindingGenerations[bindingId], Is.EqualTo(3));
+
+            ReductionResult<EncounterJoinOutcome> current = Commit(
+                CreateJoinRegistration(Reinforcement, slotId, bindingId, 4)
+            );
+            Assert.That(current.IsAccepted, Is.True);
+            Assert.That(current.Snapshot.RuleBindings[bindingId].CreationOrder, Is.EqualTo(4));
+            Assert.That(current.Snapshot.StatelessRuleBindingGenerations[bindingId], Is.EqualTo(4));
+
+            ReductionResult<EncounterJoinOutcome> Commit(CombatantRulesState registration) =>
+                store.Reduce(
+                    new ReductionContext<CommitEncounterJoinOp>(
+                        new CommitEncounterJoinOp(
+                            Encounter,
+                            Array.AsReadOnly(new[] { addition }),
+                            new Dictionary<CreatureId, CombatantRulesState>
+                            {
+                                [Reinforcement] = registration,
+                            }
+                        ),
+                        new OpId(2),
+                        new OpId(1),
+                        Source
+                    ),
+                    new CommitEncounterJoinReducer()
+                );
+        }
+
+        [Test]
         public async Task ProtagonistDefeatWinsZeroLivingTieWithoutDrawState()
         {
             EncounterState active = new EncounterState(
@@ -1710,7 +1775,8 @@ namespace Game.Rules.Runtime.Tests
         private static CombatantRulesState CreateJoinRegistration(
             CreatureId creature,
             SpellSlotPoolId slot,
-            BindingId binding
+            BindingId binding,
+            long creationOrder = 0
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, Enemies),
@@ -1727,7 +1793,7 @@ namespace Game.Rules.Runtime.Tests
                         creature,
                         null,
                         Source,
-                        0,
+                        creationOrder,
                         false
                     ),
                 }

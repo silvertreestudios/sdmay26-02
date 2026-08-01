@@ -54,6 +54,12 @@ namespace Game.Rules.Runtime
         /// Gets the active and explicitly disabled rule bindings in committed state.
         /// </summary>
         public StateSliceSnapshot<BindingId, ActiveRuleBinding> RuleBindings { get; }
+
+        /// <summary>
+        /// Gets the latest committed generation for each stateless binding ID, including removed
+        /// IDs. History entries do not participate in middleware or Fact-listener selection.
+        /// </summary>
+        public StateSliceSnapshot<BindingId, long> StatelessRuleBindingGenerations { get; }
         public StateSliceSnapshot<BindingId, FrequencyState> Frequencies { get; }
 
         /// <summary>Gets authoritative encounter clocks keyed by encounter identity.</summary>
@@ -96,6 +102,9 @@ namespace Game.Rules.Runtime
                 data.ActiveEffects
             );
             RuleBindings = new StateSliceSnapshot<BindingId, ActiveRuleBinding>(data.RuleBindings);
+            StatelessRuleBindingGenerations = new StateSliceSnapshot<BindingId, long>(
+                data.StatelessRuleBindingGenerations
+            );
             Frequencies = new StateSliceSnapshot<BindingId, FrequencyState>(data.Frequencies);
             Encounters = new StateSliceSnapshot<EncounterId, EncounterState>(data.Encounters);
             ActiveEffectTimings = new StateSliceSnapshot<ActiveEffectId, ActiveEffectTimingState>(

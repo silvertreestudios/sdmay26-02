@@ -21,6 +21,7 @@ namespace Game.Rules.Runtime
         public Dictionary<ItemId, EquipmentState> Equipment { get; }
         public Dictionary<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; }
         public Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; }
+        public Dictionary<BindingId, long> StatelessRuleBindingGenerations { get; }
         public Dictionary<BindingId, FrequencyState> Frequencies { get; }
         public Dictionary<EncounterId, EncounterState> Encounters { get; }
         public Dictionary<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
@@ -44,6 +45,7 @@ namespace Game.Rules.Runtime
                 new Dictionary<ItemId, EquipmentState>(seed.Equipment),
                 new Dictionary<ActiveEffectId, ActiveEffectInstance>(seed.ActiveEffects),
                 new Dictionary<BindingId, ActiveRuleBinding>(seed.RuleBindings),
+                new Dictionary<BindingId, long>(seed.StatelessRuleBindingGenerations),
                 new Dictionary<BindingId, FrequencyState>(seed.Frequencies),
                 new Dictionary<EncounterId, EncounterState>(seed.Encounters),
                 new Dictionary<ActiveEffectId, ActiveEffectTimingState>(seed.ActiveEffectTimings)
@@ -67,6 +69,7 @@ namespace Game.Rules.Runtime
             Dictionary<ItemId, EquipmentState> equipment,
             Dictionary<ActiveEffectId, ActiveEffectInstance> activeEffects,
             Dictionary<BindingId, ActiveRuleBinding> ruleBindings,
+            Dictionary<BindingId, long> statelessRuleBindingGenerations,
             Dictionary<BindingId, FrequencyState> frequencies,
             Dictionary<EncounterId, EncounterState> encounters,
             Dictionary<ActiveEffectId, ActiveEffectTimingState> activeEffectTimings
@@ -89,6 +92,7 @@ namespace Game.Rules.Runtime
             Equipment = equipment;
             ActiveEffects = activeEffects;
             RuleBindings = ruleBindings;
+            StatelessRuleBindingGenerations = statelessRuleBindingGenerations;
             Frequencies = frequencies;
             Encounters = encounters;
             ActiveEffectTimings = activeEffectTimings;

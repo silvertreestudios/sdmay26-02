@@ -110,6 +110,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(created.IsAccepted, Is.True);
             Assert.That(created.Facts.Single(), Is.TypeOf<StatelessRuleBindingCreatedFact>());
             Assert.That(empty.RuleBindings, Is.Empty);
+            Assert.That(
+                created.Snapshot.StatelessRuleBindingGenerations[binding.Id],
+                Is.EqualTo(12)
+            );
 
             ReductionResult<StatelessRuleBindingEnabledOutcome> sourceMismatch = store.Reduce(
                 Context(
@@ -168,15 +172,33 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(removedFact.Binding.Source, Is.EqualTo(Source));
             Assert.That(removedFact.Binding.CreationOrder, Is.EqualTo(12));
             Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(store.Snapshot.StatelessRuleBindingGenerations[binding.Id], Is.EqualTo(12));
 
-            RuleSource replacementSource = RuleSource.FromSlug("replacement-source");
+            foreach (long staleGeneration in new long[] { 11, 12 })
+            {
+                ActiveRuleBinding staleReplacement = new ActiveRuleBinding(
+                    binding.Id,
+                    Definition,
+                    Owner,
+                    null,
+                    Source,
+                    staleGeneration
+                );
+                ReductionResult<StatelessRuleBindingCreatedOutcome> staleCreate = store.Reduce(
+                    Context(new CreateStatelessRuleBindingOp(staleReplacement)),
+                    new CreateStatelessRuleBindingReducer(registry)
+                );
+                Assert.That(staleCreate.IsRejected, Is.True);
+                Assert.That(staleCreate.Facts, Is.Empty);
+            }
+
             ActiveRuleBinding replacement = new ActiveRuleBinding(
                 binding.Id,
                 Definition,
                 Owner,
                 null,
-                replacementSource,
-                99
+                Source,
+                13
             );
             ReductionResult<StatelessRuleBindingCreatedOutcome> recreated = store.Reduce(
                 Context(new CreateStatelessRuleBindingOp(replacement)),
@@ -185,9 +207,61 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(recreated.IsAccepted, Is.True);
             StatelessRuleBindingCreatedFact recreatedFact = (StatelessRuleBindingCreatedFact)
                 recreated.Facts.Single();
-            Assert.That(recreatedFact.Binding.Source, Is.EqualTo(replacementSource));
-            Assert.That(recreatedFact.Binding.CreationOrder, Is.EqualTo(99));
+            Assert.That(recreatedFact.Binding, Is.EqualTo(replacement));
+            Assert.That(recreatedFact.Binding.CreationOrder, Is.EqualTo(13));
             Assert.That(recreatedFact.Binding, Is.Not.EqualTo(removedFact.Binding));
+            Assert.That(
+                recreated.Snapshot.StatelessRuleBindingGenerations[binding.Id],
+                Is.EqualTo(13)
+            );
+
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(new DisableStatelessRuleBindingOp(binding.Id, 13, Source)),
+                        new DisableStatelessRuleBindingReducer()
+                    )
+                    .IsAccepted,
+                Is.True
+            );
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(new EnableStatelessRuleBindingOp(binding.Id, 12, Source)),
+                        new EnableStatelessRuleBindingReducer()
+                    )
+                    .IsRejected,
+                Is.True
+            );
+            Assert.That(store.Snapshot.RuleBindings[binding.Id].IsEnabled, Is.False);
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(new EnableStatelessRuleBindingOp(binding.Id, 13, Source)),
+                        new EnableStatelessRuleBindingReducer()
+                    )
+                    .IsAccepted,
+                Is.True
+            );
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(new DisableStatelessRuleBindingOp(binding.Id, 12, Source)),
+                        new DisableStatelessRuleBindingReducer()
+                    )
+                    .IsRejected,
+                Is.True
+            );
+            Assert.That(
+                store
+                    .Reduce(
+                        Context(new RemoveStatelessRuleBindingOp(binding.Id, 12, Source)),
+                        new RemoveStatelessRuleBindingReducer()
+                    )
+                    .IsRejected,
+                Is.True
+            );
+            Assert.That(store.Snapshot.RuleBindings[binding.Id], Is.EqualTo(replacement));
 
             ActiveRuleBinding effectBacked = new(
                 new BindingId("effect-binding"),
@@ -221,6 +295,33 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(effectMutation.IsRejected, Is.True);
             Assert.That(effectMutation.Facts, Is.Empty);
+            Assert.That(
+                effectStore.Snapshot.StatelessRuleBindingGenerations.Contains(effectBacked.Id),
+                Is.False
+            );
+        }
+
+        [Test]
+        public void StatelessGenerationHistorySeedsWithoutParticipatingTombstone()
+        {
+            BindingId id = new("seeded-generation");
+            ActiveRuleBinding binding = new(id, Definition, Owner, null, Source, 7);
+            RulesSnapshot active = new InMemoryRulesStore(
+                new RulesStateSeed().SeedRuleBinding(binding)
+            ).Snapshot;
+            RulesSnapshot removed = new InMemoryRulesStore(
+                new RulesStateSeed().SeedStatelessRuleBindingGeneration(id, 7)
+            ).Snapshot;
+
+            Assert.That(active.RuleBindings[id], Is.EqualTo(binding));
+            Assert.That(active.StatelessRuleBindingGenerations[id], Is.EqualTo(7));
+            Assert.That(removed.RuleBindings, Is.Empty);
+            Assert.That(removed.StatelessRuleBindingGenerations[id], Is.EqualTo(7));
+            Assert.Throws<ArgumentException>(() =>
+                new RulesStateSeed()
+                    .SeedStatelessRuleBindingGeneration(id, 7)
+                    .SeedStatelessRuleBindingGeneration(id, 6)
+            );
         }
 
         [Test]
