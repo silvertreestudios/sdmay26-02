@@ -157,12 +157,16 @@ namespace Game.Rules.Runtime
                 return ReductionResult<MultipleAttackPenaltyState>.Reject(
                     "The attack actor is not registered."
                 );
-            int previous = state.MultipleAttackPenalty.TryGet(
-                context.Op.Actor,
-                out MultipleAttackPenaltyState current
+            if (
+                !state.MultipleAttackPenalty.TryGet(
+                    context.Op.Actor,
+                    out MultipleAttackPenaltyState current
+                )
             )
-                ? current.AttackCount
-                : 0;
+                return ReductionResult<MultipleAttackPenaltyState>.Reject(
+                    "The attack actor has no authoritative multiple-attack-penalty state."
+                );
+            int previous = current.AttackCount;
             MultipleAttackPenaltyState advanced = new MultipleAttackPenaltyState(
                 checked(previous + 1)
             );

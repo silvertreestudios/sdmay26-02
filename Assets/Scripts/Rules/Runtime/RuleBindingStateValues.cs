@@ -444,24 +444,31 @@ namespace Game.Rules.Runtime
 
     public readonly struct FrequencyState : IEquatable<FrequencyState>
     {
+        /// <summary>Gets the encounter that owns this use marker.</summary>
+        public EncounterId Encounter { get; }
         public int Round { get; }
         public int Uses { get; }
 
-        public FrequencyState(int round, int uses)
+        /// <summary>Creates an encounter-qualified immutable frequency marker.</summary>
+        public FrequencyState(EncounterId encounter, int round, int uses)
         {
+            if (encounter.IsEmpty)
+                throw new ArgumentException("An encounter ID is required.", nameof(encounter));
             if (round < 0)
                 throw new ArgumentOutOfRangeException(nameof(round));
             if (uses < 0)
                 throw new ArgumentOutOfRangeException(nameof(uses));
+            Encounter = encounter;
             Round = round;
             Uses = uses;
         }
 
-        public bool Equals(FrequencyState other) => Round == other.Round && Uses == other.Uses;
+        public bool Equals(FrequencyState other) =>
+            Encounter == other.Encounter && Round == other.Round && Uses == other.Uses;
 
         public override bool Equals(object obj) => obj is FrequencyState other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(Round, Uses);
+        public override int GetHashCode() => HashCode.Combine(Encounter, Round, Uses);
 
         public static bool operator ==(FrequencyState left, FrequencyState right) =>
             left.Equals(right);

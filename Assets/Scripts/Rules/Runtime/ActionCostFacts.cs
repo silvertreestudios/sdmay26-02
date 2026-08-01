@@ -241,6 +241,7 @@ namespace Game.Rules.Runtime
             OpId actionOpId,
             CreatureId actor,
             BindingId binding,
+            EncounterId encounter,
             int round,
             int uses
         )
@@ -251,6 +252,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("An action actor is required.", nameof(actor));
             if (binding.IsEmpty)
                 throw new ArgumentException("A binding ID is required.", nameof(binding));
+            if (encounter.IsEmpty)
+                throw new ArgumentException("An encounter ID is required.", nameof(encounter));
             if (round < 0)
                 throw new ArgumentOutOfRangeException(nameof(round));
             if (uses <= 0)
@@ -258,6 +261,7 @@ namespace Game.Rules.Runtime
             ActionOpId = actionOpId;
             Actor = actor;
             Binding = binding;
+            Encounter = encounter;
             Round = round;
             Uses = uses;
         }
@@ -276,6 +280,9 @@ namespace Game.Rules.Runtime
         /// Gets the active binding whose frequency changed.
         /// </summary>
         public BindingId Binding { get; }
+
+        /// <summary>Gets the encounter that owns this frequency use.</summary>
+        public EncounterId Encounter { get; }
 
         /// <summary>
         /// Gets the round marker retained by frequency state.

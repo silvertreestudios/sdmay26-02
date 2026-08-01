@@ -50,7 +50,9 @@ namespace Game.Combat.Spells
             get
             {
                 if (!catalog.TryGetSpell(spell, out Game.Rules.Runtime.SpellDefinition definition))
-                    return "Cast Spell";
+                    throw new InvalidOperationException(
+                        $"Installed rules-native spell '{spell}' no longer has a catalog definition."
+                    );
                 return definition.Variants.Count > 1
                     ? $"{definition.DisplayName} {variant}"
                     : definition.DisplayName;

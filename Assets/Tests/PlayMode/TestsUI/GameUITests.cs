@@ -154,15 +154,12 @@ namespace TestsUI
             ).resolvedStyle.height;
 
             uint[] actionPointStates = { 3, 2, 1, 0 };
+            uint previousActionPoints = actionController.ActionPoints;
             foreach (uint actionPoints in actionPointStates)
             {
-                foreach (GameObject combatant in combatants)
-                {
-                    ActionController combatantActionController =
-                        combatant.GetComponent<ActionController>();
-                    if (combatantActionController != null)
-                        combatantActionController.ActionPoints = actionPoints;
-                }
+                if (previousActionPoints > actionPoints)
+                    actionController.SpendActions(previousActionPoints - actionPoints);
+                previousActionPoints = actionPoints;
 
                 yield return WaitUntilWithTimeout(
                     timeout,
@@ -368,13 +365,6 @@ namespace TestsUI
             Assert.IsNotNull(actionController, "Current combatant has no ActionController.");
 
             List<GameObject> combatants = CombatManagerInterface.GetInstance().GetCombatants();
-            foreach (GameObject combatant in combatants)
-            {
-                ActionController combatantActionController =
-                    combatant.GetComponent<ActionController>();
-                if (combatantActionController != null)
-                    combatantActionController.ActionPoints = 0;
-            }
 
             Conditions conditions =
                 player.GetComponent<Conditions>() ?? player.AddComponent<Conditions>();
@@ -382,7 +372,12 @@ namespace TestsUI
             Assert.IsNotNull(slowed, "Slowed 1 condition definition was not found.");
 
             slowed.Apply(new ConditionSource(), player);
-            actionController.StartTurn();
+            CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
+            int remainingTurns = combatants.Count + 1;
+            do
+            {
+                combatManager.NextTurn();
+            } while (combatManager.WhosTurn() != player && remainingTurns-- > 0);
 
             int matchingCards = 0;
             yield return WaitUntilWithTimeout(
@@ -512,7 +507,12 @@ namespace TestsUI
                 "End Turn should remain available when no action is running."
             );
 
-            actionController.StartTurn();
+            CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
+            int remainingTurns = combatManager.GetCombatants().Count + 1;
+            do
+            {
+                combatManager.NextTurn();
+            } while (combatManager.WhosTurn() != player && remainingTurns-- > 0);
             actionController.SpendActions(2);
             yield return null;
 

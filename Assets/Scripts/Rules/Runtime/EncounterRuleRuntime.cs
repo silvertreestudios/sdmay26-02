@@ -103,6 +103,9 @@ namespace Game.Rules.Runtime
                     new TurnEndingHandler(),
                     InvocationPolicy.NestedOnly
                 )
+                .RegisterHandler<SpendEncounterActionsOp, EncounterActionSpendOutcome>(
+                    new SpendEncounterActionsHandler()
+                )
                 .RegisterEngineReducer<CommitEncounterStartOp, EncounterStartOutcome>(
                     new CommitEncounterStartReducer(),
                     Source
@@ -137,6 +140,10 @@ namespace Game.Rules.Runtime
                 )
                 .RegisterEngineReducer<CommitEncounterEndOp, EncounterEndOutcome>(
                     new CommitEncounterEndReducer(),
+                    Source
+                )
+                .RegisterEngineReducer<CommitEncounterActionsOp, EncounterActionSpendOutcome>(
+                    new SpendEncounterActionsReducer(),
                     Source
                 );
         }
@@ -702,6 +709,25 @@ namespace Game.Rules.Runtime
             OpFrame<TurnEndingOp> frame,
             OpHandlerContext context
         ) => new ValueTask<TurnEndContribution>(TurnEndContribution.Complete);
+    }
+
+    internal sealed class SpendEncounterActionsHandler
+        : IOpHandler<SpendEncounterActionsOp, EncounterActionSpendOutcome>
+    {
+        public async ValueTask<EncounterActionSpendOutcome> Handle(
+            OpFrame<SpendEncounterActionsOp> frame,
+            OpHandlerContext context
+        ) =>
+            EncounterHandlerResults.Require(
+                await context.Dispatch(
+                    new CommitEncounterActionsOp(
+                        frame.Op.Actor,
+                        frame.Op.Amount,
+                        frame.Op.RequiredLivingTargets
+                    )
+                ),
+                "encounter action spend"
+            );
     }
 
     internal sealed class EncounterOutcomeListener

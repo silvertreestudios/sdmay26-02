@@ -727,4 +727,59 @@ namespace Game.Rules.Runtime
             return ReductionResult<EncounterEndOutcome>.Accept(new EncounterEndOutcome(updated));
         }
     }
+
+    internal sealed class SpendEncounterActionsReducer
+        : IOpReducer<CommitEncounterActionsOp, EncounterActionSpendOutcome>
+    {
+        public ReductionResult<EncounterActionSpendOutcome> Reduce(
+            ReductionContext<CommitEncounterActionsOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            EncounterState encounter = state
+                .Encounters.Where(pair =>
+                    pair.Value.Phase == EncounterPhase.Active
+                    && pair.Value.CurrentTurn.HasValue
+                    && pair.Value.CurrentTurn.Value.Actor == context.Op.Actor
+                )
+                .Select(pair => pair.Value)
+                .FirstOrDefault();
+            if (encounter == null)
+                return ReductionResult<EncounterActionSpendOutcome>.Reject(
+                    "The actor does not own an active current turn."
+                );
+            if (
+                context.Op.RequiredLivingTargets.Any(target =>
+                    !encounter.Roster.Any(entry => entry.Creature == target)
+                    || !EncounterReduction.IsLiving(state, target)
+                )
+            )
+                return ReductionResult<EncounterActionSpendOutcome>.Reject(
+                    "A selected action target is no longer a living participant in the actor's encounter."
+                );
+            if (
+                !state.ActionEconomy.TryGet(context.Op.Actor, out ActionEconomyState economy)
+                || economy.ActionsRemaining < context.Op.Amount
+            )
+                return ReductionResult<EncounterActionSpendOutcome>.Reject(
+                    "The actor has insufficient authoritative actions."
+                );
+            if (context.Op.Amount == 0)
+                return ReductionResult<EncounterActionSpendOutcome>.Accept(
+                    new EncounterActionSpendOutcome(economy.ActionsRemaining)
+                );
+            int remaining = economy.ActionsRemaining - context.Op.Amount;
+            state.ActionEconomy.Set(
+                context.Op.Actor,
+                new ActionEconomyState(remaining, economy.ReactionAvailable)
+            );
+            facts.Stage(
+                new EncounterActionsSpentFact(context.Op.Actor, context.Op.Amount, remaining)
+            );
+            return ReductionResult<EncounterActionSpendOutcome>.Accept(
+                new EncounterActionSpendOutcome(remaining)
+            );
+        }
+    }
 }

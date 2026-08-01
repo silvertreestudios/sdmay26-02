@@ -123,6 +123,10 @@ namespace Game.Combat.Spells
             CreatureComponent creature = context.CasterCreature;
             ActionController controller = context.ActionController;
             SpellcastingState state = context.Spellcasting;
+            if (controller != null && controller.TryGetCombatRules(out _, out _))
+                throw new InvalidOperationException(
+                    "Legacy spell resolution cannot run during an encounter."
+                );
             if (
                 context.Caster == null
                 || creature == null

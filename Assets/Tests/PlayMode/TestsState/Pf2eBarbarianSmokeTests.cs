@@ -10,12 +10,18 @@ public class Pf2eBarbarianSmokeTests
 {
     private readonly List<GameObject> created = new();
 
+    [SetUp]
+    public void SetUp()
+    {
+        Create("Minimal Combat Grid").AddComponent<MinimalCombatGrid>();
+    }
+
     [TearDown]
     public void TearDown()
     {
         foreach (GameObject go in created)
             if (go != null)
-                Object.Destroy(go);
+                Object.DestroyImmediate(go);
         created.Clear();
         OnCombatStart.RemoveAllListeners();
         OnCombatEnd.RemoveAllListeners();
@@ -77,6 +83,45 @@ public class Pf2eBarbarianSmokeTests
         );
     }
 
+    /// <summary>Verifies Quick-Tempered observes initiative assigned after a same-store join.</summary>
+    [UnityTest]
+    public IEnumerator TorgrimQuickTemperedRagesWhenJoiningAsReinforcement()
+    {
+        Create("TeamRules").AddComponent<TeamRules>();
+        Create("TestCombatLog").AddComponent<TestCombatLog>();
+        CombatManager manager = Create("CombatManager").AddComponent<CombatManager>();
+        GameObject player = CreateSimpleCombatant("Player", "Players", 100);
+        GameObject enemy = CreateSimpleCombatant("Enemy", "Enemies", 0);
+        GameObject torgrim = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/playerCharacters/Torgrim"
+        );
+        created.Add(torgrim);
+        torgrim.AddComponent<Conditions>();
+        TestActionController torgrimController = torgrim.AddComponent<TestActionController>();
+        Team torgrimTeam = torgrim.AddComponent<Team>();
+        torgrimTeam.Name = "Players";
+        manager.AddCombatant(player.GetComponent<ActionController>());
+        manager.AddCombatant(enemy.GetComponent<ActionController>());
+        manager.AddCombatant(torgrimController);
+        manager.StartDungeonCombat(
+            new[]
+            {
+                player.GetComponent<ActionController>(),
+                enemy.GetComponent<ActionController>(),
+            }
+        );
+
+        manager.AddDungeonReinforcements(new[] { torgrimController });
+        yield return null;
+
+        CreatureComponent torgrimCreature = torgrim.GetComponent<CreatureComponent>();
+        Assert.That(torgrimCreature.Prepared.HasOwnedItem("quick-tempered"), Is.True);
+        Assert.That(
+            torgrimCreature.tempHp,
+            Is.EqualTo(torgrimCreature.level + torgrimCreature.conMod)
+        );
+    }
+
     [UnityTest]
     public IEnumerator LenaRoguePreparedCharacterSurvivesCombatStart()
     {
@@ -121,6 +166,21 @@ public class Pf2eBarbarianSmokeTests
         GameObject go = new(name);
         created.Add(go);
         return go;
+    }
+
+    private GameObject CreateSimpleCombatant(string name, string teamName, int initiative)
+    {
+        GameObject combatant = Create(name);
+        CreatureComponent creature = combatant.AddComponent<CreatureComponent>();
+        creature.name = name;
+        creature.level = 1;
+        creature.initiative = initiative;
+        creature.InitializeHealthBeforeEncounter(10, 10);
+        combatant.AddComponent<Conditions>();
+        combatant.AddComponent<TestActionController>();
+        Team team = combatant.AddComponent<Team>();
+        team.Name = teamName;
+        return combatant;
     }
 
     private sealed class TestActionController : ActionController

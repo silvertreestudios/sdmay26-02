@@ -13,7 +13,7 @@ namespace Game.Rules.Unity.Strike
     /// Projects resolved Strike operations into feature-owned Unity animation, events, and logs.
     /// </summary>
     /// <remarks>
-    /// The adapter intentionally contains the legacy combat-log singleton and static creature
+    /// The adapter intentionally contains the Unity combat-log singleton and static creature
     /// events. Every cosmetic callback is exception-contained so presentation cannot prevent
     /// authoritative damage, load-state changes, or MAP advancement.
     /// </remarks>

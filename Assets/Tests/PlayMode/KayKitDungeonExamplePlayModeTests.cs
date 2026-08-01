@@ -425,8 +425,11 @@ public sealed class KayKitDungeonExamplePlayModeTests
         GridBase grid = Object.FindFirstObjectByType<GridBase>();
         GridVisuals visuals = grid.GetComponent<GridVisuals>();
         ActionController lena = FindCombatant("Lena");
-        if (!lena.HasTurnAuthority)
-            lena.StartTurn();
+        CombatManagerInterface manager = CombatManagerInterface.GetInstance();
+        int remainingTurns = manager.GetCombatants().Count + 1;
+        while (manager.WhosTurn() != lena.gameObject && remainingTurns-- > 0)
+            manager.NextTurn();
+        Assert.That(manager.WhosTurn(), Is.SameAs(lena.gameObject));
         EntityAction stride = lena.GetActions().Single(action => action is RulesStrideAction);
         lena.TakeAction(stride);
         yield return new WaitUntil(() => grid.Fsm.CurrentState is StateStride);
@@ -462,6 +465,7 @@ public sealed class KayKitDungeonExamplePlayModeTests
     public IEnumerator EveryEncounterArchetypeCanStartATurnWithExpectedAttacks()
     {
         string[] representatives = { "Lena", "Torgrim", "Zombie Shambler A", "Skeleton Guard A" };
+        CombatManagerInterface manager = CombatManagerInterface.GetInstance();
 
         foreach (string name in representatives)
         {
@@ -471,7 +475,9 @@ public sealed class KayKitDungeonExamplePlayModeTests
                 Is.True,
                 $"{name} needs Stride in the shared action list."
             );
-            controller.StartTurn();
+            int remainingTurns = manager.GetCombatants().Count + 1;
+            while (manager.WhosTurn() != controller.gameObject && remainingTurns-- > 0)
+                manager.NextTurn();
             Assert.That(
                 controller.ActionPoints,
                 Is.GreaterThan(0),
@@ -531,7 +537,7 @@ public sealed class KayKitDungeonExamplePlayModeTests
                 );
             }
 
-            Assert.That(manager.CheckForEndOfGame(), Is.True);
+            Assert.That(manager.IsCombatActive, Is.False);
             Assert.That(playerVictory, Is.True);
             Assert.That(outcomeCount, Is.EqualTo(1));
             Assert.That(

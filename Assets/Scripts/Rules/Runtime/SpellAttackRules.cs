@@ -71,12 +71,16 @@ namespace Game.Rules.Runtime
                 attack,
                 operation.Target
             );
-            int priorAttacks = context.Snapshot.MultipleAttackPenalty.TryGet(
-                operation.Actor,
-                out MultipleAttackPenaltyState map
+            if (
+                !context.Snapshot.MultipleAttackPenalty.TryGet(
+                    operation.Actor,
+                    out MultipleAttackPenaltyState map
+                )
             )
-                ? map.AttackCount
-                : 0;
+                throw new InvalidOperationException(
+                    "The spell-attack actor has no authoritative multiple-attack-penalty state."
+                );
+            int priorAttacks = map.AttackCount;
             int mapPenalty = MultipleAttackPenaltyResolver.Resolve(priorAttacks, false);
             List<Modifier> initialModifiers = new()
             {

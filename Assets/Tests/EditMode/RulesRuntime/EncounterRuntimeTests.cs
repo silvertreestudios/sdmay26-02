@@ -229,7 +229,9 @@ namespace Game.Rules.Runtime.Tests
             );
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
-                BaseSeed().SeedMovementBudget(Hero, budget)
+                BaseSeed()
+                    .SeedCreature(new CreatureState(Hero, Players))
+                    .SeedMovementBudget(Hero, budget)
             );
             CountingFactObserver<MovementBudgetResetFact> movementResets =
                 new CountingFactObserver<MovementBudgetResetFact>();
@@ -244,6 +246,8 @@ namespace Game.Rules.Runtime.Tests
             ).Value.State;
             Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
             Assert.That(movementResets.Calls, Is.EqualTo(1));
+            await dispatcher.Dispatch(new AdvanceMultipleAttackPenaltyOp(Hero));
+            await dispatcher.Dispatch(new SpendEncounterActionsOp(Hero, 1));
 
             EncounterState enemyTurn = Resolved(
                 await dispatcher.Dispatch(new EndTurnOp(started.CurrentTurn.Value))
@@ -287,6 +291,96 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
             Assert.That(movementResets.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task ZeroCostActionAuthorizationRequiresExactTurnWithoutSpendMutation()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
+            CountingFactObserver<EncounterActionsSpentFact> spends =
+                new CountingFactObserver<EncounterActionsSpentFact>();
+            dispatcher.RegisterFactObserver<EncounterActionsSpentFact>(spends);
+            EncounterState started = Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+
+            EncounterActionSpendOutcome authorized = Resolved(
+                await dispatcher.Dispatch(new SpendEncounterActionsOp(Hero, 0))
+            ).Value;
+
+            Assert.That(authorized.Remaining, Is.EqualTo(3));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Hero],
+                Is.EqualTo(new ActionEconomyState(3, true))
+            );
+            Assert.That(spends.Calls, Is.Zero);
+
+            EncounterState advanced = Resolved(
+                await dispatcher.Dispatch(new EndTurnOp(started.CurrentTurn.Value))
+            ).Value.State;
+            InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new SpendEncounterActionsOp(Hero, 0))
+            );
+
+            Assert.That(rejected.Message, Does.Contain("does not own an active current turn"));
+            Assert.That(advanced.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+            Assert.That(spends.Calls, Is.Zero);
+        }
+
+        [Test]
+        public async Task TargetAwareActionSpendRejectsAnyCommittedDefeatAtomically()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10, 5));
+            CountingFactObserver<EncounterActionsSpentFact> spends =
+                new CountingFactObserver<EncounterActionsSpentFact>();
+            dispatcher.RegisterFactObserver<EncounterActionsSpentFact>(spends);
+            await dispatcher.Dispatch(
+                Start(
+                    new EncounterParticipant(Hero, Players, 0),
+                    new EncounterParticipant(Enemy, Enemies, 0),
+                    new EncounterParticipant(Reinforcement, Enemies, 0)
+                )
+            );
+            await dispatcher.Dispatch(
+                new ApplyDamageOp(
+                    Enemy,
+                    10,
+                    new HealthChangeOriginId("target-aware-defeat"),
+                    Source
+                )
+            );
+
+            InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(
+                        new SpendEncounterActionsOp(
+                            Hero,
+                            1,
+                            new[] { Reinforcement, Enemy, Reinforcement }
+                        )
+                    )
+            );
+
+            Assert.That(rejected.Message, Does.Contain("no longer a living participant"));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Hero],
+                Is.EqualTo(new ActionEconomyState(3, true))
+            );
+            Assert.That(spends.Calls, Is.Zero);
+
+            EncounterActionSpendOutcome livingTargetSpend = Resolved(
+                await dispatcher.Dispatch(
+                    new SpendEncounterActionsOp(Hero, 1, new[] { Reinforcement })
+                )
+            ).Value;
+            Assert.That(livingTargetSpend.Remaining, Is.EqualTo(2));
+            Assert.That(spends.Calls, Is.EqualTo(1));
         }
 
         [Test]
@@ -1645,6 +1739,7 @@ namespace Game.Rules.Runtime.Tests
                 .UseRuleRegistry(selected)
                 .UseHealthRules()
                 .UseActiveEffectRules(selected)
+                .UseMultipleAttackPenaltyRules()
                 .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>());
             builder.RegisterHandler<
                 CommitEncounterStartWorkflowOp,

@@ -35,7 +35,7 @@ namespace Game.Rules.Unity
             if (dispatcher == null)
                 throw new ArgumentNullException(nameof(dispatcher));
 
-            registrationState.Unregister(this);
+            registrationState = registrationState.Unregister();
             registrationState = new UnregisteredState(dispatcher);
             if (isActiveAndEnabled)
                 registrationState = registrationState.Register(this);
@@ -66,7 +66,7 @@ namespace Game.Rules.Unity
         /// </remarks>
         protected virtual void OnDisable()
         {
-            registrationState = registrationState.Unregister(this);
+            registrationState = registrationState.Unregister();
         }
 
         /// <summary>
@@ -78,13 +78,13 @@ namespace Game.Rules.Unity
         /// </remarks>
         protected virtual void OnDestroy()
         {
-            registrationState = registrationState.Unregister(this);
+            registrationState = registrationState.Unregister();
         }
 
         private interface IRegistrationState
         {
             IRegistrationState Register(IFactObserver<TFact> observer);
-            IRegistrationState Unregister(IFactObserver<TFact> observer);
+            IRegistrationState Unregister();
         }
 
         private sealed class UnconfiguredState : IRegistrationState
@@ -95,7 +95,7 @@ namespace Game.Rules.Unity
 
             public IRegistrationState Register(IFactObserver<TFact> observer) => this;
 
-            public IRegistrationState Unregister(IFactObserver<TFact> observer) => this;
+            public IRegistrationState Unregister() => this;
         }
 
         private sealed class UnregisteredState : IRegistrationState
@@ -109,27 +109,30 @@ namespace Game.Rules.Unity
 
             public IRegistrationState Register(IFactObserver<TFact> observer)
             {
-                dispatcher.RegisterFactObserver(observer);
-                return new RegisteredState(dispatcher);
+                IDisposable registration = dispatcher.RegisterFactObserver(observer);
+                return new RegisteredState(dispatcher, registration);
             }
 
-            public IRegistrationState Unregister(IFactObserver<TFact> observer) => this;
+            public IRegistrationState Unregister() => this;
         }
 
         private sealed class RegisteredState : IRegistrationState
         {
             private readonly RuleDispatcher dispatcher;
+            private readonly IDisposable registration;
 
-            public RegisteredState(RuleDispatcher dispatcher)
+            public RegisteredState(RuleDispatcher dispatcher, IDisposable registration)
             {
                 this.dispatcher = dispatcher;
+                this.registration =
+                    registration ?? throw new ArgumentNullException(nameof(registration));
             }
 
             public IRegistrationState Register(IFactObserver<TFact> observer) => this;
 
-            public IRegistrationState Unregister(IFactObserver<TFact> observer)
+            public IRegistrationState Unregister()
             {
-                dispatcher.UnregisterFactObserver(observer);
+                registration.Dispose();
                 return new UnregisteredState(dispatcher);
             }
         }

@@ -18,6 +18,12 @@ namespace Game.Combat.Spells
         public PreparedSpell Spell => spell;
         public override string ActionName => BuildActionName(spell, variantActionCost);
 
+        /// <inheritdoc/>
+        public override bool IsAvailable(ActionController controller) =>
+            controller != null
+            && !controller.TryGetCombatRules(out _, out _)
+            && base.IsAvailable(controller);
+
         public CastSpellAction(PreparedSpell spell, uint actionCost, ISpellDefinition definition)
             : base(actionCost)
         {
@@ -65,6 +71,11 @@ namespace Game.Combat.Spells
             GridPublic.AreaTargetResult area = null
         )
         {
+            ActionController controller = caster?.GetComponent<ActionController>();
+            if (controller != null && controller.TryGetCombatRules(out _, out _))
+                throw new InvalidOperationException(
+                    "Encounter spellcasting requires a typed rules spell operation."
+                );
             return SpellcastingRuntime.Cast(
                 caster,
                 spell,

@@ -38,6 +38,32 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task StrikeRejectsMissingMapBeforeCostsOrHealthCommit()
+        {
+            TestRuntime runtime = CreateRuntime(new ScriptedRollService(20, 4), seedMap: false);
+            RulesSnapshot before = runtime.Dispatcher.Snapshot;
+
+            OpResult<StrikeResolution> result = await runtime.Dispatcher.Dispatch(
+                new StrikeActionOp(Actor, Weapon, Target)
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
+            Assert.That(
+                ((InvalidOpResult<StrikeResolution>)result).Reason,
+                Does.Contain("multiple-attack-penalty")
+            );
+            Assert.That(runtime.Dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                runtime.Dispatcher.Snapshot.Health[Target],
+                Is.EqualTo(before.Health[Target])
+            );
+            Assert.That(
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor],
+                Is.EqualTo(before.ActionEconomy[Actor])
+            );
+        }
+
+        [Test]
         public async Task StrikeResolvesItsAttackThroughSharedAttackCheck()
         {
             TestRuntime runtime = CreateRuntime(new ScriptedRollService(10, 4));
@@ -214,7 +240,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task AgileMapUsesZeroFourEightAndTurnStartResets()
+        public async Task AgileMapUsesZeroFourEight()
         {
             StrikeItemDefinition agile = CreateItem(traits: new[] { Trait.FromSlug("agile") });
             TestRuntime runtime = CreateRuntime(new ScriptedRollService(2, 2, 2, 2), agile);
@@ -232,15 +258,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(first.MultipleAttackPenalty, Is.Zero);
             Assert.That(second.MultipleAttackPenalty, Is.EqualTo(-4));
             Assert.That(third.MultipleAttackPenalty, Is.EqualTo(-8));
-            AssertResolved(await runtime.Dispatcher.Dispatch(new BeginCombatTurnOp(Actor, 3)));
-            Assert.That(
-                runtime.Dispatcher.Snapshot.MultipleAttackPenalty[Actor].AttackCount,
-                Is.Zero
-            );
-            StrikeResolution reset = AssertResolved(
-                await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
-            ).Value;
-            Assert.That(reset.MultipleAttackPenalty, Is.Zero);
         }
 
         [Test]
@@ -352,7 +369,8 @@ namespace Game.Rules.Runtime.Tests
             bool loaded = true,
             IStrikeResolutionDataProvider resolutionDataProvider = null,
             bool registerActor = true,
-            int actorHp = 20
+            int actorHp = 20,
+            bool seedMap = true
         )
         {
             item ??= CreateItem();
@@ -364,8 +382,9 @@ namespace Game.Rules.Runtime.Tests
                 .SeedHealth(Target, new HealthState(targetHp, targetHp))
                 .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
                 .SeedActionEconomy(Target, new ActionEconomyState(0, true))
-                .SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(0))
                 .SeedEquipment(new EquipmentState(item.Item, item.Definition, Actor, true, loaded));
+            if (seedMap)
+                seed.SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(0));
             if (ammo >= 0)
                 seed.SeedAmmunition(new AmmunitionState(Ammo, Actor, ammo));
 
@@ -388,7 +407,7 @@ namespace Game.Rules.Runtime.Tests
                 rolls
             )
                 .UseHealthRules()
-                .UseCombatRuntimeRules()
+                .UseMultipleAttackPenaltyRules()
                 .UseActionLifecycle(catalog)
                 .UseCheckResolution()
                 .UseStrikeRules(catalog, targeting, data)
