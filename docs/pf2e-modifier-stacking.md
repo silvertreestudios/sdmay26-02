@@ -2,6 +2,10 @@
 
 This project resolves d20 check and DC modifiers through `Game.Rules.Pf2eModifierResolver`.
 
+This document covers modifier math and its compatibility inputs. For the production encounter
+authority boundary and migrated action slices, see the
+[authoritative encounter rules architecture](../Docs/Encounter_Rules_Architecture.md).
+
 Rules reference: Archives of Nethys, [Checks and modifier stacking](https://2e.aonprd.com/Rules.aspx?ID=2278). Do not copy rules prose into code or data; use concise summaries and links.
 
 ## Model

@@ -1,5 +1,9 @@
 # PF2e Class and Rule Preparation
 
+This document covers imported item data and pre-encounter character preparation. For authoritative
+encounter state, composition, enrollment, and migrated action cutover, see the
+[authoritative encounter rules architecture](Encounter_Rules_Architecture.md).
+
 Imported PF2e item JSON under `Assets/Resources/DataFiles` is treated as source data. Keep FoundryVTT PF2e files verbatim where practical so future imports can diff and refresh them cleanly. Unity-owned data belongs outside imported item JSON: saved character choices live in `CharacterBuild`, runtime state lives in `PreparedCharacter`, and provenance/import notes live in docs or sidecar files outside `Resources`.
 
 ## Preparation Flow
@@ -14,7 +18,9 @@ Player creature JSON is still loaded into `CreatureComponent` for the existing c
 6. Resolve `ChoiceSet` and `GrantItem` rules into owned items.
 7. Collect typed rule synthetics for combat evaluation.
 
-Legacy `passives` callbacks remain only for creatures without a player build, so monster imports are not broken by the player-class pipeline.
+Legacy `passives` callbacks remain only for creatures without a player build, so monster imports are
+not broken by the player-class pipeline. They are a preparation compatibility seam, not authority
+for encounter slices already cut over to `RulesState`.
 
 ## Supported Rule Elements
 

@@ -90,13 +90,27 @@ Use `.agent-temp/` at the checkout root for temporary body files, generated comm
   own its feature-specific operations, validation, handlers, listeners, selectors, persistent state,
   and Unity data extraction or presentation adapters. Feature ownership does not require putting all
   of those responsibilities in one class.
-- Keep shared rules runtime, bridge, manager, and facade APIs feature-agnostic. A composition root may
-  name a feature to register its definitions or seed its bindings, but general-purpose classes must
-  not implement the feature's conditions or workflow. Avoid feature-named methods, fields, caches,
-  trigger flags, and switches when the feature can construct a generic operation, listen to a generic
-  Fact, or query its own selector.
+- For encounter, action, effect, bridge, or combatant-enrollment work, read and follow
+  `Docs/Encounter_Rules_Architecture.md` before editing. It is the canonical as-built guide;
+  `Docs/Ops_Based_Rules_Proposal.md` provides the conceptual rationale and clearly marked deferred
+  examples.
+- Add encounter features only through the explicit ordered `UnityEncounterModuleSet` and the exact
+  capability interfaces they need. In that composition root, define every feature-used
+  `RuleDefinitionId` and compose every required action profile or typed catalog before dispatcher
+  construction. Support both initial seeding and reinforcement enrollment. Put every
+  encounter-scoped module registration/resource in the encounter `CompositeLifetime`; keep a
+  root-scoped temporary observer locally owned and dispose it after that root. Preserve exact bridge
+  identity on detach. Do not use static discovery, self-registration, legacy fallback, or dual
+  authority for a migrated state slice.
+- Keep new shared rules runtime, bridge, manager, and facade APIs feature-agnostic. A composition
+  root may name a feature to wire its definitions and catalogs or seed its bindings, but
+  general-purpose classes must not implement the feature's conditions or workflow. Do not add new
+  feature-named methods, fields, caches, trigger flags, or switches when the feature can construct a
+  generic operation, listen to a generic Fact, or query its own selector. The existing
+  Stride-specific `UnityCombatRulesBridge` fields and helpers are a transitional first-slice
+  exception; do not copy or expand them.
 - Add horizontal/shared infrastructure only when the current vertical slice proves it necessary, and
-  keep that API free of feature terminology. See `Docs/Ops_Based_Rules_Proposal.md`, especially
+  keep new APIs free of feature terminology. See `Docs/Ops_Based_Rules_Proposal.md`, especially
   "Feature modules own feature semantics."
 - Avoid introducing new singleton/static-event coupling. When refactoring combat or rules logic, add testable seams for dice/randomness, data loading, and combat math.
 - Keep PF2e calculations deterministic in tests. Save and restore Unity random state if a test touches random behavior.
