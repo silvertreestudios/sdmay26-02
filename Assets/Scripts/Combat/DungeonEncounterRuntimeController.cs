@@ -1267,7 +1267,11 @@ namespace Game.Combat.Encounters
 
         private bool RequiresEncounterBoundarySettlement(DungeonCell from, DungeonCell destination)
         {
-            int destinationRoomId = FindRoomId(new Vector3(destination.X, 0.0f, destination.Z));
+            Vector3 destinationPosition = new(destination.X, 0.0f, destination.Z);
+            if (director.IsSuspendedEncounterReached(destinationPosition))
+                return true;
+
+            int destinationRoomId = FindRoomId(destinationPosition);
             if (
                 destinationRoomId <= 0
                 || destinationRoomId == FindRoomId(new Vector3(from.X, 0.0f, from.Z))

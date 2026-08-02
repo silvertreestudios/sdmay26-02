@@ -251,37 +251,65 @@ namespace Game.Combat.Encounters
                 DungeonEncounterGroupView encounter = encounters[encounterIndex];
                 if (encounter.State != DungeonEncounterGroupState.Suspended)
                     continue;
-                if (!materializations.TryGetValue(encounter.Plan.Id, out var materialization))
-                {
-                    throw new InvalidOperationException(
-                        $"Suspended encounter '{encounter.Plan.Id}' has no materialized creatures."
-                    );
-                }
-
-                bool reached = false;
-                for (
-                    int enemyIndex = 0;
-                    enemyIndex < materialization.Controllers.Count;
-                    enemyIndex++
-                )
-                {
-                    ActionController enemy = materialization.Controllers[enemyIndex];
-                    if (!CanParticipate(enemy))
-                        continue;
-                    for (int partyIndex = 0; partyIndex < livingPartyPositions.Count; partyIndex++)
-                    {
-                        Vector3 partyPosition = livingPartyPositions[partyIndex];
-                        if (!OccupiesReachedRegion(partyPosition, enemy.transform.position))
-                            continue;
-                        reached = true;
-                        break;
-                    }
-                    if (reached)
-                        break;
-                }
-                if (reached)
+                if (IsSuspendedEncounterReached(encounter, livingPartyPositions))
                     EnterRoom(encounter.Plan.RoomId);
             }
+        }
+
+        // Exploration presentation asks this before allowing another leader cell to commit. Keep
+        // that preflight on the same materialization and region policy that performs the resume.
+        internal bool IsSuspendedEncounterReached(Vector3 livingPartyPosition)
+        {
+            ThrowIfDisposed();
+            IReadOnlyList<Vector3> livingPartyPositions = new[] { livingPartyPosition };
+            IReadOnlyList<DungeonEncounterGroupView> encounters = lifecycle.Encounters;
+            for (int encounterIndex = 0; encounterIndex < encounters.Count; encounterIndex++)
+            {
+                DungeonEncounterGroupView encounter = encounters[encounterIndex];
+                if (
+                    encounter.State == DungeonEncounterGroupState.Suspended
+                    && IsSuspendedEncounterReached(encounter, livingPartyPositions)
+                )
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsSuspendedEncounterReached(
+            DungeonEncounterGroupView encounter,
+            IReadOnlyList<Vector3> livingPartyPositions
+        )
+        {
+            if (!materializations.TryGetValue(encounter.Plan.Id, out var materialization))
+            {
+                throw new InvalidOperationException(
+                    $"Suspended encounter '{encounter.Plan.Id}' has no materialized creatures."
+                );
+            }
+
+            for (int enemyIndex = 0; enemyIndex < materialization.Controllers.Count; enemyIndex++)
+            {
+                ActionController enemy = materialization.Controllers[enemyIndex];
+                if (!CanParticipate(enemy))
+                    continue;
+                for (int partyIndex = 0; partyIndex < livingPartyPositions.Count; partyIndex++)
+                {
+                    if (
+                        OccupiesReachedRegion(
+                            livingPartyPositions[partyIndex],
+                            enemy.transform.position
+                        )
+                    )
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private static bool Contains(DungeonRoom room, Vector3 worldPosition)

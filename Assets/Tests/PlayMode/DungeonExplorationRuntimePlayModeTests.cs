@@ -575,6 +575,67 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies a follower reaching a restored survivor outside its source room settles that
+    /// follower cell before Tactics interrupts a multi-cell Stride suffix.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DisplacedSuspendedSurvivorReachedByFollowerInterruptsBeforeNextLeaderStep()
+    {
+        RuntimeFixture fixture = CreateDisplacedSuspendedFollowerEncounterFixture();
+        Track(new GameObject("Displaced Survivor Follower Boundary Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        Combatant leader = fixture.Party[0];
+        DungeonEncounterMember survivor = fixture
+            .Runtime.GetComponentsInChildren<DungeonEncounterMember>()
+            .Single();
+        RulesStrideAction stride = leader
+            .Controller.GetActions()
+            .OfType<RulesStrideAction>()
+            .Single();
+        Vector3Int from = Vector3Int.RoundToInt(leader.GameObject.transform.position);
+
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetEncounter("displaced-suspended-follower-boundary").State,
+            Is.EqualTo(DungeonEncounterGroupState.Suspended)
+        );
+        Assert.That(CellOf(survivor.gameObject), Is.EqualTo(new DungeonCell(3, 3)));
+
+        leader.Controller.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(from.x, from.y, from.z),
+                    new[] { new GridPosition(5, 0, 2), new GridPosition(6, 0, 2) }
+                )
+            )
+        );
+        int remainingFrames = 240;
+        while (leader.Controller.IsTakingAction && remainingFrames-- > 0)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "The displaced boundary Stride timed out.");
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetEncounter("displaced-suspended-follower-boundary").State,
+            Is.EqualTo(DungeonEncounterGroupState.Active)
+        );
+        AssertPartyCells(fixture, new DungeonCell(5, 2), new DungeonCell(2, 2));
+        Assert.That(
+            CellOf(leader.GameObject),
+            Is.Not.EqualTo(new DungeonCell(6, 2)),
+            "The leader suffix must not project after the follower reaches the survivor region."
+        );
+        Assert.That(CellOf(survivor.gameObject), Is.EqualTo(new DungeonCell(3, 3)));
+        Assert.That(
+            manager.getPoistions(),
+            Is.EquivalentTo(
+                manager.GetCombatants().Select(combatant => combatant.transform.position)
+            ),
+            "Encounter construction must retain the party and displaced survivor's actual cells."
+        );
+    }
+
+    /// <summary>
     /// Verifies the final queued follower batch starts Tactics before the exploration action emits
     /// completion, which is also the persistent gameplay-state/autosave boundary.
     /// </summary>
@@ -1736,7 +1797,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         IReadOnlyList<DungeonRoom> rooms = null,
         IReadOnlyList<DungeonEncounterPlan> encounterPlans = null,
         Action<IReadOnlyList<TestActionController>> configurePartyBeforeInitialization = null,
-        TileType[,] customGridData = null
+        TileType[,] customGridData = null,
+        DungeonRuntimeState runtimeState = null
     )
     {
         doors ??= Array.Empty<DoorSpec>();
@@ -1820,16 +1882,30 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             new DungeonCell(partyCells[0].x, partyCells[0].z),
             partyCells.Select(cell => new DungeonCell(cell.x, cell.z)),
             Array.Empty<DungeonObjectPlacement>(),
-            encounterPlans
+            encounterPlans,
+            runtimeState
         );
         RecordingExplorationPresentation presentation = new();
-        runtime.InitializePristine(
-            document,
-            catalog,
-            manager,
-            party.Select(member => member.Controller),
-            presentation
-        );
+        if (runtimeState == null)
+        {
+            runtime.InitializePristine(
+                document,
+                catalog,
+                manager,
+                party.Select(member => member.Controller),
+                presentation
+            );
+        }
+        else
+        {
+            runtime.InitializePersisted(
+                document,
+                catalog,
+                manager,
+                party.Select(member => member.Controller),
+                presentation
+            );
+        }
 
         return new RuntimeFixture(map, grid, runtime, presentation, party, doorFixtures);
     }
@@ -1854,6 +1930,46 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 controllers[0].AddAction(new RulesStrideAction());
                 controllers[0].GetComponent<CreatureComponent>().initiative = 1000;
             }
+        );
+    }
+
+    private RuntimeFixture CreateDisplacedSuspendedFollowerEncounterFixture()
+    {
+        DungeonRoom sourceRoom = new(1, 6, 5, 7, 6);
+        DungeonEncounterPlan encounter = new(
+            "displaced-suspended-follower-boundary",
+            sourceRoom.Id,
+            DungeonEncounterThreat.Trivial,
+            40,
+            new[] { new DungeonCell(7, 6) },
+            new[] { "goblin-warrior" }
+        );
+        DungeonRuntimeState runtimeState = new(
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            new[]
+            {
+                new DungeonCreatureRuntimeState(
+                    "displaced-suspended-follower-boundary/creature-0000",
+                    "goblin-warrior",
+                    "displaced-suspended-follower-boundary",
+                    new DungeonCell(3, 3),
+                    3,
+                    string.Empty
+                ),
+            }
+        );
+        return CreateRuntimeFixture(
+            new[] { new Vector3Int(4, 0, 2), new Vector3Int(1, 0, 2) },
+            rooms: new[] { sourceRoom },
+            encounterPlans: new[] { encounter },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().initiative = 1000;
+            },
+            runtimeState: runtimeState
         );
     }
 
