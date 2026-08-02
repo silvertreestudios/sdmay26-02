@@ -967,9 +967,7 @@ public class HUDController
         if (tacticsModeButton != null)
         {
             tacticsControlIsInExploration = true;
-            tacticsModeButton.text = "Enter Tactics";
-            tacticsModeButton.style.display = DisplayStyle.Flex;
-            tacticsModeButton.SetEnabled(true);
+            RestoreTacticsControlPresentation();
         }
         if (slideCoroutine != null)
             StopCoroutine(slideCoroutine);
@@ -1010,15 +1008,24 @@ public class HUDController
     public void ShowTactics()
     {
         tacticsControlIsInExploration = false;
-        if (tacticsModeButton == null)
-            return;
-        tacticsModeButton.text = "Return to Exploration";
-        tacticsModeButton.style.display = DisplayStyle.Flex;
-        tacticsModeButton.SetEnabled(true);
+        RestoreTacticsControlPresentation();
+    }
+
+    /// <inheritdoc/>
+    public void ShowTacticsUnavailable()
+    {
+        tacticsControlConfigured = false;
+        tacticsControlIsInExploration = true;
+        enterTactics = delegate { };
+        returnToExploration = () => false;
+        RestoreTacticsControlPresentation();
     }
 
     private void OnTacticsModeClicked()
     {
+        if (!tacticsControlConfigured)
+            return;
+
         if (tacticsControlIsInExploration)
             enterTactics();
         else if (!returnToExploration())
@@ -1036,7 +1043,7 @@ public class HUDController
         tacticsModeButton.style.display = tacticsControlConfigured
             ? DisplayStyle.Flex
             : DisplayStyle.None;
-        tacticsModeButton.SetEnabled(true);
+        tacticsModeButton.SetEnabled(tacticsControlConfigured);
     }
 
     /// <inheritdoc/>

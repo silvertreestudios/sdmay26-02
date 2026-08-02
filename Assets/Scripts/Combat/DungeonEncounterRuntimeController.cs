@@ -43,6 +43,11 @@ namespace Game.Combat.Encounters
 
         /// <summary>Updates the persistent control for active Tactics.</summary>
         void ShowTactics();
+
+        /// <summary>
+        /// Hides and disables mode switching, then releases callbacks owned by the prior floor.
+        /// </summary>
+        void ShowTacticsUnavailable();
     }
 
     /// <summary>
@@ -72,6 +77,7 @@ namespace Game.Combat.Encounters
         private readonly Dictionary<ActionController, int> currentRoomByParty = new();
         private readonly List<Vector3> livingPartyPositions = new();
         private readonly Dictionary<DungeonCell, DungeonDoorController> doorsByCell = new();
+        private readonly HashSet<DungeonCell> documentedStairEndpointCells = new();
         private readonly SortedSet<string> openDoorIds = new(StringComparer.Ordinal);
         private DungeonEncounterDirector director;
         private CombatManagerInterface combatManager;
@@ -444,6 +450,7 @@ namespace Game.Combat.Encounters
             director = createdDirector;
             director.EncounterLifecycleChanged += OnEncounterLifecycleChanged;
             director.CreatureDefeated += OnCreatureDefeated;
+            documentedStairEndpointCells.UnionWith(document.Stairs.Select(stair => stair.Cell));
             BindGeneratedDoors(document);
             combatManager.CombatActivityChanged += OnCombatActivityChanged;
             if (explorationPresentation is IDungeonTacticsPresentation tacticsPresentation)
@@ -562,6 +569,14 @@ namespace Game.Combat.Encounters
 
         private void ResetRuntime(bool destroyEncounterActors)
         {
+            IDungeonExplorationPresentation presentation = explorationPresentation;
+            if (IsPresentationAlive(presentation))
+            {
+                presentation.HideExploration();
+                if (presentation is IDungeonTacticsPresentation tacticsPresentation)
+                    tacticsPresentation.ShowTacticsUnavailable();
+            }
+
             DestinationTravelOwner travelOwner = destinationTravelOwner;
             if (
                 travelOwner != null
@@ -637,6 +652,7 @@ namespace Game.Combat.Encounters
             currentRoomByParty.Clear();
             livingPartyPositions.Clear();
             doorsByCell.Clear();
+            documentedStairEndpointCells.Clear();
             openDoorIds.Clear();
             presentedExplorationParty = Array.Empty<ActionController>();
             selectedLeader = null;
@@ -648,6 +664,19 @@ namespace Game.Combat.Encounters
             explorationMovement = NoExplorationStrideCoordinator.Instance;
             IsInitialized = false;
         }
+
+        /// <summary>Checks whether a presentation reference is safe to call during teardown.</summary>
+        /// <remarks>
+        /// Plain managed presentations, including test fakes, remain callable. Unity-backed
+        /// presentations use Unity's overloaded null comparison so destroyed objects are skipped
+        /// even while an interface reference still retains their managed wrapper.
+        /// </remarks>
+        private static bool IsPresentationAlive(IDungeonExplorationPresentation presentation) =>
+            presentation != null
+            && (
+                presentation is not UnityEngine.Object unityPresentation
+                || unityPresentation != null
+            );
 
         private void BindGeneratedDoors(DungeonLevelDocument document)
         {
@@ -722,6 +751,11 @@ namespace Game.Combat.Encounters
         private void OnGridCellClicked(Vector3Int cell)
         {
             DungeonCell clickedCell = new(cell.x, cell.z);
+            // Stair endpoints belong to DungeonRunController. Claiming them from the initialized
+            // document before pathfinding keeps traversal independent of GridInput listener order.
+            if (documentedStairEndpointCells.Contains(clickedCell))
+                return;
+
             if (
                 HasActiveDestinationTravel
                 && doorsByCell.TryGetValue(clickedCell, out DungeonDoorController movingDoor)
@@ -969,8 +1003,13 @@ namespace Game.Combat.Encounters
                 }
                 presentedExplorationParty = Array.Empty<ActionController>();
                 explorationPresentation.HideExploration();
-                if (isActive && explorationPresentation is IDungeonTacticsPresentation tactics)
-                    tactics.ShowTactics();
+                if (explorationPresentation is IDungeonTacticsPresentation tactics)
+                {
+                    if (isActive)
+                        tactics.ShowTactics();
+                    else
+                        tactics.ShowTacticsUnavailable();
+                }
                 return;
             }
 

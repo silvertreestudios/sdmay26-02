@@ -352,6 +352,56 @@ namespace TestsUI
             );
         }
 
+        /// <summary>
+        /// Verifies the unavailable mode control is inert, hidden, disabled, and lifecycle-stable.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator UnavailableTacticsModeControlClearsBothModeCallbacks()
+        {
+            HUDController hud = HUDController.GetInstance();
+            Button tacticsControl = root.Q<Button>("TacticsModeButton");
+            Assert.That(tacticsControl, Is.Not.Null);
+            int enterRequests = 0;
+            int returnRequests = 0;
+            System.Action enter = () => enterRequests++;
+            System.Func<bool> returnToExploration = () =>
+            {
+                returnRequests++;
+                return true;
+            };
+
+            hud.ConfigureTacticsControl(enter, returnToExploration);
+            Assert.That(tacticsControl.text, Is.EqualTo("Enter Tactics"));
+            Assert.That(tacticsControl.enabledSelf, Is.True);
+            hud.ShowTacticsUnavailable();
+            yield return null;
+
+            Assert.That(tacticsControl.resolvedStyle.display, Is.EqualTo(DisplayStyle.None));
+            Assert.That(tacticsControl.enabledSelf, Is.False);
+            PushButton(tacticsControl);
+            Assert.That(enterRequests, Is.Zero);
+            Assert.That(returnRequests, Is.Zero);
+
+            hud.enabled = false;
+            yield return null;
+            hud.enabled = true;
+            yield return null;
+
+            Assert.That(root.Q<Button>("TacticsModeButton"), Is.SameAs(tacticsControl));
+            Assert.That(tacticsControl.resolvedStyle.display, Is.EqualTo(DisplayStyle.None));
+            Assert.That(tacticsControl.enabledSelf, Is.False);
+
+            hud.ConfigureTacticsControl(enter, returnToExploration);
+            hud.ShowTactics();
+            Assert.That(tacticsControl.text, Is.EqualTo("Return to Exploration"));
+            Assert.That(tacticsControl.enabledSelf, Is.True);
+            hud.ShowTacticsUnavailable();
+            PushButton(tacticsControl);
+
+            Assert.That(enterRequests, Is.Zero);
+            Assert.That(returnRequests, Is.Zero);
+        }
+
         [UnityTest]
         public IEnumerator TacticsModePointerGuardIsLifecycleSafeAcrossHudReenable()
         {

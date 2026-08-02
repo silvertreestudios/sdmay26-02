@@ -496,6 +496,36 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
     }
 
+    /// <summary>Verifies documented stair endpoints never become travel destinations.</summary>
+    [Test]
+    public void DocumentedStairEndpointIsClaimedBeforeDestinationPlanning()
+    {
+        DungeonStair stair = new(
+            "down-stair",
+            DungeonStairKind.Down,
+            new DungeonCell(8, 2),
+            new DungeonCell(7, 2)
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 10,
+            stairs: new[] { stair },
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(activeTravel, Is.Not.Null);
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), stair.Cell);
+
+        AssertPartyCells(fixture, new DungeonCell(1, 2));
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        Assert.That(activeTravel.GetValue(fixture.Runtime), Is.False);
+    }
+
     [UnityTest]
     public IEnumerator DestinationTravelAutomaticallyExecutesMultipleStridesWithFollowers()
     {
@@ -1098,6 +1128,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         int width = 8,
         int height = 8,
         IReadOnlyList<DoorSpec> doors = null,
+        IReadOnlyList<DungeonStair> stairs = null,
         IReadOnlyList<DungeonRoom> rooms = null,
         IReadOnlyList<DungeonEncounterPlan> encounterPlans = null,
         Action<IReadOnlyList<TestActionController>> configurePartyBeforeInitialization = null,
@@ -1105,6 +1136,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     )
     {
         doors ??= Array.Empty<DoorSpec>();
+        stairs ??= Array.Empty<DungeonStair>();
         rooms ??= Array.Empty<DungeonRoom>();
         encounterPlans ??= Array.Empty<DungeonEncounterPlan>();
         if (partyCells == null || partyCells.Count == 0)
@@ -1180,7 +1212,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             Rows(gridData),
             rooms,
             doors.Select(door => new DungeonDoor(door.Id, door.Cell)),
-            Array.Empty<DungeonStair>(),
+            stairs,
             new DungeonCell(partyCells[0].x, partyCells[0].z),
             partyCells.Select(cell => new DungeonCell(cell.x, cell.z)),
             Array.Empty<DungeonObjectPlacement>(),
