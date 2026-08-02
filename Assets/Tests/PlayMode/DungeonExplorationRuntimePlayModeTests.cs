@@ -610,6 +610,65 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         AssertPartyCells(fixture, new DungeonCell(8, 2), new DungeonCell(7, 2));
     }
 
+    /// <summary>
+    /// Verifies the Tactics control cannot interrupt route ownership between Stride segments.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DestinationTravelRejectsTacticsEntryBetweenStrides()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 10,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Destination Travel Tactics Gate Runner"))
+            .AddComponent<CoroutineRunner>();
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(activeTravel, Is.Not.Null);
+        TestActionController leader = fixture.Party[0].Controller;
+        bool requestAttempted = false;
+        bool routeWasActiveDuringRequest = false;
+        bool leaderWasTakingActionDuringRequest = true;
+        bool tacticsEntered = true;
+
+        void AttemptTacticsBetweenStrides()
+        {
+            if (requestAttempted)
+                return;
+
+            requestAttempted = true;
+            routeWasActiveDuringRequest = (bool)activeTravel.GetValue(fixture.Runtime);
+            leaderWasTakingActionDuringRequest = leader.IsTakingAction;
+            fixture.Presentation.RequestTactics();
+            tacticsEntered = manager.IsCombatActive;
+        }
+
+        OnActionComplete.AddListener(AttemptTacticsBetweenStrides);
+        int remainingFrames = 600;
+        try
+        {
+            RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), new DungeonCell(8, 2));
+            while (remainingFrames-- > 0 && (bool)activeTravel.GetValue(fixture.Runtime))
+                yield return null;
+        }
+        finally
+        {
+            OnActionComplete.RemoveListener(AttemptTacticsBetweenStrides);
+        }
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Destination travel timed out.");
+        Assert.That(requestAttempted, Is.True);
+        Assert.That(routeWasActiveDuringRequest, Is.True);
+        Assert.That(leaderWasTakingActionDuringRequest, Is.False);
+        Assert.That(tacticsEntered, Is.False);
+        Assert.That(manager.IsCombatActive, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(8, 2));
+    }
+
     [UnityTest]
     public IEnumerator DestinationTravelRightClickInputCancelsQueuedStridesFromIdleState()
     {
@@ -1783,9 +1842,12 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         }
     }
 
-    private sealed class RecordingExplorationPresentation : IDungeonExplorationPresentation
+    private sealed class RecordingExplorationPresentation
+        : IDungeonExplorationPresentation,
+            IDungeonTacticsPresentation
     {
         private Func<ActionController, bool> trySelectLeader = _ => false;
+        private Action enterTactics = delegate { };
 
         internal ActionController Selected { get; private set; }
 
@@ -1796,6 +1858,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 Selected = candidate;
             return selected;
         }
+
+        internal void RequestTactics() => enterTactics.Invoke();
 
         /// <inheritdoc/>
         public void ShowExploration(
@@ -1810,6 +1874,16 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 
         /// <inheritdoc/>
         public void HideExploration() { }
+
+        /// <inheritdoc/>
+        public void ConfigureTacticsControl(Action enterTactics, Func<bool> returnToExploration) =>
+            this.enterTactics = enterTactics;
+
+        /// <inheritdoc/>
+        public void ShowTactics() { }
+
+        /// <inheritdoc/>
+        public void ShowTacticsUnavailable() => enterTactics = delegate { };
     }
 
     private sealed class RuntimeTestCombatLog : CombatLogInterface

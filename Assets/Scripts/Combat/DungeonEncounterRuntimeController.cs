@@ -1021,7 +1021,12 @@ namespace Game.Combat.Encounters
 
         private void EnterTactics()
         {
-            if (!IsInitialized || combatManager.IsCombatActive || HasActionInProgress)
+            if (
+                !IsInitialized
+                || combatManager.IsCombatActive
+                || HasActionInProgress
+                || HasActiveDestinationTravel
+            )
                 return;
             foreach (ActionController partyMember in party.Where(CanObserve))
                 combatManager.AddCombatant(partyMember);
