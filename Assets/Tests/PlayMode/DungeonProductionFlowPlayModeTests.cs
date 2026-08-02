@@ -91,6 +91,8 @@ public sealed class DungeonProductionFlowPlayModeTests
         string directory = TrackDirectory("hud-stair-confirm");
         yield return LaunchNewRun(directory, "807239348");
 
+        AssertPartyCameraFraming();
+        Camera.main.transform.position = new Vector3(-20f, 30f, -20f);
         DungeonRunController controller = RequireController();
         DungeonStairMarker down = RequireStair(DungeonStairKind.Down);
         int startingDepth = controller.CurrentDepth;
@@ -142,6 +144,7 @@ public sealed class DungeonProductionFlowPlayModeTests
         yield return null;
 
         Assert.That(controller.CurrentDepth, Is.EqualTo(startingDepth + 1));
+        AssertPartyCameraFraming();
         DungeonSaveResult<DungeonRunSave> committed = new FileSystemDungeonSaveRepository(
             directory
         ).Load();
@@ -585,6 +588,7 @@ public sealed class DungeonProductionFlowPlayModeTests
                 identity.RosterSlotId
             );
         }
+        AssertPartyCameraFraming();
 
         DungeonDoorController[] restoredDoors = Object
             .FindObjectsByType<DungeonDoorController>(
@@ -702,6 +706,41 @@ public sealed class DungeonProductionFlowPlayModeTests
         Map map = Object.FindFirstObjectByType<Map>();
         Assert.That(map, Is.Not.Null);
         return map;
+    }
+
+    private static void AssertPartyCameraFraming()
+    {
+        Camera camera = Camera.main;
+        Assert.That(camera, Is.Not.Null, "The production gameplay camera is missing.");
+        Vector3[] positions = ProductionParty()
+            .Where(member => member.gameObject.activeInHierarchy)
+            .Select(member => member.transform.position)
+            .ToArray();
+        Assert.That(positions, Is.Not.Empty, "The loaded floor has no living party to frame.");
+        Vector3 partyCenter =
+            positions.Aggregate(Vector3.zero, (sum, position) => sum + position) / positions.Length;
+
+        Plane floor = new(Vector3.up, new Vector3(0f, partyCenter.y, 0f));
+        Ray centerRay = camera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        Assert.That(
+            floor.Raycast(centerRay, out float distance),
+            Is.True,
+            "The camera center ray does not reach the party floor."
+        );
+        Vector3 framedPoint = centerRay.GetPoint(distance);
+        Assert.That(
+            Vector2.Distance(
+                new Vector2(framedPoint.x, framedPoint.z),
+                new Vector2(partyCenter.x, partyCenter.z)
+            ),
+            Is.LessThan(0.01f),
+            "The loaded floor camera is not centered on the living party."
+        );
+        Assert.That(
+            camera.transform.position.y,
+            Is.EqualTo(12f).Within(0.01f),
+            "The loaded floor camera should start at the close exploration zoom."
+        );
     }
 
     private static Label RequireDungeonStatus()

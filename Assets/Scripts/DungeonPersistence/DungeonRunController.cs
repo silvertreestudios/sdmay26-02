@@ -261,6 +261,7 @@ namespace Game.DungeonPersistence
             if (gridInput != null)
                 gridInput.CellClicked += OnGridCellClicked;
             IsInitialized = true;
+            FramePartyCameraForLevelLoad();
             CurrentDepthChanged.Invoke(CurrentDepth);
         }
 
@@ -541,6 +542,7 @@ namespace Game.DungeonPersistence
 
             autosave.AdoptPublishedFloor(candidate, target, runtime);
             CurrentDepth = targetDepth;
+            FramePartyCameraForLevelLoad();
             CurrentDepthChanged.Invoke(CurrentDepth);
             stairPresentation.DismissStairTraversal();
             LastDiagnostics = Array.Empty<DungeonTravelDiagnostic>();
@@ -1114,6 +1116,12 @@ namespace Game.DungeonPersistence
             if (token.IsRegistered)
                 grid.DestroyToken(member.gameObject);
             token.DetachFromGrid(grid);
+        }
+
+        private void FramePartyCameraForLevelLoad()
+        {
+            if (CameraManager.TryGetInstance(out CameraManager cameraManager))
+                cameraManager.FramePartyForLevelLoad(party);
         }
 
         private DungeonTravelResult SaveFailure(
