@@ -614,8 +614,18 @@ namespace Game.DungeonPersistence
                 .SingleOrDefault(candidate =>
                     candidate.Cell.X == cell.x && candidate.Cell.Z == cell.z
                 );
-            if (stair != null)
+            if (stair == null)
+                return;
+            if (!runtime.IsExplorationActive)
+            {
                 RequestUseStair(stair);
+                return;
+            }
+
+            _ = runtime.TryTravelToInteraction(
+                new DungeonCell(cell.x, cell.z),
+                () => RequestUseStair(stair)
+            );
         }
 
         private DungeonTravelResult TryAcquireFirstVisit(

@@ -884,6 +884,129 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(manager.IsCombatActive, Is.False);
     }
 
+    /// <summary>
+    /// Verifies a directly clicked same-room door uses repeated rules-backed Strides to reach its
+    /// closest accessible side, then opens without requiring a second click.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ReachableClosedDoorClickTravelsAdjacentAndOpens()
+    {
+        DoorSpec door = new("reachable-door", new DungeonCell(9, 2));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 12,
+            height: 6,
+            doors: new[] { door },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().speed = 10;
+            }
+        );
+        Track(new GameObject("Reachable Door Coroutine Runner")).AddComponent<CoroutineRunner>();
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), door.Cell);
+
+        int remainingFrames = 600;
+        while (
+            remainingFrames-- > 0
+            && (
+                HasActiveDestinationTravel(fixture.Runtime)
+                || fixture.Party[0].Controller.IsTakingAction
+                || !fixture.Doors[door.Cell].Controller.IsOpen
+            )
+        )
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Door interaction travel timed out.");
+        AssertDoorOpen(fixture, door.Cell);
+        DungeonCell leaderCell = CellOf(fixture.Party[0].GameObject);
+        Assert.That(
+            Math.Abs(leaderCell.X - door.Cell.X) + Math.Abs(leaderCell.Z - door.Cell.Z),
+            Is.EqualTo(1),
+            "The leader must stop cardinally adjacent before the door interaction runs."
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    /// <summary>
+    /// Verifies stair-style interactions use the same reachable-neighbor travel contract and do
+    /// not invoke their original click behavior until movement has completely settled.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ReachableStairInteractionInvokesCallbackAfterArrival()
+    {
+        DungeonStair stair = new(
+            "reachable-stair",
+            DungeonStairKind.Down,
+            new DungeonCell(9, 2),
+            new DungeonCell(8, 2)
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 12,
+            height: 6,
+            stairs: new[] { stair },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().speed = 10;
+            }
+        );
+        Track(new GameObject("Reachable Stair Coroutine Runner")).AddComponent<CoroutineRunner>();
+        bool interactionInvoked = false;
+
+        bool accepted = fixture.Runtime.TryTravelToInteraction(
+            stair.Cell,
+            () => interactionInvoked = true
+        );
+
+        Assert.That(accepted, Is.True);
+        Assert.That(
+            interactionInvoked,
+            Is.False,
+            "A non-adjacent stair interaction must wait for travel to finish."
+        );
+        int remainingFrames = 600;
+        while (remainingFrames-- > 0 && !interactionInvoked)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Stair interaction travel timed out.");
+        Assert.That(HasActiveDestinationTravel(fixture.Runtime), Is.False);
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        DungeonCell leaderCell = CellOf(fixture.Party[0].GameObject);
+        Assert.That(
+            Math.Abs(leaderCell.X - stair.Cell.X) + Math.Abs(leaderCell.Z - stair.Cell.Z),
+            Is.EqualTo(1),
+            "The stair callback must run from a cardinally adjacent cell."
+        );
+    }
+
+    /// <summary>
+    /// Verifies direct interaction travel never opens an intermediate door to reach a later room.
+    /// </summary>
+    [Test]
+    public void ClosedIntermediateDoorBlocksDirectDoorInteraction()
+    {
+        DoorSpec firstDoor = new("first-room-door", new DungeonCell(5, 3));
+        DoorSpec targetDoor = new("target-room-door", new DungeonCell(10, 3));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 3) },
+            doors: new[] { firstDoor, targetDoor },
+            customGridData: ThreeRoomGrid(),
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), targetDoor.Cell);
+
+        Assert.That(fixture.Doors[firstDoor.Cell].Controller.IsOpen, Is.False);
+        Assert.That(fixture.Doors[targetDoor.Cell].Controller.IsOpen, Is.False);
+        Assert.That(HasActiveDestinationTravel(fixture.Runtime), Is.False);
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(2, 3));
+    }
+
     [UnityTest]
     public IEnumerator DestinationTravelStopsAtImmediateEncounterBoundary()
     {
@@ -1599,6 +1722,16 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         clicked(new Vector3Int(cell.X, 0, cell.Z));
     }
 
+    private static bool HasActiveDestinationTravel(DungeonEncounterRuntimeController runtime)
+    {
+        PropertyInfo property = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(property, Is.Not.Null);
+        return (bool)property.GetValue(runtime);
+    }
+
     private static int ChebyshevDistance(Vector3 first, Vector3 second)
     {
         Vector3Int firstCell = Vector3Int.RoundToInt(first);
@@ -1999,6 +2132,31 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             for (int x = minimumX; x <= maximumX; x++)
             {
                 for (int z = minimumZ; z <= maximumZ; z++)
+                    data[x, z] = TileType.Ground;
+            }
+        }
+    }
+
+    private static TileType[,] ThreeRoomGrid()
+    {
+        TileType[,] data = new TileType[16, 7];
+        for (int x = 0; x < data.GetLength(0); x++)
+        {
+            for (int z = 0; z < data.GetLength(1); z++)
+                data[x, z] = TileType.Wall;
+        }
+        FillRoom(1, 4);
+        FillRoom(6, 9);
+        FillRoom(11, 14);
+        data[5, 3] = TileType.ClosedDoor;
+        data[10, 3] = TileType.ClosedDoor;
+        return data;
+
+        void FillRoom(int minimumX, int maximumX)
+        {
+            for (int x = minimumX; x <= maximumX; x++)
+            {
+                for (int z = 1; z <= 5; z++)
                     data[x, z] = TileType.Ground;
             }
         }

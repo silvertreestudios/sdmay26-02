@@ -249,11 +249,11 @@ public sealed class DungeonRunTraversalPlayModeTests
     }
 
     /// <summary>
-    /// Verifies an exploration stair click does not require the party to gather first, then places
-    /// the full four-PC party in unique cells at the paired encounter-free arrival stair.
+    /// Verifies an exploration stair click must reach the endpoint without opening another door,
+    /// then places the full four-PC party in unique cells at the paired encounter-free arrival.
     /// </summary>
     [UnityTest]
-    public IEnumerator ExplorationStairClickIgnoresPartyProximityAndPlacesFullPartyAtArrival()
+    public IEnumerator ExplorationStairClickRequiresReachableAdjacencyAndPlacesPartyAtArrival()
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
@@ -311,6 +311,30 @@ public sealed class DungeonRunTraversalPlayModeTests
 
         RaiseGridCellClick(map.GetComponent<GridInput>(), down.Cell);
 
+        int remainingFrames = 300;
+        while (
+            remainingFrames-- > 0
+            && (
+                bootstrap.Runtime.HasActionInProgress
+                || HasActiveDestinationTravel(bootstrap.Runtime)
+            )
+        )
+            yield return null;
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Stair route resolution timed out.");
+        Assert.That(
+            presentation.PresentCount,
+            Is.Zero,
+            "A stair behind an unopened room door must not prompt for traversal."
+        );
+        Assert.That(
+            party.Select(member => member.transform.position),
+            Is.EqualTo(positionsBeforeClick)
+        );
+
+        PlaceLivingPartyAt(down, party);
+        Vector3[] adjacentPositions = party.Select(member => member.transform.position).ToArray();
+        RaiseGridCellClick(map.GetComponent<GridInput>(), down.Cell);
+
         Assert.That(presentation.PresentCount, Is.EqualTo(1));
         Assert.That(presentation.LastCanConfirm, Is.True);
         Assert.That(bootstrap.Controller.CurrentDepth, Is.Zero);
@@ -319,7 +343,7 @@ public sealed class DungeonRunTraversalPlayModeTests
         Assert.That(party.Any(member => member.IsTakingAction), Is.False);
         Assert.That(
             party.Select(member => member.transform.position),
-            Is.EqualTo(positionsBeforeClick)
+            Is.EqualTo(adjacentPositions)
         );
 
         presentation.Respond(confirmed: false);
@@ -331,7 +355,7 @@ public sealed class DungeonRunTraversalPlayModeTests
         Assert.That(party.Any(member => member.IsTakingAction), Is.False);
         Assert.That(
             party.Select(member => member.transform.position),
-            Is.EqualTo(positionsBeforeClick)
+            Is.EqualTo(adjacentPositions)
         );
         Assert.That(
             bootstrap.Controller.LastDiagnostics.Single().Code,

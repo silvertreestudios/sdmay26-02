@@ -64,6 +64,7 @@ namespace Game.Combat.Encounters
         : MonoBehaviour,
             IExplorationStrideCoordinator
     {
+        private static readonly Action DestinationReachedNoOp = delegate { };
         private DungeonRoom[] rooms = Array.Empty<DungeonRoom>();
         private ActionController[] party = Array.Empty<ActionController>();
         private HashSet<int> encounterRoomIds = new();
@@ -90,7 +91,7 @@ namespace Game.Combat.Encounters
             NoExplorationStrideCoordinator.Instance;
         private DestinationTravelOwner destinationTravelOwner;
         private bool travelCancelled;
-        private DungeonCell? pendingDoorCell;
+        private PendingExplorationInteraction? pendingInteraction;
         private Vector3Int? pendingDestinationCell;
 
         private bool HasActiveDestinationTravel =>
@@ -293,6 +294,41 @@ namespace Game.Combat.Encounters
                 return false;
 
             return ApplyDoorInteraction(interaction);
+        }
+
+        /// <summary>
+        /// Travels the selected exploration leader to the closest reachable cardinal neighbor of
+        /// an interaction cell, then invokes the interaction after movement fully settles.
+        /// </summary>
+        /// <param name="interactionCell">The door, stair, or other occupied interaction cell.</param>
+        /// <param name="onReached">The original interaction to retry from the reached neighbor.</param>
+        /// <returns>
+        /// <see langword="true"/> when the interaction ran immediately, travel started, or it was
+        /// queued behind the currently committing Stride; otherwise <see langword="false"/>.
+        /// </returns>
+        /// <remarks>
+        /// Only currently walkable topology participates in the route. In particular, this method
+        /// never opens an intermediate closed door while trying to reach a later interaction.
+        /// </remarks>
+        internal bool TryTravelToInteraction(DungeonCell interactionCell, Action onReached)
+        {
+            if (onReached == null)
+                throw new ArgumentNullException(nameof(onReached));
+            if (!IsExplorationActive)
+                return false;
+
+            PendingExplorationInteraction interaction = new(interactionCell, onReached);
+            if (HasActiveDestinationTravel)
+            {
+                travelCancelled = true;
+                pendingInteraction = interaction;
+                pendingDestinationCell = null;
+                return true;
+            }
+            if (HasActionInProgress)
+                return false;
+
+            return TryStartInteractionTravel(interaction);
         }
 
         private bool TryPrepareDoorInteraction(
@@ -593,7 +629,7 @@ namespace Game.Combat.Encounters
                 OnCancel.RemoveListener(CancelDestinationTravel);
                 OnPreviewPath.Invoke(new List<Vector3Int>());
             }
-            pendingDoorCell = null;
+            pendingInteraction = null;
             pendingDestinationCell = null;
             if (combatManager != null)
                 combatManager.CombatActivityChanged -= OnCombatActivityChanged;
@@ -759,20 +795,19 @@ namespace Game.Combat.Encounters
             if (documentedStairEndpointCells.Contains(clickedCell))
                 return;
 
-            if (
-                HasActiveDestinationTravel
-                && doorsByCell.TryGetValue(clickedCell, out DungeonDoorController movingDoor)
-                && !movingDoor.IsOpen
-            )
-            {
-                travelCancelled = true;
-                pendingDoorCell = clickedCell;
-                pendingDestinationCell = null;
-                return;
-            }
             if (TryOpenDoor(clickedCell))
             {
                 travelCancelled = true;
+                pendingInteraction = null;
+                pendingDestinationCell = null;
+                return;
+            }
+            if (
+                doorsByCell.TryGetValue(clickedCell, out DungeonDoorController clickedDoor)
+                && !clickedDoor.IsOpen
+            )
+            {
+                _ = TryTravelToInteraction(clickedCell, () => TryOpenDoor(clickedCell));
                 return;
             }
             if (!IsExplorationActive)
@@ -781,38 +816,83 @@ namespace Game.Combat.Encounters
             if (HasActiveDestinationTravel)
             {
                 travelCancelled = true;
-                pendingDoorCell = null;
+                pendingInteraction = null;
                 pendingDestinationCell = cell;
                 return;
             }
             if (HasActionInProgress)
                 return;
 
-            TryStartDestinationTravel(cell);
+            _ = TryStartDestinationTravel(cell);
         }
 
-        private void TryStartDestinationTravel(Vector3Int cell)
+        private bool TryStartDestinationTravel(Vector3Int cell)
         {
             ActionController travelLeader = selectedLeader;
             Vector3Int origin = Vector3Int.RoundToInt(travelLeader.transform.position);
             List<PathNode> path = grid.GetPathfinder()
                 .Pathfind(travelLeader.gameObject, origin, cell);
+            return TryStartDestinationTravel(travelLeader, path, origin.y, DestinationReachedNoOp);
+        }
+
+        private bool TryStartInteractionTravel(PendingExplorationInteraction interaction)
+        {
+            ActionController travelLeader = selectedLeader;
+            Vector3Int origin = Vector3Int.RoundToInt(travelLeader.transform.position);
+            IPathfinder pathfinder = grid.GetPathfinder();
+            pathfinder.Search(travelLeader.gameObject, origin);
+            List<PathNode> bestPath = new();
+            float bestDistance = float.PositiveInfinity;
+            foreach (DungeonCell neighbor in CardinalNeighbors(interaction.Cell))
+            {
+                Vector3Int destination = new(neighbor.X, origin.y, neighbor.Z);
+                List<PathNode> candidatePath = pathfinder.Find(destination);
+                if (candidatePath == null || candidatePath.Count == 0)
+                    continue;
+
+                float candidateDistance = candidatePath[candidatePath.Count - 1].Dist;
+                if (candidateDistance >= bestDistance)
+                    continue;
+
+                bestPath = candidatePath;
+                bestDistance = candidateDistance;
+            }
+
+            if (bestPath.Count == 0)
+                return false;
+            if (bestPath.Count == 1)
+            {
+                interaction.Invoke();
+                return true;
+            }
+
+            return TryStartDestinationTravel(travelLeader, bestPath, origin.y, interaction.Invoke);
+        }
+
+        private bool TryStartDestinationTravel(
+            ActionController travelLeader,
+            IReadOnlyList<PathNode> path,
+            int elevation,
+            Action onDestinationReached
+        )
+        {
             if (path == null || path.Count < 2)
-                return;
+                return false;
 
             ExplorationTravelPlan plan = ExplorationTravelPlanner.Plan(
                 path.Select(node => new DungeonCell(node.Location.x, node.Location.z))
             );
             OnPreviewPath.Invoke(
-                plan.Cells.Select(routeCell => new Vector3Int(routeCell.X, origin.y, routeCell.Z))
+                plan.Cells.Select(routeCell => new Vector3Int(routeCell.X, elevation, routeCell.Z))
                     .ToList()
             );
-            DestinationTravelOwner travelOwner = new();
+            DestinationTravelOwner travelOwner = new(onDestinationReached);
             destinationTravelOwner = travelOwner;
             Coroutine runningCoroutine = StartCoroutine(
-                TravelToDestination(travelOwner, travelLeader, plan, origin.y)
+                TravelToDestination(travelOwner, travelLeader, plan, elevation)
             );
             travelOwner.TryAttach(runningCoroutine);
+            return true;
         }
 
         private IEnumerator TravelToDestination(
@@ -824,6 +904,7 @@ namespace Game.Combat.Encounters
         {
             travelCancelled = false;
             OnCancel.AddListener(CancelDestinationTravel);
+            bool reachedDestination = false;
             try
             {
                 RulesStrideAction stride = travelLeader
@@ -845,11 +926,13 @@ namespace Game.Combat.Encounters
                 {
                     Vector3Int current = Vector3Int.RoundToInt(travelLeader.transform.position);
                     DungeonCell currentCell = new(current.x, current.z);
-                    if (
-                        !routeIndexByCell.TryGetValue(currentCell, out int currentIndex)
-                        || currentIndex == plan.Cells.Count - 1
-                    )
+                    if (!routeIndexByCell.TryGetValue(currentCell, out int currentIndex))
                     {
+                        yield break;
+                    }
+                    if (currentIndex == plan.Cells.Count - 1)
+                    {
+                        reachedDestination = true;
                         yield break;
                     }
 
@@ -871,11 +954,14 @@ namespace Game.Combat.Encounters
             }
             finally
             {
-                CompleteDestinationTravel(travelOwner);
+                CompleteDestinationTravel(travelOwner, reachedDestination);
             }
         }
 
-        private void CompleteDestinationTravel(DestinationTravelOwner travelOwner)
+        private void CompleteDestinationTravel(
+            DestinationTravelOwner travelOwner,
+            bool reachedDestination
+        )
         {
             if (
                 !ReferenceEquals(destinationTravelOwner, travelOwner)
@@ -888,14 +974,16 @@ namespace Game.Combat.Encounters
             destinationTravelOwner = null;
             OnCancel.RemoveListener(CancelDestinationTravel);
             OnPreviewPath.Invoke(new List<Vector3Int>());
-            DungeonCell? queuedDoorCell = pendingDoorCell;
-            pendingDoorCell = null;
+            PendingExplorationInteraction? queuedInteraction = pendingInteraction;
+            pendingInteraction = null;
             Vector3Int? queuedDestinationCell = pendingDestinationCell;
             pendingDestinationCell = null;
-            if (queuedDoorCell.HasValue && IsExplorationActive)
-                TryOpenDoor(queuedDoorCell.Value);
+            if (reachedDestination && IsExplorationActive)
+                travelOwner.InvokeDestinationReached();
+            if (queuedInteraction.HasValue && IsExplorationActive)
+                TryStartInteractionTravel(queuedInteraction.Value);
             else if (queuedDestinationCell.HasValue && IsExplorationActive)
-                TryStartDestinationTravel(queuedDestinationCell.Value);
+                _ = TryStartDestinationTravel(queuedDestinationCell.Value);
         }
 
         bool IExplorationStrideCoordinator.TryCancelActiveTravel() => TryCancelDestinationTravel();
@@ -918,8 +1006,23 @@ namespace Game.Combat.Encounters
         private sealed class DestinationTravelOwner
         {
             private Coroutine runningCoroutine;
+            private Action onDestinationReached;
+
+            internal DestinationTravelOwner(Action onDestinationReached)
+            {
+                this.onDestinationReached =
+                    onDestinationReached
+                    ?? throw new ArgumentNullException(nameof(onDestinationReached));
+            }
 
             internal bool IsActive { get; private set; } = true;
+
+            internal void InvokeDestinationReached()
+            {
+                Action interaction = onDestinationReached;
+                onDestinationReached = DestinationReachedNoOp;
+                interaction();
+            }
 
             internal bool TryAttach(Coroutine coroutine)
             {
@@ -940,6 +1043,21 @@ namespace Game.Combat.Encounters
                 runningCoroutine = null;
                 return true;
             }
+        }
+
+        private readonly struct PendingExplorationInteraction
+        {
+            internal PendingExplorationInteraction(DungeonCell cell, Action onReached)
+            {
+                Cell = cell;
+                OnReached = onReached ?? throw new ArgumentNullException(nameof(onReached));
+            }
+
+            internal DungeonCell Cell { get; }
+
+            private Action OnReached { get; }
+
+            internal void Invoke() => OnReached();
         }
 
         private readonly struct PreparedDoorInteraction
