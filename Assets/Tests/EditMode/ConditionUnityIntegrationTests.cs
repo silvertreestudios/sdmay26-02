@@ -99,6 +99,70 @@ public sealed class ConditionUnityIntegrationTests
     }
 
     [Test]
+    public void DivineLanceCombatCastProjectsAuthoritativeAttackDamageAndRoll()
+    {
+        CreatureFixture caster = CreateCreature("Divine Lance Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Divine Lance Target", "Enemies", 0);
+        target.Creature.ac = 18;
+        caster.GameObject.transform.position = Vector3Int.zero;
+        target.GameObject.transform.position = Vector3Int.right;
+        PreparedSpell spell = PrepareDivineLance(caster);
+        Tile[,] tiles = new[,]
+        {
+            { new Tile() },
+            { new Tile() },
+        };
+        ScriptedRollService spellRolls = new(12, 2, 3);
+        EncounterThenSpellRollService rolls = new(spellRolls);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            tiles,
+            rolls
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        bridge.BeginTurn(casterId, 3);
+        AssertEncounterSetupRolls(rolls);
+        rolls.BeginSpellResolution();
+        CapturingCastObserver observer = new();
+        using IDisposable registration = GetDispatcher(bridge)
+            .RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(observer);
+        int healthBefore = bridge.Snapshot.Health[targetId].Current;
+
+        CastSpellResult result = SpellcastingRuntime.Cast(
+            caster.GameObject,
+            spell,
+            2,
+            new[] { target.GameObject }
+        );
+
+        CastSpellOutcome outcome = observer.Outcomes.Single();
+        SpellAttackResolution attack = outcome.Attacks.Single();
+        D20Result roll = result.Rolls.Single();
+        int healthAfter = bridge.Snapshot.Health[targetId].Current;
+        Assert.That(result.Success, Is.True, result.Message);
+        Assert.That(result.Targets, Is.EqualTo(new[] { target.GameObject }));
+        Assert.That(outcome.CreatedEffects, Is.Empty);
+        Assert.That(outcome.Saves, Is.Empty);
+        Assert.That(attack.Hit, Is.True);
+        Assert.That(attack.Degree, Is.EqualTo(Game.Rules.Runtime.DegreeOfSuccess.Success));
+        Assert.That(result.Amount, Is.EqualTo(attack.FinalDamage));
+        Assert.That(result.Amount, Is.EqualTo(healthBefore - healthAfter));
+        Assert.That(healthAfter, Is.EqualTo(15));
+        Assert.That(roll.roll, Is.EqualTo(attack.AttackRoll.Values.Single()));
+        Assert.That(roll.total, Is.EqualTo(attack.AttackRoll.Total + attack.AttackModifier));
+        Assert.That(roll.degree, Is.EqualTo(Game.Creature.DegreeOfSuccess.Success));
+        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.MultipleAttackPenalty[casterId].AttackCount, Is.EqualTo(1));
+        Assert.That(
+            rolls.SpellRequests,
+            Is.EqualTo(new[] { DiceExpressions.D20, new DiceExpression(2, 4) })
+        );
+        Assert.That(spellRolls.Remaining, Is.Zero);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
     public void EncounterAdvancementOfTimedConditionEmitsGenericExpirationFact()
     {
         CreatureFixture source = CreateCreature("Timed Source", "Heroes", 100);
@@ -2690,8 +2754,18 @@ public sealed class ConditionUnityIntegrationTests
 
     private static PreparedSpell PrepareHauntingHymn(CreatureFixture caster)
     {
-        SpellReference reference = new(new SpellId("haunting-hymn"), 1);
-        PreparedSpell spell = new("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u });
+        return PrepareCantrip(caster, "Haunting Hymn", "haunting-hymn");
+    }
+
+    private static PreparedSpell PrepareDivineLance(CreatureFixture caster)
+    {
+        return PrepareCantrip(caster, "Divine Lance", "divine-lance");
+    }
+
+    private static PreparedSpell PrepareCantrip(CreatureFixture caster, string name, string slug)
+    {
+        SpellReference reference = new(new SpellId(slug), 1);
+        PreparedSpell spell = new(name, 1, true, false, string.Empty, new[] { 2u });
         caster.Creature.level = 1;
         caster.Creature.wisMod = 4;
         caster.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
@@ -2701,9 +2775,7 @@ public sealed class ConditionUnityIntegrationTests
         );
         Assert.That(caster.Creature.Prepared.SpellBook.CastableSpells, Does.Contain(reference));
         Assert.That(
-            caster.Creature.Prepared.Spellcasting.PreparedSpells.Any(value =>
-                value.Slug == "haunting-hymn"
-            ),
+            caster.Creature.Prepared.Spellcasting.PreparedSpells.Any(value => value.Slug == slug),
             Is.False
         );
         return spell;
@@ -2975,6 +3047,22 @@ public sealed class ConditionUnityIntegrationTests
 
             encounterRequests.Add(dice);
             return new RollResult(dice, Enumerable.Repeat(1, dice.Count));
+        }
+    }
+
+    private sealed class CapturingCastObserver
+        : IResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>
+    {
+        internal List<CastSpellOutcome> Outcomes { get; } = new();
+
+        public ValueTask OnOperationResolved(
+            CastSpellActionOp operation,
+            CastSpellOutcome result,
+            RulesSnapshot currentSnapshot
+        )
+        {
+            Outcomes.Add(result);
+            return default;
         }
     }
 

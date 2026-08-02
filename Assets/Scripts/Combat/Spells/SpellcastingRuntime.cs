@@ -405,6 +405,18 @@ namespace Game.Combat.Spells
 
             result.Success = true;
             result.Targets.AddRange(targets);
+            foreach (SpellAttackResolution attack in resolved.Value.Attacks)
+            {
+                result.Amount += attack.FinalDamage;
+                result.Rolls.Add(
+                    new D20Result
+                    {
+                        roll = attack.AttackRoll.Values[0],
+                        total = checked(attack.AttackRoll.Total + attack.AttackModifier),
+                        degree = ToLegacyDegree(attack.Degree),
+                    }
+                );
+            }
             foreach (SpellSaveResolution save in resolved.Value.Saves)
             {
                 result.Amount += save.FinalDamage;
