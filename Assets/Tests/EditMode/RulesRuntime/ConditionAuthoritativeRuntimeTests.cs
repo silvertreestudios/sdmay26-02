@@ -45,6 +45,175 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void PreparedConditionImmunityRejectsCanonicalApplicationWithoutMutation()
+        {
+            PreparedCreatureInputs prepared = PreparedWithConditionImmunity("Flat-Footed");
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                    .SeedCreature(
+                        new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
+                    )
+                    .SeedPreparedInputs(Owner, prepared)
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+            long version = store.Snapshot.Version;
+
+            InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(
+                        Apply("off-guard", "immune-source", ConditionMarkerState.Instance)
+                    )
+            );
+
+            Assert.That(rejected.Message, Does.Contain("immune to off-guard"));
+            Assert.That(store.Snapshot.Version, Is.EqualTo(version));
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+        }
+
+        [Test]
+        public void RegisteredConditionTargetWithoutPreparedInputsFailsClosedWithoutMutation()
+        {
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                    .SeedCreature(
+                        new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
+                    )
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+
+            InvalidOperationException failure = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(
+                        Apply("off-guard", "missing-prepared", ConditionMarkerState.Instance)
+                    )
+            );
+
+            Assert.That(failure.Message, Does.Contain("no authoritative prepared inputs"));
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+        }
+
+        [Test]
+        public void ActiveConditionForUnregisteredOwnerIsRejectedFromInitialState()
+        {
+            ConditionRegistration registration = Registration(
+                "unregistered-initial-owner",
+                Owner,
+                ConditionRuleDefinitions.OffGuard,
+                RuleSource.FromSlug("unregistered-initial-owner-source"),
+                ConditionMarkerState.Instance,
+                1
+            );
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(
+                    new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
+                )
+                .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty)
+                .SeedActiveEffect(registration.Effect)
+                .SeedRuleBinding(registration.Binding);
+
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                _ = new InMemoryRulesStore(seed)
+            );
+
+            Assert.That(
+                failure.Message,
+                Is.EqualTo($"Active condition owner {Owner.Value} is not a registered creature.")
+            );
+            Assert.That(seed.ActiveEffects[registration.Effect.Id], Is.SameAs(registration.Effect));
+            Assert.That(
+                seed.RuleBindings[registration.Binding.Id],
+                Is.SameAs(registration.Binding)
+            );
+        }
+
+        [Test]
+        public void ExpiredConditionTombstoneMayRemainWithoutOwnerOrPreparedInputs()
+        {
+            RuleSource source = RuleSource.FromSlug("expired-immune-source");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                new ActiveEffectId("expired-immune-effect"),
+                ConditionRuleDefinitions.OffGuard,
+                SourceCreature,
+                source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance,
+                new EffectStateVersion(2),
+                ActiveEffectStatus.Expired
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("expired-immune-binding"),
+                effect.DefinitionId,
+                Owner,
+                effect.Id,
+                source,
+                1,
+                false
+            );
+
+            RulesSnapshot snapshot = new InMemoryRulesStore(
+                new RulesStateSeed().SeedActiveEffect(effect).SeedRuleBinding(binding)
+            ).Snapshot;
+
+            Assert.That(snapshot.ActiveEffects[effect.Id], Is.EqualTo(effect));
+            Assert.That(ConditionSelectors.GetActiveSlugs(snapshot, Owner), Is.Empty);
+        }
+
+        [TestCase("missing")]
+        [TestCase("expired")]
+        [TestCase("disabled")]
+        [TestCase("mismatched-id")]
+        [TestCase("mismatched-definition")]
+        [TestCase("mismatched-source")]
+        public void ActiveSlugSelectionRequiresOneExactEnabledActivePair(string invalidPair)
+        {
+            ActiveEffectId effectId = new ActiveEffectId("selector-effect");
+            RuleSource source = RuleSource.FromSlug("selector-source");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                invalidPair == "mismatched-definition"
+                    ? ConditionRuleDefinitions.Deafened
+                    : ConditionRuleDefinitions.OffGuard,
+                Owner,
+                invalidPair == "mismatched-source"
+                    ? RuleSource.FromSlug("other-selector-source")
+                    : source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance,
+                default,
+                invalidPair == "expired" ? ActiveEffectStatus.Expired : ActiveEffectStatus.Active
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("selector-binding"),
+                ConditionRuleDefinitions.OffGuard,
+                Owner,
+                invalidPair == "mismatched-id"
+                    ? new ActiveEffectId("other-selector-effect")
+                    : effectId,
+                source,
+                1,
+                invalidPair != "disabled"
+            );
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Owner, new PlayerId("selector-owner")))
+                .SeedPreparedInputs(Owner, PreparedCreatureInputs.Empty)
+                .SeedRuleBinding(binding);
+            if (invalidPair != "missing")
+                seed.SeedActiveEffect(effect);
+
+            IReadOnlyList<string> slugs = ConditionSelectors.GetActiveSlugs(
+                new InMemoryRulesStore(seed).Snapshot,
+                Owner
+            );
+
+            Assert.That(slugs, Is.Empty);
+        }
+
+        [Test]
         public async Task AdoptionIsIdempotentWithoutDuplicateStateOrFacts()
         {
             RuleSource source = RuleSource.FromSlug("persisted-source");
@@ -85,6 +254,67 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(repeated.Facts, Is.Empty);
             Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
             Assert.That(store.Snapshot.ActiveEffects[effect.Id], Is.EqualTo(effect));
+        }
+
+        [Test]
+        public async Task ExternalAdoptionRejectsWholeBatchWhenOneConditionIsImmune()
+        {
+            PreparedCreatureInputs prepared = PreparedWithConditionImmunity("Flat-Footed");
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedCreature(
+                    new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
+                )
+                .SeedPreparedInputs(Owner, prepared)
+                .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty);
+            InMemoryRulesStore store = new InMemoryRulesStore(seed);
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+            ConditionRegistration allowed = Registration(
+                "allowed-adoption",
+                ConditionRuleDefinitions.Deafened
+            );
+            ConditionRegistration immune = Registration(
+                "immune-adoption",
+                ConditionRuleDefinitions.OffGuard
+            );
+
+            OpResult<ConditionAdoptionOutcome> result = await dispatcher.Dispatch(
+                new AdoptConditionRegistrationsOp(new[] { allowed, immune })
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionAdoptionOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<ConditionAdoptionOutcome>)result).Reason,
+                Does.Contain("immune to off-guard")
+            );
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(result.Facts, Is.Empty);
+
+            ConditionRegistration Registration(string identity, RuleDefinitionId definition)
+            {
+                RuleSource source = RuleSource.FromSlug(identity);
+                ActiveEffectInstance effect = new ActiveEffectInstance(
+                    new ActiveEffectId($"{identity}-effect"),
+                    definition,
+                    SourceCreature,
+                    source,
+                    EffectDuration.Indefinite,
+                    ConditionMarkerState.Instance
+                );
+                return new ConditionRegistration(
+                    effect,
+                    new ActiveRuleBinding(
+                        new BindingId($"{identity}-binding"),
+                        definition,
+                        Owner,
+                        effect.Id,
+                        source,
+                        identity == "allowed-adoption" ? 1 : 2
+                    )
+                );
+            }
         }
 
         [Test]
@@ -313,9 +543,11 @@ namespace Game.Rules.Runtime.Tests
             );
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedPreparedInputs(Owner, PreparedCreatureInputs.Empty)
                 .SeedCreature(
                     new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
                 )
+                .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty)
                 .SeedActiveEffect(validEffect)
                 .SeedRuleBinding(validBinding)
                 .SeedActiveEffect(conflictingEffect)
@@ -677,16 +909,36 @@ namespace Game.Rules.Runtime.Tests
                 .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
                 .SeedCreature(
                     new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
-                );
+                )
+                .SeedPreparedInputs(Owner, PreparedCreatureInputs.Empty)
+                .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty);
             for (int index = 0; index < additionalCreatures.Length; index++)
+            {
+                CreatureId creature = additionalCreatures[index];
                 seed.SeedCreature(
-                    new CreatureState(
-                        additionalCreatures[index],
-                        new PlayerId($"additional-condition-owner-{index}")
+                        new CreatureState(
+                            creature,
+                            new PlayerId($"additional-condition-owner-{index}")
+                        )
                     )
-                );
+                    .SeedPreparedInputs(creature, PreparedCreatureInputs.Empty);
+            }
             return new InMemoryRulesStore(seed);
         }
+
+        private static PreparedCreatureInputs PreparedWithConditionImmunity(string condition) =>
+            new PreparedCreatureInputs(
+                0,
+                default,
+                Array.Empty<KeyValuePair<string, int>>(),
+                Array.Empty<string>(),
+                string.Empty,
+                Array.Empty<string>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                new[] { new PreparedImmunityDescriptor(condition, PreparedImmunityKind.Condition) },
+                Array.Empty<string>()
+            );
 
         private static ResolvedOpResult<TResult> RequireResolved<TResult>(OpResult<TResult> result)
         {

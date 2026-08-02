@@ -7,6 +7,7 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Strike;
 using Game.Strikes;
 using GridPrivate;
 using NUnit.Framework;
@@ -33,6 +34,52 @@ public sealed class RulesStrikeUnityTests
         damageEventCount = 0;
         missEventCount = 0;
         Pf2eItemCatalog.ResetForTests();
+    }
+
+    [TestCase(2, false)]
+    [TestCase(0, true)]
+    public void UnityStrikeCaptureReturnsBaseArmorClassForContextualDefense(
+        int coverBonus,
+        bool offGuard
+    )
+    {
+        CreatureComponent attacker = CreateCreature("Base AC Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature("Base AC Target", "enemies", 20, 15);
+        CreatureId actorId = new CreatureId("base-ac-attacker");
+        CreatureId targetId = new CreatureId("base-ac-target");
+        UnityStrikeContext context = new UnityStrikeContext(
+            new Dictionary<CreatureId, CreatureComponent>
+            {
+                [actorId] = attacker,
+                [targetId] = target,
+            },
+            CreateTiles(2)
+        );
+        StrikeItemDefinition item = new StrikeItemDefinition(
+            new ItemId("base-ac-item"),
+            new ItemDefinitionId("base-ac-item"),
+            "Base AC Item",
+            "sword",
+            "martial",
+            Array.Empty<Trait>(),
+            0,
+            new[] { new TypedDamageDice(new DiceExpression(1, 6), "slashing", "Base AC") },
+            Array.Empty<TypedFlatDamage>(),
+            5,
+            0,
+            0,
+            StrikeAmmunitionRequirement.None
+        );
+
+        StrikeResolutionData data = context.Capture(
+            new InMemoryRulesStore().Snapshot,
+            actorId,
+            item,
+            targetId,
+            (LegalStrikeTargetingOutcome)StrikeTargetingOutcome.Legal(5, 0, coverBonus, offGuard)
+        );
+
+        Assert.That(data.ArmorClass, Is.EqualTo(15));
     }
 
     [Test]
@@ -113,7 +160,9 @@ public sealed class RulesStrikeUnityTests
         );
         bridge.BeginTurn(torgrimId, 3);
         if (
-            !RageRules.GetActiveRollOptions(bridge.Snapshot, torgrimId).Contains("self:effect:rage")
+            !RuntimeOptionResolver
+                .Resolve(bridge.Snapshot, torgrimId, System.Array.Empty<string>())
+                .Contains("self:effect:rage")
         )
             Assert.That(
                 bridge.Dispatch(new RageActionOp(torgrimId)),
@@ -159,7 +208,7 @@ public sealed class RulesStrikeUnityTests
         CreatureComponent target = CreateCreature("Target", "enemies", 20, 21);
         target.weaknesses.Add(new DamageValue("bludgeoning", 2));
         target.resistances.Add(new DamageValue("bludgeoning", 1));
-        Conditions targetConditions = target.gameObject.AddComponent<Conditions>();
+        target.gameObject.AddComponent<Conditions>();
         TestActionController attackerController =
             attacker.gameObject.AddComponent<TestActionController>();
         TestActionController targetController =
@@ -177,7 +226,16 @@ public sealed class RulesStrikeUnityTests
         CreatureId actor = bridge.GetCreatureId(attacker);
         CreatureId targetId = bridge.GetCreatureId(target);
         bridge.BeginTurn(actor, 3);
-        targetConditions.Add("Off-Guard", new ConditionSource());
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "Off-Guard",
+                targetId,
+                actor,
+                RuleSource.FromSlug("strike-off-guard-test"),
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            )
+        );
         RulesStrikeAction action = attackerController
             .GetActions()
             .OfType<RulesStrikeAction>()

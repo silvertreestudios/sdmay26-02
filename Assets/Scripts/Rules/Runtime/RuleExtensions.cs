@@ -89,7 +89,9 @@ namespace Game.Rules.Runtime
     /// eligibility is frozen when the Fact's source operation frame begins, then the binding is
     /// checked again immediately before notification. A binding enabled or created by a frame
     /// cannot observe that frame's Facts, while a binding disabled, removed, or changed before
-    /// delivery is skipped.
+    /// delivery is skipped. A listener failure does not prevent later selected listeners from
+    /// running. After every eligible delivery is attempted, one failure is rethrown directly or
+    /// multiple failures are reported in deterministic delivery order.
     /// </remarks>
     public interface IRuleFactListener<TFact>
         where TFact : RuleFact

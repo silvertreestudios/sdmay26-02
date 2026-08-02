@@ -136,14 +136,20 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("A condition owner is required.", nameof(owner));
             return snapshot
                 .RuleBindings.Select(pair => pair.Value)
-                .Where(binding => binding.Owner == owner && binding.EffectId.HasValue)
+                .Where(binding =>
+                    binding.Owner == owner && binding.IsEnabled && binding.EffectId.HasValue
+                )
                 .Select(binding =>
                     CreateCandidate<IEffectState>(snapshot, binding.DefinitionId, binding)
                 )
                 .Where(candidate => candidate != null)
-                .Select(candidate =>
-                    candidate.Effect.DefinitionId.Value.Substring("condition-".Length)
+                .Select(candidate => candidate.Effect.DefinitionId)
+                .Select(definition =>
+                    ConditionRuleDefinitions.TryGetCanonicalSlug(definition, out string slug)
+                        ? slug
+                        : string.Empty
                 )
+                .Where(slug => !string.IsNullOrEmpty(slug))
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(slug => slug, StringComparer.Ordinal)
                 .ToArray();
@@ -216,14 +222,12 @@ namespace Game.Rules.Runtime
             where TState : IEffectState
         {
             if (
-                !snapshot.ActiveEffects.TryGet(
-                    binding.EffectId.Value,
+                !ActiveEffectAssociation.TryGetActive(
+                    snapshot,
+                    binding,
                     out ActiveEffectInstance effect
                 )
-                || effect.Status != ActiveEffectStatus.Active
                 || effect.DefinitionId != definitionId
-                || effect.DefinitionId != binding.DefinitionId
-                || effect.Source != binding.Source
                 || !(effect.State is TState state)
                 || !ConditionRuleDefinitions.Accepts(effect.DefinitionId, effect.State)
             )

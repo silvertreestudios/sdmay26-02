@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Game.Rules.Runtime
@@ -59,6 +60,105 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>Enforces compiled condition immunity wherever active condition authority enters.</summary>
+    internal static class ConditionImmunityValidation
+    {
+        internal static bool TryValidateActive(
+            RulesStateDraft state,
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            out string rejection
+        )
+        {
+            if (state == null)
+                throw new ArgumentNullException(nameof(state));
+            if (effect == null)
+                throw new ArgumentNullException(nameof(effect));
+            if (binding == null)
+                throw new ArgumentNullException(nameof(binding));
+            if (
+                effect.Status != ActiveEffectStatus.Active
+                || !ConditionReduction.IsCondition(effect)
+            )
+            {
+                rejection = string.Empty;
+                return true;
+            }
+            if (!state.Creatures.Contains(binding.Owner))
+            {
+                rejection = "The condition owner is not a registered creature.";
+                return false;
+            }
+            if (!state.PreparedInputs.TryGet(binding.Owner, out PreparedCreatureInputs prepared))
+                throw new InvalidOperationException(
+                    $"Registered condition owner {binding.Owner.Value} has no authoritative prepared inputs."
+                );
+            return TryValidateActive(effect, prepared, out rejection);
+        }
+
+        internal static void ValidateStateInvariant(
+            IReadOnlyDictionary<CreatureId, CreatureState> creatures,
+            IReadOnlyDictionary<CreatureId, PreparedCreatureInputs> preparedInputs,
+            IReadOnlyDictionary<ActiveEffectId, ActiveEffectInstance> activeEffects,
+            IReadOnlyDictionary<BindingId, ActiveRuleBinding> ruleBindings
+        )
+        {
+            foreach (ActiveRuleBinding binding in ruleBindings.Values)
+            {
+                if (
+                    !binding.IsEnabled
+                    || !binding.EffectId.HasValue
+                    || !activeEffects.TryGetValue(
+                        binding.EffectId.Value,
+                        out ActiveEffectInstance effect
+                    )
+                    || effect.Status != ActiveEffectStatus.Active
+                    || !ActiveEffectRegistration.BindingMatchesEffect(effect, binding)
+                    || !ConditionReduction.IsCondition(effect)
+                )
+                    continue;
+                if (!creatures.ContainsKey(binding.Owner))
+                    throw new InvalidOperationException(
+                        $"Active condition owner {binding.Owner.Value} is not a registered creature."
+                    );
+                if (!preparedInputs.TryGetValue(binding.Owner, out PreparedCreatureInputs prepared))
+                    throw new InvalidOperationException(
+                        $"Registered condition owner {binding.Owner.Value} has no authoritative prepared inputs."
+                    );
+                if (!TryValidateActive(effect, prepared, out string rejection))
+                    throw new InvalidOperationException(rejection);
+            }
+        }
+
+        private static bool TryValidateActive(
+            ActiveEffectInstance effect,
+            PreparedCreatureInputs prepared,
+            out string rejection
+        )
+        {
+            if (
+                ConditionRuleDefinitions.TryGetCanonicalSlug(
+                    effect.DefinitionId,
+                    out string conditionSlug
+                )
+                && prepared.Immunities.Any(immunity =>
+                    immunity.Kind == PreparedImmunityKind.Condition
+                    && ConditionInputNormalizer.TryNormalize(
+                        immunity.Type,
+                        out RuleDefinitionId immunityDefinition
+                    )
+                    && immunityDefinition == effect.DefinitionId
+                )
+            )
+            {
+                rejection = $"The condition owner is immune to {conditionSlug}.";
+                return false;
+            }
+            rejection = string.Empty;
+            return true;
+        }
+    }
+
     internal sealed class CreateConditionReducer
         : IOpReducer<CreateConditionOp, ConditionCreationOutcome>
     {
@@ -83,10 +183,6 @@ namespace Game.Rules.Runtime
             if (!state.Creatures.Contains(effect.SourceCreature))
                 return ReductionResult<ConditionCreationOutcome>.Reject(
                     "The condition source is not a registered creature."
-                );
-            if (!state.Creatures.Contains(context.Op.Binding.Owner))
-                return ReductionResult<ConditionCreationOutcome>.Reject(
-                    "The condition owner is not a registered creature."
                 );
 
             CreateActiveEffectOp translated = new CreateActiveEffectOp(effect, context.Op.Binding);

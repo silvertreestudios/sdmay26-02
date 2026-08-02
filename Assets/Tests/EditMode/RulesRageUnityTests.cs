@@ -48,6 +48,35 @@ public sealed class RulesRageUnityTests
     }
 
     [Test]
+    public void EnrollmentReplacesDuplicateStaleRageActionsAndPreservesOtherActions()
+    {
+        CreatureComponent creature = CreateBarbarian();
+        RageTestActionController controller =
+            creature.gameObject.AddComponent<RageTestActionController>();
+        CreatureComponent opponent = CreateBarbarian();
+        RageTestActionController opponentController =
+            opponent.gameObject.AddComponent<RageTestActionController>();
+        RulesRageAction staleFirst = new RulesRageAction(new RageActionDefinition());
+        RulesRageAction staleSecond = new RulesRageAction(new RageActionDefinition());
+        MarkerAction marker = new MarkerAction();
+        controller.AddAction(staleFirst);
+        controller.AddAction(marker);
+        controller.AddAction(staleSecond);
+
+        UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
+
+        RulesRageAction installed = controller.GetActions().OfType<RulesRageAction>().Single();
+        Assert.That(installed, Is.Not.SameAs(staleFirst));
+        Assert.That(installed, Is.Not.SameAs(staleSecond));
+        Assert.That(controller.GetActions(), Does.Contain(marker));
+        Assert.That(controller.GetActions().OfType<Game.Strikes.RulesStrikeAction>(), Is.Not.Empty);
+    }
+
+    [Test]
     public void ReusedControllerReplacesOrRemovesEncounterOwnedRageAction()
     {
         CreatureComponent creature = CreateBarbarian();
@@ -160,12 +189,13 @@ public sealed class RulesRageUnityTests
         );
         CreatureId fatiguedActor = bridge.GetCreatureId(fatiguedCreature);
         CreatureId encumberedActor = bridge.GetCreatureId(encumberedCreature);
+        RuleSource fatiguedSource = RuleSource.FromSlug("rage-test-fatigued");
         bridge.Dispatch(
             new ApplyConditionOp(
                 "fatigued",
                 fatiguedActor,
                 fatiguedActor,
-                RuleSource.FromSlug("rage-test-fatigued"),
+                fatiguedSource,
                 EffectDuration.Indefinite,
                 ConditionMarkerState.Instance
             )
@@ -204,7 +234,14 @@ public sealed class RulesRageUnityTests
         );
         Assert.That(RageRules.IsRaging(bridge.Snapshot, encumberedActor), Is.False);
 
-        fatiguedConditions.Remove("fatigued", fatiguedSource);
+        bridge.Dispatch(
+            new CleanupConditionsFromSourceOp(
+                fatiguedActor,
+                ConditionRuleDefinitions.Fatigued,
+                fatiguedSource,
+                ConditionCleanupKind.Remove
+            )
+        );
         Assert.That(
             bridge.Dispatch(new RageActionOp(fatiguedActor)),
             Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
@@ -236,5 +273,13 @@ public sealed class RulesRageUnityTests
     private sealed class RageTestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class MarkerAction : EntityAction
+    {
+        internal MarkerAction()
+            : base(0) { }
+
+        public override string ActionName => "Marker";
     }
 }

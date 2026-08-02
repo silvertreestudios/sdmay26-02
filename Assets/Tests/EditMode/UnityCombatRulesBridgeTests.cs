@@ -2109,6 +2109,121 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void AdditionalModuleDefinitionUnusedInitiallySupportsLaterReinforcement()
+    {
+        GameObject actorObject = new GameObject("module-defined-effect-actor");
+        GameObject opponentObject = new GameObject("module-defined-effect-opponent");
+        GameObject reinforcementObject = new GameObject("module-defined-effect-reinforcement");
+        try
+        {
+            BridgeTestActionController actor = ConfigureCombatant(
+                actorObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController opponent = ConfigureCombatant(
+                opponentObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            InitialActiveEffectValidationModule module = new()
+            {
+                TargetName = reinforcementObject.name,
+                ContributeDefinition = true,
+            };
+
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { actor, opponent },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { module }
+            );
+            Assert.That(bridge.Snapshot.ActiveEffects, Is.Empty);
+            bridge.StartEncounter("Players");
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Enemies",
+                Vector3Int.right
+            );
+
+            bridge.RegisterCombatants(new[] { reinforcement });
+
+            Assert.That(
+                bridge
+                    .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                    .Single()
+                    .DefinitionId.Value,
+                Is.EqualTo("unknown-initial-active-effect")
+            );
+            Assert.That(module.RegistryConfigurations, Is.EqualTo(1));
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(actorObject);
+            Object.DestroyImmediate(opponentObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void AdditionalModuleUnknownReinforcementDefinitionStillRejectsAtomically()
+    {
+        GameObject actorObject = new GameObject("module-unknown-effect-actor");
+        GameObject opponentObject = new GameObject("module-unknown-effect-opponent");
+        GameObject reinforcementObject = new GameObject("module-unknown-effect-reinforcement");
+        try
+        {
+            BridgeTestActionController actor = ConfigureCombatant(
+                actorObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController opponent = ConfigureCombatant(
+                opponentObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            InitialActiveEffectValidationModule module = new()
+            {
+                TargetName = reinforcementObject.name,
+            };
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { actor, opponent },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { module }
+            );
+            bridge.StartEncounter("Players");
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            long version = bridge.Snapshot.Version;
+            int rosterCount = bridge.GetEncounter().Roster.Count;
+
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                bridge.RegisterCombatants(new[] { reinforcement })
+            );
+
+            Assert.That(failure.Message, Does.Contain("unknown"));
+            Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
+            Assert.That(bridge.GetEncounter().Roster, Has.Count.EqualTo(rosterCount));
+            Assert.That(bridge.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(reinforcement.HasTurnAuthority, Is.False);
+            Assert.That(module.RegistryConfigurations, Is.EqualTo(1));
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(actorObject);
+            Object.DestroyImmediate(opponentObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
     public void InitialFiniteActiveEffectWithAbsentSourceRollsBackAndAllowsCorrectedRetry()
     {
         GameObject actorObject = new GameObject("initial-absent-effect-source-actor");
@@ -2928,7 +3043,6 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
-
     /// <summary>Identifies a committed reinforcement checkpoint used by retry test cases.</summary>
     public enum ReinforcementFailureCheckpoint
     {
@@ -3020,7 +3134,9 @@ public sealed class UnityCombatRulesBridgeTests
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) => Count++;
     }
 
-    private sealed class InitialActiveEffectValidationModule : IUnityCombatantEnrollmentModule
+    private sealed class InitialActiveEffectValidationModule
+        : IUnityCombatantEnrollmentModule,
+            IUnityEncounterRegistryModule
     {
         private static readonly RuleDefinitionId UnknownDefinition = new RuleDefinitionId(
             "unknown-initial-active-effect"
@@ -3031,6 +3147,7 @@ public sealed class UnityCombatRulesBridgeTests
 
         internal string TargetName { get; set; } = string.Empty;
         internal bool UseKnownDefinition { get; set; }
+        internal bool ContributeDefinition { get; set; }
         internal CreatureId SourceCreature { get; set; }
         internal EffectDuration Duration { get; set; } = EffectDuration.Indefinite;
         internal EncounterId SuppliedTimingEncounter { get; set; }
@@ -3038,6 +3155,14 @@ public sealed class UnityCombatRulesBridgeTests
         internal int Installations { get; private set; }
         internal int FinalizationValidations { get; private set; }
         internal int Finalizations { get; private set; }
+        internal int RegistryConfigurations { get; private set; }
+
+        public void ConfigureRegistry(RuleRegistryBuilder builder)
+        {
+            RegistryConfigurations++;
+            if (ContributeDefinition)
+                builder.Define(UnknownDefinition);
+        }
 
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {

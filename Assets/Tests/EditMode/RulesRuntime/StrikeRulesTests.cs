@@ -109,6 +109,42 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(observer.Outcome.Degree, Is.EqualTo(resolution.Degree));
         }
 
+        [TestCase(2, false, 17, 2)]
+        [TestCase(0, true, 13, -2)]
+        public async Task ContextualDefenseAdjustmentIsCollectedExactlyOnce(
+            int coverBonus,
+            bool offGuard,
+            int expectedArmorClass,
+            int expectedCircumstanceValue
+        )
+        {
+            TestRuntime runtime = CreateRuntime(new ScriptedRollService(1));
+            runtime.Targeting.Result = StrikeTargetingOutcome.Legal(5, 0, coverBonus, offGuard);
+            CapturingDefenseCollectionObserver observer = new();
+            runtime.Dispatcher.RegisterResolvedOpObserver<
+                CollectDefenseModifiersOp,
+                ModifierCollection
+            >(observer);
+
+            StrikeResolution resolution = AssertResolved(
+                await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
+            ).Value;
+
+            Assert.That(resolution.ArmorClass, Is.EqualTo(expectedArmorClass));
+            Assert.That(observer.Collection, Is.Not.Null);
+            Modifier[] circumstance = observer
+                .Collection.Applied.Where(modifier => modifier.Type == ModifierType.Circumstance)
+                .ToArray();
+            Assert.That(circumstance.Length, Is.EqualTo(1));
+            Assert.That(circumstance[0].Value, Is.EqualTo(expectedCircumstanceValue));
+            Assert.That(
+                observer.Collection.Suppressed.Where(modifier =>
+                    modifier.Type == ModifierType.Circumstance
+                ),
+                Is.Empty
+            );
+        }
+
         [Test]
         public async Task MissStillSpendsActionAndAdvancesMapWithoutDamage()
         {
@@ -520,6 +556,7 @@ namespace Game.Rules.Runtime.Tests
                             Array.Empty<Modifier>(),
                             Array.Empty<TypedDamageDice>(),
                             Array.Empty<TypedFlatDamage>(),
+                            Array.Empty<TypedDamageImmunity>(),
                             Array.Empty<TypedDefenseAdjustment>(),
                             Array.Empty<TypedDefenseAdjustment>()
                         )
@@ -645,6 +682,22 @@ namespace Game.Rules.Runtime.Tests
             {
                 Operation = operation;
                 Outcome = result;
+                return default;
+            }
+        }
+
+        private sealed class CapturingDefenseCollectionObserver
+            : IResolvedOpObserver<CollectDefenseModifiersOp, ModifierCollection>
+        {
+            public ModifierCollection Collection { get; private set; }
+
+            public ValueTask OnOperationResolved(
+                CollectDefenseModifiersOp operation,
+                ModifierCollection result,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Collection = result;
                 return default;
             }
         }

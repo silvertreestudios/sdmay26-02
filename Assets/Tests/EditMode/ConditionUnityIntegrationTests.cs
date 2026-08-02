@@ -41,7 +41,7 @@ public sealed class ConditionUnityIntegrationTests
     {
         CreatureFixture caster = CreateCreature("Caster", "Heroes", 100);
         CreatureFixture target = CreateCreature("Target", "Enemies", 0);
-        caster.Creature.Prepared = new PreparedCharacter(new CharacterBuild())
+        caster.Creature.Prepared = new PreparedCharacter
         {
             Spellcasting = new SpellcastingState { SpellAttackModifier = 100 },
         };
@@ -136,6 +136,110 @@ public sealed class ConditionUnityIntegrationTests
                 .Count,
             Is.EqualTo(1)
         );
+    }
+
+    [Test]
+    public void InitialRestoreRejectsCompiledFlatFootedImmunityBeforeAuthorityAttaches()
+    {
+        CreatureFixture immune = CreateCreature("Immune Initial", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Immune Initial Opponent", "Enemies", 0);
+        immune.Creature.immunities.Add("Flat-Footed");
+        immune.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    immune.GameObject,
+                    ConditionRuleDefinitions.OffGuard,
+                    "immune-initial-off-guard",
+                    ConditionMarkerState.Instance
+                ),
+            }
+        );
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+            UnityCombatRulesBridge.Create(
+                new[] { immune.Controller, opponent.Controller },
+                CreateTiles()
+            )
+        );
+
+        Assert.That(failure.Message, Does.Contain("immune to off-guard"));
+        Assert.That(immune.Conditions.HasPendingRestore, Is.True);
+        Assert.That(immune.Controller.HasTurnAuthority, Is.False);
+        Assert.That(opponent.Controller.HasTurnAuthority, Is.False);
+    }
+
+    [Test]
+    public void ReinforcementRestoreRejectsCompiledFlatFootedImmunityAtomically()
+    {
+        CreatureFixture initial = CreateCreature("Immune Join Initial", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Immune Join Opponent", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { initial.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        bridge.StartEncounter("Heroes");
+        CreatureFixture reinforcement = CreateCreature("Immune Join", "Enemies", -1);
+        reinforcement.Creature.immunities.Add("Flat-Footed");
+        reinforcement.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    reinforcement.GameObject,
+                    ConditionRuleDefinitions.OffGuard,
+                    "immune-join-off-guard",
+                    ConditionMarkerState.Instance
+                ),
+            }
+        );
+        long version = bridge.Snapshot.Version;
+        int rosterCount = bridge.GetEncounter().Roster.Count;
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+            bridge.RegisterCombatants(new[] { reinforcement.Controller })
+        );
+
+        Assert.That(failure.Message, Does.Contain("immune to off-guard"));
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
+        Assert.That(bridge.GetEncounter().Roster, Has.Count.EqualTo(rosterCount));
+        Assert.That(bridge.Snapshot.ActiveEffects, Is.Empty);
+        Assert.That(reinforcement.Conditions.HasPendingRestore, Is.True);
+        Assert.That(reinforcement.Controller.HasTurnAuthority, Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void FreshApplicationRejectsCompiledFlatFootedImmunityWithoutMutation()
+    {
+        CreatureFixture source = CreateCreature("Immune Fresh Source", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Immune Fresh Target", "Enemies", 0);
+        target.Creature.immunities.Add("Flat-Footed");
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { source.Controller, target.Controller },
+            CreateTiles()
+        );
+        CreatureId sourceId = bridge.GetCreatureId(source.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        long version = bridge.Snapshot.Version;
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+            bridge.Dispatch(
+                new ApplyConditionOp(
+                    "Flat-Footed",
+                    targetId,
+                    sourceId,
+                    RuleSource.FromSlug("immune-fresh-source"),
+                    EffectDuration.Indefinite,
+                    ConditionMarkerState.Instance
+                )
+            )
+        );
+
+        Assert.That(failure.Message, Does.Contain("immune to off-guard"));
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
+        Assert.That(bridge.Snapshot.ActiveEffects, Is.Empty);
+        Assert.That(bridge.Snapshot.RuleBindings.All(pair => !pair.Value.EffectId.HasValue));
+        bridge.ReleaseOwnership();
     }
 
     [Test]

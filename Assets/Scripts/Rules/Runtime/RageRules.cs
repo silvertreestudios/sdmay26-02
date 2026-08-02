@@ -5,39 +5,6 @@ using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
-    /// <summary>Supplies the current condition facts needed by the Rage workflow.</summary>
-    /// <remarks>
-    /// Conditions remain outside the prepared-character cutover. This boundary supplies only that
-    /// live, unmigrated state; ownership, armor, level, and abilities always come from the current
-    /// <see cref="RulesSnapshot"/>.
-    /// </remarks>
-    public interface IRageConditionStateProvider
-    {
-        /// <summary>Gets the current condition facts for a registered creature.</summary>
-        /// <param name="actor">The creature whose eligibility is being evaluated.</param>
-        /// <returns>The current condition state for that creature.</returns>
-        RageConditionState Get(CreatureId actor);
-    }
-
-    /// <summary>Contains the live, unmigrated condition inputs used by Rage.</summary>
-    public readonly struct RageConditionState
-    {
-        /// <summary>Creates current Rage condition inputs.</summary>
-        /// <param name="isFatigued">Whether Fatigued is currently present.</param>
-        /// <param name="isEncumbered">Whether Encumbered is currently present.</param>
-        public RageConditionState(bool isFatigued, bool isEncumbered)
-        {
-            IsFatigued = isFatigued;
-            IsEncumbered = isEncumbered;
-        }
-
-        /// <summary>Gets whether Fatigued currently prevents Rage.</summary>
-        public bool IsFatigued { get; }
-
-        /// <summary>Gets whether Encumbered currently prevents Quick-Tempered.</summary>
-        public bool IsEncumbered { get; }
-    }
-
     /// <summary>Contains all non-effect facts used to validate and resolve Rage.</summary>
     public sealed class RageActorState
     {
@@ -185,15 +152,15 @@ namespace Game.Rules.Runtime
             int offeredTemporaryHitPoints
         )
         {
-            ActiveEffectId effectId = CreateEffectId(rootId);
-            BindingId bindingId = CreateBindingId(rootId);
+            ActiveEffectId effectId = CreateEffectId(rootId, actor);
+            BindingId bindingId = CreateBindingId(rootId, actor);
             return new RageEffectState(
                 actor,
                 effectId,
                 bindingId,
                 triggerBinding,
                 rootId,
-                RageHandlerSupport.CreateHealthOrigin(rootId),
+                RageHandlerSupport.CreateHealthOrigin(rootId, actor),
                 offeredTemporaryHitPoints,
                 RageStartPhase.Pending,
                 false,
@@ -203,11 +170,11 @@ namespace Game.Rules.Runtime
             );
         }
 
-        internal static ActiveEffectId CreateEffectId(OpId rootId) =>
-            new ActiveEffectId($"rage-effect-{rootId.Value}");
+        internal static ActiveEffectId CreateEffectId(OpId rootId, CreatureId actor) =>
+            new ActiveEffectId($"rage-effect-{rootId.Value}-{actor.Value}");
 
-        internal static BindingId CreateBindingId(OpId rootId) =>
-            new BindingId($"rage-binding-{rootId.Value}");
+        internal static BindingId CreateBindingId(OpId rootId, CreatureId actor) =>
+            new BindingId($"rage-binding-{rootId.Value}-{actor.Value}");
 
         internal RageEffectState WithGrantTransition(TemporaryHitPointsGrantTransition transition)
         {
@@ -400,7 +367,6 @@ namespace Game.Rules.Runtime
             ActionCost.FreeAction,
             QuickTemperedTraits
         );
-        private readonly IRageConditionStateProvider conditionStateProvider;
 
         /// <summary>Gets Rage's stable action-definition identity.</summary>
         public static ActionDefinitionId DefinitionId { get; } = new ActionDefinitionId("rage");
@@ -411,15 +377,6 @@ namespace Game.Rules.Runtime
 
         internal static ActionDefinitionId QuickTemperedDefinitionId { get; } =
             new ActionDefinitionId("quick-tempered-rage");
-
-        /// <summary>Creates a definition with an explicit current-condition boundary.</summary>
-        /// <param name="conditionStateProvider">
-        /// The temporary host boundary for current Fatigued and Encumbered state.
-        /// </param>
-        public RageActionDefinition(IRageConditionStateProvider conditionStateProvider) =>
-            this.conditionStateProvider =
-                conditionStateProvider
-                ?? throw new ArgumentNullException(nameof(conditionStateProvider));
 
         /// <summary>Gets current ordinary Rage availability for presentation.</summary>
         /// <param name="snapshot">The authoritative rules snapshot.</param>
@@ -439,7 +396,7 @@ namespace Game.Rules.Runtime
         }
 
         internal RageActorState GetActorState(RulesSnapshot snapshot, CreatureId actor) =>
-            RageRules.GetActorState(snapshot, actor, conditionStateProvider.Get(actor));
+            RageRules.GetActorState(snapshot, actor);
 
         internal ActionValidationResult Validate(
             RulesSnapshot snapshot,
@@ -688,15 +645,25 @@ namespace Game.Rules.Runtime
         internal static readonly RuleSource LifecycleSource = RuleSource.FromSlug("rage-lifecycle");
         private static readonly IReadOnlyList<ActiveRuleBinding> NoInitialBindings =
             Array.AsReadOnly(Array.Empty<ActiveRuleBinding>());
-        private static readonly IReadOnlyList<string> ActiveRollOptions = Array.AsReadOnly(
-            new[] { "self:effect:rage", "self:effect:effect-rage" }
-        );
 
-        internal static RageActorState GetActorState(
-            RulesSnapshot snapshot,
-            CreatureId actor,
-            RageConditionState conditions
-        )
+        /// <summary>Creates immutable Rage state from one combatant's prepared enrollment inputs.</summary>
+        /// <param name="inputs">The authoritative prepared snapshot captured for the combatant.</param>
+        /// <returns>The Rage ownership and derived values to install for the encounter.</returns>
+        public static RageActorState CreateEnrollmentState(PreparedCreatureInputs inputs)
+        {
+            if (inputs == null)
+                throw new ArgumentNullException(nameof(inputs));
+            return CreateActorState(
+                inputs,
+                slug =>
+                    inputs.StaticOptions.Contains(
+                        $"item:owned:{slug}",
+                        StringComparer.OrdinalIgnoreCase
+                    ) || inputs.BoundOptions.Any(option => option.Option == $"item:owned:{slug}")
+            );
+        }
+
+        internal static RageActorState GetActorState(RulesSnapshot snapshot, CreatureId actor)
         {
             if (snapshot == null)
                 throw new ArgumentNullException(nameof(snapshot));
@@ -705,7 +672,11 @@ namespace Game.Rules.Runtime
                     $"Rage actor {actor.Value} has no prepared inputs."
                 );
             bool Owns(string slug) =>
-                inputs.BoundOptions.Any(option =>
+                inputs.StaticOptions.Contains(
+                    $"item:owned:{slug}",
+                    StringComparer.OrdinalIgnoreCase
+                )
+                || inputs.BoundOptions.Any(option =>
                     option.Option == $"item:owned:{slug}"
                     && snapshot.RuleBindings.Any(pair =>
                         pair.Value.Owner == actor
@@ -713,17 +684,21 @@ namespace Game.Rules.Runtime
                         && pair.Value.IsEnabled
                     )
                 );
-            return new RageActorState(
-                Owns("rage"),
-                Owns("quick-tempered"),
-                conditions.IsFatigued,
-                conditions.IsEncumbered,
+            return CreateActorState(inputs, Owns);
+        }
+
+        private static RageActorState CreateActorState(
+            PreparedCreatureInputs inputs,
+            Func<string, bool> owns
+        ) =>
+            new RageActorState(
+                owns("rage"),
+                owns("quick-tempered"),
                 inputs.ArmorCategory == "heavy",
-                Owns("invulnerable-rager"),
+                owns("invulnerable-rager"),
                 inputs.Level,
                 inputs.Abilities.Constitution
             );
-        }
 
         /// <summary>Gets ordinary Rage availability from authoritative and immutable actor state.</summary>
         /// <param name="snapshot">The authoritative rules snapshot.</param>
@@ -790,15 +765,6 @@ namespace Game.Rules.Runtime
             }
             return Array.AsReadOnly(bindings.ToArray());
         }
-
-        /// <summary>Gets roll options contributed by the actor's active Rage.</summary>
-        /// <param name="snapshot">The authoritative rules snapshot.</param>
-        /// <param name="actor">The creature whose options are requested.</param>
-        /// <returns>Rage roll options while active, otherwise an empty collection.</returns>
-        public static IReadOnlyList<string> GetActiveRollOptions(
-            RulesSnapshot snapshot,
-            CreatureId actor
-        ) => IsRaging(snapshot, actor) ? ActiveRollOptions : Array.Empty<string>();
 
         internal static ActionValidationResult Validate(
             RulesSnapshot snapshot,
@@ -1404,9 +1370,9 @@ namespace Game.Rules.Runtime
             TryGetExact(
                 snapshot,
                 actor,
-                RageEffectState.CreateEffectId(rootId),
-                RageEffectState.CreateBindingId(rootId),
-                RageHandlerSupport.CreateHealthOrigin(rootId),
+                RageEffectState.CreateEffectId(rootId, actor),
+                RageEffectState.CreateBindingId(rootId, actor),
+                RageHandlerSupport.CreateHealthOrigin(rootId, actor),
                 rootId.Value,
                 triggerBinding,
                 phase,
@@ -1568,7 +1534,7 @@ namespace Game.Rules.Runtime
 
             HealthChangeOriginId cleanupOrigin = receipt.HasWorkflowReceipt
                 ? receipt.Origin
-                : RageHandlerSupport.CreateHealthOrigin(frame.RootId);
+                : RageHandlerSupport.CreateHealthOrigin(frame.RootId, frame.Op.Actor);
             await RageHandlerSupport.RequireResolved(
                 context.Dispatch(
                     new CommitRageEndOp(
@@ -1710,7 +1676,10 @@ namespace Game.Rules.Runtime
             }
             if (!receipt.HasWorkflowReceipt)
             {
-                if (operation.CleanupOrigin != RageHandlerSupport.CreateHealthOrigin(rootId))
+                if (
+                    operation.CleanupOrigin
+                    != RageHandlerSupport.CreateHealthOrigin(rootId, operation.Actor)
+                )
                 {
                     rejection =
                         "Rage presentation cleanup requires this operation's health origin.";
@@ -1726,9 +1695,11 @@ namespace Game.Rules.Runtime
                 || receipt.Actor != operation.Actor
                 || receipt.EffectId != operation.EffectId
                 || receipt.BindingId != operation.BindingId
-                || receipt.EffectId != RageEffectState.CreateEffectId(receipt.RootId)
-                || receipt.BindingId != RageEffectState.CreateBindingId(receipt.RootId)
-                || receipt.Origin != RageHandlerSupport.CreateHealthOrigin(receipt.RootId)
+                || receipt.EffectId != RageEffectState.CreateEffectId(receipt.RootId, receipt.Actor)
+                || receipt.BindingId
+                    != RageEffectState.CreateBindingId(receipt.RootId, receipt.Actor)
+                || receipt.Origin
+                    != RageHandlerSupport.CreateHealthOrigin(receipt.RootId, receipt.Actor)
                 || receipt.Origin != operation.CleanupOrigin
                 || binding.CreationOrder != receipt.RootId.Value
                 || !RageHandlerSupport.HasExactLifecycleCheckpoint(
@@ -1777,9 +1748,12 @@ namespace Game.Rules.Runtime
                 : EffectStateVersion.Initial;
             if (
                 expected.Phase != RageStartPhase.Pending
-                || expected.EffectId != RageEffectState.CreateEffectId(expected.RootId)
-                || expected.BindingId != RageEffectState.CreateBindingId(expected.RootId)
-                || expected.Origin != RageHandlerSupport.CreateHealthOrigin(expected.RootId)
+                || expected.EffectId
+                    != RageEffectState.CreateEffectId(expected.RootId, expected.Actor)
+                || expected.BindingId
+                    != RageEffectState.CreateBindingId(expected.RootId, expected.Actor)
+                || expected.Origin
+                    != RageHandlerSupport.CreateHealthOrigin(expected.RootId, expected.Actor)
                 || !ActiveEffectReduction.TryGetCurrent(
                     state,
                     expected.EffectId,
@@ -1894,7 +1868,7 @@ namespace Game.Rules.Runtime
             GrantTemporaryHitPointsOp grant = new GrantTemporaryHitPointsOp(
                 actor,
                 offeredTemporaryHitPoints,
-                CreateHealthOrigin(rootId),
+                CreateHealthOrigin(rootId, actor),
                 RageRules.Source,
                 intent
             );
@@ -2168,8 +2142,8 @@ namespace Game.Rules.Runtime
                 out RageEffectState receipt
             ) && receipt.HasGrantOutcome;
 
-        public static HealthChangeOriginId CreateHealthOrigin(OpId rootId) =>
-            new HealthChangeOriginId($"rage-root-{rootId.Value}");
+        public static HealthChangeOriginId CreateHealthOrigin(OpId rootId, CreatureId actor) =>
+            new HealthChangeOriginId($"rage-root-{rootId.Value}-{actor.Value}");
 
         public static async ValueTask<TResult> RequireResolved<TResult>(
             ValueTask<OpResult<TResult>> pending

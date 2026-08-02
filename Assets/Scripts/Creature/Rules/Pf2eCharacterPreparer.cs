@@ -1184,6 +1184,23 @@ namespace Game.Creature.Rules
         private static IEnumerable<PreparedImmunityDescriptor> CompileImmunity(string value)
         {
             string type = Pf2eSlug.FromName(value);
+            if (
+                ConditionInputNormalizer.TryNormalize(
+                    type,
+                    out RuleDefinitionId conditionDefinition
+                )
+                && ConditionRuleDefinitions.TryGetCanonicalSlug(
+                    conditionDefinition,
+                    out string canonicalCondition
+                )
+            )
+            {
+                yield return new PreparedImmunityDescriptor(
+                    canonicalCondition,
+                    PreparedImmunityKind.Condition
+                );
+                yield break;
+            }
             if (type == "death" || type == "death-effect" || type == "death-effects")
             {
                 yield return new PreparedImmunityDescriptor(type, PreparedImmunityKind.EffectTrait);

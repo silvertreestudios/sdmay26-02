@@ -364,7 +364,7 @@ namespace Game.Rules.Runtime.Tests
             );
             ActiveRuleBinding otherBinding = Binding("other-binding", other, Owner, 1);
             InMemoryRulesStore store = new InMemoryRulesStore(
-                new RulesStateSeed()
+                RegisteredSourceSeed()
                     .SeedActiveEffect(effect)
                     .SeedRuleBinding(binding)
                     .SeedActiveEffect(other)
@@ -397,7 +397,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void SelectorFiltersInvalidCandidatesAndUsesBindingOwner()
         {
-            RulesStateSeed seed = new RulesStateSeed();
+            RulesStateSeed seed = RegisteredSourceSeed();
             Add(
                 seed,
                 "valid",
@@ -476,7 +476,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void SelectorChoosesHighestValueThenStableCreationAndBindingOrder()
         {
-            RulesStateSeed seed = new RulesStateSeed();
+            RulesStateSeed seed = RegisteredSourceSeed();
             Add(
                 seed,
                 "low",
@@ -608,9 +608,11 @@ namespace Game.Rules.Runtime.Tests
                 new InMemoryRulesStore(
                     new RulesStateSeed()
                         .SeedCreature(new CreatureState(SourceCreature, SourcePlayer))
+                        .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty)
                         .SeedCreature(
                             new CreatureState(Owner, new PlayerId("condition-owner-player"))
                         )
+                        .SeedPreparedInputs(Owner, PreparedCreatureInputs.Empty)
                         .SeedActiveEffect(collidingEffect)
                         .SeedRuleBinding(collidingBinding)
                 )
@@ -746,7 +748,9 @@ namespace Game.Rules.Runtime.Tests
         private static RulesStateSeed RegisteredSourceSeed() =>
             new RulesStateSeed()
                 .SeedCreature(new CreatureState(SourceCreature, SourcePlayer))
-                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")));
+                .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty)
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedPreparedInputs(Owner, PreparedCreatureInputs.Empty);
 
         private static void Add(
             RulesStateSeed seed,

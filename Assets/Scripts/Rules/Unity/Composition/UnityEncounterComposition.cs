@@ -14,6 +14,13 @@ namespace Game.Rules.Unity.Composition
     /// </remarks>
     internal interface IUnityEncounterModule { }
 
+    /// <summary>Contributes static definitions before the encounter's single registry build.</summary>
+    internal interface IUnityEncounterRegistryModule : IUnityEncounterModule
+    {
+        /// <summary>Adds feature definitions to the shared registry builder.</summary>
+        void ConfigureRegistry(RuleRegistryBuilder builder);
+    }
+
     /// <summary>Contributes feature-owned resolvers to the encounter dispatcher.</summary>
     internal interface IUnityEncounterDispatcherModule : IUnityEncounterModule
     {

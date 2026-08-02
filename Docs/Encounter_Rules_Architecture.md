@@ -56,8 +56,9 @@ constructs the only production module sequence:
 9. `UnityHealthProjectionModule`
 10. `UnityEncounterProjectionModule`
 
-Before constructing that module array, `UnityEncounterModuleSet.Create` performs a separate,
-explicit static-composition pass that feature modules cannot defer to `ConfigureDispatcher`:
+Before registry construction, `UnityEncounterModuleSet.Create` materializes and validates every
+additional module exactly once, preserving the caller-supplied extension order. It then performs a
+separate, explicit static-composition pass that cannot be deferred to `ConfigureDispatcher`:
 
 - It constructs `CombatActionCatalog` from `strideDefinition`, `strikeContext`, `spellCatalog`,
   `new UnitySpellBookProvider(creatures)`, and the Rage feature catalog, `rageDefinition`. The
@@ -66,8 +67,15 @@ explicit static-composition pass that feature modules cannot defer to `Configure
   `PreparedRuleDefinitionSpec`, `RageRules.DefineRuleBindings(registryBuilder)`,
   `registryBuilder.AddOutcomeRule()`,
   `registryBuilder.Define(UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId)`, and
-  each distinct spell-effect `DefinitionId` from `spellCatalog.Definitions`, then calls
-  `registryBuilder.Build()`.
+  each distinct spell-effect `DefinitionId` from `spellCatalog.Definitions`.
+- It invokes `ConfigureRegistry` for each additional module that implements the stateless
+  `IUnityEncounterRegistryModule` capability, in that same extension order, and only then calls the
+  single `registryBuilder.Build()`.
+
+The exact materialized additional-module instances used for registry contribution are appended to
+the built-in sequence and reused by every later composition pass. A contributor may define static
+effect or binding definitions needed by initial enrollment or by a later reinforcement; it may not
+inspect combatants, self-register, retain the builder, or construct a second registry.
 
 `RuleRegistry` is immutable. `CombatActionCatalog` is instead a stable composed interface over
 encounter-live adapters. Both are constructed before `UnityCombatRulesBridge` supplies them to
@@ -96,6 +104,7 @@ Each pass filters the same sequence by capability, preserving supplied order:
 
 | Capability | Responsibility |
 | --- | --- |
+| `IUnityEncounterRegistryModule.ConfigureRegistry` | Contribute stateless effect and binding definitions before the encounter's single registry build. Additional modules are invoked in their explicit supplied order. |
 | `IUnityEncounterDispatcherModule.ConfigureDispatcher` | Register feature-owned handlers, reducers, validators, and engine composition with `RuleDispatcherBuilder`. |
 | `IUnityEncounterTurnStartModule.CreateTurnStartAdapter` | Supply a transitional `IEncounterTurnStartAdapter`. Adapters run sequentially in module order. |
 | `IUnityEncounterRuntimeModule.RegisterRuntime` | Register observers and other encounter-scoped resources into the supplied `CompositeLifetime`. |
@@ -110,8 +119,10 @@ registration side effects.
 
 `UnityCombatRulesBridge.Create` performs these boundaries in order:
 
-1. Create the mutable topology provider, shared feature contexts, catalogs, registry, explicit
-   module set, composition, and enrollment pipeline.
+1. Create the mutable topology provider and shared feature contexts; materialize and validate
+   additional modules; compose catalogs and all registry contributors; perform the single registry
+   build; then create the exact module set, composition, and enrollment pipeline from those same
+   module instances.
 2. Call `UnityCombatantEnrollmentPipeline.Prepare` for all initial participants.
 3. Call `UnityCombatantEnrollmentPlan.SeedInitial` into one `RulesStateSeed`. Prepared active
    effects are part of each combatant's immutable state. Initial enrollment uses the strict
@@ -140,6 +151,16 @@ installation may retain an existing action only when both references belong to t
 encounter catalog; matching spell and variant values alone do not prove ownership. Fresh encounter
 composition therefore replaces actions left by a failed or released encounter, including when
 registration order reassigns the controller's creature ID.
+
+Rage follows the same frozen-installation contract. Enrollment derives ownership and immutable
+Rage inputs only from `PreparedCreatureInputs`, creates base bindings from that snapshot, and uses
+the one encounter-shared `RageActionDefinition` to reconcile the controller through
+`ActionController.ReconcileActions`. Initial actors and reinforcements therefore remove every
+stale or duplicate prior-generation Rage action, remove Rage when it is not owned, preserve Strike,
+spell, and unrelated actions, and converge after a partial installation. Action availability then
+queries that same definition against authoritative prepared inputs and active condition selectors;
+it never re-reads a live or static Unity creature state after enrollment. Exploration-only spell
+ownership remains an adapter concern and is not combat Rage authority.
 
 ### One cleanup boundary
 
@@ -235,10 +256,21 @@ An exact replay therefore converges both checkpoints even when roster Fact deliv
 state legitimately changed by an assignment listener does not make the original registration look
 conflicting. A post-commit roster observer failure is preserved for the caller only after the
 assignment checkpoint is attempted, so retry cannot alter causation, Facts, or version.
+`PreparedCreatureInputs` and every nested prepared descriptor use structural value equality for
+this receipt comparison. A separately reconstructed but field-for-field equal snapshot is an exact
+replay; changing any prepared field is a conflicting registration and rejects.
+
+Strike's Unity context freezes only the defender's base Armor Class. Cover and
+flanking/off-guard are contextual candidates supplied once to `CollectDefenseModifiersOp`, where
+ordinary circumstance stacking resolves them alongside condition middleware. Unity must not add
+either adjustment before that collection or the same circumstance modifier would be applied twice.
 
 Assignment-triggered feature workflows must close their own uncertain commit boundaries before a
 child failure escapes. Quick-Tempered never infers completion from the actor's current temporary
-Hit Points or immunity. The feature creates an exact root-derived Rage effect in `Pending` phase.
+Hit Points or immunity. For each actor, the feature creates a Rage effect in `Pending` phase whose
+effect ID, binding ID, temporary-Hit-Point origin, and receipt all derive from the causal root and
+that actor. Two Quick-Tempered actors in one initiative publication therefore receive distinct
+receipts without creating a second root.
 The public `GrantTemporaryHitPointsOp` remains the single observable THP boundary and traverses the
 complete middleware chain, including Prevention. Only after that chain allows resolution does the
 health handler ask its immutable feature intent for the commit operation; Rage's feature reducer
@@ -339,6 +371,21 @@ occurs inside Join, the Fact envelope has encounter/join operation provenance wh
 retains feature provenance; no source override is used.
 `RestoredSpellEffectTimingObserver` projects initiative-boundary counts and removes expired or
 removed Unity effects. Do not bypass the active-effect runtime for restored effects.
+
+All condition authority boundaries share one compiled-immunity invariant. Fresh creation,
+external adoption, reinforcement-join adoption, and initial seed validation reject an active
+condition when the registered owner has a matching `PreparedImmunityKind.Condition`; recognized
+aliases are normalized to the canonical definition, so `Flat-Footed` immunity rejects
+`off-guard`. A registered condition owner without `PreparedInputs` is invariant corruption and
+fails closed. Expired, disabled tombstones may remain because they are not active authority. Batch
+adoption and encounter join validate every registration before committing any state or Facts.
+
+Effect-derived runtime options and active condition slugs require one enabled binding joined to an
+existing `Active` effect with the exact effect ID, definition, and source. A disabled, expired,
+missing, or mismatched pair contributes nothing. Target-condition option extraction canonicalizes
+recognized aliases and accepts either a bare condition or one existing `target:condition:` prefix;
+the returned value is always a bare canonical slug so typed contribution contexts add the prefix
+exactly once.
 
 ## Dispatcher and encounter runtime
 
@@ -451,9 +498,13 @@ framework.
    or implement `IUnityCombatantStateContribution.Seed` and `Register` only for unrelated state
    that genuinely needs a later exact-replay workflow. Use `Own` for every provisional disposable.
 4. **Precompute Unity installation.** If the feature changes action lists or adapters, return an
-   `IUnityCombatantInstallationContribution` from preparation. Its `Apply` method may only apply
+   `IUnityCombatantInstallationContribution` from preparation. Its `Reconcile` method may only use
    frozen work after rules authority is established. It may mutate Unity installation state, such as
-   action lists, but has no rules authority and must not maintain a competing feature mirror.
+   action lists, but has no rules authority and must not maintain a competing feature mirror. Every
+   call must converge the feature-owned projection to the same prepared result: enrollment retries
+   may invoke it again after an earlier call partially changed Unity and then threw. A successful
+   retry must not duplicate entries, skip required removals, repeat fallible discovery, or disturb
+   another feature's entries.
    `UnityStrikeActionInstallationPlan` and `UnitySpellActionInstallationPlan` are the examples.
 5. **Register presentation with encounter ownership.** Implement
    `IUnityEncounterRuntimeModule.RegisterRuntime(RuleDispatcher, CompositeLifetime)` and add every
@@ -464,13 +515,16 @@ framework.
    `IUnityEncounterTopologyModule` for a live geometry adapter. Use
    `IUnityEncounterTurnStartModule` only for a transitional Unity-owned calculation that cannot yet
    be a rules feature; Rotting Aura and Slowed are current seams, not templates for new rules.
-7. **Complete static composition, then add the module once.** In
-   `UnityEncounterModuleSet.Create`, define every `RuleDefinitionId` used by an
-   `ActiveRuleBinding` or `ActiveEffectInstance` on the production `RuleRegistryBuilder` before
-   `registryBuilder.Build()`. `RageRules.DefineRuleBindings(registryBuilder)` defines Rage's effect
-   and listener bindings; spell composition explicitly defines
+7. **Complete static composition, then add the module once.** Every `RuleDefinitionId` used by an
+   `ActiveRuleBinding` or `ActiveEffectInstance` must be defined before the production registry's
+   single `Build`. A built-in module may be wired explicitly in `UnityEncounterModuleSet.Create`.
+   An additional module implements the stateless `IUnityEncounterRegistryModule` capability; the
+   root invokes it in supplied extension order after materializing all additional modules and then
+   reuses that exact instance for later passes. `RageRules.DefineRuleBindings(registryBuilder)`
+   defines Rage's effect and listener bindings; spell composition explicitly defines
    `UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId` and every distinct
-   `effect.DefinitionId` from `spellCatalog.Definitions`.
+   `effect.DefinitionId` from `spellCatalog.Definitions`. Never build a feature registry or defer a
+   definition until dispatcher configuration.
 
    Also compose every action-profile dependency before dispatcher construction.
    `ActionOp<TResult>.GetBaseProfile(IActionCatalog)` defaults to

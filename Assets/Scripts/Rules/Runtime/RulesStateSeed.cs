@@ -274,23 +274,7 @@ namespace Game.Rules.Runtime
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
-            if (!value.EffectId.HasValue)
-            {
-                if (
-                    StatelessRuleBindingGenerations.TryGetValue(
-                        value.Id,
-                        out long existingGeneration
-                    )
-                    && value.CreationOrder < existingGeneration
-                )
-                {
-                    throw new ArgumentException(
-                        $"Stateless binding {value.Id.Value} generation {value.CreationOrder} is older than seeded generation {existingGeneration}.",
-                        nameof(value)
-                    );
-                }
-                StatelessRuleBindingGenerations[value.Id] = value.CreationOrder;
-            }
+            RecordStatelessRuleBindingGeneration(value);
             RuleBindings[value.Id] = value;
             return this;
         }
@@ -348,10 +332,12 @@ namespace Game.Rules.Runtime
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
-            if (!RuleBindings.TryAdd(value.Id, value))
+            if (RuleBindings.ContainsKey(value.Id))
                 throw new InvalidOperationException(
                     $"Rule binding {value.Id.Value} is already seeded."
                 );
+            RecordStatelessRuleBindingGeneration(value);
+            RuleBindings.Add(value.Id, value);
             return this;
         }
 
@@ -367,6 +353,23 @@ namespace Game.Rules.Runtime
         {
             if (creature.IsEmpty)
                 throw new ArgumentException("A creature ID is required.", parameterName);
+        }
+
+        private void RecordStatelessRuleBindingGeneration(ActiveRuleBinding value)
+        {
+            if (value.EffectId.HasValue)
+                return;
+            if (
+                StatelessRuleBindingGenerations.TryGetValue(value.Id, out long existingGeneration)
+                && value.CreationOrder < existingGeneration
+            )
+            {
+                throw new ArgumentException(
+                    $"Stateless binding {value.Id.Value} generation {value.CreationOrder} is older than seeded generation {existingGeneration}.",
+                    nameof(value)
+                );
+            }
+            StatelessRuleBindingGenerations[value.Id] = value.CreationOrder;
         }
     }
 }

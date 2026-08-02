@@ -4,6 +4,29 @@ using System.Linq;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Resolves exact active effect/binding pairs from one authoritative snapshot.</summary>
+    internal static class ActiveEffectAssociation
+    {
+        internal static bool TryGetActive(
+            RulesSnapshot snapshot,
+            ActiveRuleBinding binding,
+            out ActiveEffectInstance effect
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (binding == null)
+                throw new ArgumentNullException(nameof(binding));
+
+            effect = null;
+            return binding.IsEnabled
+                && binding.EffectId.HasValue
+                && snapshot.ActiveEffects.TryGet(binding.EffectId.Value, out effect)
+                && effect.Status == ActiveEffectStatus.Active
+                && ActiveEffectRegistration.BindingMatchesEffect(effect, binding);
+        }
+    }
+
     internal static class ActiveEffectOperationValidation
     {
         public static ActiveEffectId RequireEffect(ActiveEffectId value)

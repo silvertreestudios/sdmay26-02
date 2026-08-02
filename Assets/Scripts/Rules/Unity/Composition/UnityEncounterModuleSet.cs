@@ -45,9 +45,7 @@ namespace Game.Rules.Unity.Composition
             UnityStrikeContext strikeContext = new(creatures, tiles);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
-            RageActionDefinition rageDefinition = new(
-                new UnityRageConditionStateProvider(creatures)
-            );
+            RageActionDefinition rageDefinition = new();
             CombatActionCatalog actionCatalog = new(
                 strideDefinition,
                 strikeContext,
@@ -55,6 +53,13 @@ namespace Game.Rules.Unity.Composition
                 new UnitySpellBookProvider(creatures),
                 rageDefinition
             );
+            IUnityEncounterModule[] extensions =
+                additionalModules?.ToArray() ?? Array.Empty<IUnityEncounterModule>();
+            if (extensions.Any(module => module == null))
+                throw new ArgumentException(
+                    "Additional encounter modules cannot contain null.",
+                    nameof(additionalModules)
+                );
 
             RuleRegistryBuilder registryBuilder = new();
             foreach (
@@ -76,6 +81,10 @@ namespace Game.Rules.Unity.Composition
             )
                 registryBuilder.Define(definitionId);
             ConditionRuleDefinitions.DefineAll(registryBuilder);
+            foreach (
+                IUnityEncounterRegistryModule module in extensions.OfType<IUnityEncounterRegistryModule>()
+            )
+                module.ConfigureRegistry(registryBuilder);
             RuleRegistry registry = registryBuilder.Build();
 
             IUnityEncounterModule[] productionModules =
@@ -102,13 +111,6 @@ namespace Game.Rules.Unity.Composition
                 new UnityHealthProjectionModule(creatures, installUnityAuthority),
                 new UnityEncounterProjectionModule(owner),
             };
-            IUnityEncounterModule[] extensions =
-                additionalModules?.ToArray() ?? Array.Empty<IUnityEncounterModule>();
-            if (extensions.Any(module => module == null))
-                throw new ArgumentException(
-                    "Additional encounter modules cannot contain null.",
-                    nameof(additionalModules)
-                );
             IUnityEncounterModule[] modules = productionModules.Concat(extensions).ToArray();
             return new UnityEncounterModuleSet(
                 new UnityEncounterComposition(modules),
@@ -152,34 +154,17 @@ namespace Game.Rules.Unity.Composition
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
-            RageActorState state = CreateEnrollmentState(builder.PreparedInputs);
+            RageActorState state = RageRules.CreateEnrollmentState(builder.PreparedInputs);
             builder.AddRuleBindings(RageRules.CreateInitialBindings(builder.CreatureId, state));
             builder.AddInstallation(
                 new UnityRageActionInstallation(builder.Controller, definition, state.OwnsRage)
             );
         }
 
-        private static RageActorState CreateEnrollmentState(PreparedCreatureInputs inputs)
-        {
-            bool HasOwned(string slug) =>
-                inputs.BoundOptions.Any(option => option.Option == $"item:owned:{slug}");
-            return new RageActorState(
-                HasOwned("rage"),
-                HasOwned("quick-tempered"),
-                false,
-                false,
-                inputs.ArmorCategory == "heavy",
-                HasOwned("invulnerable-rager"),
-                inputs.Level,
-                inputs.Abilities.Constitution
-            );
-        }
-
         private sealed class UnityRageActionInstallation : IUnityCombatantInstallationContribution
         {
             private readonly ActionController controller;
-            private readonly IReadOnlyList<EntityAction> removals;
-            private readonly IReadOnlyList<EntityAction> additions;
+            private readonly IReadOnlyList<EntityAction> desired;
 
             internal UnityRageActionInstallation(
                 ActionController controller,
@@ -190,52 +175,14 @@ namespace Game.Rules.Unity.Composition
                 this.controller = controller ?? throw new ArgumentNullException(nameof(controller));
                 if (definition == null)
                     throw new ArgumentNullException(nameof(definition));
-                removals = Array.AsReadOnly(
-                    controller.GetActions().Where(action => action is RulesRageAction).ToArray()
-                );
-                additions = ownsRage
+                desired = ownsRage
                     ? Array.AsReadOnly<EntityAction>(new[] { new RulesRageAction(definition) })
                     : Array.AsReadOnly(Array.Empty<EntityAction>());
             }
 
-            public void Apply()
-            {
-                foreach (EntityAction action in removals)
-                    controller.RemoveAction(action);
-                foreach (EntityAction action in additions)
-                    controller.AddAction(action);
-            }
+            public void Reconcile() =>
+                controller.ReconcileActions(action => action is RulesRageAction, desired);
         }
-    }
-
-    /// <summary>Adapts the current Unity condition component into Rage's temporary condition seam.</summary>
-    internal sealed class UnityRageConditionStateProvider : IRageConditionStateProvider
-    {
-        private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
-
-        internal UnityRageConditionStateProvider(
-            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
-        ) => this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
-
-        /// <inheritdoc/>
-        public RageConditionState Get(CreatureId actor)
-        {
-            if (!creatures.TryGetValue(actor, out CreatureComponent creature) || creature == null)
-                throw new InvalidOperationException(
-                    $"Rage actor {actor.Value} has no current Unity condition boundary."
-                );
-            Conditions conditions = creature.GetComponent<Conditions>();
-            return new RageConditionState(
-                HasCondition(conditions, "fatigued"),
-                HasCondition(conditions, "encumbered")
-            );
-        }
-
-        private static bool HasCondition(Conditions conditions, string expected) =>
-            conditions != null
-            && conditions.ActiveConditionNames.Any(value =>
-                string.Equals(value, expected, StringComparison.OrdinalIgnoreCase)
-            );
     }
 
     /// <summary>Combines required typed action catalogs without teaching the bridge feature IDs.</summary>

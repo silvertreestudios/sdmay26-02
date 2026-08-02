@@ -13,15 +13,20 @@ namespace Game.Tests.EditMode.RulesRuntime
         private static readonly CreatureId Actor = new CreatureId("actor");
         private static readonly CreatureId Enemy = new CreatureId("enemy");
         private static readonly CreatureId Reinforcement = new CreatureId("reinforcement");
+        private static readonly CreatureId SecondReinforcement = new CreatureId(
+            "second-reinforcement"
+        );
         private static readonly PlayerId Party = new PlayerId("party");
         private static readonly PlayerId Opposition = new PlayerId("opposition");
         private static readonly EncounterId Encounter = new EncounterId("encounter");
         private static readonly OpId PendingRageRoot = new OpId(100);
         private static readonly ActiveEffectId PendingRageEffect = RageEffectState.CreateEffectId(
-            PendingRageRoot
+            PendingRageRoot,
+            Actor
         );
         private static readonly BindingId PendingRageBinding = RageEffectState.CreateBindingId(
-            PendingRageRoot
+            PendingRageRoot,
+            Actor
         );
         private static readonly RuleDefinitionId GrantFailureDefinition = new RuleDefinitionId(
             "test-rage-grant-failure"
@@ -314,9 +319,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         [Test]
         public void ActionProfilesKeepQuickTemperedTraitsDistinctFromRage()
         {
-            RageActionDefinition definition = new RageActionDefinition(
-                new TestRageConditionStateProvider(CreateActorState())
-            );
+            RageActionDefinition definition = new RageActionDefinition();
 
             ActionProfile rage = definition.GetBaseProfile(RageActionDefinition.DefinitionId);
             ActionProfile quickTempered = definition.GetBaseProfile(
@@ -633,6 +636,135 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(allowed.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
         }
 
+        [Test]
+        public void EncounterStartFirstQuickTemperedFailureSettlesSiblingWithoutReplay()
+        {
+            RageActorState quickTempered = CreateActorState(ownsQuickTempered: true);
+            ScriptedRollService rolls = new ScriptedRollService(20, 15, 10);
+            RuleDispatcher dispatcher = CreateBatchQuickTemperedDispatcher(
+                new Dictionary<CreatureId, RageActorState>
+                {
+                    [Actor] = quickTempered,
+                    [Reinforcement] = quickTempered,
+                    [Enemy] = CreateActorState(ownsRage: false),
+                },
+                rolls
+            );
+            FactStampRecorder recorder = new FactStampRecorder();
+            using IDisposable recording = dispatcher.RegisterFactObserver<RuleFact>(recorder);
+            InvalidOperationException expected = new InvalidOperationException(
+                "Injected first Quick-Tempered start settlement failure."
+            );
+            using IDisposable failure = dispatcher.RegisterRootSettlementObserver(
+                new ThrowOnceQuickTemperedSettlementObserver(Actor, expected)
+            );
+            StartEncounterOp start = new StartEncounterOp(
+                Encounter,
+                Party,
+                new[]
+                {
+                    new EncounterParticipant(Actor, Party, 0),
+                    new EncounterParticipant(Reinforcement, Party, 0),
+                    new EncounterParticipant(Enemy, Opposition, 0),
+                }
+            );
+
+            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(start)
+            );
+            Assert.That(actual, Is.SameAs(expected));
+            AssertTwoSettledQuickTemperedRages(dispatcher.Snapshot, Actor, Reinforcement);
+            Assert.That(recorder.Count<QuickTemperedTriggerConsumedFact>(), Is.EqualTo(2));
+            long committedVersion = dispatcher.Snapshot.Version;
+            int committedFacts = recorder.Facts.Count;
+
+            InvalidOperationException retry = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(start)
+            );
+
+            Assert.That(retry.Message, Does.Contain("duplicate or another encounter is active"));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(recorder.Facts, Has.Count.EqualTo(committedFacts));
+            Assert.That(recorder.Count<QuickTemperedTriggerConsumedFact>(), Is.EqualTo(2));
+            AssertTwoSettledQuickTemperedRages(dispatcher.Snapshot, Actor, Reinforcement);
+            Assert.That(rolls.Remaining, Is.Zero);
+        }
+
+        [Test]
+        public async Task ReinforcementJoinFirstQuickTemperedFailureSettlesSiblingWithoutReplay()
+        {
+            RageActorState quickTempered = CreateActorState(ownsQuickTempered: true);
+            ScriptedRollService rolls = new ScriptedRollService(20, 10, 15, 14);
+            RuleDispatcher dispatcher = CreateBatchQuickTemperedDispatcher(
+                new Dictionary<CreatureId, RageActorState>
+                {
+                    [Actor] = CreateActorState(ownsRage: false),
+                    [Enemy] = CreateActorState(ownsRage: false),
+                },
+                rolls
+            );
+            RequireResolved(
+                await dispatcher.Dispatch(
+                    new StartEncounterOp(
+                        Encounter,
+                        Party,
+                        new[]
+                        {
+                            new EncounterParticipant(Actor, Party, 0),
+                            new EncounterParticipant(Enemy, Opposition, 0),
+                        }
+                    )
+                )
+            );
+            JoinEncounterOp join = new JoinEncounterOp(
+                Encounter,
+                new[]
+                {
+                    QuickTemperedJoinParticipant(Reinforcement, quickTempered),
+                    QuickTemperedJoinParticipant(SecondReinforcement, quickTempered),
+                }
+            );
+            FactStampRecorder recorder = new FactStampRecorder();
+            using IDisposable recording = dispatcher.RegisterFactObserver<RuleFact>(recorder);
+            InvalidOperationException expected = new InvalidOperationException(
+                "Injected two-actor Quick-Tempered settlement failure."
+            );
+            using IDisposable failure = dispatcher.RegisterRootSettlementObserver(
+                new ThrowOnceQuickTemperedSettlementObserver(Reinforcement, expected)
+            );
+
+            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(join)
+            );
+            Assert.That(actual, Is.SameAs(expected));
+            AssertTwoSettledQuickTemperedRages(
+                dispatcher.Snapshot,
+                Reinforcement,
+                SecondReinforcement
+            );
+            Assert.That(recorder.Count<QuickTemperedTriggerConsumedFact>(), Is.EqualTo(2));
+            long committedVersion = dispatcher.Snapshot.Version;
+            int committedFacts = recorder.Facts.Count;
+
+            ResolvedOpResult<EncounterJoinOutcome> retry = RequireResolved(
+                await dispatcher.Dispatch(join)
+            );
+
+            Assert.That(retry.Facts, Is.Empty);
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(recorder.Facts, Has.Count.EqualTo(committedFacts));
+            Assert.That(recorder.Count<QuickTemperedTriggerConsumedFact>(), Is.EqualTo(2));
+            Assert.That(rolls.Remaining, Is.Zero);
+            AssertTwoSettledQuickTemperedRages(
+                dispatcher.Snapshot,
+                Reinforcement,
+                SecondReinforcement
+            );
+        }
+
         [TestCase(JoinRetryFailurePoint.EncounterJoinedObserver)]
         [TestCase(JoinRetryFailurePoint.ActiveEffectCreatedObserver)]
         [TestCase(JoinRetryFailurePoint.TemporaryHitPointsGrantedObserver)]
@@ -797,6 +929,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new HealthState(10, 10),
                 new GridPosition(2, 0, 0),
                 new GridDistance(25),
+                PreparedInputsFor(quickTempered),
                 Array.Empty<SpellSlotState>(),
                 RageRules
                     .CreateInitialBindings(Reinforcement, quickTempered)
@@ -1003,6 +1136,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new HealthState(0, 10).CommitDefeat(),
                 new GridPosition(2, 0, 0),
                 new GridDistance(25),
+                PreparedInputsFor(quickTempered),
                 Array.Empty<SpellSlotState>(),
                 initialBindings
             );
@@ -1975,7 +2109,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         private static RuleDispatcher CreateDispatcher(
-            TestRageConditionStateProvider provider,
+            ITestRageStateProvider provider,
             bool isFatigued = false,
             bool isEncumbered = false,
             IEnumerable<ActiveEffectRegistration> seededActiveEffects = null,
@@ -1995,7 +2129,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         private static RuleDispatcher CreateDispatcher(
-            TestRageConditionStateProvider provider,
+            ITestRageStateProvider provider,
             ScriptedRollService rolls,
             int actorInitiativeModifier,
             int enemyInitiativeModifier,
@@ -2008,7 +2142,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             RageCleanupFailureMiddleware cleanupFailure = null
         )
         {
-            RageActionDefinition definition = new RageActionDefinition(provider);
+            RageActionDefinition definition = new RageActionDefinition();
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.Define(ConditionRuleDefinitions.Fatigued);
@@ -2032,7 +2166,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 .SeedHealth(Actor, actorHealth ?? new HealthState(10, 10))
                 .SeedHealth(Enemy, new HealthState(10, 10))
                 .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
-            SeedPreparedActor(seed, registryBuilder, provider.State);
+            SeedPreparedActor(seed, registryBuilder, Actor, provider.State);
             foreach (
                 ActiveRuleBinding binding in RageRules.CreateInitialBindings(Actor, provider.State)
             )
@@ -2110,6 +2244,7 @@ namespace Game.Tests.EditMode.RulesRuntime
         private static void SeedPreparedActor(
             RulesStateSeed seed,
             RuleRegistryBuilder registry,
+            CreatureId actor,
             RageActorState state
         )
         {
@@ -2119,7 +2254,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             AddOwned("quick-tempered", state.OwnsQuickTempered);
             AddOwned("invulnerable-rager", state.HasInvulnerableRager);
             seed.SeedPreparedInputs(
-                Actor,
+                actor,
                 new PreparedCreatureInputs(
                     state.Level,
                     new PreparedAbilityModifiers(0, 0, state.ConstitutionModifier, 0, 0, 0),
@@ -2154,9 +2289,9 @@ namespace Game.Tests.EditMode.RulesRuntime
                 );
                 bindings.Add(
                     new ActiveRuleBinding(
-                        new BindingId($"prepared-test-{slug}"),
+                        new BindingId($"prepared-test-{actor.Value}-{slug}"),
                         definition,
-                        Actor,
+                        actor,
                         null,
                         source,
                         1000 + bindings.Count
@@ -2181,6 +2316,123 @@ namespace Game.Tests.EditMode.RulesRuntime
                 level,
                 constitutionModifier
             );
+
+        private static PreparedCreatureInputs PreparedInputsFor(RageActorState state) =>
+            new PreparedCreatureInputs(
+                state.Level,
+                new PreparedAbilityModifiers(0, 0, state.ConstitutionModifier, 0, 0, 0),
+                Array.Empty<KeyValuePair<string, int>>(),
+                Array.Empty<string>(),
+                state.WearsHeavyArmor ? "heavy" : string.Empty,
+                Array.Empty<string>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedImmunityDescriptor>(),
+                new[]
+                {
+                    state.OwnsRage ? "item:owned:rage" : string.Empty,
+                    state.OwnsQuickTempered ? "item:owned:quick-tempered" : string.Empty,
+                    state.HasInvulnerableRager ? "item:owned:invulnerable-rager" : string.Empty,
+                }.Where(option => !string.IsNullOrEmpty(option))
+            );
+
+        private static RuleDispatcher CreateBatchQuickTemperedDispatcher(
+            IReadOnlyDictionary<CreatureId, RageActorState> actors,
+            ScriptedRollService rolls
+        )
+        {
+            RageActionDefinition definition = new RageActionDefinition();
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
+            RageRules.DefineRuleBindings(registryBuilder);
+            ConditionRuleDefinitions.DefineAll(registryBuilder);
+            registryBuilder.AddOutcomeRule();
+            RuleRegistry registry = registryBuilder.Build();
+            RulesStateSeed seed = new RulesStateSeed();
+            foreach (KeyValuePair<CreatureId, RageActorState> pair in actors)
+            {
+                PlayerId player = pair.Key == Enemy ? Opposition : Party;
+                seed.SeedCreature(new CreatureState(pair.Key, player))
+                    .SeedPreparedInputs(pair.Key, PreparedInputsFor(pair.Value))
+                    .SeedHealth(pair.Key, new HealthState(10, 10))
+                    .SeedActionEconomy(pair.Key, new ActionEconomyState(3, true))
+                    .SeedMultipleAttackPenalty(pair.Key, new MultipleAttackPenaltyState(0));
+                foreach (
+                    ActiveRuleBinding binding in RageRules.CreateInitialBindings(
+                        pair.Key,
+                        pair.Value
+                    )
+                )
+                    seed.SeedRuleBinding(binding);
+            }
+            return new RuleDispatcherBuilder(new InMemoryRulesStore(seed), rolls)
+                .UseCheckResolution()
+                .UseHealthRules()
+                .UseMultipleAttackPenaltyRules()
+                .UseActiveEffectRules(registry)
+                .UseConditionRules(registry)
+                .UseMovementBudgetResetRules()
+                .UseEncounterRules(Array.Empty<IEncounterTurnStartAdapter>(), registry)
+                .UseActionLifecycle(definition)
+                .UseRageRules(definition)
+                .Build();
+        }
+
+        private static EncounterJoinParticipant QuickTemperedJoinParticipant(
+            CreatureId actor,
+            RageActorState state
+        ) =>
+            new EncounterJoinParticipant(
+                new EncounterParticipant(actor, Party, 0),
+                new CombatantRulesState(
+                    new CreatureState(actor, Party),
+                    new HealthState(10, 10),
+                    new GridPosition(0, 0, 0),
+                    new GridDistance(25),
+                    PreparedInputsFor(state),
+                    Array.Empty<SpellSlotState>(),
+                    RageRules.CreateInitialBindings(actor, state)
+                )
+            );
+
+        private static void AssertTwoSettledQuickTemperedRages(
+            RulesSnapshot snapshot,
+            CreatureId first,
+            CreatureId second
+        )
+        {
+            CreatureId[] actors = { first, second };
+            ActiveEffectInstance[] effects = snapshot
+                .ActiveEffects.Select(pair => pair.Value)
+                .Where(effect =>
+                    effect.DefinitionId == RageActionDefinition.EffectDefinitionId
+                    && actors.Contains(effect.SourceCreature)
+                )
+                .ToArray();
+            Assert.That(effects, Has.Length.EqualTo(2));
+            Assert.That(effects.Select(effect => effect.Id).Distinct().Count(), Is.EqualTo(2));
+            RageEffectState[] receipts = effects
+                .Select(effect => effect.State)
+                .OfType<RageEffectState>()
+                .ToArray();
+            Assert.That(receipts, Has.Length.EqualTo(2));
+            Assert.That(receipts.All(receipt => receipt.HasWorkflowReceipt), Is.True);
+            Assert.That(receipts.All(receipt => receipt.Phase == RageStartPhase.Settled), Is.True);
+            Assert.That(receipts.All(receipt => receipt.HasGrantOutcome), Is.True);
+            Assert.That(
+                receipts.Select(receipt => receipt.BindingId).Distinct().Count(),
+                Is.EqualTo(2)
+            );
+            Assert.That(
+                receipts.Select(receipt => receipt.Origin).Distinct().Count(),
+                Is.EqualTo(2)
+            );
+            foreach (CreatureId actor in actors)
+            {
+                Assert.That(RageRules.IsRaging(snapshot, actor), Is.True);
+                BindingId triggerId = new BindingId($"quick-tempered-{actor.Value}");
+                Assert.That(snapshot.RuleBindings[triggerId].IsEnabled, Is.False);
+            }
+        }
 
         private static RageEffectState CreateWorkflowReceipt(
             OpId root,
@@ -2275,6 +2527,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 initialHealth,
                 new GridPosition(2, 0, 0),
                 new GridDistance(25),
+                PreparedInputsFor(quickTempered),
                 Array.Empty<SpellSlotState>(),
                 RageRules
                     .CreateInitialBindings(Reinforcement, quickTempered)
@@ -2618,6 +2871,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new HealthState(10, 10),
                 new GridPosition(2, 0, 0),
                 new GridDistance(25),
+                PreparedInputsFor(quickTempered),
                 Array.Empty<SpellSlotState>(),
                 RageRules
                     .CreateInitialBindings(Reinforcement, quickTempered)
@@ -2704,6 +2958,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                     new HealthState(9, 10),
                     registration.Position,
                     registration.LandSpeed,
+                    registration.PreparedInputs,
                     registration.SpellSlots,
                     registration.RuleBindings
                 );
@@ -2822,14 +3077,14 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         private static RuleDispatcher CreateJoinRetryDispatcher(
-            IRageActorStateProvider provider,
+            DictionaryRageActorStateProvider provider,
             ScriptedRollService rolls,
             WorkflowFailureMiddleware failureMiddleware = null,
             QuickWorkflowProbe probe = null,
             IReadOnlyList<GrantPhaseProbe> phaseProbes = null
         )
         {
-            RageActionDefinition definition = new RageActionDefinition(provider);
+            RageActionDefinition definition = new RageActionDefinition();
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.Define(ConditionRuleDefinitions.Fatigued);
@@ -2893,6 +3148,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 .SeedCreature(new CreatureState(Enemy, Opposition))
                 .SeedHealth(Actor, new HealthState(10, 10))
                 .SeedHealth(Enemy, new HealthState(10, 10));
+            SeedPreparedActor(seed, registryBuilder, Actor, provider.Get(Actor));
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
                 new InMemoryRulesStore(seed),
                 rolls
@@ -3731,7 +3987,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             }
         }
 
-        private sealed class DictionaryRageActorStateProvider : IRageActorStateProvider
+        private sealed class DictionaryRageActorStateProvider
         {
             private readonly IReadOnlyDictionary<CreatureId, RageActorState> states;
 
@@ -3745,22 +4001,22 @@ namespace Game.Tests.EditMode.RulesRuntime
                     : throw new InvalidOperationException("Unknown Rage test actor.");
         }
 
-        private sealed class TestRageActorStateProvider : IRageActorStateProvider
+        private interface ITestRageStateProvider
+        {
+            RageActorState State { get; }
+        }
+
+        private sealed class TestRageActorStateProvider : ITestRageStateProvider
         {
             private readonly RageActorState state;
 
             public TestRageActorStateProvider(RageActorState state) =>
                 this.state = state ?? throw new ArgumentNullException(nameof(state));
 
-            public RageActorState Get(CreatureId actor)
-            {
-                if (actor != Actor)
-                    throw new InvalidOperationException("Unknown Rage test actor.");
-                return state;
-            }
+            public RageActorState State => state;
         }
 
-        private sealed class TestRageConditionStateProvider : IRageConditionStateProvider
+        private sealed class TestRageConditionStateProvider : ITestRageStateProvider
         {
             private readonly RageActorState state;
 
@@ -3768,13 +4024,6 @@ namespace Game.Tests.EditMode.RulesRuntime
                 this.state = state ?? throw new ArgumentNullException(nameof(state));
 
             public RageActorState State => state;
-
-            public RageConditionState Get(CreatureId actor)
-            {
-                if (actor != Actor)
-                    throw new InvalidOperationException("Unknown Rage test actor.");
-                return new RageConditionState(state.IsFatigued, state.IsEncumbered);
-            }
         }
 
         private sealed class RageTurnStartProbe : IEncounterTurnStartAdapter

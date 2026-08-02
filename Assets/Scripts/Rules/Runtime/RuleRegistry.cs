@@ -106,6 +106,10 @@ namespace Game.Rules.Runtime
         /// </returns>
         public bool ContainsDefinition(RuleDefinitionId id) => byId.ContainsKey(id);
 
+        /// <summary>Attempts to get the immutable definition registered under one stable ID.</summary>
+        public bool TryGetDefinition(RuleDefinitionId id, out RuleDefinition definition) =>
+            byId.TryGetValue(id, out definition);
+
         internal void ValidateResolvers(IReadOnlyDictionary<Type, IRegistration> resolvers)
         {
             foreach (RuleDefinition definition in Definitions)

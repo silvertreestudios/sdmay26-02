@@ -1016,6 +1016,11 @@ A composition root is the narrow exception. It may name a feature module to regi
 handlers, listeners, or initial bindings. That reference selects installed behavior; it must not
 reimplement the feature's validation or workflow.
 
+In production Unity composition, additional modules that own static definitions implement an
+explicit stateless registry-contribution capability. The root materializes them once, invokes
+contributors in deterministic module order before the one registry build, and composes those exact
+same instances afterward. This is explicit wiring, not discovery or feature self-registration.
+
 For example, general encounter code can publish an `InitiativeRolledFact`. A Quick-Tempered binding
 can listen for that Fact and own the decision to start Rage. Likewise, a Rage action-bar adapter can
 construct `RageActionOp` and pass it through a generic dispatch boundary; the bridge does not need a
@@ -2308,13 +2313,13 @@ production composition and operational procedure.
 | --- | --- | --- |
 | Runtime foundation | Implemented | `RulesState`, immutable snapshots, structural results, frames, nested/causal dispatch, reducers, middleware, typed Fact observers/listeners, active bindings, typed prompts, deterministic rolls, trace, and root/causal-tree settlement are in `Game.Rules.Runtime`. |
 | Encounter lifecycle | Implemented | Rules own roster, initiative, round/cursor, exact turns, action economy, reaction availability, MAP reset, outcome, reinforcement joins, defeat finalization, and active-effect clocks. A durable checkpoint distinguishes an already published exact initiative slot whose turn has not begun; generic advancement resumes that slot, and Unity host recovery starts a new root after deferred notification failure without consuming another boundary. Unity presentation waits for causal settlement. |
-| Explicit Unity composition and enrollment | Implemented | `UnityEncounterModuleSet`, capability-based `UnityEncounterComposition`, reversible `UnityCombatantEnrollmentPipeline`, duplicate-rejecting initial seed, reinforcement `JoinEncounterOp` with atomic prepared active-effect adoption, exact replay receipts, exact attachments, and one `CompositeLifetime` cleanup boundary are production. |
+| Explicit Unity composition and enrollment | Implemented | `UnityEncounterModuleSet`, capability-based `UnityEncounterComposition`, deterministic pre-build registry contributions from exact module instances, reversible `UnityCombatantEnrollmentPipeline`, duplicate-rejecting initial seed, reinforcement `JoinEncounterOp` with atomic prepared active-effect adoption, exact replay receipts, exact attachments, and one `CompositeLifetime` cleanup boundary are production. |
 | Health | Implemented for encounter cutover | Reducer-backed damage, healing, temporary HP, immunity, zero-HP and defeat Facts are authoritative and project to `CreatureComponent`. Some upstream damage calculations outside migrated actions remain transitional. |
 | Strike and Reload | Implemented production slice | `StrikeActionOp`, `ResolveStrikeOp`, action costs, rules rolls/damage, ammunition/loaded state, MAP, validation, Unity action installation, and presentation are rules-backed. |
 | Movement and Stride | Implemented production slice | Authoritative positions, budgets, permissions, topology provider, movement timing Ops/Facts, relocation, selection, and Stride are rules-backed. Step and Tumble Through are not production actions. |
 | Checks and saves | Foundation implemented | Generic check, skill-check, saving-throw, modifier collection, deterministic roll, and degree-of-success paths exist. Additional action/content integrations remain vertical work. |
-| Active effects and bindings | Foundation implemented | Generic create/update/expire/remove state, encounter timing, restored finite spell-effect adoption, and typed binding selection exist. The conceptual Bless aura state and Sustain workflow do not. |
-| Rage | Implemented production slice | Rules own availability, costs, active effect/binding behavior, temporary HP interaction, Quick-Tempered listener behavior, turn-start retry of expired cleanup before adapters, and Prevention cleanup before encounter end or suspension; Unity prepared-character extraction remains an adapter. |
+| Active effects and bindings | Foundation implemented | Generic create/update/expire/remove state, encounter timing, restored finite spell-effect adoption, exact enabled-binding/active-effect selection, and centralized active-condition immunity validation exist. The conceptual Bless aura state and Sustain workflow do not. |
+| Rage | Implemented production slice | Rules own snapshot-derived availability, costs, active effect/binding behavior, actor-and-root-scoped temporary HP receipts, Quick-Tempered listener behavior, turn-start retry of expired cleanup before adapters, and Prevention cleanup before encounter end or suspension; Unity prepared-character extraction and action installation remain adapters. |
 | Spellcasting | Partially implemented production slice | Generic Cast a Spell lifecycle, spell slots, supported definitions/variants, spell attacks, selected effects, restored-effect timing, action installation, and presentation are rules-backed. The full spell catalog and every targeting/effect form are not migrated. |
 | Reactions | Runtime capability implemented; content deferred | Reaction costs and `ActionBegunOp` middleware timing exist. The Reactive Strike example is not implemented. |
 | Bless example | Deferred | The conceptual `BlessAuraState`, derived aura middleware, and Sustain Bless action are not production types. Existing imported/restored Bless presentation does not imply this example exists. |

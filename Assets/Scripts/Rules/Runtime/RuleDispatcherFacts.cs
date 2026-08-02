@@ -7,6 +7,11 @@ namespace Game.Rules.Runtime
 {
     public sealed partial class RuleDispatcher
     {
+        private static readonly ObserverFailureState EmptyFactListenerFailures =
+            ObserverFailureState.CreateEmpty(
+                "Multiple committed-Fact listeners failed after their source root committed."
+            );
+
         internal ReductionResult<TResult> Reduce<TOp, TResult>(
             OpFrame<TOp> frame,
             IOpReducer<TOp, TResult> reducer,
@@ -86,13 +91,21 @@ namespace Game.Rules.Runtime
 
             IReadOnlyList<FactListenerDelivery> deliveries =
                 ruleRegistry.BuildFactListenerDeliveries(rootId, committedFacts);
+            ObserverFailureState failures = EmptyFactListenerFailures;
             foreach (FactListenerDelivery delivery in deliveries)
             {
                 if (delivery.Registration.IsBatch)
                 {
                     if (ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
                     {
-                        await InvokeFactListener(delivery, delivery.Facts, delivery.RootId);
+                        try
+                        {
+                            await InvokeFactListener(delivery, delivery.Facts, delivery.RootId);
+                        }
+                        catch (Exception exception)
+                        {
+                            failures = failures.Add(exception);
+                        }
                     }
                     continue;
                 }
@@ -101,13 +114,21 @@ namespace Game.Rules.Runtime
                 {
                     if (!ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
                         break;
-                    await InvokeFactListener(
-                        delivery,
-                        Array.AsReadOnly(new[] { fact }),
-                        fact.SourceOpId
-                    );
+                    try
+                    {
+                        await InvokeFactListener(
+                            delivery,
+                            Array.AsReadOnly(new[] { fact }),
+                            fact.SourceOpId
+                        );
+                    }
+                    catch (Exception exception)
+                    {
+                        failures = failures.Add(exception);
+                    }
                 }
             }
+            failures.ThrowIfAny();
         }
 
         private async ValueTask InvokeFactListener(

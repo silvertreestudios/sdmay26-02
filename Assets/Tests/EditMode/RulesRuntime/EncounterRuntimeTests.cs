@@ -25,6 +25,9 @@ namespace Game.Rules.Runtime.Tests
             /// <summary>The creature identity slice.</summary>
             Creature,
 
+            /// <summary>The immutable prepared-input slice.</summary>
+            PreparedInputs,
+
             /// <summary>The health slice.</summary>
             Health,
 
@@ -1059,6 +1062,7 @@ namespace Game.Rules.Runtime.Tests
 
         /// <summary>Verifies every join-owned base slice rejects before the draft commits.</summary>
         [TestCase(JoinRegistrationCollision.Creature)]
+        [TestCase(JoinRegistrationCollision.PreparedInputs)]
         [TestCase(JoinRegistrationCollision.Health)]
         [TestCase(JoinRegistrationCollision.Position)]
         [TestCase(JoinRegistrationCollision.LandSpeed)]
@@ -1087,6 +1091,7 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(3, 0, 2),
                 new GridDistance(25),
+                PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slotId, Reinforcement, 1, 1) },
                 new[] { binding }
             );
@@ -1095,6 +1100,9 @@ namespace Game.Rules.Runtime.Tests
             {
                 case JoinRegistrationCollision.Creature:
                     seed.SeedCreature(new CreatureState(Reinforcement, Enemies));
+                    break;
+                case JoinRegistrationCollision.PreparedInputs:
+                    seed.SeedPreparedInputs(Reinforcement, PreparedCreatureInputs.Empty);
                     break;
                 case JoinRegistrationCollision.Health:
                     seed.SeedHealth(Reinforcement, new HealthState(7, 10));
@@ -1167,6 +1175,10 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Snapshot.Creatures.Count(),
                 Is.EqualTo(before.Creatures.Count())
             );
+            Assert.That(
+                dispatcher.Snapshot.PreparedInputs.Count(),
+                Is.EqualTo(before.PreparedInputs.Count())
+            );
             Assert.That(dispatcher.Snapshot.Health.Count(), Is.EqualTo(before.Health.Count()));
             Assert.That(
                 dispatcher.Snapshot.Positions.Count(),
@@ -1192,6 +1204,74 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Snapshot.RuleBindings.Count(),
                 Is.EqualTo(before.RuleBindings.Count())
             );
+        }
+
+        [Test]
+        public void ReinforcementRegistrationAdvancesStatelessBindingGenerationHistory()
+        {
+            BindingId bindingId = new BindingId("reinforcement-generation-binding");
+            SpellSlotPoolId slotId = new SpellSlotPoolId("reinforcement-generation-slot");
+            InitiativeEntry hero = Entry(Hero, Players, 15, 0);
+            EncounterState active = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                new[] { hero },
+                0,
+                new TurnIdentity(Encounter, new TurnId(1), Hero, RoundNumber.First, 0),
+                2,
+                null
+            );
+            InitiativeEntry addition = new InitiativeEntry(
+                Reinforcement,
+                Enemies,
+                10,
+                0,
+                1,
+                RoundNumber.First
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedEncounter(active)
+                    .SeedStatelessRuleBindingGeneration(bindingId, 3)
+            );
+            CommitEncounterJoinReducer reducer = new CommitEncounterJoinReducer(
+                new RuleRegistryBuilder().Build()
+            );
+
+            ReductionResult<EncounterJoinOutcome> stale = Commit(
+                CreateJoinRegistration(Reinforcement, slotId, bindingId, 3)
+            );
+            Assert.That(stale.IsRejected, Is.True);
+            Assert.That(stale.Facts, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(store.Snapshot.StatelessRuleBindingGenerations[bindingId], Is.EqualTo(3));
+
+            ReductionResult<EncounterJoinOutcome> current = Commit(
+                CreateJoinRegistration(Reinforcement, slotId, bindingId, 4)
+            );
+            Assert.That(current.IsAccepted, Is.True);
+            Assert.That(current.Snapshot.RuleBindings[bindingId].CreationOrder, Is.EqualTo(4));
+            Assert.That(current.Snapshot.StatelessRuleBindingGenerations[bindingId], Is.EqualTo(4));
+
+            ReductionResult<EncounterJoinOutcome> Commit(CombatantRulesState registration) =>
+                store.Reduce(
+                    new ReductionContext<CommitEncounterJoinOp>(
+                        new CommitEncounterJoinOp(
+                            Encounter,
+                            Array.AsReadOnly(new[] { addition }),
+                            new Dictionary<CreatureId, CombatantRulesState>
+                            {
+                                [Reinforcement] = registration,
+                            }
+                        ),
+                        new OpId(2),
+                        new OpId(1),
+                        Source
+                    ),
+                    reducer
+                );
         }
 
         /// <summary>Verifies feature IDs must also be unique across one reinforcement batch.</summary>
@@ -1722,6 +1802,108 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(recreated, Is.Not.EqualTo(original));
             Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+        }
+
+        [Test]
+        public async Task ExactJoinReplayAcceptsSeparatelyReconstructedPreparedInputs()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 8),
+                JoinSeed()
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+            PreparedCreatureInputs originalInputs = CreateReplayPreparedInputs(7);
+            JoinEncounterOp original = new JoinEncounterOp(
+                Encounter,
+                new[]
+                {
+                    new EncounterJoinParticipant(
+                        new EncounterParticipant(Reinforcement, Enemies, 0),
+                        CreateJoinStateWithPreparedInputs(Reinforcement, originalInputs)
+                    ),
+                }
+            );
+            Resolved(await dispatcher.Dispatch(original));
+            long committedVersion = dispatcher.Snapshot.Version;
+            PreparedCreatureInputs reconstructedInputs = CreateReplayPreparedInputs(7);
+            JoinEncounterOp replay = new JoinEncounterOp(
+                Encounter,
+                new[]
+                {
+                    new EncounterJoinParticipant(
+                        new EncounterParticipant(Reinforcement, Enemies, 0),
+                        CreateJoinStateWithPreparedInputs(Reinforcement, reconstructedInputs)
+                    ),
+                }
+            );
+
+            ResolvedOpResult<EncounterJoinOutcome> result = Resolved(
+                await dispatcher.Dispatch(replay)
+            );
+
+            Assert.That(reconstructedInputs, Is.Not.SameAs(originalInputs));
+            Assert.That(reconstructedInputs, Is.EqualTo(originalInputs));
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+        }
+
+        [Test]
+        public async Task ExactJoinReplayRejectsOneChangedPreparedField()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 8),
+                JoinSeed()
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+            JoinEncounterOp original = new JoinEncounterOp(
+                Encounter,
+                new[]
+                {
+                    new EncounterJoinParticipant(
+                        new EncounterParticipant(Reinforcement, Enemies, 0),
+                        CreateJoinStateWithPreparedInputs(
+                            Reinforcement,
+                            CreateReplayPreparedInputs(7)
+                        )
+                    ),
+                }
+            );
+            Resolved(await dispatcher.Dispatch(original));
+            long committedVersion = dispatcher.Snapshot.Version;
+            JoinEncounterOp changed = new JoinEncounterOp(
+                Encounter,
+                new[]
+                {
+                    new EncounterJoinParticipant(
+                        new EncounterParticipant(Reinforcement, Enemies, 0),
+                        CreateJoinStateWithPreparedInputs(
+                            Reinforcement,
+                            CreateReplayPreparedInputs(8)
+                        )
+                    ),
+                }
+            );
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(changed)
+            );
+
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(dispatcher.Snapshot.PreparedInputs[Reinforcement].Level, Is.EqualTo(7));
         }
 
         [TestCase("root")]
@@ -2771,13 +2953,15 @@ namespace Game.Rules.Runtime.Tests
         private static CombatantRulesState CreateJoinRegistration(
             CreatureId creature,
             SpellSlotPoolId slot,
-            BindingId binding
+            BindingId binding,
+            long generation = 0
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, Enemies),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
+                PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slot, creature, 1, 1) },
                 new[]
                 {
@@ -2787,7 +2971,7 @@ namespace Game.Rules.Runtime.Tests
                         creature,
                         null,
                         Source,
-                        0,
+                        generation,
                         false
                     ),
                 }
@@ -2880,9 +3064,53 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
+                PreparedCreatureInputs.Empty,
                 Array.Empty<SpellSlotState>(),
                 Array.Empty<ActiveRuleBinding>(),
                 activeEffects
+            );
+
+        private static CombatantRulesState CreateJoinStateWithPreparedInputs(
+            CreatureId creature,
+            PreparedCreatureInputs preparedInputs
+        ) =>
+            new CombatantRulesState(
+                new CreatureState(creature, Enemies),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                preparedInputs,
+                Array.Empty<SpellSlotState>(),
+                Array.Empty<ActiveRuleBinding>()
+            );
+
+        private static PreparedCreatureInputs CreateReplayPreparedInputs(int level) =>
+            new PreparedCreatureInputs(
+                level,
+                new PreparedAbilityModifiers(1, 2, 3, 4, 5, 6),
+                new[] { new KeyValuePair<string, int>("athletics", 2) },
+                new[] { "steel-shield" },
+                "medium",
+                new[] { "humanoid" },
+                new[] { new PreparedDefenseDescriptor("fire", 2) },
+                new[] { new PreparedDefenseDescriptor("cold", 3) },
+                new[] { new PreparedImmunityDescriptor("poison", PreparedImmunityKind.Damage) },
+                new[] { "self:test-option" },
+                new[]
+                {
+                    new PreparedBoundOption(
+                        new RuleDefinitionId("prepared:replay"),
+                        "item:owned:replay",
+                        new PreparedAllPredicate(
+                            new PreparedPredicate[]
+                            {
+                                PreparedPredicate.Always,
+                                new PreparedOptionPredicate("self:test-option"),
+                            }
+                        )
+                    ),
+                },
+                new[] { new KeyValuePair<string, int>("replay-value", 9) }
             );
 
         private static RuleDispatcher CreateDispatcher(

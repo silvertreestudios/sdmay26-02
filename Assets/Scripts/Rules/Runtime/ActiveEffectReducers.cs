@@ -317,6 +317,18 @@ namespace Game.Rules.Runtime
                     return false;
                 }
                 if (
+                    !ConditionImmunityValidation.TryValidateActive(
+                        state,
+                        registration.Effect,
+                        registration.Binding,
+                        out rejection
+                    )
+                )
+                {
+                    adopted = 0;
+                    return false;
+                }
+                if (
                     !ActiveEffectReduction.TryResolveAdoptionTiming(
                         registry,
                         state,
@@ -397,13 +409,22 @@ namespace Game.Rules.Runtime
             ActiveEffectInstance effect = context.Op.Effect;
             ActiveRuleBinding binding = context.Op.Binding;
             if (
+                !ConditionImmunityValidation.TryValidateActive(
+                    state,
+                    effect,
+                    binding,
+                    out string rejection
+                )
+            )
+                return ReductionResult<ActiveEffectCreationOutcome>.Reject(rejection);
+            if (
                 !ActiveEffectReduction.TryResolveCreationTiming(
                     registry,
                     state,
                     effect,
                     binding,
                     out ActiveEffectTimingState timing,
-                    out string rejection
+                    out rejection
                 )
             )
                 return ReductionResult<ActiveEffectCreationOutcome>.Reject(rejection);

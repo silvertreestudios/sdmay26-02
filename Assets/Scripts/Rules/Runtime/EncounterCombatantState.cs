@@ -25,6 +25,7 @@ namespace Game.Rules.Runtime
                 health,
                 position,
                 landSpeed,
+                preparedInputs,
                 spellSlots,
                 ruleBindings,
                 Array.Empty<ActiveEffectRegistration>()
@@ -38,6 +39,7 @@ namespace Game.Rules.Runtime
         /// <param name="health">The participant's health at registration time.</param>
         /// <param name="position">The participant's grid position at registration time.</param>
         /// <param name="landSpeed">The participant's authoritative land Speed.</param>
+        /// <param name="preparedInputs">The participant's immutable prepared rules inputs.</param>
         /// <param name="spellSlots">The participant-owned initial spell-slot pools.</param>
         /// <param name="ruleBindings">The participant-owned initial rule bindings.</param>
         /// <param name="activeEffects">
@@ -48,6 +50,7 @@ namespace Game.Rules.Runtime
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
+            PreparedCreatureInputs preparedInputs,
             IReadOnlyList<SpellSlotState> spellSlots,
             IReadOnlyList<ActiveRuleBinding> ruleBindings,
             IReadOnlyList<ActiveEffectRegistration> activeEffects
@@ -95,6 +98,7 @@ namespace Game.Rules.Runtime
             && Health.Equals(other.Health)
             && Position.Equals(other.Position)
             && LandSpeed.Equals(other.LandSpeed)
+            && PreparedInputs.Equals(other.PreparedInputs)
             && SpellSlots.SequenceEqual(other.SpellSlots)
             && RuleBindings.SequenceEqual(other.RuleBindings)
             && ActiveEffects.SequenceEqual(other.ActiveEffects, ActiveEffectReceiptComparer);
@@ -111,6 +115,7 @@ namespace Game.Rules.Runtime
             hash.Add(Health);
             hash.Add(Position);
             hash.Add(LandSpeed);
+            hash.Add(PreparedInputs);
             foreach (SpellSlotState slot in SpellSlots)
                 hash.Add(slot);
             foreach (ActiveRuleBinding binding in RuleBindings)

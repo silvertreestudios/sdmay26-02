@@ -75,6 +75,21 @@ namespace Game.Rules.Runtime
             || definitionId == Stunned
             || definitionId == Quickened;
 
+        /// <summary>Gets the canonical condition slug for one supported definition.</summary>
+        public static bool TryGetCanonicalSlug(
+            RuleDefinitionId definitionId,
+            out string canonicalSlug
+        )
+        {
+            if (!IsConditionDefinition(definitionId))
+            {
+                canonicalSlug = string.Empty;
+                return false;
+            }
+            canonicalSlug = definitionId.Value.Substring("condition-".Length);
+            return true;
+        }
+
         internal static bool IsMarker(RuleDefinitionId definitionId) =>
             definitionId == OffGuard
             || definitionId == Deafened

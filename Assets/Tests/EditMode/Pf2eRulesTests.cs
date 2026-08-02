@@ -165,7 +165,11 @@ public class Pf2eRulesTests
         UnityCombatRulesBridge bridge = CreateCombatRules(creature);
         CreatureId actor = bridge.GetCreatureId(creature);
         bridge.BeginTurn(actor, 3);
-        if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
+        if (
+            !RuntimeOptionResolver
+                .Resolve(bridge.Snapshot, actor, Array.Empty<string>())
+                .Contains("self:effect:rage")
+        )
             Assert.That(
                 bridge.Dispatch(new RageActionOp(actor)),
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
@@ -255,7 +259,11 @@ public class Pf2eRulesTests
         bridge.BeginTurn(actor, 3);
 
         PreparedRulePackage package = Compile(creature);
-        if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
+        if (
+            !RuntimeOptionResolver
+                .Resolve(bridge.Snapshot, actor, Array.Empty<string>())
+                .Contains("self:effect:rage")
+        )
             Assert.That(
                 bridge.Dispatch(new RageActionOp(actor)),
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
@@ -417,6 +425,7 @@ public class Pf2eRulesTests
             "death-effects",
             "disease",
             "poison",
+            "Flat-Footed",
             "paralyzed",
             "fire",
             "bleed",
@@ -431,7 +440,7 @@ public class Pf2eRulesTests
             immunities
                 .Where(value => value.Kind == PreparedImmunityKind.Condition)
                 .Select(value => value.Type),
-            Is.EqualTo(new[] { "paralyzed" })
+            Is.EqualTo(new[] { "off-guard", "paralyzed" })
         );
         Assert.That(
             immunities
@@ -846,6 +855,7 @@ public class Pf2eRulesTests
         PreparedRulePackage package = Compile(attacker);
         RulesSnapshot snapshot;
         CreatureId actor;
+        CreatureId targetId = default;
         ActionController controller = attacker.GetComponent<ActionController>();
         if (
             controller != null
@@ -853,6 +863,7 @@ public class Pf2eRulesTests
         )
         {
             snapshot = bridge.Snapshot;
+            bridge.TryGetCreatureId(resolvedTarget, out targetId);
         }
         else
         {
@@ -862,10 +873,13 @@ public class Pf2eRulesTests
                 seed.SeedRuleBinding(binding.Create(actor));
             snapshot = new InMemoryRulesStore(seed).Snapshot;
         }
-        bool offGuard = resolvedTarget
-            .GetComponent<Conditions>()
-            .GetConditionNames()
-            .Any(value => value == "Off-Guard" || value == "Flat-Footed");
+        IReadOnlyList<string> targetConditions = targetId.IsEmpty
+            ? Array.Empty<string>()
+            : RuntimeOptionResolver.ResolveTargetConditions(
+                snapshot,
+                targetId,
+                Array.Empty<string>()
+            );
         RuleDispatcher dispatcher = CreatePreparedDispatcher(package, actor, snapshot);
         PreparedContributionContext baseContext = new(
             profile.ItemSlug ?? "test-item",
@@ -874,7 +888,7 @@ public class Pf2eRulesTests
             profile.DamageDice[0].sidesPerDie,
             profile.Traits,
             Array.Empty<string>(),
-            offGuard ? new[] { "off-guard" } : Array.Empty<string>()
+            targetConditions
         );
         string[] tags = Resolve(
                 dispatcher.Dispatch(
@@ -891,7 +905,7 @@ public class Pf2eRulesTests
             profile.DamageDice[0].sidesPerDie,
             profile.Traits,
             tags,
-            offGuard ? new[] { "off-guard" } : Array.Empty<string>()
+            targetConditions
         );
         IReadOnlyList<PreparedModifierValue> flat = Resolve(
             dispatcher.Dispatch(
@@ -958,7 +972,17 @@ public class Pf2eRulesTests
         foreach (KeyValuePair<BindingId, ActiveRuleBinding> binding in sourceSnapshot.RuleBindings)
         {
             if (binding.Value.Owner == actor)
+            {
                 seed.SeedRuleBinding(mapBinding(binding.Value));
+                if (
+                    binding.Value.EffectId.HasValue
+                    && sourceSnapshot.ActiveEffects.TryGet(
+                        binding.Value.EffectId.Value,
+                        out ActiveEffectInstance effect
+                    )
+                )
+                    seed.SeedActiveEffect(effect);
+            }
         }
         RuleRegistryBuilder registryBuilder = new();
         foreach (PreparedRuleDefinitionSpec definition in package.Definitions)

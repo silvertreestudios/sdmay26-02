@@ -96,6 +96,12 @@ namespace Game.Rules.Runtime
             Frequencies = frequencies;
             Encounters = encounters;
             ActiveEffectTimings = activeEffectTimings;
+            ConditionImmunityValidation.ValidateStateInvariant(
+                Creatures,
+                PreparedInputs,
+                ActiveEffects,
+                RuleBindings
+            );
         }
     }
 }

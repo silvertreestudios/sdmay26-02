@@ -369,7 +369,11 @@ public sealed class DungeonActorStateAdapterTests
         );
         CreatureId actor = bridge.GetCreatureId(sourceCreature);
         bridge.BeginTurn(actor, 3);
-        if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
+        if (
+            !RuntimeOptionResolver
+                .Resolve(bridge.Snapshot, actor, System.Array.Empty<string>())
+                .Contains("self:effect:rage")
+        )
             Assert.That(
                 bridge.Dispatch(new RageActionOp(actor)),
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()

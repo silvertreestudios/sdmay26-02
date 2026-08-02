@@ -1062,9 +1062,11 @@ namespace Game.Rules.Runtime
                 )
             )
                 throw new InvalidOperationException("The Strike target has no prepared inputs.");
-            string[] targetConditions = targeting.OffGuard
-                ? new[] { "off-guard" }
-                : Array.Empty<string>();
+            IReadOnlyList<string> targetConditions = RuntimeOptionResolver.ResolveTargetConditions(
+                context.Snapshot,
+                frame.Op.Target,
+                targeting.OffGuard ? new[] { "off-guard" } : Array.Empty<string>()
+            );
             PreparedContributionContext baseContext = new(
                 item.Definition.Value,
                 item.Category,
