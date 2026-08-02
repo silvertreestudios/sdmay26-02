@@ -588,7 +588,7 @@ namespace Game.Rules.Runtime
                     new QuickTemperedRageActionHandler(definition)
                 )
                 .RegisterHandler<ResolveQuickTemperedTriggerOp, QuickTemperedTriggerOutcome>(
-                    new ResolveQuickTemperedTriggerHandler()
+                    new ResolveQuickTemperedTriggerHandler(definition)
                 )
                 .RegisterHandler<EndRageOp, RageEndOutcome>(new EndRageHandler())
                 .RegisterReducer<
@@ -661,6 +661,11 @@ namespace Game.Rules.Runtime
     internal sealed class ResolveQuickTemperedTriggerHandler
         : IOpHandler<ResolveQuickTemperedTriggerOp, QuickTemperedTriggerOutcome>
     {
+        private readonly RageActionDefinition definition;
+
+        internal ResolveQuickTemperedTriggerHandler(RageActionDefinition definition) =>
+            this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
+
         public async ValueTask<QuickTemperedTriggerOutcome> Handle(
             OpFrame<ResolveQuickTemperedTriggerOp> frame,
             OpHandlerContext context
@@ -681,16 +686,70 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            OpResult<RageStartOutcome> rage = await context.Dispatch(
-                new QuickTemperedRageActionOp(frame.Op.Actor)
+            // Child dispatch may commit and then surface a Fact observer failure. Continue only
+            // from exact feature-owned state, consume the one-shot, and preserve every failure for
+            // the caller after the complete workflow has converged.
+            ObserverFailureState recoveredFailures = ObserverFailureState.CreateEmpty(
+                "Multiple Quick-Tempered workflow observers failed after their state committed."
             );
-            await RageHandlerSupport.RequireResolved(
-                context.Dispatch(
-                    new ConsumeQuickTemperedTriggerOp(frame.Op.Actor, frame.Op.Binding)
+            bool startedRage;
+            try
+            {
+                OpResult<RageStartOutcome> rage = await context.Dispatch(
+                    new QuickTemperedRageActionOp(frame.Op.Actor)
+                );
+                startedRage = rage is ResolvedOpResult<RageStartOutcome>;
+            }
+            catch (Exception failure)
+            {
+                if (
+                    !RageHandlerSupport.IsCompletedStart(
+                        context.Snapshot,
+                        frame.Op.Actor,
+                        frame.RootId,
+                        true,
+                        definition
+                    )
                 )
-            );
-            return new QuickTemperedTriggerOutcome(rage is ResolvedOpResult<RageStartOutcome>);
+                {
+                    recoveredFailures.Add(failure).ThrowIfAny();
+                    throw;
+                }
+                recoveredFailures = recoveredFailures.Add(failure);
+                startedRage = true;
+            }
+
+            try
+            {
+                await RageHandlerSupport.RequireResolved(
+                    context.Dispatch(
+                        new ConsumeQuickTemperedTriggerOp(frame.Op.Actor, frame.Op.Binding)
+                    )
+                );
+            }
+            catch (Exception failure)
+            {
+                if (!IsConsumed(context.Snapshot, frame.Op.Actor, frame.Op.Binding))
+                {
+                    recoveredFailures.Add(failure).ThrowIfAny();
+                    throw;
+                }
+                recoveredFailures = recoveredFailures.Add(failure);
+            }
+
+            recoveredFailures.ThrowIfAny();
+            return new QuickTemperedTriggerOutcome(startedRage);
         }
+
+        private static bool IsConsumed(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            BindingId bindingId
+        ) =>
+            snapshot.RuleBindings.TryGet(bindingId, out ActiveRuleBinding binding)
+            && !binding.IsEnabled
+            && binding.Owner == actor
+            && binding.DefinitionId == RageRules.QuickTemperedRuleDefinitionId;
     }
 
     internal sealed class ConsumeQuickTemperedTriggerReducer
@@ -882,46 +941,167 @@ namespace Game.Rules.Runtime
         )
         {
             RageActorState actorState = definition.GetActorState(context.Snapshot, actor);
-            ActiveEffectId effectId = new ActiveEffectId($"rage-effect-{rootId.Value}");
-            BindingId bindingId = new BindingId($"rage-binding-{rootId.Value}");
-            ActiveEffectInstance effect = new ActiveEffectInstance(
-                effectId,
+            ActiveEffectInstance effect = CreateEffect(actor, rootId, startedByQuickTempered);
+            ActiveRuleBinding binding = CreateBinding(actor, rootId, effect.Id);
+            // Effect and health reducers commit independently. Their exact authoritative state is
+            // the retry checkpoint when Fact delivery throws after either commit.
+            ObserverFailureState recoveredFailures = ObserverFailureState.CreateEmpty(
+                "Multiple Rage workflow observers failed after their state committed."
+            );
+            try
+            {
+                await RequireResolved(context.Dispatch(new CreateActiveEffectOp(effect, binding)));
+            }
+            catch (Exception failure)
+            {
+                if (!IsExactEffectCheckpoint(context.Snapshot, effect, binding))
+                {
+                    recoveredFailures.Add(failure).ThrowIfAny();
+                    throw;
+                }
+                recoveredFailures = recoveredFailures.Add(failure);
+            }
+
+            int offeredTemporaryHitPoints = Math.Max(
+                0,
+                actorState.Level + actorState.ConstitutionModifier
+            );
+            HealthState healthBefore = context.Snapshot.Health[actor];
+            TemporaryHitPointsGrantOutcome grant;
+            try
+            {
+                grant = await RequireResolved(
+                    context.Dispatch(
+                        new GrantTemporaryHitPointsOp(
+                            actor,
+                            offeredTemporaryHitPoints,
+                            CreateHealthOrigin(rootId),
+                            RageRules.Source
+                        )
+                    )
+                );
+            }
+            catch (Exception failure)
+            {
+                if (
+                    !TryResolveExactTemporaryHitPointGrant(
+                        context.Snapshot,
+                        actor,
+                        offeredTemporaryHitPoints,
+                        healthBefore,
+                        out grant
+                    )
+                )
+                {
+                    recoveredFailures.Add(failure).ThrowIfAny();
+                    throw;
+                }
+                recoveredFailures = recoveredFailures.Add(failure);
+            }
+            RageStartOutcome outcome = new RageStartOutcome(
+                effect.Id,
+                grant.Granted,
+                grant.CurrentAmount,
+                startedByQuickTempered
+            );
+            recoveredFailures.ThrowIfAny();
+            return outcome;
+        }
+
+        internal static bool IsCompletedStart(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            OpId rootId,
+            bool startedByQuickTempered,
+            RageActionDefinition definition
+        )
+        {
+            ActiveEffectInstance effect = CreateEffect(actor, rootId, startedByQuickTempered);
+            ActiveRuleBinding binding = CreateBinding(actor, rootId, effect.Id);
+            if (!IsExactEffectCheckpoint(snapshot, effect, binding))
+                return false;
+            RageActorState actorState = definition.GetActorState(snapshot, actor);
+            int offeredTemporaryHitPoints = Math.Max(
+                0,
+                actorState.Level + actorState.ConstitutionModifier
+            );
+            return snapshot.Health.TryGet(actor, out HealthState health)
+                && !health.IsCommittedDefeated
+                && (
+                    health.HasTemporaryHitPointImmunity(RageRules.Source)
+                    || health.Temporary >= offeredTemporaryHitPoints
+                );
+        }
+
+        private static ActiveEffectInstance CreateEffect(
+            CreatureId actor,
+            OpId rootId,
+            bool startedByQuickTempered
+        ) =>
+            new ActiveEffectInstance(
+                new ActiveEffectId($"rage-effect-{rootId.Value}"),
                 RageActionDefinition.EffectDefinitionId,
                 actor,
                 RageRules.Source,
                 EffectDuration.OneMinute,
                 new RageEffectState(startedByQuickTempered)
             );
-            ActiveRuleBinding binding = new ActiveRuleBinding(
-                bindingId,
+
+        private static ActiveRuleBinding CreateBinding(
+            CreatureId actor,
+            OpId rootId,
+            ActiveEffectId effectId
+        ) =>
+            new ActiveRuleBinding(
+                new BindingId($"rage-binding-{rootId.Value}"),
                 RageActionDefinition.EffectDefinitionId,
                 actor,
                 effectId,
                 RageRules.Source,
                 rootId.Value
             );
-            await RequireResolved(context.Dispatch(new CreateActiveEffectOp(effect, binding)));
 
-            int offeredTemporaryHitPoints = Math.Max(
-                0,
-                actorState.Level + actorState.ConstitutionModifier
-            );
-            TemporaryHitPointsGrantOutcome grant = await RequireResolved(
-                context.Dispatch(
-                    new GrantTemporaryHitPointsOp(
-                        actor,
-                        offeredTemporaryHitPoints,
-                        CreateHealthOrigin(rootId),
-                        RageRules.Source
-                    )
+        private static bool IsExactEffectCheckpoint(
+            RulesSnapshot snapshot,
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding
+        ) =>
+            snapshot.ActiveEffects.TryGet(effect.Id, out ActiveEffectInstance committedEffect)
+            && committedEffect.Equals(effect)
+            && snapshot.RuleBindings.TryGet(binding.Id, out ActiveRuleBinding committedBinding)
+            && committedBinding.Equals(binding);
+
+        private static bool TryResolveExactTemporaryHitPointGrant(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            int offeredTemporaryHitPoints,
+            HealthState before,
+            out TemporaryHitPointsGrantOutcome grant
+        )
+        {
+            grant = default;
+            if (
+                before.IsCommittedDefeated
+                || before.HasTemporaryHitPointImmunity(RageRules.Source)
+                || offeredTemporaryHitPoints <= before.Temporary
+                || !snapshot.Health.TryGet(actor, out HealthState committed)
+                || committed.Current != before.Current
+                || committed.Maximum != before.Maximum
+                || committed.Temporary != offeredTemporaryHitPoints
+                || committed.TemporarySource != RageRules.Source
+                || committed.IsCommittedDefeated != before.IsCommittedDefeated
+                || !committed.TemporaryHitPointImmunities.SequenceEqual(
+                    before.TemporaryHitPointImmunities
                 )
+            )
+                return false;
+            grant = new TemporaryHitPointsGrantOutcome(
+                true,
+                false,
+                before.Temporary,
+                committed.Temporary
             );
-            return new RageStartOutcome(
-                effectId,
-                grant.Granted,
-                grant.CurrentAmount,
-                startedByQuickTempered
-            );
+            return true;
         }
 
         public static HealthChangeOriginId CreateHealthOrigin(OpId rootId) =>

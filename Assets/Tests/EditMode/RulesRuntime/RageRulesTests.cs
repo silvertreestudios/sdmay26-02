@@ -22,6 +22,12 @@ namespace Game.Tests.EditMode.RulesRuntime
             /// <summary>Interrupts delivery immediately after the roster transaction commits.</summary>
             EncounterJoinedObserver,
 
+            /// <summary>Interrupts delivery immediately after the Rage effect commits.</summary>
+            ActiveEffectCreatedObserver,
+
+            /// <summary>Interrupts delivery immediately after Rage temporary HP commits.</summary>
+            TemporaryHitPointsGrantedObserver,
+
             /// <summary>Interrupts root settlement after Quick-Tempered finishes its mutations.</summary>
             QuickTemperedRootSettlement,
         }
@@ -201,6 +207,8 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [TestCase(JoinRetryFailurePoint.EncounterJoinedObserver)]
+        [TestCase(JoinRetryFailurePoint.ActiveEffectCreatedObserver)]
+        [TestCase(JoinRetryFailurePoint.TemporaryHitPointsGrantedObserver)]
         [TestCase(JoinRetryFailurePoint.QuickTemperedRootSettlement)]
         public async Task ReinforcementJoinRetryConvergesToOneSuccessfulQuickTemperedWorkflow(
             JoinRetryFailurePoint failurePoint
@@ -721,6 +729,19 @@ namespace Game.Tests.EditMode.RulesRuntime
                     new ThrowOnceFactObserver<EncounterJoinedFact>(expectedFailure)
                 );
             }
+            else if (failurePoint == JoinRetryFailurePoint.ActiveEffectCreatedObserver)
+            {
+                failureRegistration = dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(
+                    new ThrowOnceFactObserver<ActiveEffectCreatedFact>(expectedFailure)
+                );
+            }
+            else if (failurePoint == JoinRetryFailurePoint.TemporaryHitPointsGrantedObserver)
+            {
+                failureRegistration =
+                    dispatcher.RegisterFactObserver<TemporaryHitPointsGrantedFact>(
+                        new ThrowOnceFactObserver<TemporaryHitPointsGrantedFact>(expectedFailure)
+                    );
+            }
             else if (failurePoint == JoinRetryFailurePoint.QuickTemperedRootSettlement)
             {
                 failureRegistration = dispatcher.RegisterRootSettlementObserver(
@@ -737,6 +758,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 Assert.That(actual, Is.SameAs(expectedFailure));
                 long committedVersion = dispatcher.Snapshot.Version;
                 int committedFactCount = recorder.Facts.Count;
+                AssertCompletedQuickTemperedWorkflow(dispatcher.Snapshot, recorder);
 
                 ResolvedOpResult<EncounterJoinOutcome> retry = RequireResolved(
                     await dispatcher.Dispatch(join)
@@ -746,6 +768,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
                 Assert.That(recorder.Facts, Has.Count.EqualTo(committedFactCount));
                 Assert.That(rolls.Remaining, Is.Zero, "A Join retry must not reroll initiative.");
+                AssertCompletedQuickTemperedWorkflow(dispatcher.Snapshot, recorder);
 
                 CombatantRulesState conflictingRegistration = new CombatantRulesState(
                     registration.Creature,
@@ -794,6 +817,25 @@ namespace Game.Tests.EditMode.RulesRuntime
                     .ToArray(),
                 recorder.Facts.ToArray()
             );
+        }
+
+        private static void AssertCompletedQuickTemperedWorkflow(
+            RulesSnapshot snapshot,
+            FactStampRecorder recorder
+        )
+        {
+            BindingId triggerId = new BindingId($"quick-tempered-{Reinforcement.Value}");
+            Assert.That(RageRules.IsRaging(snapshot, Reinforcement), Is.True);
+            Assert.That(snapshot.Health[Reinforcement].Temporary, Is.EqualTo(3));
+            Assert.That(
+                snapshot.Health[Reinforcement].TemporarySource,
+                Is.EqualTo(RageRules.Source)
+            );
+            Assert.That(snapshot.RuleBindings[triggerId].IsEnabled, Is.False);
+            Assert.That(recorder.Count<InitiativeAssignedFact>(), Is.EqualTo(1));
+            Assert.That(recorder.Count<ActiveEffectCreatedFact>(), Is.EqualTo(1));
+            Assert.That(recorder.Count<TemporaryHitPointsGrantedFact>(), Is.EqualTo(1));
+            Assert.That(recorder.Count<QuickTemperedTriggerConsumedFact>(), Is.EqualTo(1));
         }
 
         private static RuleDispatcher CreateJoinRetryDispatcher(
@@ -918,10 +960,16 @@ namespace Game.Tests.EditMode.RulesRuntime
 
         private sealed class FactStampRecorder : IFactObserver<RuleFact>
         {
+            private readonly List<RuleFact> committedFacts = new List<RuleFact>();
+
             internal List<string> Facts { get; } = new List<string>();
+
+            internal int Count<TFact>()
+                where TFact : RuleFact => committedFacts.OfType<TFact>().Count();
 
             public ValueTask OnFactCommitted(RuleFact fact, RulesSnapshot currentSnapshot)
             {
+                committedFacts.Add(fact);
                 Facts.Add(
                     $"{fact.GetType().Name}:{fact.Id.Value}:{fact.SourceOpId.Value}:{fact.RootOpId.Value}:{fact.Source.Slug}"
                 );

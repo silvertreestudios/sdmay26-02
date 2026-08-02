@@ -219,6 +219,14 @@ state legitimately changed by an assignment listener does not make the original 
 conflicting. A post-commit roster observer failure is preserved for the caller only after the
 assignment checkpoint is attempted, so retry cannot alter causation, Facts, or version.
 
+Assignment-triggered feature workflows must close their own uncertain commit boundaries before an
+observer failure escapes. Quick-Tempered uses its exact Rage effect/binding, settled Rage temporary
+Hit Point offer, and disabled one-shot binding as authoritative checkpoints: after a child commit
+throws, the feature validates the checkpoint, finishes the remaining steps, then rethrows the
+observer failure. It does not add a cache or encounter-lifetime receipt, so there is no parallel
+progress state to clean up. Once the published assignment receipt exists, Join retry remains a true
+no-op and cannot replay the feature's Facts or versions.
+
 After either state path, call `AttachAndInstall`, `FinalizeBatch`, then
 `TransferTo(encounterLifetime)`. Finalization first validates every contribution; successful
 ownership transfer then applies the non-failing contributions and consumes one-shot input. A
