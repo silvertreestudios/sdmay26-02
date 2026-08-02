@@ -1030,7 +1030,9 @@ public class HUDController
         if (tacticsControlIsInExploration)
             enterTactics();
         else if (!returnToExploration())
-            combatLog?.Log("Tactics cannot end while opposition or an action is active.");
+            combatLog?.Log(
+                "Tactics cannot end while living opposition remains or gameplay is still resolving."
+            );
     }
 
     private void RestoreTacticsControlPresentation()
