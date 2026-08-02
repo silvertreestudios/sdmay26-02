@@ -1,4 +1,6 @@
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -13,6 +15,9 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     public float cameraMovementAcceleration = 10f;
     public float cameraMovementDeceleration = 15f;
     public bool invertZoom = false;
+
+    [SerializeField, Min(0f)]
+    private float levelLoadCameraY = 12f;
     private Camera mainCamera;
     private InputAction moveAction;
     private InputAction zoomAction;
@@ -212,6 +217,43 @@ public class CameraManager : SingletonMonoBehaviour<CameraManager>
     }
 
     private Coroutine currentPanRoutine;
+
+    /// <summary>
+    /// Immediately frames the living party after a dungeon floor has finished loading.
+    /// </summary>
+    /// <remarks>
+    /// The camera keeps its authored viewing angle while moving its ground-plane look point to the
+    /// party center. A fixed close height makes initial loads, saved games, and stair transitions
+    /// feel consistent even when the previous floor was viewed from a different zoom level.
+    /// </remarks>
+    /// <param name="party">The authored party whose active members define the frame.</param>
+    internal void FramePartyForLevelLoad(IEnumerable<ActionController> party)
+    {
+        if (party == null)
+            return;
+        if (mainCamera == null)
+            GetCamera();
+        if (mainCamera == null)
+            return;
+
+        Vector3[] positions = party
+            .Where(member => member != null && member.gameObject.activeInHierarchy)
+            .Select(member => member.transform.position)
+            .ToArray();
+        if (positions.Length == 0)
+            return;
+
+        StopFollowing();
+        Vector3 focus =
+            positions.Aggregate(Vector3.zero, (sum, position) => sum + position) / positions.Length;
+        float targetY = Mathf.Clamp(levelLoadCameraY, minCamearYLimit, maxCameraYLimit);
+        float downwardComponent = -mainCamera.transform.forward.y;
+        if (downwardComponent <= Mathf.Epsilon || targetY <= focus.y)
+            return;
+
+        float distance = (targetY - focus.y) / downwardComponent;
+        mainCamera.transform.position = focus - mainCamera.transform.forward * distance;
+    }
 
     public void PanToTarget(GameObject target, bool followIndefinitely = false)
     {

@@ -79,7 +79,11 @@ public sealed class RulesStrideAction : EntityAction, ISelectionDrivenEntityActi
         CreatureId creature;
         if (startedInExploration)
         {
-            bridge = UnityCombatRulesBridge.CreateExplorationStride(controller, grid.GetTiles());
+            bridge = UnityCombatRulesBridge.CreateExplorationStride(
+                controller,
+                grid.GetTiles(),
+                grid.ExplorationStrideCoordinator
+            );
             creature = bridge.GetCreatureId(controller);
         }
         else if (!controller.TryGetCombatRules(out bridge, out creature))
@@ -136,7 +140,10 @@ public sealed class RulesStrideAction : EntityAction, ISelectionDrivenEntityActi
 
             try
             {
-                if (!pendingDispatch.GetAwaiter().GetResult())
+                bool resolved = pendingDispatch.GetAwaiter().GetResult();
+                if (resolver is IProjectedStrideContinuationReceiver receiver)
+                    receiver.RecordMayContinueRoute(resolved && !projection.WasRouteInterrupted);
+                if (!resolved)
                     Debug.LogWarning("Stride was rejected by current rules state.", target);
             }
             catch (Exception exception)

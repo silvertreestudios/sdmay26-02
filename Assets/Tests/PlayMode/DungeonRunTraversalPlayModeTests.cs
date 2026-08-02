@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.DungeonGeneration;
@@ -248,11 +249,11 @@ public sealed class DungeonRunTraversalPlayModeTests
     }
 
     /// <summary>
-    /// Verifies an exploration stair click does not require the party to gather first, then places
-    /// the full four-PC party in unique cells at the paired encounter-free arrival stair.
+    /// Verifies an exploration stair click must reach the endpoint without opening another door,
+    /// then places the full four-PC party in unique cells at the paired encounter-free arrival.
     /// </summary>
     [UnityTest]
-    public IEnumerator ExplorationStairClickIgnoresPartyProximityAndPlacesFullPartyAtArrival()
+    public IEnumerator ExplorationStairClickRequiresReachableAdjacencyAndPlacesPartyAtArrival()
     {
         AsyncOperation load = EditorSceneManager.LoadSceneAsyncInPlayMode(
             ScenePath,
@@ -272,6 +273,7 @@ public sealed class DungeonRunTraversalPlayModeTests
             CreateParty(initialTemplate, "four-party-slot-c"),
             CreateParty(initialTemplate, "four-party-slot-d"),
         };
+        party[0].AddAction(new RulesStrideAction());
         GameObject runtimeRoot = new("Four-PC Dungeon Traversal Runtime");
         runtimeRoot.transform.SetParent(map.transform, false);
         string autosaveDirectory = Path.Combine(
@@ -279,13 +281,14 @@ public sealed class DungeonRunTraversalPlayModeTests
             "issue-157-four-party-" + Guid.NewGuid().ToString("N")
         );
         autosaveDirectories.Add(autosaveDirectory);
+        RecordingExplorationPresentation presentation = new();
         DungeonRunPersistenceBootstrapResult bootstrap = DungeonRunPersistenceBootstrap.StartNewRun(
             map,
             initialTemplate,
             DungeonEncounterCreatureCatalog.LoadDefaultOrThrow(),
             manager,
             party,
-            new RecordingExplorationPresentation(),
+            presentation,
             runtimeRoot,
             autosaveDirectory
         );
@@ -296,6 +299,69 @@ public sealed class DungeonRunTraversalPlayModeTests
         );
 
         DungeonStairMarker down = RequireStair(DungeonStairKind.Down);
+        Vector3[] positionsBeforeClick = party
+            .Select(member => member.transform.position)
+            .ToArray();
+        Vector3Int leaderCell = Vector3Int.RoundToInt(party[0].transform.position);
+        Assert.That(
+            Math.Abs(leaderCell.x - down.Cell.X) + Math.Abs(leaderCell.z - down.Cell.Z),
+            Is.GreaterThan(1),
+            "The stair-claim regression requires a non-adjacent destination."
+        );
+
+        RaiseGridCellClick(map.GetComponent<GridInput>(), down.Cell);
+
+        int remainingFrames = 300;
+        while (
+            remainingFrames-- > 0
+            && (
+                bootstrap.Runtime.HasActionInProgress
+                || HasActiveDestinationTravel(bootstrap.Runtime)
+            )
+        )
+            yield return null;
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Stair route resolution timed out.");
+        Assert.That(
+            presentation.PresentCount,
+            Is.Zero,
+            "A stair behind an unopened room door must not prompt for traversal."
+        );
+        Assert.That(
+            party.Select(member => member.transform.position),
+            Is.EqualTo(positionsBeforeClick)
+        );
+
+        PlaceLivingPartyAt(down, party);
+        Vector3[] adjacentPositions = party.Select(member => member.transform.position).ToArray();
+        RaiseGridCellClick(map.GetComponent<GridInput>(), down.Cell);
+
+        Assert.That(presentation.PresentCount, Is.EqualTo(1));
+        Assert.That(presentation.LastCanConfirm, Is.True);
+        Assert.That(bootstrap.Controller.CurrentDepth, Is.Zero);
+        Assert.That(bootstrap.Runtime.HasActionInProgress, Is.False);
+        Assert.That(HasActiveDestinationTravel(bootstrap.Runtime), Is.False);
+        Assert.That(party.Any(member => member.IsTakingAction), Is.False);
+        Assert.That(
+            party.Select(member => member.transform.position),
+            Is.EqualTo(adjacentPositions)
+        );
+
+        presentation.Respond(confirmed: false);
+        yield return null;
+
+        Assert.That(bootstrap.Controller.CurrentDepth, Is.Zero);
+        Assert.That(bootstrap.Runtime.HasActionInProgress, Is.False);
+        Assert.That(HasActiveDestinationTravel(bootstrap.Runtime), Is.False);
+        Assert.That(party.Any(member => member.IsTakingAction), Is.False);
+        Assert.That(
+            party.Select(member => member.transform.position),
+            Is.EqualTo(adjacentPositions)
+        );
+        Assert.That(
+            bootstrap.Controller.LastDiagnostics.Single().Code,
+            Is.EqualTo(DungeonTravelDiagnosticCode.ConfirmationRequired)
+        );
+
         DungeonTravelResult unconfirmed = bootstrap.Controller.TryUseStair(down, confirmed: false);
         Assert.That(
             unconfirmed.Diagnostics.Single().Code,
@@ -386,6 +452,28 @@ public sealed class DungeonRunTraversalPlayModeTests
                 FindObjectsSortMode.None
             )
             .Single(stair => stair.Kind == kind);
+
+    private static void RaiseGridCellClick(GridInput input, DungeonCell cell)
+    {
+        Assert.That(input, Is.Not.Null);
+        FieldInfo clickedField = typeof(GridInput).GetField(
+            "CellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(clickedField, Is.Not.Null);
+        Action<Vector3Int> clicked = (Action<Vector3Int>)clickedField.GetValue(input);
+        clicked(new Vector3Int(cell.X, 0, cell.Z));
+    }
+
+    private static bool HasActiveDestinationTravel(DungeonEncounterRuntimeController runtime)
+    {
+        PropertyInfo property = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(property, Is.Not.Null);
+        return (bool)property.GetValue(runtime);
+    }
 
     private static void PlaceLivingPartyAt(DungeonStairMarker stair, ActionController[] livingParty)
     {
@@ -480,6 +568,21 @@ public sealed class DungeonRunTraversalPlayModeTests
         : IDungeonExplorationPresentation,
             IDungeonStairTraversalPresentation
     {
+        private Action<bool> respond = delegate { };
+        private bool hasPendingResponse;
+
+        internal int PresentCount { get; private set; }
+
+        internal bool LastCanConfirm { get; private set; }
+
+        internal void Respond(bool confirmed)
+        {
+            Assert.That(hasPendingResponse, Is.True);
+            Action<bool> pending = respond;
+            DismissStairTraversal();
+            pending(confirmed);
+        }
+
         /// <inheritdoc/>
         public void ShowExploration(
             System.Collections.Generic.IReadOnlyList<ActionController> party,
@@ -491,13 +594,20 @@ public sealed class DungeonRunTraversalPlayModeTests
         public void HideExploration() { }
 
         /// <inheritdoc/>
-        public void PresentStairTraversal(
-            DungeonStairTraversalPrompt prompt,
-            Action<bool> respond
-        ) { }
+        public void PresentStairTraversal(DungeonStairTraversalPrompt prompt, Action<bool> respond)
+        {
+            PresentCount++;
+            LastCanConfirm = prompt.CanConfirm;
+            this.respond = respond;
+            hasPendingResponse = true;
+        }
 
         /// <inheritdoc/>
-        public void DismissStairTraversal() { }
+        public void DismissStairTraversal()
+        {
+            respond = delegate { };
+            hasPendingResponse = false;
+        }
     }
 
     private static IEnumerable<DungeonCell> CardinalNeighbors(DungeonCell cell)

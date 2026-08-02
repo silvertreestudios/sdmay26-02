@@ -15,7 +15,10 @@ using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
+using UniversalEvents;
 using Object = UnityEngine.Object;
 
 /// <summary>
@@ -26,6 +29,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 {
     private const string GoblinJson = "DataFiles/pathfinder-monster-core/goblin-warrior";
     private readonly List<Object> cleanup = new();
+    private RuntimeTestCombatLog combatLog;
     private CombatManager manager;
     private TestTokenMovement movement;
     private UnityEngine.Random.State randomState;
@@ -38,8 +42,14 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         randomState = UnityEngine.Random.state;
         UnityEngine.Random.InitState(153);
 
-        Track(new GameObject("Exploration Test Combat Log")).AddComponent<RuntimeTestCombatLog>();
-        Track(new GameObject("Exploration Test Team Rules")).AddComponent<TeamRules>();
+        combatLog = Track(new GameObject("Exploration Test Combat Log"))
+            .AddComponent<RuntimeTestCombatLog>();
+        TeamRules teamRules = Track(new GameObject("Exploration Test Team Rules"))
+            .AddComponent<TeamRules>();
+        teamRules.AddHostileTeam("Players");
+        teamRules.OneWayFriendly("Players", "Players");
+        teamRules.AddHostileTeam("Enemies");
+        teamRules.OneWayFriendly("Enemies", "Enemies");
         manager = Track(new GameObject("Exploration Test Combat Manager"))
             .AddComponent<CombatManager>();
         movement = Track(new GameObject("Exploration Test Token Movement"))
@@ -58,6 +68,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 Object.DestroyImmediate(cleanup[index]);
         }
         cleanup.Clear();
+        combatLog = null;
         manager = null;
         movement = null;
         yield return null;
@@ -404,10 +415,10 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
-    /// Verifies exploration selection rejects a follower-occupied square before rules commit it.
+    /// Verifies exploration selection and projection swap the leader with an adjacent ally.
     /// </summary>
     [UnityTest]
-    public IEnumerator RulesBackedExplorationStrideRejectsFollowerOccupiedDestination()
+    public IEnumerator RulesBackedExplorationStrideSwapsWithFollowerAtDestination()
     {
         RuntimeFixture fixture = CreateRuntimeFixture(
             new[] { new Vector3Int(2, 0, 2), new Vector3Int(2, 0, 1) }
@@ -420,10 +431,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Vector3Int from = Vector3Int.RoundToInt(leader.transform.position);
         Vector3Int destination = Vector3Int.RoundToInt(
             fixture.Party[1].GameObject.transform.position
-        );
-        LogAssert.Expect(
-            LogType.Warning,
-            "Stride selection failed: A selection resolver returned a value outside the request."
         );
 
         leader.TakeAction(
@@ -439,13 +446,646 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         while (leader.IsTakingAction && remainingFrames-- > 0)
             yield return null;
 
+        Assert.That(leader.IsTakingAction, Is.False, "The exploration swap did not finish.");
+        Assert.That(manager.IsCombatActive, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(2, 1), new DungeonCell(2, 2));
+    }
+
+    /// <summary>Verifies destination travel crosses an ally in a one-cell-wide hallway.</summary>
+    [UnityTest]
+    public IEnumerator DestinationTravelCrossesAllyInNarrowHallway()
+    {
+        const int width = 12;
+        const int height = 5;
+        const int hallwayZ = 2;
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, hallwayZ), new Vector3Int(2, 0, hallwayZ) },
+            width,
+            height,
+            customGridData: CorridorGrid(width, height, hallwayZ),
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Ally Hallway Travel Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(10, 0, hallwayZ) });
+
+        int remainingFrames = 900;
+        while (
+            remainingFrames-- > 0
+            && (
+                CellOf(fixture.Party[0].GameObject) != new DungeonCell(10, hallwayZ)
+                || fixture.Party[0].Controller.IsTakingAction
+            )
+        )
+        {
+            yield return null;
+        }
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Hallway destination travel timed out.");
+        Assert.That(manager.IsCombatActive, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(10, hallwayZ), new DungeonCell(9, hallwayZ));
+    }
+
+    [UnityTest]
+    public IEnumerator SynchronouslyCompletedDestinationTravelDoesNotBlockLaterTravel()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(new[] { new Vector3Int(1, 0, 2) }, width: 10);
+        Track(new GameObject("Synchronous Destination Travel Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(8, 0, 2) });
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
         Assert.That(
-            leader.IsTakingAction,
-            Is.False,
-            "The rejected exploration Stride did not finish."
+            Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position),
+            Is.EqualTo(new Vector3Int(1, 0, 2))
+        );
+
+        fixture.Party[0].Controller.AddAction(new RulesStrideAction());
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(8, 0, 2) });
+
+        int remainingFrames = 600;
+        while (
+            remainingFrames-- > 0
+            && (
+                Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position)
+                    != new Vector3Int(8, 0, 2)
+                || fixture.Party[0].Controller.IsTakingAction
+            )
+        )
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Later destination travel timed out.");
+        AssertPartyCells(fixture, new DungeonCell(8, 2));
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+    }
+
+    /// <summary>Verifies documented stair endpoints never become travel destinations.</summary>
+    [Test]
+    public void DocumentedStairEndpointIsClaimedBeforeDestinationPlanning()
+    {
+        DungeonStair stair = new(
+            "down-stair",
+            DungeonStairKind.Down,
+            new DungeonCell(8, 2),
+            new DungeonCell(7, 2)
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 10,
+            stairs: new[] { stair },
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(activeTravel, Is.Not.Null);
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), stair.Cell);
+
+        AssertPartyCells(fixture, new DungeonCell(1, 2));
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        Assert.That(activeTravel.GetValue(fixture.Runtime), Is.False);
+    }
+
+    /// <summary>
+    /// Verifies active destination travel rejects a leader change between Strides, keeps route
+    /// ownership stable, and restores leader selection after the full formation arrives.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DestinationTravelRejectsLeaderChangeBetweenStridesAndPreservesFormation()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2), new Vector3Int(0, 0, 2) },
+            width: 10,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Destination Travel Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+        Assert.That(activeTravel, Is.Not.Null);
+        TestActionController initiatingLeader = fixture.Party[0].Controller;
+        TestActionController follower = fixture.Party[1].Controller;
+        bool selectionAttempted = false;
+        bool routeWasActiveDuringSelection = false;
+        bool leaderWasTakingActionDuringSelection = true;
+        bool selectionAccepted = true;
+
+        void AttemptLeaderChangeBetweenStrides()
+        {
+            if (selectionAttempted)
+                return;
+
+            selectionAttempted = true;
+            routeWasActiveDuringSelection = (bool)activeTravel.GetValue(fixture.Runtime);
+            leaderWasTakingActionDuringSelection = initiatingLeader.IsTakingAction;
+            selectionAccepted = fixture.Presentation.TrySelect(follower);
+        }
+
+        OnActionComplete.AddListener(AttemptLeaderChangeBetweenStrides);
+        int remainingFrames = 600;
+        try
+        {
+            click.Invoke(fixture.Runtime, new object[] { new Vector3Int(8, 0, 2) });
+
+            while (remainingFrames-- > 0 && (bool)activeTravel.GetValue(fixture.Runtime))
+                yield return null;
+        }
+        finally
+        {
+            OnActionComplete.RemoveListener(AttemptLeaderChangeBetweenStrides);
+        }
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Destination travel timed out.");
+        Assert.That(selectionAttempted, Is.True);
+        Assert.That(routeWasActiveDuringSelection, Is.True);
+        Assert.That(leaderWasTakingActionDuringSelection, Is.False);
+        Assert.That(selectionAccepted, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(8, 2), new DungeonCell(7, 2));
+        Assert.That(initiatingLeader.IsTakingAction, Is.False);
+        Assert.That(initiatingLeader.IsInDungeonExploration, Is.True);
+        Assert.That(follower.IsInDungeonExploration, Is.False);
+        Assert.That(
+            combatLog.Messages.Count(message =>
+                message == $"- {fixture.Party[0].GameObject.name} used Stride"
+            ),
+            Is.GreaterThan(1),
+            "The initiating leader must execute the route as multiple Strides."
+        );
+        Assert.That(
+            combatLog.Messages,
+            Has.None.EqualTo($"- {fixture.Party[1].GameObject.name} used Stride")
         );
         Assert.That(manager.IsCombatActive, Is.False);
-        AssertPartyCells(fixture, new DungeonCell(2, 2), new DungeonCell(2, 1));
+        Assert.That(fixture.Presentation.TrySelect(follower), Is.True);
+        Assert.That(initiatingLeader.IsInDungeonExploration, Is.False);
+        Assert.That(follower.IsInDungeonExploration, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(8, 2), new DungeonCell(7, 2));
+    }
+
+    /// <summary>
+    /// Verifies the Tactics control cannot interrupt route ownership between Stride segments.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DestinationTravelRejectsTacticsEntryBetweenStrides()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 10,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Destination Travel Tactics Gate Runner"))
+            .AddComponent<CoroutineRunner>();
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(activeTravel, Is.Not.Null);
+        TestActionController leader = fixture.Party[0].Controller;
+        bool requestAttempted = false;
+        bool routeWasActiveDuringRequest = false;
+        bool leaderWasTakingActionDuringRequest = true;
+        bool tacticsEntered = true;
+
+        void AttemptTacticsBetweenStrides()
+        {
+            if (requestAttempted)
+                return;
+
+            requestAttempted = true;
+            routeWasActiveDuringRequest = (bool)activeTravel.GetValue(fixture.Runtime);
+            leaderWasTakingActionDuringRequest = leader.IsTakingAction;
+            fixture.Presentation.RequestTactics();
+            tacticsEntered = manager.IsCombatActive;
+        }
+
+        OnActionComplete.AddListener(AttemptTacticsBetweenStrides);
+        int remainingFrames = 600;
+        try
+        {
+            RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), new DungeonCell(8, 2));
+            while (remainingFrames-- > 0 && (bool)activeTravel.GetValue(fixture.Runtime))
+                yield return null;
+        }
+        finally
+        {
+            OnActionComplete.RemoveListener(AttemptTacticsBetweenStrides);
+        }
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Destination travel timed out.");
+        Assert.That(requestAttempted, Is.True);
+        Assert.That(routeWasActiveDuringRequest, Is.True);
+        Assert.That(leaderWasTakingActionDuringRequest, Is.False);
+        Assert.That(tacticsEntered, Is.False);
+        Assert.That(manager.IsCombatActive, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(8, 2));
+    }
+
+    [UnityTest]
+    public IEnumerator DestinationTravelClickReplacesRouteAtCommittedBoundary()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 12,
+            height: 8,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Replacement Destination Travel Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(activeTravel, Is.Not.Null);
+        bool replacementRequested = false;
+
+        void ReplaceRouteAfterFirstStride()
+        {
+            if (replacementRequested)
+                return;
+
+            replacementRequested = true;
+            RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), new DungeonCell(2, 6));
+        }
+
+        OnActionComplete.AddListener(ReplaceRouteAfterFirstStride);
+        int remainingFrames = 600;
+        try
+        {
+            RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), new DungeonCell(10, 2));
+            while (remainingFrames-- > 0 && (bool)activeTravel.GetValue(fixture.Runtime))
+                yield return null;
+        }
+        finally
+        {
+            OnActionComplete.RemoveListener(ReplaceRouteAfterFirstStride);
+        }
+
+        Assert.That(
+            remainingFrames,
+            Is.GreaterThan(0),
+            "Replacement destination travel timed out."
+        );
+        Assert.That(replacementRequested, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(2, 6));
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    [UnityTest]
+    public IEnumerator DestinationTravelRightClickInputCancelsQueuedStridesFromIdleState()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 12,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Cancelled Travel Coroutine Runner")).AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Mouse previousMouse = Mouse.current;
+        Mouse mouse = InputSystem.AddDevice<Mouse>();
+        int globalCancelRequests = 0;
+        void RecordGlobalCancel() => globalCancelRequests++;
+        OnCancel.AddListener(RecordGlobalCancel);
+        try
+        {
+            mouse.MakeCurrent();
+            Assert.That(InputCompat.RightClickDown(), Is.False);
+            Assert.That(fixture.Grid.Fsm.CurrentState, Is.TypeOf<StateIdle>());
+
+            click.Invoke(fixture.Runtime, new object[] { new Vector3Int(10, 0, 2) });
+            InputState.Change(
+                mouse,
+                new MouseState().WithButton(MouseButton.Right),
+                InputUpdateType.Dynamic
+            );
+            mouse.MakeCurrent();
+            Assert.That(InputCompat.RightClickDown(), Is.True);
+            fixture.Grid.Fsm.InputUpdate();
+        }
+        finally
+        {
+            OnCancel.RemoveListener(RecordGlobalCancel);
+            InputState.Change(mouse, new MouseState(), InputUpdateType.Dynamic);
+            InputSystem.RemoveDevice(mouse);
+            if (previousMouse != null && previousMouse.added)
+                previousMouse.MakeCurrent();
+        }
+
+        Assert.That(globalCancelRequests, Is.Zero);
+        int remainingFrames = 300;
+        while (remainingFrames-- > 0 && fixture.Party[0].Controller.IsTakingAction)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Cancelled destination travel timed out.");
+        Assert.That(
+            Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position),
+            Is.Not.EqualTo(new Vector3Int(10, 0, 2))
+        );
+    }
+
+    [UnityTest]
+    public IEnumerator PartialFollowerProjectionFailureStopsDestinationRouteAfterOneStride()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2), new Vector3Int(0, 0, 2) },
+            width: 12,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Partial Follower Failure Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        GameObject blockedFollower = fixture.Party[1].GameObject;
+        fixture
+            .Grid.GetTiles()[0, 2]
+            .OnExitTile.AddListener(data => PreventExitFor(data, blockedFollower));
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+        Assert.That(activeTravel, Is.Not.Null);
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(10, 0, 2) });
+        int remainingFrames = 300;
+        while (remainingFrames-- > 0 && (bool)activeTravel.GetValue(fixture.Runtime))
+            yield return null;
+
+        Assert.That(
+            remainingFrames,
+            Is.GreaterThan(0),
+            "Destination travel did not terminate after the partial follower failure."
+        );
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(2, 2), new DungeonCell(0, 2));
+        Assert.That(fixture.Grid.GetTiles()[1, 2].Occupants, Is.Empty);
+        Assert.That(
+            combatLog.Messages.Count(message =>
+                message == $"- {fixture.Party[0].GameObject.name} used Stride"
+            ),
+            Is.EqualTo(1),
+            "A partial follower failure must not start a later Stride from the moved leader cell."
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    [UnityTest]
+    public IEnumerator ClosedDoorClickDuringDestinationTravelStopsAndOpensDoor()
+    {
+        DoorSpec door = new("travel-priority-door", new DungeonCell(2, 3));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 10,
+            height: 10,
+            doors: new[] { door },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().speed = 25;
+            }
+        );
+        Track(new GameObject("Door Destination Travel Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(1, 0, 8) });
+        Assert.That(
+            fixture.Party[0].Controller.IsTakingAction,
+            Is.True,
+            "The destination click must start its rules-backed Stride before a door can queue."
+        );
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(2, 0, 3) });
+
+        int remainingFrames = 300;
+        while (
+            remainingFrames-- > 0
+            && (
+                fixture.Party[0].Controller.IsTakingAction
+                || !fixture.Doors[door.Cell].Controller.IsOpen
+            )
+        )
+            yield return null;
+
+        Assert.That(
+            remainingFrames,
+            Is.GreaterThan(0),
+            $"Door interruption timed out at "
+                + $"{Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position)}; "
+                + $"action active: {fixture.Party[0].Controller.IsTakingAction}; "
+                + $"door open: {fixture.Doors[door.Cell].Controller.IsOpen}."
+        );
+        Assert.That(fixture.Doors[door.Cell].Controller.IsOpen, Is.True);
+        Assert.That(
+            Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position),
+            Is.EqualTo(new Vector3Int(1, 0, 3)),
+            "The queued door must interrupt the temporary Stride suffix after its first committed step."
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    /// <summary>
+    /// Verifies a directly clicked same-room door uses repeated rules-backed Strides to reach its
+    /// closest accessible side, then opens without requiring a second click.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ReachableClosedDoorClickTravelsAdjacentAndOpens()
+    {
+        DoorSpec door = new("reachable-door", new DungeonCell(9, 2));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 12,
+            height: 6,
+            doors: new[] { door },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().speed = 10;
+            }
+        );
+        Track(new GameObject("Reachable Door Coroutine Runner")).AddComponent<CoroutineRunner>();
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), door.Cell);
+
+        int remainingFrames = 600;
+        while (
+            remainingFrames-- > 0
+            && (
+                HasActiveDestinationTravel(fixture.Runtime)
+                || fixture.Party[0].Controller.IsTakingAction
+                || !fixture.Doors[door.Cell].Controller.IsOpen
+            )
+        )
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Door interaction travel timed out.");
+        AssertDoorOpen(fixture, door.Cell);
+        DungeonCell leaderCell = CellOf(fixture.Party[0].GameObject);
+        Assert.That(
+            Math.Abs(leaderCell.X - door.Cell.X) + Math.Abs(leaderCell.Z - door.Cell.Z),
+            Is.EqualTo(1),
+            "The leader must stop cardinally adjacent before the door interaction runs."
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    /// <summary>
+    /// Verifies stair-style interactions use the same reachable-neighbor travel contract and do
+    /// not invoke their original click behavior until movement has completely settled.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ReachableStairInteractionInvokesCallbackAfterArrival()
+    {
+        DungeonStair stair = new(
+            "reachable-stair",
+            DungeonStairKind.Down,
+            new DungeonCell(9, 2),
+            new DungeonCell(8, 2)
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 12,
+            height: 6,
+            stairs: new[] { stair },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().speed = 10;
+            }
+        );
+        Track(new GameObject("Reachable Stair Coroutine Runner")).AddComponent<CoroutineRunner>();
+        bool interactionInvoked = false;
+
+        bool accepted = fixture.Runtime.TryTravelToInteraction(
+            stair.Cell,
+            () => interactionInvoked = true
+        );
+
+        Assert.That(accepted, Is.True);
+        Assert.That(
+            interactionInvoked,
+            Is.False,
+            "A non-adjacent stair interaction must wait for travel to finish."
+        );
+        int remainingFrames = 600;
+        while (remainingFrames-- > 0 && !interactionInvoked)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Stair interaction travel timed out.");
+        Assert.That(HasActiveDestinationTravel(fixture.Runtime), Is.False);
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        DungeonCell leaderCell = CellOf(fixture.Party[0].GameObject);
+        Assert.That(
+            Math.Abs(leaderCell.X - stair.Cell.X) + Math.Abs(leaderCell.Z - stair.Cell.Z),
+            Is.EqualTo(1),
+            "The stair callback must run from a cardinally adjacent cell."
+        );
+    }
+
+    /// <summary>
+    /// Verifies direct interaction travel never opens an intermediate door to reach a later room.
+    /// </summary>
+    [Test]
+    public void ClosedIntermediateDoorBlocksDirectDoorInteraction()
+    {
+        DoorSpec firstDoor = new("first-room-door", new DungeonCell(5, 3));
+        DoorSpec targetDoor = new("target-room-door", new DungeonCell(10, 3));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 3) },
+            doors: new[] { firstDoor, targetDoor },
+            customGridData: ThreeRoomGrid(),
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+
+        RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), targetDoor.Cell);
+
+        Assert.That(fixture.Doors[firstDoor.Cell].Controller.IsOpen, Is.False);
+        Assert.That(fixture.Doors[targetDoor.Cell].Controller.IsOpen, Is.False);
+        Assert.That(HasActiveDestinationTravel(fixture.Runtime), Is.False);
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(2, 3));
+    }
+
+    [UnityTest]
+    public IEnumerator DestinationTravelStopsAtImmediateEncounterBoundary()
+    {
+        DungeonRoom room = new(1, 4, 2, 7, 7);
+        DungeonEncounterPlan encounter = new(
+            "destination-boundary",
+            room.Id,
+            DungeonEncounterThreat.Trivial,
+            40,
+            new[] { new DungeonCell(7, 6) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(4, 0, 1), new Vector3Int(3, 0, 1) },
+            width: 10,
+            height: 10,
+            rooms: new[] { room },
+            encounterPlans: new[] { encounter },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().initiative = 1000;
+            }
+        );
+        Track(new GameObject("Boundary Destination Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(4, 0, 6) });
+        int remainingFrames = 300;
+        while (remainingFrames-- > 0 && !manager.IsCombatActive)
+            yield return null;
+        while (remainingFrames-- > 0 && fixture.Party[0].Controller.IsTakingAction)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Encounter interruption timed out.");
+        Assert.That(manager.IsCombatActive, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(4, 2), new DungeonCell(3, 1));
+        Assert.That(
+            Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position),
+            Is.Not.EqualTo(new Vector3Int(4, 0, 6))
+        );
     }
 
     /// <summary>
@@ -545,6 +1185,28 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(opened, Is.EqualTo(new[] { zDoor.Id, aDoor.Id }));
         Assert.That(fixture.Runtime.CaptureOpenDoorIds(), Is.EqualTo(new[] { aDoor.Id, zDoor.Id }));
         yield break;
+    }
+
+    [Test]
+    public void ClosedDoorClickTakesPriorityOverDestinationTravel()
+    {
+        DoorSpec door = new("priority-door", new DungeonCell(2, 2));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            doors: new[] { door },
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(2, 0, 2) });
+
+        Assert.That(fixture.Doors[door.Cell].Controller.IsOpen, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(1, 2));
+        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
     }
 
     /// <summary>
@@ -787,6 +1449,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         int width = 8,
         int height = 8,
         IReadOnlyList<DoorSpec> doors = null,
+        IReadOnlyList<DungeonStair> stairs = null,
         IReadOnlyList<DungeonRoom> rooms = null,
         IReadOnlyList<DungeonEncounterPlan> encounterPlans = null,
         Action<IReadOnlyList<TestActionController>> configurePartyBeforeInitialization = null,
@@ -794,6 +1457,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     )
     {
         doors ??= Array.Empty<DoorSpec>();
+        stairs ??= Array.Empty<DungeonStair>();
         rooms ??= Array.Empty<DungeonRoom>();
         encounterPlans ??= Array.Empty<DungeonEncounterPlan>();
         if (partyCells == null || partyCells.Count == 0)
@@ -869,7 +1533,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             Rows(gridData),
             rooms,
             doors.Select(door => new DungeonDoor(door.Id, door.Cell)),
-            Array.Empty<DungeonStair>(),
+            stairs,
             new DungeonCell(partyCells[0].x, partyCells[0].z),
             partyCells.Select(cell => new DungeonCell(cell.x, cell.z)),
             Array.Empty<DungeonObjectPlacement>(),
@@ -945,6 +1609,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(coordinator.Handles(leader.GameObject), Is.True);
         leader.Controller.IsTakingAction = true;
         Ref<bool> continuePath = new(true);
+        Ref<bool> pathInterrupted = new(false);
         RunToCompletion(
             coordinator.ProjectCommittedStep(
                 leader.GameObject,
@@ -952,7 +1617,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 destination,
                 fixture.Grid.GetTiles(),
                 movement,
-                continuePath
+                continuePath,
+                pathInterrupted
             )
         );
         if (!manager.IsCombatActive)
@@ -1090,6 +1756,16 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         clicked(new Vector3Int(cell.X, 0, cell.Z));
     }
 
+    private static bool HasActiveDestinationTravel(DungeonEncounterRuntimeController runtime)
+    {
+        PropertyInfo property = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(property, Is.Not.Null);
+        return (bool)property.GetValue(runtime);
+    }
+
     private static int ChebyshevDistance(Vector3 first, Vector3 second)
     {
         Vector3Int firstCell = Vector3Int.RoundToInt(first);
@@ -1104,6 +1780,17 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         {
             for (int z = 0; z < height; z++)
                 data[x, z] = TileType.Ground;
+        }
+        return data;
+    }
+
+    private static TileType[,] CorridorGrid(int width, int height, int corridorZ)
+    {
+        TileType[,] data = new TileType[width, height];
+        for (int x = 0; x < width; x++)
+        {
+            for (int z = 0; z < height; z++)
+                data[x, z] = z == corridorZ ? TileType.Ground : TileType.Wall;
         }
         return data;
     }
@@ -1390,9 +2077,12 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         }
     }
 
-    private sealed class RecordingExplorationPresentation : IDungeonExplorationPresentation
+    private sealed class RecordingExplorationPresentation
+        : IDungeonExplorationPresentation,
+            IDungeonTacticsPresentation
     {
         private Func<ActionController, bool> trySelectLeader = _ => false;
+        private Action enterTactics = delegate { };
 
         internal ActionController Selected { get; private set; }
 
@@ -1403,6 +2093,8 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 Selected = candidate;
             return selected;
         }
+
+        internal void RequestTactics() => enterTactics.Invoke();
 
         /// <inheritdoc/>
         public void ShowExploration(
@@ -1417,10 +2109,22 @@ public sealed class DungeonExplorationRuntimePlayModeTests
 
         /// <inheritdoc/>
         public void HideExploration() { }
+
+        /// <inheritdoc/>
+        public void ConfigureTacticsControl(Action enterTactics, Func<bool> returnToExploration) =>
+            this.enterTactics = enterTactics;
+
+        /// <inheritdoc/>
+        public void ShowTactics() { }
+
+        /// <inheritdoc/>
+        public void ShowTacticsUnavailable() => enterTactics = delegate { };
     }
 
     private sealed class RuntimeTestCombatLog : CombatLogInterface
     {
+        internal List<string> Messages { get; } = new();
+
         /// <inheritdoc/>
         public override void DevMode() { }
 
@@ -1434,7 +2138,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         public override void AddBlackList(string tag) { }
 
         /// <inheritdoc/>
-        public override void Log(string msg) { }
+        public override void Log(string msg) => Messages.Add(msg);
 
         /// <inheritdoc/>
         public override void DevLog(string msg) { }
@@ -1446,10 +2150,10 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         public override void DevLog(string msg, List<string> tags) { }
 
         /// <inheritdoc/>
-        public override void Log(string msg, string tag) { }
+        public override void Log(string msg, string tag) => Messages.Add(msg);
 
         /// <inheritdoc/>
-        public override void Log(string msg, List<string> tags) { }
+        public override void Log(string msg, List<string> tags) => Messages.Add(msg);
 
         /// <inheritdoc/>
         public override List<string> GetMessages() => new();
@@ -1473,6 +2177,31 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             for (int x = minimumX; x <= maximumX; x++)
             {
                 for (int z = minimumZ; z <= maximumZ; z++)
+                    data[x, z] = TileType.Ground;
+            }
+        }
+    }
+
+    private static TileType[,] ThreeRoomGrid()
+    {
+        TileType[,] data = new TileType[16, 7];
+        for (int x = 0; x < data.GetLength(0); x++)
+        {
+            for (int z = 0; z < data.GetLength(1); z++)
+                data[x, z] = TileType.Wall;
+        }
+        FillRoom(1, 4);
+        FillRoom(6, 9);
+        FillRoom(11, 14);
+        data[5, 3] = TileType.ClosedDoor;
+        data[10, 3] = TileType.ClosedDoor;
+        return data;
+
+        void FillRoom(int minimumX, int maximumX)
+        {
+            for (int x = minimumX; x <= maximumX; x++)
+            {
+                for (int z = 1; z <= 5; z++)
                     data[x, z] = TileType.Ground;
             }
         }

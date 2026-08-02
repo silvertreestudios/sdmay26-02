@@ -55,9 +55,6 @@ namespace Game.Combat.Exploration
         /// <summary>The leader destination is not exactly one adjacent cell away.</summary>
         LeaderStepIsNotAdjacent,
 
-        /// <summary>The leader destination is currently occupied by another party member.</summary>
-        LeaderDestinationOccupied,
-
         /// <summary>The terrain or an external reservation prevents leader entry.</summary>
         LeaderDestinationUnavailable,
     }
@@ -118,14 +115,22 @@ namespace Game.Combat.Exploration
         }
 
         /// <summary>
-        /// Gets moved members in execution order: leader first, then followers in trail order.
-        /// Adjacent followers consume their predecessor's prior cell; a separated follower takes
-        /// one adjacent catch-up step toward that trail, with stable roster order breaking ties.
+        /// Gets moved members in logical order: leader first, then either the ally swapping into
+        /// the leader's prior cell or followers in trail order. Adjacent followers consume their
+        /// predecessor's prior cell; a separated follower takes one adjacent catch-up step toward
+        /// that trail, with stable roster order breaking ties.
         /// </summary>
         public IReadOnlyList<ExplorationMemberMove> Moves => moves;
 
         /// <summary>Gets every member's immutable state after the planned moves.</summary>
         public ExplorationPartyState ResultingParty { get; }
+
+        /// <summary>
+        /// Gets whether the leader and exactly one ally exchange their starting cells. Unity must
+        /// project these logical moves atomically because neither destination starts empty.
+        /// </summary>
+        internal bool IsLeaderSwap =>
+            moves.Count == 2 && moves[0].From == moves[1].To && moves[0].To == moves[1].From;
     }
 
     /// <summary>Reports an explicit reason why the selected leader cannot take the proposed step.</summary>
@@ -168,12 +173,6 @@ namespace Game.Combat.Exploration
                     ExplorationStepRejectionReason.LeaderStepIsNotAdjacent
                 );
             }
-            if (party.Members.Any(member => member.Id != leader.Id && member.Cell == destination))
-            {
-                return new RejectedExplorationStepPlan(
-                    ExplorationStepRejectionReason.LeaderDestinationOccupied
-                );
-            }
             if (!request.Availability.CanOccupy(destination))
             {
                 return new RejectedExplorationStepPlan(
@@ -182,6 +181,31 @@ namespace Game.Combat.Exploration
             }
 
             ExplorationPartyMember[] resultingMembers = party.Members.ToArray();
+            ExplorationPartyMember destinationOccupant = party.Members.FirstOrDefault(member =>
+                member.Id != leader.Id && member.Cell == destination
+            );
+            if (!destinationOccupant.Id.IsEmpty)
+            {
+                resultingMembers[IndexOf(resultingMembers, leader.Id)] = new ExplorationPartyMember(
+                    leader.Id,
+                    destination
+                );
+                resultingMembers[IndexOf(resultingMembers, destinationOccupant.Id)] =
+                    new ExplorationPartyMember(destinationOccupant.Id, leader.Cell);
+                return new AcceptedExplorationStepPlan(
+                    new[]
+                    {
+                        new ExplorationMemberMove(leader.Id, leader.Cell, destination),
+                        new ExplorationMemberMove(
+                            destinationOccupant.Id,
+                            destinationOccupant.Cell,
+                            leader.Cell
+                        ),
+                    },
+                    new ExplorationPartyState(resultingMembers, party.SelectedLeaderId)
+                );
+            }
+
             List<ExplorationMemberMove> moves = new() { new(leader.Id, leader.Cell, destination) };
             int leaderIndex = IndexOf(resultingMembers, leader.Id);
             resultingMembers[leaderIndex] = new ExplorationPartyMember(leader.Id, destination);
@@ -346,5 +370,51 @@ namespace Game.Combat.Exploration
 
         private static long ManhattanDistance(DungeonCell first, DungeonCell second) =>
             Math.Abs((long)first.X - second.X) + Math.Abs((long)first.Z - second.Z);
+    }
+
+    /// <summary>Contains one immutable complete destination route, including its origin.</summary>
+    public sealed class ExplorationTravelPlan
+    {
+        private readonly ReadOnlyCollection<DungeonCell> cells;
+
+        internal ExplorationTravelPlan(IEnumerable<DungeonCell> cells) =>
+            this.cells = Array.AsReadOnly(cells.ToArray());
+
+        /// <summary>Gets the complete ordered route from origin through destination.</summary>
+        public IReadOnlyList<DungeonCell> Cells => cells;
+
+        /// <summary>Gets the selected destination.</summary>
+        public DungeonCell Destination => cells[cells.Count - 1];
+    }
+
+    /// <summary>Validates and freezes a pathfinder-produced exploration destination route.</summary>
+    public static class ExplorationTravelPlanner
+    {
+        /// <summary>Creates a complete route plan without mutating or retaining the supplied list.</summary>
+        /// <param name="route">Ordered adjacent cells including both origin and destination.</param>
+        /// <returns>The immutable complete travel plan.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="route"/> is null.</exception>
+        /// <exception cref="ArgumentException">The route is empty or contains a non-adjacent step.</exception>
+        public static ExplorationTravelPlan Plan(IEnumerable<DungeonCell> route)
+        {
+            DungeonCell[] copied =
+                route?.ToArray() ?? throw new ArgumentNullException(nameof(route));
+            if (copied.Length < 2)
+                throw new ArgumentException(
+                    "Destination travel requires an origin and a different destination.",
+                    nameof(route)
+                );
+            for (int index = 1; index < copied.Length; index++)
+            {
+                long x = Math.Abs((long)copied[index].X - copied[index - 1].X);
+                long z = Math.Abs((long)copied[index].Z - copied[index - 1].Z);
+                if (x > 1 || z > 1 || x + z == 0)
+                    throw new ArgumentException(
+                        "Every destination route step must enter one adjacent cell.",
+                        nameof(route)
+                    );
+            }
+            return new ExplorationTravelPlan(copied);
+        }
     }
 }

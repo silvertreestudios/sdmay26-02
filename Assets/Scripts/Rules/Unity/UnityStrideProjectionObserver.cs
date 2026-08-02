@@ -32,6 +32,12 @@ namespace Game.Rules.Unity
             this.startedInExploration = startedInExploration;
         }
 
+        /// <summary>
+        /// Gets whether the committed exploration step projected but invalidated its remaining
+        /// destination route.
+        /// </summary>
+        internal bool WasRouteInterrupted { get; private set; }
+
         /// <inheritdoc/>
         public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
         {
@@ -59,24 +65,31 @@ namespace Game.Rules.Unity
             if (startedInExploration && exploration.Handles(character))
             {
                 Ref<bool> continuePath = new Ref<bool>(false);
+                Ref<bool> pathInterrupted = new Ref<bool>(false);
                 yield return exploration.ProjectCommittedStep(
                     character,
                     from,
                     to,
                     grid.GetTiles(),
                     TokenMovement.GetInstance(),
-                    continuePath
+                    continuePath,
+                    pathInterrupted
                 );
                 if (!continuePath.Value)
                 {
-                    if (!exploration.Handles(character))
+                    if (pathInterrupted.Value)
                     {
-                        // Encounter setup clears every controller's turn state before granting
-                        // initiative. Restore this still-running action's guard until its owner
-                        // finalizes, so no combat action can start and be cleared by that finalizer.
-                        ActionController controller = character.GetComponent<ActionController>();
-                        if (controller != null)
-                            controller.IsTakingAction = true;
+                        if (!exploration.Handles(character))
+                        {
+                            // Encounter setup clears every controller's turn state before granting
+                            // initiative. Restore this still-running action's guard until its owner
+                            // finalizes, so no combat action can start and be cleared by that finalizer.
+                            ActionController controller =
+                                character.GetComponent<ActionController>();
+                            if (controller != null)
+                                controller.IsTakingAction = true;
+                        }
+                        WasRouteInterrupted = true;
                         throw new ExplorationStrideProjectionInterruptedException();
                     }
                     throw new InvalidOperationException(
@@ -130,7 +143,8 @@ namespace Game.Rules.Unity
     }
 
     /// <summary>
-    /// Stops an obsolete temporary exploration root after its committed boundary step starts combat.
+    /// Stops an obsolete temporary exploration root after its committed leader step is projected
+    /// and the coordinator determines that its remaining route must be abandoned.
     /// </summary>
     internal sealed class ExplorationStrideProjectionInterruptedException : Exception { }
 }

@@ -13,7 +13,7 @@ using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
 /// <summary>
-/// Verifies the complete room-entry, reinforcement, retreat, resume, casualty, and victory flow.
+/// Verifies room entry, reinforcement, persistent resume, withdrawal gating, casualties, and victory.
 /// </summary>
 public sealed class DungeonEncounterDirectorPlayModeTests
 {
@@ -129,6 +129,30 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
     }
 
+    /// <summary>Verifies room withdrawal cannot split a manual Tactics session from its enemies.</summary>
+    [Test]
+    public void ManualTacticsWithdrawalKeepsReinforcedOppositionActive()
+    {
+        manager.EnterTactics();
+        director.EnterRoom(1);
+
+        DungeonEncounterSuspensionResult result = director.EvaluatePartyRegions(
+            1,
+            Array.Empty<int>()
+        );
+
+        Assert.That(
+            result.Transition,
+            Is.EqualTo(DungeonEncounterSuspensionTransition.RemainedActive)
+        );
+        Assert.That(result.SuspendedEncounterIds, Is.Empty);
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            director.Lifecycle.GetEncounter("encounter-a").State,
+            Is.EqualTo(DungeonEncounterGroupState.Active)
+        );
+    }
+
     /// <summary>Verifies an active persisted group resumes through fresh initiative after load.</summary>
     [Test]
     public void RestoredActiveGroupNormalizesAndResumesFromExploration()
@@ -170,11 +194,10 @@ public sealed class DungeonEncounterDirectorPlayModeTests
     }
 
     /// <summary>
-    /// Verifies retreat and return preserve durable survivor state while resetting turn state and
-    /// rolling a fresh initiative order.
+    /// Verifies room withdrawal preserves durable survivor state without leaving Tactics.
     /// </summary>
     [Test]
-    public void RetreatAndResumePreservePartialCasualtiesAndDurableState()
+    public void WithdrawalPreservesPartialCasualtiesAndActiveTactics()
     {
         director.EnterRoom(1);
         DungeonEncounterMember defeated = Member("encounter-a/creature-0000");
@@ -187,25 +210,18 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         survivor.transform.position = new Vector3(4f, 0f, 3f);
         survivorController.IsTakingAction = false;
 
-        DungeonEncounterSuspensionResult suspension = director.EvaluatePartyRegions(
+        DungeonEncounterSuspensionResult withdrawal = director.EvaluatePartyRegions(
             1,
             Array.Empty<int>()
         );
 
         Assert.That(
-            suspension.Transition,
-            Is.EqualTo(DungeonEncounterSuspensionTransition.Suspended)
+            withdrawal.Transition,
+            Is.EqualTo(DungeonEncounterSuspensionTransition.RemainedActive)
         );
-        Assert.That(manager.IsCombatActive, Is.False);
-        Assert.That(survivorController.ActionPoints, Is.Zero);
-        Assert.That(survivorController.Reacted, Is.False);
-        Assert.That(survivorController.StrikePenalty, Is.Zero);
-        Assert.That(survivorController.IsTakingAction, Is.False);
-
-        DungeonRoomEntryResult resumed = director.EnterRoom(1);
-
-        Assert.That(resumed.Transition, Is.EqualTo(DungeonRoomEntryTransition.Resume));
+        Assert.That(withdrawal.SuspendedEncounterIds, Is.Empty);
         Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(survivorController.IsTakingAction, Is.False);
         Assert.That(factory.CreateCount, Is.EqualTo(2));
         Assert.That(survivorCreature.hp, Is.EqualTo(4));
         Assert.That(survivor.transform.position, Is.EqualTo(new Vector3(4f, 0f, 3f)));
@@ -216,7 +232,7 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         );
         Assert.That(
             combatLog.Messages.Count(message => message.StartsWith("Initiative Order")),
-            Is.EqualTo(2)
+            Is.EqualTo(1)
         );
     }
 
@@ -263,17 +279,15 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         Assert.That(manager.IsCombatActive, Is.True);
     }
 
-    /// <summary>Verifies a targetable suspended enemy can die during another resumed fight.</summary>
+    /// <summary>Verifies an enemy in another active group can die without interrupting Tactics.</summary>
     [Test]
-    public void SuspendedMaterializedEnemyDefeatPersistsWithoutInterruptingActiveGroup()
+    public void OtherActiveGroupDefeatPersistsWithoutInterruptingTactics()
     {
         director.EnterRoom(1);
         director.EnterRoom(2);
-        director.EvaluatePartyRegions(1, Array.Empty<int>());
-        director.EnterRoom(1);
-        DungeonEncounterMember suspended = Member("encounter-b/creature-0000");
+        DungeonEncounterMember otherGroupEnemy = Member("encounter-b/creature-0000");
 
-        Assert.DoesNotThrow(() => Defeat(suspended));
+        Assert.DoesNotThrow(() => Defeat(otherGroupEnemy));
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(

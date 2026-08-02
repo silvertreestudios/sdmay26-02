@@ -14,6 +14,15 @@ namespace GridPrivate
         /// <returns><see langword="true"/> only for the current exploration leader.</returns>
         bool Handles(GameObject character);
 
+        /// <summary>Gets whether the supplied character occupies a cell as a party member.</summary>
+        /// <param name="character">The candidate occupant.</param>
+        /// <returns><see langword="true"/> for a living member of the exploration party.</returns>
+        bool IsPartyMember(GameObject character);
+
+        /// <summary>Cancels active destination travel at its next committed boundary.</summary>
+        /// <returns><see langword="true"/> when active travel accepted cancellation.</returns>
+        bool TryCancelActiveTravel();
+
         /// <summary>
         /// Projects one already-committed leader step and any eligible follower steps, then
         /// reports whether the queued leader path may continue.
@@ -24,8 +33,13 @@ namespace GridPrivate
         /// <param name="tiles">The live grid occupancy and walkability array.</param>
         /// <param name="movement">The scene's serialized token movement presenter.</param>
         /// <param name="continuePath">
-        /// Set to <see langword="false"/> when movement is rejected, blocked, or interrupted by
-        /// encounter activation.
+        /// Set to <see langword="true"/> only when the projected path suffix may continue.
+        /// </param>
+        /// <param name="pathInterrupted">
+        /// Set to <see langword="true"/> when the committed leader step projected successfully but
+        /// a follower projection or other interruption requires the remaining temporary
+        /// exploration path to be abandoned. A failure before leader projection leaves both result
+        /// references <see langword="false"/>.
         /// </param>
         /// <returns>A coroutine that completes after all committed member movement.</returns>
         IEnumerator ProjectCommittedStep(
@@ -34,7 +48,8 @@ namespace GridPrivate
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
-            Ref<bool> continuePath
+            Ref<bool> continuePath,
+            Ref<bool> pathInterrupted
         );
     }
 
@@ -46,13 +61,18 @@ namespace GridPrivate
 
         public bool Handles(GameObject character) => false;
 
+        public bool IsPartyMember(GameObject character) => false;
+
+        public bool TryCancelActiveTravel() => false;
+
         public IEnumerator ProjectCommittedStep(
             GameObject leader,
             Vector3Int from,
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
-            Ref<bool> continuePath
+            Ref<bool> continuePath,
+            Ref<bool> pathInterrupted
         ) =>
             throw new InvalidOperationException(
                 "The null exploration coordinator cannot execute movement."

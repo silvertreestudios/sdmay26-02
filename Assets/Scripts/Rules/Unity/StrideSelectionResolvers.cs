@@ -71,8 +71,22 @@ namespace Game.Rules.Unity
         ) => grid.SelectStridePath(character, request, result);
     }
 
+    /// <summary>
+    /// Receives whether the Stride whose selection it supplied permits another outer route action.
+    /// </summary>
+    internal interface IProjectedStrideContinuationReceiver
+    {
+        /// <summary>Records whether the outer route may plan another Stride action.</summary>
+        /// <param name="mayContinueRoute">
+        /// Whether rules resolved and projection completed without invalidating the outer route.
+        /// </param>
+        void RecordMayContinueRoute(bool mayContinueRoute);
+    }
+
     /// <summary>Resolves the longest legal Stride prefix from one AI-planned grid path.</summary>
-    internal sealed class PlannedStrideSelectionResolver : ISelectionResolver
+    internal sealed class PlannedStrideSelectionResolver
+        : ISelectionResolver,
+            IProjectedStrideContinuationReceiver
     {
         private readonly IReadOnlyList<GridPosition> plannedCells;
 
@@ -84,6 +98,12 @@ namespace Game.Rules.Unity
                 .Select(cell => new GridPosition(cell.x, cell.y, cell.z))
                 .ToArray();
         }
+
+        /// <summary>
+        /// Gets whether this action completed a projected prefix that permits the route owner to
+        /// plan another Stride.
+        /// </summary>
+        internal bool MayContinueRoute { get; private set; }
 
         /// <inheritdoc/>
         public ValueTask<SelectionOutcome<TSelection>> Select<TSelection>(
@@ -114,6 +134,9 @@ namespace Game.Rules.Unity
                 (SelectionOutcome<TSelection>)(object)outcome
             );
         }
+
+        void IProjectedStrideContinuationReceiver.RecordMayContinueRoute(bool mayContinueRoute) =>
+            MayContinueRoute = mayContinueRoute;
 
         private SelectionOutcome<MovementPath> Resolve(StridePathSelectionRequest request)
         {
