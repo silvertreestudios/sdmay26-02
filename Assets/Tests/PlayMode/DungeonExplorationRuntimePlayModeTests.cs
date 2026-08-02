@@ -528,6 +528,112 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies a separated follower entering a dormant encounter room settles and starts Tactics
+    /// before the temporary exploration root can commit its next leader cell.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator FollowerEncounterBoundaryInterruptsBeforeNextLeaderStep()
+    {
+        RuntimeFixture fixture = CreateSeparatedFollowerEncounterFixture();
+        Track(new GameObject("Follower Boundary Suffix Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        Combatant leader = fixture.Party[0];
+        RulesStrideAction stride = leader
+            .Controller.GetActions()
+            .OfType<RulesStrideAction>()
+            .Single();
+        Vector3Int from = Vector3Int.RoundToInt(leader.GameObject.transform.position);
+
+        leader.Controller.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(from.x, from.y, from.z),
+                    new[] { new GridPosition(5, 0, 2), new GridPosition(6, 0, 2) }
+                )
+            )
+        );
+        int remainingFrames = 240;
+        while (leader.Controller.IsTakingAction && remainingFrames-- > 0)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "The follower boundary Stride timed out.");
+        Assert.That(manager.IsCombatActive, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(5, 2), new DungeonCell(2, 2));
+        Assert.That(
+            CellOf(leader.GameObject),
+            Is.Not.EqualTo(new DungeonCell(6, 2)),
+            "The uncommitted leader suffix must not project after the follower starts Tactics."
+        );
+        Assert.That(
+            manager.getPoistions(),
+            Is.EquivalentTo(
+                manager.GetCombatants().Select(combatant => combatant.transform.position)
+            ),
+            "Encounter construction must preserve every actually committed Unity cell."
+        );
+    }
+
+    /// <summary>
+    /// Verifies the final queued follower batch starts Tactics before the exploration action emits
+    /// completion, which is also the persistent gameplay-state/autosave boundary.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator FinalFollowerEncounterBoundaryStartsTacticsBeforeActionCompletion()
+    {
+        RuntimeFixture fixture = CreateSeparatedFollowerEncounterFixture();
+        Track(new GameObject("Final Follower Boundary Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        Combatant leader = fixture.Party[0];
+        RulesStrideAction stride = leader
+            .Controller.GetActions()
+            .OfType<RulesStrideAction>()
+            .Single();
+        Vector3Int from = Vector3Int.RoundToInt(leader.GameObject.transform.position);
+        bool actionCompleted = false;
+        bool combatWasActiveAtCompletion = false;
+        DungeonCell leaderCellAtCompletion = default;
+        DungeonCell followerCellAtCompletion = default;
+
+        void RecordActionCompletion()
+        {
+            actionCompleted = true;
+            combatWasActiveAtCompletion = manager.IsCombatActive;
+            leaderCellAtCompletion = CellOf(leader.GameObject);
+            followerCellAtCompletion = CellOf(fixture.Party[1].GameObject);
+        }
+
+        OnActionComplete.AddListener(RecordActionCompletion);
+        int remainingFrames = 240;
+        try
+        {
+            leader.Controller.TakeAction(
+                stride,
+                new FixedMovementPathResolver(
+                    new MovementPath(
+                        new GridPosition(from.x, from.y, from.z),
+                        new[] { new GridPosition(5, 0, 2) }
+                    )
+                )
+            );
+            while (leader.Controller.IsTakingAction && remainingFrames-- > 0)
+                yield return null;
+        }
+        finally
+        {
+            OnActionComplete.RemoveListener(RecordActionCompletion);
+        }
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "The final follower boundary timed out.");
+        Assert.That(actionCompleted, Is.True);
+        Assert.That(combatWasActiveAtCompletion, Is.True);
+        Assert.That(leaderCellAtCompletion, Is.EqualTo(new DungeonCell(5, 2)));
+        Assert.That(followerCellAtCompletion, Is.EqualTo(new DungeonCell(2, 2)));
+        Assert.That(manager.IsCombatActive, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(5, 2), new DungeonCell(2, 2));
+    }
+
+    /// <summary>
     /// Verifies the real rules-backed action commits the boundary step, abandons the obsolete
     /// exploration root, and preserves the newly granted combat actions.
     /// </summary>
@@ -1726,6 +1832,29 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         );
 
         return new RuntimeFixture(map, grid, runtime, presentation, party, doorFixtures);
+    }
+
+    private RuntimeFixture CreateSeparatedFollowerEncounterFixture()
+    {
+        DungeonRoom room = new(1, 2, 2, 3, 3);
+        DungeonEncounterPlan encounter = new(
+            "separated-follower-boundary",
+            room.Id,
+            DungeonEncounterThreat.Trivial,
+            40,
+            new[] { new DungeonCell(3, 3) },
+            new[] { "goblin-warrior" }
+        );
+        return CreateRuntimeFixture(
+            new[] { new Vector3Int(4, 0, 2), new Vector3Int(1, 0, 2) },
+            rooms: new[] { room },
+            encounterPlans: new[] { encounter },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().initiative = 1000;
+            }
+        );
     }
 
     private Combatant CreateCombatant(

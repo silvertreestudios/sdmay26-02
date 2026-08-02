@@ -25,8 +25,9 @@ namespace GridPrivate
 
         /// <summary>
         /// Projects one already-committed leader step, queues its eligible follower trail, then
-        /// reports whether the queued leader path may continue. A later step settles the prior
-        /// follower batch before observing its boundary; the owning action drains the final batch.
+        /// reports whether the queued leader path may continue. A follower batch that can start an
+        /// encounter settles immediately; otherwise a later step settles the prior batch and the
+        /// owning action drains the final batch.
         /// </summary>
         /// <param name="leader">The current exploration leader.</param>
         /// <param name="from">The leader's committed departure cell.</param>
@@ -63,7 +64,10 @@ namespace GridPrivate
     /// </summary>
     internal interface IExplorationPresentationDrain
     {
-        /// <summary>Completes every queued follower segment owned by the supplied leader action.</summary>
+        /// <summary>
+        /// Completes every queued follower segment owned by the supplied leader action and processes
+        /// the resulting encounter boundary before action completion.
+        /// </summary>
         IEnumerator DrainPresentation(GameObject leader);
     }
 

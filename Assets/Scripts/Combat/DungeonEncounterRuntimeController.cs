@@ -783,6 +783,7 @@ namespace Game.Combat.Encounters
                 () => combatManager.IsCombatActive,
                 CanObserve,
                 ProcessImmediateExplorationBoundary,
+                RequiresEncounterBoundarySettlement,
                 () => HasActiveDestinationTravel && travelCancelled
             );
             grid.BindExplorationStrideCoordinator(this);
@@ -1262,6 +1263,28 @@ namespace Game.Combat.Encounters
                 }
             }
             return 0;
+        }
+
+        private bool RequiresEncounterBoundarySettlement(DungeonCell from, DungeonCell destination)
+        {
+            int destinationRoomId = FindRoomId(new Vector3(destination.X, 0.0f, destination.Z));
+            if (
+                destinationRoomId <= 0
+                || destinationRoomId == FindRoomId(new Vector3(from.X, 0.0f, from.Z))
+                || !encounterRoomIds.Contains(destinationRoomId)
+            )
+            {
+                return false;
+            }
+
+            DungeonEncounterGroupView encounter = director.Lifecycle.GetRoomEncounter(
+                destinationRoomId
+            );
+            return encounter.LivingCreatures.Count > 0
+                && (
+                    encounter.State == DungeonEncounterGroupState.Dormant
+                    || encounter.State == DungeonEncounterGroupState.Suspended
+                );
         }
 
         private static bool IsCardinallyAdjacent(ActionController controller, DungeonCell target)

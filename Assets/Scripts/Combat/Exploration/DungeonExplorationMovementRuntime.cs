@@ -23,6 +23,7 @@ namespace Game.Combat.Exploration
         private readonly Func<bool> isCombatActive;
         private readonly Func<ActionController, bool> canParticipate;
         private readonly Func<bool> processEncounterBoundary;
+        private readonly Func<DungeonCell, DungeonCell, bool> requiresEncounterBoundarySettlement;
         private readonly Func<bool> shouldInterruptStrideSuffix;
         private ExplorationPresentationState activePresentation;
 
@@ -32,6 +33,7 @@ namespace Game.Combat.Exploration
             Func<bool> isCombatActive,
             Func<ActionController, bool> canParticipate,
             Func<bool> processEncounterBoundary,
+            Func<DungeonCell, DungeonCell, bool> requiresEncounterBoundarySettlement,
             Func<bool> shouldInterruptStrideSuffix
         )
         {
@@ -45,6 +47,9 @@ namespace Game.Combat.Exploration
             this.processEncounterBoundary =
                 processEncounterBoundary
                 ?? throw new ArgumentNullException(nameof(processEncounterBoundary));
+            this.requiresEncounterBoundarySettlement =
+                requiresEncounterBoundarySettlement
+                ?? throw new ArgumentNullException(nameof(requiresEncounterBoundarySettlement));
             this.shouldInterruptStrideSuffix =
                 shouldInterruptStrideSuffix
                 ?? throw new ArgumentNullException(nameof(shouldInterruptStrideSuffix));
@@ -174,6 +179,7 @@ namespace Game.Combat.Exploration
                 }
 
                 List<PendingFollowerPresentation> followers = new();
+                bool settleEncounterBoundary = false;
                 for (int moveIndex = 1; moveIndex < accepted.Moves.Count; moveIndex++)
                 {
                     ExplorationMemberMove plannedMove = accepted.Moves[moveIndex];
@@ -190,9 +196,25 @@ namespace Game.Combat.Exploration
                         yield break;
                     }
                     followers.Add(pending);
+                    settleEncounterBoundary |= requiresEncounterBoundarySettlement(
+                        plannedMove.From,
+                        plannedMove.To
+                    );
                 }
                 activePresentation.PendingFollowers = followers;
                 activePresentation.Party = accepted.ResultingParty;
+                if (settleEncounterBoundary)
+                {
+                    // Only a follower batch that can activate an encounter blocks this root. Its
+                    // committed moves must settle before encounter construction samples Unity,
+                    // while ordinary batches remain pipelined with the next leader segment.
+                    yield return DrainPendingFollowers(activePresentation);
+                    if (processEncounterBoundary())
+                    {
+                        pathInterrupted.Value = true;
+                        yield break;
+                    }
+                }
             }
 
             ActionController currentLeader = selectedLeader();
@@ -213,6 +235,7 @@ namespace Game.Combat.Exploration
 
             yield return DrainPendingFollowers(activePresentation);
             activePresentation = null;
+            processEncounterBoundary();
         }
 
         private bool TryCreatePresentationState(
