@@ -332,7 +332,7 @@ namespace Game.Combat.Spells
                     targetId,
                     casterId,
                     source,
-                    EffectDuration.Rounds(1),
+                    EffectDuration.OneMinute,
                     ConditionMarkerState.Instance
                 )
             );

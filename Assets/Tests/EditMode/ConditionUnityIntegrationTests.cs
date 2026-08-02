@@ -37,7 +37,7 @@ public sealed class ConditionUnityIntegrationTests
     }
 
     [Test]
-    public void HauntingHymnCriticalFailureAppliesDeafenedThroughSameBridge()
+    public void HauntingHymnCriticalFailureAppliesDeafenedForOneMinuteWithTenRoundTiming()
     {
         CreatureFixture caster = CreateCreature("Caster", "Heroes", 100);
         CreatureFixture target = CreateCreature("Target", "Enemies", 0);
@@ -50,6 +50,7 @@ public sealed class ConditionUnityIntegrationTests
             CreateTiles()
         );
         CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        bridge.StartEncounter("Heroes");
         UnityEngine.Random.InitState(1);
 
         SpellcastingRuntime.ApplyBasicFortitudeDamage(
@@ -61,6 +62,9 @@ public sealed class ConditionUnityIntegrationTests
             RuleSource.FromSlug("haunting-hymn-test")
         );
 
+        ConditionSelection<IEffectState> deafened = ConditionSelectors
+            .GetActiveInstances(bridge.Snapshot, targetId, ConditionRuleDefinitions.Deafened)
+            .Single();
         Assert.That(
             ConditionSelectors.HasMarker(
                 bridge.Snapshot,
@@ -68,6 +72,12 @@ public sealed class ConditionUnityIntegrationTests
                 ConditionRuleDefinitions.Deafened
             ),
             Is.True
+        );
+        Assert.That(deafened.Effect.Duration, Is.EqualTo(EffectDuration.OneMinute));
+        Assert.That(deafened.Effect.Duration, Is.Not.EqualTo(EffectDuration.Rounds(1)));
+        Assert.That(
+            bridge.Snapshot.ActiveEffectTimings[deafened.Effect.Id].RemainingBoundaries,
+            Is.EqualTo(10)
         );
         Assert.That(target.Conditions.ActiveConditionNames, Does.Contain("deafened"));
     }
