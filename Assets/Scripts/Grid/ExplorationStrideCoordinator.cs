@@ -14,6 +14,10 @@ namespace GridPrivate
         /// <returns><see langword="true"/> only for the current exploration leader.</returns>
         bool Handles(GameObject character);
 
+        /// <summary>Cancels active destination travel at its next committed boundary.</summary>
+        /// <returns><see langword="true"/> when active travel accepted cancellation.</returns>
+        bool TryCancelActiveTravel();
+
         /// <summary>
         /// Projects one already-committed leader step and any eligible follower steps, then
         /// reports whether the queued leader path may continue.
@@ -51,6 +55,8 @@ namespace GridPrivate
         private NoExplorationStrideCoordinator() { }
 
         public bool Handles(GameObject character) => false;
+
+        public bool TryCancelActiveTravel() => false;
 
         public IEnumerator ProjectCommittedStep(
             GameObject leader,

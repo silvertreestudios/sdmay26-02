@@ -58,6 +58,9 @@ namespace Game.Combat.Exploration
         }
 
         /// <inheritdoc/>
+        public bool TryCancelActiveTravel() => false;
+
+        /// <inheritdoc/>
         public IEnumerator ProjectCommittedStep(
             GameObject leader,
             Vector3Int from,

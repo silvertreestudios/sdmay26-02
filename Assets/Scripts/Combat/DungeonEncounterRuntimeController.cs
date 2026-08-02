@@ -833,21 +833,25 @@ namespace Game.Combat.Encounters
                 if (stride == null)
                     yield break;
 
+                Dictionary<DungeonCell, int> routeIndexByCell = new(plan.Cells.Count);
+                for (int index = 0; index < plan.Cells.Count; index++)
+                {
+                    DungeonCell routeCell = plan.Cells[index];
+                    if (!routeIndexByCell.ContainsKey(routeCell))
+                        routeIndexByCell.Add(routeCell, index);
+                }
+
                 while (!travelCancelled && IsExplorationActive)
                 {
                     Vector3Int current = Vector3Int.RoundToInt(travelLeader.transform.position);
-                    int currentIndex = -1;
-                    for (int index = 0; index < plan.Cells.Count; index++)
+                    DungeonCell currentCell = new(current.x, current.z);
+                    if (
+                        !routeIndexByCell.TryGetValue(currentCell, out int currentIndex)
+                        || currentIndex == plan.Cells.Count - 1
+                    )
                     {
-                        DungeonCell planned = plan.Cells[index];
-                        if (planned.X == current.x && planned.Z == current.z)
-                        {
-                            currentIndex = index;
-                            break;
-                        }
-                    }
-                    if (currentIndex < 0 || currentIndex == plan.Cells.Count - 1)
                         yield break;
+                    }
 
                     Vector3Int[] remaining = plan
                         .Cells.Skip(currentIndex)
@@ -894,10 +898,17 @@ namespace Game.Combat.Encounters
                 TryStartDestinationTravel(queuedDestinationCell.Value);
         }
 
-        private void CancelDestinationTravel()
+        bool IExplorationStrideCoordinator.TryCancelActiveTravel() => TryCancelDestinationTravel();
+
+        private void CancelDestinationTravel() => TryCancelDestinationTravel();
+
+        private bool TryCancelDestinationTravel()
         {
-            if (HasActiveDestinationTravel)
-                travelCancelled = true;
+            if (!HasActiveDestinationTravel)
+                return false;
+
+            travelCancelled = true;
+            return true;
         }
 
         /// <summary>

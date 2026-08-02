@@ -18,6 +18,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
+using UniversalEvents;
 using Object = UnityEngine.Object;
 
 /// <summary>
@@ -736,6 +737,9 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         );
         Mouse previousMouse = Mouse.current;
         Mouse mouse = InputSystem.AddDevice<Mouse>();
+        int globalCancelRequests = 0;
+        void RecordGlobalCancel() => globalCancelRequests++;
+        OnCancel.AddListener(RecordGlobalCancel);
         try
         {
             mouse.MakeCurrent();
@@ -754,12 +758,14 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         }
         finally
         {
+            OnCancel.RemoveListener(RecordGlobalCancel);
             InputState.Change(mouse, new MouseState(), InputUpdateType.Dynamic);
             InputSystem.RemoveDevice(mouse);
             if (previousMouse != null && previousMouse.added)
                 previousMouse.MakeCurrent();
         }
 
+        Assert.That(globalCancelRequests, Is.Zero);
         int remainingFrames = 300;
         while (remainingFrames-- > 0 && fixture.Party[0].Controller.IsTakingAction)
             yield return null;
