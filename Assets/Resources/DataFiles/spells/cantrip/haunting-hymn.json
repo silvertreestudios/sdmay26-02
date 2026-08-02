@@ -4,6 +4,7 @@
     "img": "icons/commodities/tech/antenna-powered-purple.webp",
     "name": "Haunting Hymn",
     "system": {
+        "rulesNativeReady": true,
         "area": {
             "type": "cone",
             "value": 15
@@ -56,7 +57,14 @@
             "value": ""
         },
         "requirements": "",
-        "rules": [],
+        "rules": [
+            {
+                "condition": "deafened",
+                "degree": "criticalFailure",
+                "duration": "1 minute",
+                "key": "ApplyConditionOnSave"
+            }
+        ],
         "target": {
             "value": ""
         },

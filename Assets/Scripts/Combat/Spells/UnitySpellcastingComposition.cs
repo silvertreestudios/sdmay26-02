@@ -6,6 +6,7 @@ using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Attack;
 using Game.Rules.Unity.Composition;
 using UnityEngine;
 
@@ -160,9 +161,13 @@ namespace Game.Combat.Spells
                     throw new InvalidOperationException(
                         $"Prepared spell '{reference}' for encounter creature '{actor.Value}' has no catalog definition."
                     );
-                if (definition.Effects.Count == 0 && definition.Attacks.Count == 0)
+                if (
+                    definition.Effects.Count == 0
+                    && definition.Attacks.Count == 0
+                    && definition.Saves.Count == 0
+                )
                     throw new InvalidOperationException(
-                        $"Prepared rules-native spell '{reference}' has no supported effect or attack."
+                        $"Prepared rules-native spell '{reference}' has no supported effect, attack, or save."
                     );
                 foreach (SpellActionVariant variant in definition.Variants)
                     desired.Add((reference, variant));
@@ -215,7 +220,9 @@ namespace Game.Combat.Spells
         }
     }
 
-    /// <summary>Projects every resolved generic cast exactly once into shared Unity presentation.</summary>
+    /// <summary>
+    /// Projects a resolved generic cast at most once per dispatcher into shared Unity presentation.
+    /// </summary>
     public sealed class UnityResolvedSpellCastPresentationObserver
         : IResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>
     {
@@ -280,7 +287,49 @@ namespace Game.Combat.Spells
                 },
                 actor
             );
+            if (result.Attacks.Count == 1)
+                PresentAttack(definition, result.Attacks[0], result.Actor, creature);
             return default;
+        }
+
+        private void PresentAttack(
+            Game.Rules.Runtime.SpellDefinition definition,
+            SpellAttackResolution attack,
+            CreatureId actor,
+            CreatureComponent attacker
+        )
+        {
+            if (attack.Actor != actor)
+                throw new InvalidOperationException(
+                    "Resolved spell-attack presentation actor does not match the cast."
+                );
+            if (
+                !creatures.TryGetValue(attack.Target, out CreatureComponent target)
+                || target == null
+            )
+                return;
+            UnityAttackResultPresentation.Present(
+                attacker.gameObject,
+                target.gameObject,
+                definition.DisplayName,
+                new UnityAttackResult(
+                    attack.AttackRoll,
+                    attack.AttackModifier,
+                    attack.ArmorClass,
+                    attack.Degree,
+                    ToDamage(attack),
+                    attack.FinalDamage,
+                    attack.MultipleAttackPenalty,
+                    0,
+                    0
+                )
+            );
+        }
+
+        private static IEnumerable<UnityAttackDamagePart> ToDamage(SpellAttackResolution resolution)
+        {
+            foreach (TypedDamagePart part in resolution.Damage)
+                yield return new UnityAttackDamagePart(part.DamageType, part.Amount);
         }
 
         private static void PresentSafely(Action presentation, UnityEngine.Object context)

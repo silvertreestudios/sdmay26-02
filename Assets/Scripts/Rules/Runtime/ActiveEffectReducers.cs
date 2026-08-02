@@ -249,6 +249,23 @@ namespace Game.Rules.Runtime
             return true;
         }
 
+        public static bool TryValidateSourceOwner(
+            ActiveEffectInstance effect,
+            RuleSource source,
+            out string rejection
+        )
+        {
+            if (source != effect.Source)
+            {
+                rejection =
+                    $"Rule source {source.Slug} does not own active effect {effect.Id.Value}.";
+                return false;
+            }
+
+            rejection = string.Empty;
+            return true;
+        }
+
         public static ActiveEffectRemovalOutcome CommitRemoval(
             RulesStateDraft state,
             ActiveEffectInstance effect,
@@ -317,10 +334,13 @@ namespace Game.Rules.Runtime
                     return false;
                 }
                 if (
-                    !ConditionImmunityValidation.TryValidateActive(
+                    !ActiveEffectReduction.TryResolveAdoptionTiming(
+                        registry,
                         state,
                         registration.Effect,
                         registration.Binding,
+                        registration.Timing,
+                        out ActiveEffectTimingState expectedTiming,
                         out rejection
                     )
                 )
@@ -329,13 +349,11 @@ namespace Game.Rules.Runtime
                     return false;
                 }
                 if (
-                    !ActiveEffectReduction.TryResolveAdoptionTiming(
-                        registry,
+                    !ConditionImmunityValidation.TryValidateActive(
                         state,
                         registration.Effect,
                         registration.Binding,
-                        registration.Timing,
-                        out ActiveEffectTimingState expectedTiming,
+                        out _,
                         out rejection
                     )
                 )
@@ -392,6 +410,73 @@ namespace Game.Rules.Runtime
         }
     }
 
+    internal enum ActiveEffectCreationFailure
+    {
+        None,
+        ConditionImmune,
+        Invalid,
+    }
+
+    internal static class ActiveEffectCreationReduction
+    {
+        internal static bool TryCreate(
+            RuleRegistry registry,
+            RulesStateDraft state,
+            FactSink facts,
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            out ActiveEffectCreationOutcome outcome,
+            out ActiveEffectCreationFailure failure,
+            out string rejection
+        )
+        {
+            if (registry == null)
+                throw new ArgumentNullException(nameof(registry));
+            if (
+                !ActiveEffectReduction.TryResolveCreationTiming(
+                    registry,
+                    state,
+                    effect,
+                    binding,
+                    out ActiveEffectTimingState timing,
+                    out rejection
+                )
+            )
+            {
+                outcome = default;
+                failure = ActiveEffectCreationFailure.Invalid;
+                return false;
+            }
+            if (
+                !ConditionImmunityValidation.TryValidateActive(
+                    state,
+                    effect,
+                    binding,
+                    out ConditionActiveValidationFailure conditionFailure,
+                    out rejection
+                )
+            )
+            {
+                outcome = default;
+                failure =
+                    conditionFailure == ConditionActiveValidationFailure.Immune
+                        ? ActiveEffectCreationFailure.ConditionImmune
+                        : ActiveEffectCreationFailure.Invalid;
+                return false;
+            }
+
+            ActiveEffectReduction.CommitCreation(state, effect, binding, timing, facts);
+            outcome = new ActiveEffectCreationOutcome(
+                effect.Id,
+                binding.Id,
+                effect.EffectStateVersion
+            );
+            failure = ActiveEffectCreationFailure.None;
+            rejection = string.Empty;
+            return true;
+        }
+    }
+
     internal sealed class CreateActiveEffectReducer
         : IOpReducer<CreateActiveEffectOp, ActiveEffectCreationOutcome>
     {
@@ -406,33 +491,20 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            ActiveEffectInstance effect = context.Op.Effect;
-            ActiveRuleBinding binding = context.Op.Binding;
             if (
-                !ConditionImmunityValidation.TryValidateActive(
+                !ActiveEffectCreationReduction.TryCreate(
+                    registry,
                     state,
-                    effect,
-                    binding,
+                    facts,
+                    context.Op.Effect,
+                    context.Op.Binding,
+                    out ActiveEffectCreationOutcome outcome,
+                    out _,
                     out string rejection
                 )
             )
                 return ReductionResult<ActiveEffectCreationOutcome>.Reject(rejection);
-            if (
-                !ActiveEffectReduction.TryResolveCreationTiming(
-                    registry,
-                    state,
-                    effect,
-                    binding,
-                    out ActiveEffectTimingState timing,
-                    out rejection
-                )
-            )
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(rejection);
-
-            ActiveEffectReduction.CommitCreation(state, effect, binding, timing, facts);
-            return ReductionResult<ActiveEffectCreationOutcome>.Accept(
-                new ActiveEffectCreationOutcome(effect.Id, binding.Id, effect.EffectStateVersion)
-            );
+            return ReductionResult<ActiveEffectCreationOutcome>.Accept(outcome);
         }
     }
 
@@ -458,6 +530,14 @@ namespace Game.Rules.Runtime
             {
                 return ReductionResult<ActiveEffectStateUpdateOutcome>.Reject(rejection);
             }
+            if (
+                !ActiveEffectReduction.TryValidateSourceOwner(
+                    effect,
+                    context.Op.Source,
+                    out rejection
+                )
+            )
+                return ReductionResult<ActiveEffectStateUpdateOutcome>.Reject(rejection);
             Type currentStateType = effect.State.GetType();
             if (currentStateType != context.Op.State.GetType())
             {
@@ -544,6 +624,14 @@ namespace Game.Rules.Runtime
             {
                 return ReductionResult<ActiveEffectExpirationOutcome>.Reject(rejection);
             }
+            if (
+                !ActiveEffectReduction.TryValidateSourceOwner(
+                    effect,
+                    context.Op.Source,
+                    out rejection
+                )
+            )
+                return ReductionResult<ActiveEffectExpirationOutcome>.Reject(rejection);
 
             EffectStateVersion nextVersion = effect.EffectStateVersion.Next();
             state.ActiveEffects.Set(
@@ -597,6 +685,14 @@ namespace Game.Rules.Runtime
             {
                 return ReductionResult<ActiveEffectRemovalOutcome>.Reject(rejection);
             }
+            if (
+                !ActiveEffectReduction.TryValidateSourceOwner(
+                    effect,
+                    context.Op.Source,
+                    out rejection
+                )
+            )
+                return ReductionResult<ActiveEffectRemovalOutcome>.Reject(rejection);
 
             return ReductionResult<ActiveEffectRemovalOutcome>.Accept(
                 ActiveEffectReduction.CommitRemoval(state, effect, binding, facts)

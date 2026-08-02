@@ -11,7 +11,10 @@ using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
+using Game.Rules.Unity.Spells;
 using GridPrivate;
+using GridPublic;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -37,31 +40,43 @@ public sealed class ConditionUnityIntegrationTests
     }
 
     [Test]
-    public void HauntingHymnCriticalFailureAppliesDeafenedForOneMinuteWithTenRoundTiming()
+    public void HauntingHymnCombatCastUsesRulesDamageCostsAndOneMinuteDeafened()
     {
         CreatureFixture caster = CreateCreature("Caster", "Heroes", 100);
         CreatureFixture target = CreateCreature("Target", "Enemies", 0);
-        caster.Creature.Prepared = new PreparedCharacter
-        {
-            Spellcasting = new SpellcastingState { SpellAttackModifier = 100 },
-        };
+        PreparedSpell spell = PrepareHauntingHymn(caster);
+        AreaTargetResult area = PrepareHauntingArea(caster, target, out Tile[,] tiles);
+        ScriptedRollService spellRolls = new(1, 4);
+        EncounterThenSpellRollService rolls = new(spellRolls);
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { caster.Controller, target.Controller },
-            CreateTiles()
+            tiles,
+            rolls
         );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
         CreatureId targetId = bridge.GetCreatureId(target.Creature);
-        bridge.StartEncounter("Heroes");
-        UnityEngine.Random.InitState(1);
-
-        SpellcastingRuntime.ApplyBasicFortitudeDamage(
-            caster.GameObject,
-            target.GameObject,
-            new DamageValue("sonic", 1),
-            new CastSpellResult(),
-            applyDeafenedOnCriticalFailure: true,
-            RuleSource.FromSlug("haunting-hymn-test")
+        Assert.That(
+            caster
+                .Controller.GetActions()
+                .OfType<RulesCastSpellAction>()
+                .Any(action => action.Spell == new SpellReference(new SpellId("haunting-hymn"), 1)),
+            Is.True
         );
+        bridge.BeginTurn(casterId, 3);
+        AssertEncounterSetupRolls(rolls);
+        rolls.BeginSpellResolution();
 
+        CastSpellResult result = SpellcastingRuntime.Cast(caster.GameObject, spell, 2, area: area);
+
+        Assert.That(result.Success, Is.True, result.Message);
+        Assert.That(result.Targets, Is.EqualTo(new[] { target.GameObject }));
+        Assert.That(
+            result.Rolls.Single().degree,
+            Is.EqualTo(Game.Creature.DegreeOfSuccess.CriticalFail)
+        );
+        Assert.That(result.Amount, Is.EqualTo(8));
+        Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(12));
+        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
         ConditionSelection<IEffectState> deafened = ConditionSelectors
             .GetActiveInstances(bridge.Snapshot, targetId, ConditionRuleDefinitions.Deafened)
             .Single();
@@ -80,6 +95,794 @@ public sealed class ConditionUnityIntegrationTests
             Is.EqualTo(10)
         );
         Assert.That(target.Conditions.ActiveConditionNames, Does.Contain("deafened"));
+        AssertSingleHauntingHymnResolution(result, rolls, spellRolls);
+    }
+
+    [Test]
+    public void EncounterAdvancementOfTimedConditionEmitsGenericExpirationFact()
+    {
+        CreatureFixture source = CreateCreature("Timed Source", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Timed Target", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { source.Controller, target.Controller },
+            CreateTiles()
+        );
+        CreatureId sourceId = bridge.GetCreatureId(source.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        bridge.BeginTurn(sourceId, 3);
+        ResolvedOpResult<ConditionApplicationOutcome> applied =
+            (ResolvedOpResult<ConditionApplicationOutcome>)
+                bridge.Dispatch(
+                    new ApplyConditionOp(
+                        "fatigued",
+                        targetId,
+                        sourceId,
+                        RuleSource.FromSlug("timed-condition-test"),
+                        EffectDuration.Rounds(1),
+                        ConditionMarkerState.Instance
+                    )
+                );
+        CountingFactObserver<ActiveEffectExpiredFact> expired = new();
+        using IDisposable registration = GetDispatcher(bridge)
+            .RegisterFactObserver<ActiveEffectExpiredFact>(expired);
+
+        bridge.BeginTurn(sourceId, 3);
+
+        Assert.That(expired.Count, Is.EqualTo(1));
+        Assert.That(expired.Last.EffectId, Is.EqualTo(applied.Value.EffectId));
+        Assert.That(expired.Last.DefinitionId, Is.EqualTo(ConditionRuleDefinitions.Fatigued));
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void HauntingHymnCriticalFailureAgainstDeafenedImmunityStillResolvesDamageAndCosts()
+    {
+        CreatureFixture caster = CreateCreature("Immune Hymn Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Immune Hymn Target", "Enemies", 0);
+        target.Creature.immunities.Add("deafened");
+        PreparedSpell spell = PrepareHauntingHymn(caster);
+        AreaTargetResult area = PrepareHauntingArea(caster, target, out Tile[,] tiles);
+        ScriptedRollService spellRolls = new(1, 4);
+        EncounterThenSpellRollService rolls = new(spellRolls);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            tiles,
+            rolls
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        bridge.BeginTurn(casterId, 3);
+        AssertEncounterSetupRolls(rolls);
+        rolls.BeginSpellResolution();
+
+        CastSpellResult result = SpellcastingRuntime.Cast(caster.GameObject, spell, 2, area: area);
+
+        Assert.That(result.Success, Is.True, result.Message);
+        Assert.That(result.Amount, Is.EqualTo(8));
+        Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(12));
+        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(
+            ConditionSelectors.GetActiveInstances(
+                bridge.Snapshot,
+                targetId,
+                ConditionRuleDefinitions.Deafened
+            ),
+            Is.Empty
+        );
+        Assert.That(target.Conditions.ActiveConditionNames, Does.Not.Contain("deafened"));
+        AssertSingleHauntingHymnResolution(result, rolls, spellRolls);
+    }
+
+    [Test]
+    public void EncounterCastAttemptReplaysCallerOwnedInvocationAfterObserverFailure()
+    {
+        CreatureFixture caster = CreateCreature("Retry Hymn Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Retry Hymn Target", "Enemies", 0);
+        PreparedSpell spell = PrepareHauntingHymn(caster);
+        AreaTargetResult area = PrepareHauntingArea(caster, target, out Tile[,] tiles);
+        ScriptedRollService spellRolls = new(1, 4);
+        EncounterThenSpellRollService rolls = new(spellRolls);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            tiles,
+            rolls
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        bridge.BeginTurn(casterId, 3);
+        AssertEncounterSetupRolls(rolls);
+        rolls.BeginSpellResolution();
+        InvalidOperationException expected = new("injected cast presentation failure");
+        ThrowOnceFactObserver<ActiveEffectCreatedFact> observer = new(expected);
+        using IDisposable registration = GetDispatcher(bridge)
+            .RegisterFactObserver<ActiveEffectCreatedFact>(observer);
+        ActionInvocationId invocation = new("unity-hymn-exact-retry");
+
+        InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
+            SpellcastingRuntime.CastEncounterAttempt(
+                invocation,
+                caster.GameObject,
+                spell,
+                2,
+                area: area
+            )
+        );
+
+        Assert.That(actual, Is.SameAs(expected));
+        Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(12));
+        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.MultipleAttackPenalty[casterId].AttackCount, Is.Zero);
+        long committedVersion = bridge.Snapshot.Version;
+
+        CastSpellResult retry = SpellcastingRuntime.CastEncounterAttempt(
+            invocation,
+            caster.GameObject,
+            spell,
+            2,
+            area: area
+        );
+
+        Assert.That(retry.Success, Is.True, retry.Message);
+        Assert.That(retry.Amount, Is.EqualTo(8));
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(committedVersion));
+        Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(12));
+        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(observer.Count, Is.EqualTo(1));
+        AssertSingleHauntingHymnResolution(retry, rolls, spellRolls);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void EncounterCastAttemptRejectsDuplicateCreatureSelectionBeforeDispatch()
+    {
+        CreatureFixture caster = CreateCreature("Duplicate Target Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Duplicate Target", "Enemies", 0);
+        PreparedSpell spell = PrepareHauntingHymn(caster);
+        PrepareHauntingArea(caster, target, out Tile[,] tiles);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            tiles
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        bridge.BeginTurn(casterId, 3);
+        RulesSnapshot before = bridge.Snapshot;
+        ActionInvocationId invocation = new("unity-duplicate-selection");
+
+        CastSpellResult result = SpellcastingRuntime.CastEncounterAttempt(
+            invocation,
+            caster.GameObject,
+            spell,
+            2,
+            new[] { target.GameObject, target.GameObject }
+        );
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.Message, Does.Contain("same creature more than once"));
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(before.Version));
+        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(3));
+        Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(20));
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void EncounterCastAttemptRejectsMixedCreatureAndAreaSelectionBeforeDispatch()
+    {
+        CreatureFixture caster = CreateCreature("Mixed Target Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Mixed Target", "Enemies", 0);
+        PreparedSpell spell = PrepareHauntingHymn(caster);
+        AreaTargetResult area = PrepareHauntingArea(caster, target, out Tile[,] tiles);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            tiles
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        bridge.BeginTurn(casterId, 3);
+        RulesSnapshot before = bridge.Snapshot;
+        ActionInvocationId invocation = new("unity-mixed-selection");
+
+        CastSpellResult result = SpellcastingRuntime.CastEncounterAttempt(
+            invocation,
+            caster.GameObject,
+            spell,
+            2,
+            new[] { target.GameObject },
+            area
+        );
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.Message, Does.Contain("combine creature targets with an area"));
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(before.Version));
+        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(3));
+        Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(20));
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void RulesCastSpellActionRetainsCompleteIntentUntilStructuralCompletion()
+    {
+        CreatureFixture caster = CreateCreature("Pending Cast Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Pending Cast Target", "Enemies", 0);
+        PrepareHauntingHymn(caster);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            CreateTiles()
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        RulesCastSpellAction action = caster
+            .Controller.GetActions()
+            .OfType<RulesCastSpellAction>()
+            .Single(value => value.Spell == new SpellReference(new SpellId("haunting-hymn"), 1));
+        SpellCastSelection originalSelection = new(new[] { targetId });
+        SpellCastSelection laterSelection = SpellCastSelection.Empty;
+
+        CastSpellActionOp original = action.RetainPendingOperation(casterId, originalSelection);
+        CastSpellActionOp replay = action.RetainPendingOperation(casterId, laterSelection);
+
+        Assert.That(replay, Is.SameAs(original));
+        Assert.That(replay.InvocationId, Is.EqualTo(original.InvocationId));
+        Assert.That(replay.Selection, Is.SameAs(originalSelection));
+        Assert.That(action.TryGetPendingOperation(out CastSpellActionOp pending), Is.True);
+        Assert.That(pending, Is.SameAs(original));
+
+        action.ClearPendingOperation();
+        Assert.That(action.TryGetPendingOperation(out _), Is.False);
+        CastSpellActionOp next = action.RetainPendingOperation(casterId, laterSelection);
+        Assert.That(next, Is.Not.SameAs(original));
+        Assert.That(next.InvocationId, Is.Not.EqualTo(original.InvocationId));
+        Assert.That(next.Selection, Is.SameAs(laterSelection));
+        action.ClearPendingOperation();
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void ProductionSpellCatalogInstallsOnlyExplicitlyRulesReadyDefinitions()
+    {
+        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+
+        Assert.That(
+            catalog.Definitions.Select(value => value.Id.Value).OrderBy(value => value),
+            Is.EqualTo(new[] { "divine-lance", "haunting-hymn", "light" })
+        );
+        Assert.That(
+            catalog.TryGetSpell(
+                new SpellReference(new SpellId("caustic-blast"), 1),
+                out Game.Rules.Runtime.SpellDefinition _
+            ),
+            Is.False
+        );
+        Assert.That(
+            catalog.TryGetSpell(
+                new SpellReference(new SpellId("divine-lance"), 1),
+                out Game.Rules.Runtime.SpellDefinition divineLance
+            ),
+            Is.True
+        );
+        Assert.That(divineLance.Attacks, Has.Count.EqualTo(1));
+        Assert.That(divineLance.Saves, Is.Empty);
+        Assert.That(divineLance.Effects, Is.Empty);
+        Assert.That(
+            catalog.TryGetSpell(
+                new SpellReference(new SpellId("haunting-hymn"), 1),
+                out Game.Rules.Runtime.SpellDefinition hauntingHymn
+            ),
+            Is.True
+        );
+        Assert.That(hauntingHymn.Attacks, Is.Empty);
+        Assert.That(hauntingHymn.Saves, Has.Count.EqualTo(1));
+        Assert.That(hauntingHymn.Effects, Is.Empty);
+        Assert.That(
+            catalog.TryGetSpell(
+                new SpellReference(new SpellId("light"), 1),
+                out Game.Rules.Runtime.SpellDefinition light
+            ),
+            Is.True
+        );
+        Assert.That(light.Attacks, Is.Empty);
+        Assert.That(light.Saves, Is.Empty);
+        Assert.That(light.Effects, Has.Count.EqualTo(1));
+    }
+
+    [TestCase("attack")]
+    [TestCase("save")]
+    public void SpellCatalogCountsPartialAuthoredCategoriesAlongsideSupportedEffects(
+        string category
+    )
+    {
+        JObject root = JObject.Parse(CreateCatalogEffectSpellJson("2", "1 minute"));
+        JObject system = (JObject)root["system"];
+        if (category == "attack")
+            ((JArray)system.SelectToken("traits.value")).Add("attack");
+        else
+            system["defense"] = new JObject { ["save"] = JValue.CreateNull() };
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellDefinitionCatalog.Parse(root.ToString())
+        );
+
+        Assert.That(
+            error.Message,
+            Is.EqualTo(
+                "Spell 'Catalog Audit Spell' requires exactly one authored resolution category."
+            )
+        );
+    }
+
+    [Test]
+    public void SpellCatalogRejectsIncompleteSingleAuthoredAttackCategory()
+    {
+        JObject root = JObject.Parse(CreateCatalogEffectSpellJson("2", "1 minute"));
+        JObject system = (JObject)root["system"];
+        system["rules"] = new JArray();
+        ((JArray)system.SelectToken("traits.value")).Add("attack");
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellDefinitionCatalog.Parse(root.ToString())
+        );
+
+        Assert.That(
+            error.Message,
+            Is.EqualTo(
+                "Spell 'Catalog Audit Spell' has an incomplete or unsupported authored attack category."
+            )
+        );
+    }
+
+    [Test]
+    public void SpellCatalogRejectsUnsupportedSingleAuthoredSaveCategory()
+    {
+        JObject root = JObject.Parse(CreateCatalogEffectSpellJson("2", "1 minute"));
+        JObject system = (JObject)root["system"];
+        system["rules"] = new JArray();
+        system["defense"] = new JObject
+        {
+            ["save"] = new JObject { ["basic"] = false, ["statistic"] = "fortitude" },
+        };
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellDefinitionCatalog.Parse(root.ToString())
+        );
+
+        Assert.That(
+            error.Message,
+            Is.EqualTo(
+                "Spell 'Catalog Audit Spell' has an incomplete or unsupported authored save category."
+            )
+        );
+    }
+
+    [Test]
+    public void SpellCatalogAcceptsOnlySupportedCastingTimeForms()
+    {
+        (string Authored, int[] Actions)[] supported =
+        {
+            ("1", new[] { 1 }),
+            ("2", new[] { 2 }),
+            ("3", new[] { 3 }),
+            ("1 to 3", new[] { 1, 2, 3 }),
+        };
+
+        foreach ((string authored, int[] actions) in supported)
+        {
+            Game.Rules.Runtime.SpellDefinition definition = UnitySpellDefinitionCatalog.Parse(
+                CreateCatalogEffectSpellJson(authored, "1 minute")
+            );
+
+            Assert.That(
+                definition.Variants.Select(variant => variant.Actions),
+                Is.EqualTo(actions),
+                authored
+            );
+        }
+    }
+
+    [TestCase(null, false)]
+    [TestCase("two", true)]
+    [TestCase("reaction", true)]
+    [TestCase("1 minute", true)]
+    public void SpellCatalogRejectsMissingTypoAndUnsupportedCastingTimes(
+        string authored,
+        bool includeCastingTime
+    )
+    {
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellDefinitionCatalog.Parse(
+                CreateCatalogEffectSpellJson(
+                    authored,
+                    "1 minute",
+                    includeCastingTime: includeCastingTime
+                )
+            )
+        );
+
+        Assert.That(
+            error.Message,
+            Is.EqualTo(
+                includeCastingTime
+                    ? $"Spell 'Catalog Audit Spell' has unsupported casting time '{authored}'."
+                    : "Spell 'Catalog Audit Spell' requires a casting-time value."
+            )
+        );
+    }
+
+    [Test]
+    public void SpellCatalogMapsSupportedFiniteAndLightDurationsExplicitly()
+    {
+        (string Authored, EffectDuration Duration)[] supported =
+        {
+            ("1 minute", EffectDuration.OneMinute),
+            ("10 minutes", EffectDuration.Minutes(10)),
+            ("until your next daily preparations", EffectDuration.Indefinite),
+        };
+
+        foreach ((string authored, EffectDuration duration) in supported)
+        {
+            Game.Rules.Runtime.SpellDefinition definition = UnitySpellDefinitionCatalog.Parse(
+                CreateCatalogEffectSpellJson("2", authored)
+            );
+
+            Assert.That(definition.Effects.Single().Duration, Is.EqualTo(duration), authored);
+        }
+    }
+
+    [TestCase(null, false)]
+    [TestCase("1 mintue", true)]
+    [TestCase("1 minutes", true)]
+    [TestCase("until your next daily preparation", true)]
+    [TestCase("unlimited", true)]
+    public void SpellCatalogRejectsMissingUnknownAndMisspelledDurations(
+        string authored,
+        bool includeDuration
+    )
+    {
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellDefinitionCatalog.Parse(
+                CreateCatalogEffectSpellJson("2", authored, includeDuration: includeDuration)
+            )
+        );
+
+        Assert.That(
+            error.Message,
+            Is.EqualTo(
+                includeDuration
+                    ? $"Spell 'Catalog Audit Spell' has unsupported effect duration '{authored}'."
+                    : "Spell 'Catalog Audit Spell' requires an effect-duration value."
+            )
+        );
+    }
+
+    [Test]
+    public void ProductionAreaProviderRevalidatesConeOriginDirectionAndLineOfEffect()
+    {
+        CreatureFixture caster = CreateCreature("Area Provider Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Area Provider Target", "Enemies", 0);
+        PrepareHauntingHymn(caster);
+        AreaTargetResult area = PrepareHauntingArea(caster, target, out Tile[,] tiles);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            tiles
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        UnitySpellAttackContext provider = new(
+            new Dictionary<CreatureId, CreatureComponent>
+            {
+                [casterId] = caster.Creature,
+                [targetId] = target.Creature,
+            },
+            tiles
+        );
+        Assert.That(
+            SpellcastingRuntime.TryCreateRulesAreaSelection(
+                bridge,
+                area,
+                out SpellCastSelection legal,
+                out string reason
+            ),
+            Is.True,
+            reason
+        );
+        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+        Assert.That(
+            catalog.TryGetSpell(
+                new SpellReference(new SpellId("haunting-hymn"), 1),
+                out Game.Rules.Runtime.SpellDefinition definition
+            ),
+            Is.True
+        );
+        SpellSaveDefinition save = definition.Saves.Single();
+
+        Assert.That(
+            provider.Validate(
+                bridge.Snapshot,
+                casterId,
+                save,
+                legal.AreaPlacement,
+                legal.Creatures
+            ),
+            Is.TypeOf<ActionValidationResult.ValidActionValidationResult>()
+        );
+        SpellAreaPlacement offCone = new(
+            SpellAreaShape.Cone,
+            legal.AreaPlacement.OriginCell,
+            legal.AreaPlacement.OriginCornerX,
+            legal.AreaPlacement.OriginCornerZ,
+            SpellAreaDirection.East
+        );
+        Assert.That(
+            provider.Validate(bridge.Snapshot, casterId, save, offCone, legal.Creatures),
+            Is.TypeOf<ActionValidationResult.InvalidActionValidationResult>()
+        );
+        SpellAreaPlacement displaced = new(
+            SpellAreaShape.Cone,
+            new GridPosition(0, 0, 3),
+            0,
+            3,
+            SpellAreaDirection.North
+        );
+        Assert.That(
+            provider.Validate(bridge.Snapshot, casterId, save, displaced, legal.Creatures),
+            Is.TypeOf<ActionValidationResult.InvalidActionValidationResult>()
+        );
+
+        bool[,] blockers = new bool[tiles.GetLength(0), tiles.GetLength(1)];
+        blockers[0, 1] = true;
+        GridLineOfSightData.Register(tiles, blockers);
+        try
+        {
+            Assert.That(
+                provider.Validate(
+                    bridge.Snapshot,
+                    casterId,
+                    save,
+                    legal.AreaPlacement,
+                    legal.Creatures
+                ),
+                Is.TypeOf<ActionValidationResult.InvalidActionValidationResult>()
+            );
+        }
+        finally
+        {
+            GridLineOfSightData.Unregister(tiles);
+            bridge.ReleaseOwnership();
+        }
+    }
+
+    [Test]
+    public void DetachedHauntingHymnFailsClosedWithoutUnityDamageOrActionSpending()
+    {
+        CreatureFixture caster = CreateCreature("Detached Hymn Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Detached Hymn Target", "Enemies", 0);
+        PreparedSpell spell = PrepareHauntingHymn(caster);
+        int targetHealth = target.Creature.hp;
+        uint actions = caster.Controller.ActionPoints;
+
+        CastSpellResult result = SpellcastingRuntime.Cast(
+            caster.GameObject,
+            spell,
+            2,
+            new[] { target.GameObject }
+        );
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.Message, Does.Contain("not implemented"));
+        Assert.That(target.Creature.hp, Is.EqualTo(targetHealth));
+        Assert.That(caster.Controller.ActionPoints, Is.EqualTo(actions));
+    }
+
+    [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler")]
+    [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura")]
+    public void AuthoredZombieSlowImportsEnrollsReplaysAndSuppressesReactions(string path)
+    {
+        CreatureFixture zombie = CreateCreatureFromJson(path, "Enemies", 100);
+        CreatureFixture opponent = CreateCreature("Zombie Opponent", "Heroes", 0);
+        Assert.That(zombie.Creature.passives.Count(value => value == "Slow"), Is.EqualTo(1));
+        zombie.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    zombie.GameObject,
+                    ConditionRuleDefinitions.Slowed,
+                    "saved-zombie-slowed",
+                    new SlowedConditionState(1),
+                    zombie.DurableActorId
+                ),
+            }
+        );
+
+        UnityCombatRulesBridge first = UnityCombatRulesBridge.Create(
+            new ActionController[] { zombie.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId zombieId = first.GetCreatureId(zombie.Creature);
+        string authoredIdentity =
+            $"authored-passive-slow-{DurableActorSourceIdentity.Reserve(zombie.DurableActorId).Value}";
+        ConditionSelection<IEffectState>[] slowed = ConditionSelectors
+            .GetActiveInstances(first.Snapshot, zombieId, ConditionRuleDefinitions.Slowed)
+            .ToArray();
+
+        Assert.That(slowed, Has.Length.EqualTo(2));
+        ConditionSelection<IEffectState> authored = slowed.Single(value =>
+            value.Source == RuleSource.FromSlug("authored-passive-slow")
+        );
+        Assert.That(authored.Effect.Id.Value, Is.EqualTo($"{authoredIdentity}-effect"));
+        Assert.That(authored.Binding.Id.Value, Is.EqualTo($"{authoredIdentity}-binding"));
+        Assert.That(authored.Effect.Duration, Is.EqualTo(EffectDuration.Indefinite));
+        Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
+        first.BeginTurn(zombieId, 2);
+        Assert.That(first.GetActionEconomy(zombieId).ReactionAvailable, Is.False);
+        Assert.That(zombie.Controller.Reacted, Is.True);
+
+        first.ReleaseOwnership();
+        Assert.That(zombie.Conditions.CaptureApplications(), Has.Count.EqualTo(2));
+        UnityCombatRulesBridge replay = UnityCombatRulesBridge.Create(
+            new ActionController[] { opponent.Controller, zombie.Controller },
+            CreateTiles()
+        );
+        CreatureId replayId = replay.GetCreatureId(zombie.Creature);
+        ConditionSelection<IEffectState>[] replayed = ConditionSelectors
+            .GetActiveInstances(replay.Snapshot, replayId, ConditionRuleDefinitions.Slowed)
+            .ToArray();
+        Assert.That(replayed, Has.Length.EqualTo(2));
+        Assert.That(
+            replayed
+                .Single(value => value.Source == RuleSource.FromSlug("authored-passive-slow"))
+                .Effect.Id.Value,
+            Is.EqualTo($"{authoredIdentity}-effect")
+        );
+        replay.BeginTurn(replayId, 2);
+        Assert.That(replay.GetActionEconomy(replayId).ReactionAvailable, Is.False);
+    }
+
+    [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler")]
+    [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura")]
+    public void ReinforcementZombieSlowUsesTheSameEnrollmentAndTurnAuthority(string path)
+    {
+        CreatureFixture initial = CreateCreature("Reinforcement Initial", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Reinforcement Opponent", "Enemies", 50);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { initial.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        bridge.StartEncounter("Heroes");
+        CreatureFixture zombie = CreateCreatureFromJson(path, "Enemies", 0);
+
+        bridge.RegisterCombatants(new[] { zombie.Controller });
+
+        CreatureId zombieId = bridge.GetCreatureId(zombie.Creature);
+        ConditionSelection<IEffectState> authored = ConditionSelectors
+            .GetActiveInstances(bridge.Snapshot, zombieId, ConditionRuleDefinitions.Slowed)
+            .Single();
+        Assert.That(authored.Source, Is.EqualTo(RuleSource.FromSlug("authored-passive-slow")));
+        Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
+        bridge.BeginTurn(zombieId, 2);
+        Assert.That(bridge.GetActionEconomy(zombieId).ReactionAvailable, Is.False);
+        Assert.That(zombie.Controller.Reacted, Is.True);
+    }
+
+    [TestCase("ordinary-slowed")]
+    [TestCase("authored-passive-slow")]
+    public void OrdinaryOrFakeIdentitySlowedReducesActionsWithoutSuppressingReaction(string source)
+    {
+        CreatureFixture actor = CreateCreature("Ordinary Slowed", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Ordinary Slowed Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Slowed,
+                    source,
+                    new SlowedConditionState(1),
+                    actor.DurableActorId
+                ),
+            }
+        );
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+
+        bridge.BeginTurn(actorId, 2);
+
+        Assert.That(bridge.GetActionEconomy(actorId).ActionsRemaining, Is.EqualTo(2));
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        Assert.That(actor.Controller.Reacted, Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void AuthoredSlowStableIdentityCollisionRejectsEnrollmentAtomically(bool reinforcement)
+    {
+        CreatureFixture zombie = CreateCreatureFromJson(
+            "DataFiles/pathfinder-monster-core/zombie-shambler",
+            "Enemies",
+            reinforcement ? -1 : 100
+        );
+        CreatureFixture initial = CreateCreature("Slow Collision Initial", "Heroes", 100);
+        string stable =
+            $"authored-passive-slow-{DurableActorSourceIdentity.Reserve(zombie.DurableActorId).Value}";
+        zombie.Conditions.RestoreApplications(
+            new[]
+            {
+                new ConditionApplicationSnapshot(
+                    new ActiveEffectId($"{stable}-effect"),
+                    new BindingId($"{stable}-binding"),
+                    ConditionRuleDefinitions.Slowed,
+                    zombie.DurableActorId,
+                    RuleSource.FromSlug("conflicting-authored-passive-slow"),
+                    EffectDuration.Indefinite,
+                    EffectStateVersion.Initial,
+                    new SlowedConditionState(1),
+                    ActiveEffectStatus.Active,
+                    1,
+                    true,
+                    null
+                ),
+            }
+        );
+
+        if (!reinforcement)
+        {
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                UnityCombatRulesBridge.Create(
+                    new ActionController[] { zombie.Controller, initial.Controller },
+                    CreateTiles()
+                )
+            );
+            Assert.That(failure.Message, Does.Contain("collide"));
+            Assert.That(zombie.Conditions.HasPendingRestore, Is.True);
+            Assert.That(zombie.Controller.HasTurnAuthority, Is.False);
+            return;
+        }
+
+        CreatureFixture opponent = CreateCreature("Slow Collision Opponent", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { initial.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        bridge.StartEncounter("Heroes");
+        long version = bridge.Snapshot.Version;
+        int rosterCount = bridge.GetEncounter().Roster.Count;
+
+        InvalidOperationException reinforcementFailure = Assert.Throws<InvalidOperationException>(
+            () =>
+                bridge.RegisterCombatants(new[] { zombie.Controller })
+        );
+
+        Assert.That(reinforcementFailure.Message, Does.Contain("collide"));
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
+        Assert.That(bridge.GetEncounter().Roster, Has.Count.EqualTo(rosterCount));
+        Assert.That(zombie.Conditions.HasPendingRestore, Is.True);
+        Assert.That(zombie.Controller.HasTurnAuthority, Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void DuplicateAuthoredSlowPassiveFailsEnrollmentWithoutPartialConditionState()
+    {
+        CreatureFixture zombie = CreateCreatureFromJson(
+            "DataFiles/pathfinder-monster-core/zombie-shambler",
+            "Enemies",
+            100
+        );
+        zombie.Creature.passives.Add("Slow");
+        CreatureFixture opponent = CreateCreature("Malformed Zombie Opponent", "Heroes", 0);
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnityCombatRulesBridge.Create(
+                new ActionController[] { zombie.Controller, opponent.Controller },
+                CreateTiles()
+            )
+        );
+
+        Assert.That(error.Message, Does.Contain("must occur exactly once"));
+        Assert.That(zombie.Conditions.ActiveConditionNames, Is.Empty);
+        Assert.That(zombie.Controller.TryGetCombatRules(out _, out _), Is.False);
     }
 
     [Test]
@@ -219,7 +1022,7 @@ public sealed class ConditionUnityIntegrationTests
     }
 
     [Test]
-    public void FreshApplicationRejectsCompiledFlatFootedImmunityWithoutMutation()
+    public void FreshApplicationReportsCompiledFlatFootedImmunityWithoutMutation()
     {
         CreatureFixture source = CreateCreature("Immune Fresh Source", "Heroes", 100);
         CreatureFixture target = CreateCreature("Immune Fresh Target", "Enemies", 0);
@@ -232,20 +1035,24 @@ public sealed class ConditionUnityIntegrationTests
         CreatureId targetId = bridge.GetCreatureId(target.Creature);
         long version = bridge.Snapshot.Version;
 
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
-            bridge.Dispatch(
-                new ApplyConditionOp(
-                    "Flat-Footed",
-                    targetId,
-                    sourceId,
-                    RuleSource.FromSlug("immune-fresh-source"),
-                    EffectDuration.Indefinite,
-                    ConditionMarkerState.Instance
-                )
+        OpResult<ConditionApplicationOutcome> result = bridge.Dispatch(
+            new ApplyConditionOp(
+                "Flat-Footed",
+                targetId,
+                sourceId,
+                RuleSource.FromSlug("immune-fresh-source"),
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
             )
         );
 
-        Assert.That(failure.Message, Does.Contain("immune to off-guard"));
+        Assert.That(result, Is.TypeOf<ResolvedOpResult<ConditionApplicationOutcome>>());
+        ConditionApplicationOutcome blocked = (
+            (ResolvedOpResult<ConditionApplicationOutcome>)result
+        ).Value;
+        Assert.That(blocked.Status, Is.EqualTo(ConditionApplicationStatus.Blocked));
+        Assert.That(blocked.BlockedReason, Does.Contain("immune to off-guard"));
+        Assert.That(result.Facts, Is.Empty);
         Assert.That(bridge.Snapshot.Version, Is.EqualTo(version));
         Assert.That(bridge.Snapshot.ActiveEffects, Is.Empty);
         Assert.That(bridge.Snapshot.RuleBindings.All(pair => !pair.Value.EffectId.HasValue));
@@ -347,14 +1154,19 @@ public sealed class ConditionUnityIntegrationTests
             new[] { new BlessSpellEffect(source.GameObject) { RemainingTargetTurnStarts = 2 } }
         );
 
-        ArgumentException failure = Assert.Throws<ArgumentException>(() =>
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
             UnityCombatRulesBridge.Create(
                 new[] { source.Controller, target.Controller },
                 CreateTiles()
             )
         );
 
-        Assert.That(failure.Message, Does.Contain("Active-effect IDs must be unique"));
+        Assert.That(
+            failure.Message,
+            Is.EqualTo(
+                "Prepared active-effect identities collide with different registration state."
+            )
+        );
         Assert.That(source.Controller.TryGetCombatRules(out _, out _), Is.False);
         Assert.That(target.Controller.TryGetCombatRules(out _, out _), Is.False);
         Assert.That(target.Conditions.HasPendingRestore, Is.True);
@@ -716,8 +1528,8 @@ public sealed class ConditionUnityIntegrationTests
         CreatureId sourceId = bridge.GetCreatureId(source.Creature);
         CreatureId targetId = bridge.GetCreatureId(target.Creature);
 
-        ResolvedOpResult<ConditionCreationOutcome> applied =
-            (ResolvedOpResult<ConditionCreationOutcome>)
+        ResolvedOpResult<ConditionApplicationOutcome> applied =
+            (ResolvedOpResult<ConditionApplicationOutcome>)
                 bridge.Dispatch(
                     new ApplyConditionOp(
                         "deafened",
@@ -774,8 +1586,8 @@ public sealed class ConditionUnityIntegrationTests
         );
         CreatureId firstSource = first.GetCreatureId(source.Creature);
         CreatureId firstTarget = first.GetCreatureId(target.Creature);
-        ResolvedOpResult<ConditionCreationOutcome> created =
-            (ResolvedOpResult<ConditionCreationOutcome>)
+        ResolvedOpResult<ConditionApplicationOutcome> created =
+            (ResolvedOpResult<ConditionApplicationOutcome>)
                 first.Dispatch(
                     new ApplyConditionOp(
                         "fatigued",
@@ -988,15 +1800,107 @@ public sealed class ConditionUnityIntegrationTests
             "Enemies",
             0
         );
+        actor.Creature.passives.Add("Slow");
 
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+        UnityCombatRulesBridge first = UnityCombatRulesBridge.Create(
             new[] { actor.Controller, opponent.Controller },
             CreateTiles()
         );
+        CreatureId actorId = first.GetCreatureId(actor.Creature);
+        ConditionSelection<IEffectState> authored = ConditionSelectors
+            .GetActiveInstances(first.Snapshot, actorId, ConditionRuleDefinitions.Slowed)
+            .Single();
 
-        Assert.That(bridge.GetDurableActorId(bridge.GetCreatureId(actor.Creature)), Is.Empty);
-        Assert.That(bridge.GetDurableActorId(bridge.GetCreatureId(opponent.Creature)), Is.Empty);
-        bridge.ReleaseOwnership();
+        Assert.That(first.GetDurableActorId(actorId), Is.Empty);
+        Assert.That(first.GetDurableActorId(first.GetCreatureId(opponent.Creature)), Is.Empty);
+        Assert.That(authored.Source, Is.EqualTo(RuleSource.FromSlug("authored-passive-slow")));
+        Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
+        Assert.That(actor.Conditions.ActiveConditionNames, Does.Contain("slowed"));
+        first.BeginTurn(actorId, 2);
+        Assert.That(first.GetActionEconomy(actorId).ReactionAvailable, Is.False);
+        Assert.That(actor.Controller.Reacted, Is.True);
+        Assert.That(actor.Conditions.CaptureApplications(), Is.Empty);
+
+        Assert.DoesNotThrow(() => first.ReleaseOwnership());
+
+        Assert.That(actor.Conditions.HasPendingRestore, Is.True);
+        Assert.That(actor.Conditions.CaptureApplications(), Is.Empty);
+        CreatureFixture anchor = CreateCreatureWithoutDurableIdentity(
+            "Nondurable Heroes Anchor",
+            "Heroes",
+            100
+        );
+        UnityCombatRulesBridge second = UnityCombatRulesBridge.Create(
+            new[] { anchor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        second.StartEncounter("Enemies");
+        second.RegisterCombatants(new[] { actor.Controller });
+        CreatureId reinforcementId = second.GetCreatureId(actor.Creature);
+        ConditionSelection<IEffectState> reenrolled = ConditionSelectors
+            .GetActiveInstances(second.Snapshot, reinforcementId, ConditionRuleDefinitions.Slowed)
+            .Single();
+        Assert.That(reenrolled.Source, Is.EqualTo(RuleSource.FromSlug("authored-passive-slow")));
+        Assert.That(reenrolled.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
+        Assert.That(actor.Conditions.CaptureApplications(), Is.Empty);
+        Assert.DoesNotThrow(() => second.ReleaseOwnership());
+        Assert.That(actor.Conditions.CaptureApplications(), Is.Empty);
+    }
+
+    [Test]
+    public void DurableOwnerPersistenceRejectsNondurableLiveConditionSource()
+    {
+        CreatureFixture source = CreateCreatureWithoutDurableIdentity(
+            "Nondurable Live Source",
+            "Heroes",
+            100
+        );
+        CreatureFixture target = CreateCreature("Durable Persistence Target", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { source.Controller, target.Controller },
+            CreateTiles()
+        );
+        CreatureId sourceId = bridge.GetCreatureId(source.Creature);
+        CreatureId targetId = bridge.GetCreatureId(target.Creature);
+        RuleSource ruleSource = RuleSource.FromSlug("nondurable-live-source");
+        ResolvedOpResult<ConditionApplicationOutcome> applied =
+            (ResolvedOpResult<ConditionApplicationOutcome>)
+                bridge.Dispatch(
+                    new ApplyConditionOp(
+                        "fatigued",
+                        targetId,
+                        sourceId,
+                        ruleSource,
+                        EffectDuration.Indefinite,
+                        ConditionMarkerState.Instance
+                    )
+                );
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            target.Conditions.CaptureApplications()
+        );
+        Assert.That(
+            error.Message,
+            Is.EqualTo(
+                $"Condition {applied.Value.EffectId.Value} has no canonical durable source actor provenance."
+            )
+        );
+
+        OpResult<ConditionCleanupOutcome> cleanup = bridge.Dispatch(
+            new CleanupConditionsFromSourceOp(
+                ruleSource,
+                ConditionCleanupKind.Remove,
+                targetId,
+                ConditionRuleDefinitions.Fatigued
+            )
+        );
+        Assert.That(cleanup, Is.TypeOf<ResolvedOpResult<ConditionCleanupOutcome>>());
+        Assert.That(
+            ((ResolvedOpResult<ConditionCleanupOutcome>)cleanup).Value.Affected,
+            Is.EqualTo(new[] { applied.Value.EffectId })
+        );
+        Assert.That(target.Conditions.CaptureApplications(), Is.Empty);
+        Assert.DoesNotThrow(() => bridge.ReleaseOwnership());
     }
 
     [TestCase(" padded-party-slot ", "condition-test-creature")]
@@ -1376,23 +2280,23 @@ public sealed class ConditionUnityIntegrationTests
         int bindingsBefore = bridge.Snapshot.RuleBindings.Count;
         int timingsBefore = bridge.Snapshot.ActiveEffectTimings.Count;
 
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
-            bridge.Dispatch(
-                new ApplyConditionOp(
-                    "fatigued",
-                    targetId,
-                    reservedSource,
-                    RuleSource.FromSlug($"new-{identity}-historical-source"),
-                    duration,
-                    ConditionMarkerState.Instance
-                )
+        OpResult<ConditionApplicationOutcome> result = bridge.Dispatch(
+            new ApplyConditionOp(
+                "fatigued",
+                targetId,
+                reservedSource,
+                RuleSource.FromSlug($"new-{identity}-historical-source"),
+                duration,
+                ConditionMarkerState.Instance
             )
         );
 
+        Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionApplicationOutcome>>());
         Assert.That(
-            failure.Message,
-            Is.EqualTo("The condition source is not a registered creature.")
+            ((InvalidOpResult<ConditionApplicationOutcome>)result).Reason,
+            Is.EqualTo("A freshly applied condition requires a registered source creature.")
         );
+        Assert.That(result.Facts, Is.Empty);
         Assert.That(bridge.Snapshot.Version, Is.EqualTo(versionBefore));
         Assert.That(bridge.Snapshot.ActiveEffects.Count, Is.EqualTo(effectsBefore));
         Assert.That(bridge.Snapshot.RuleBindings.Count, Is.EqualTo(bindingsBefore));
@@ -1521,8 +2425,8 @@ public sealed class ConditionUnityIntegrationTests
         );
         CreatureId sourceId = first.GetCreatureId(source.Creature);
         CreatureId targetId = first.GetCreatureId(target.Creature);
-        ResolvedOpResult<ConditionCreationOutcome> created =
-            (ResolvedOpResult<ConditionCreationOutcome>)
+        ResolvedOpResult<ConditionApplicationOutcome> created =
+            (ResolvedOpResult<ConditionApplicationOutcome>)
                 first.Dispatch(
                     new ApplyConditionOp(
                         "fatigued",
@@ -1784,6 +2688,91 @@ public sealed class ConditionUnityIntegrationTests
         retry.ReleaseOwnership();
     }
 
+    private static PreparedSpell PrepareHauntingHymn(CreatureFixture caster)
+    {
+        SpellReference reference = new(new SpellId("haunting-hymn"), 1);
+        PreparedSpell spell = new("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u });
+        caster.Creature.level = 1;
+        caster.Creature.wisMod = 4;
+        caster.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        caster.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            caster.Creature,
+            caster.Creature.Build
+        );
+        Assert.That(caster.Creature.Prepared.SpellBook.CastableSpells, Does.Contain(reference));
+        Assert.That(
+            caster.Creature.Prepared.Spellcasting.PreparedSpells.Any(value =>
+                value.Slug == "haunting-hymn"
+            ),
+            Is.False
+        );
+        return spell;
+    }
+
+    private static string CreateCatalogEffectSpellJson(
+        string castingTime,
+        string duration,
+        bool includeCastingTime = true,
+        bool includeDuration = true
+    )
+    {
+        JObject system = new()
+        {
+            ["rulesNativeReady"] = true,
+            ["level"] = new JObject { ["value"] = 1 },
+            ["traits"] = new JObject { ["value"] = new JArray() },
+            ["rules"] = new JArray
+            {
+                new JObject
+                {
+                    ["key"] = "CreateActiveEffect",
+                    ["definition"] = "spell-effect-catalog-audit",
+                    ["target"] = "self",
+                },
+            },
+        };
+        if (includeCastingTime)
+            system["time"] = new JObject { ["value"] = castingTime };
+        if (includeDuration)
+            system["duration"] = new JObject { ["value"] = duration };
+        return new JObject { ["name"] = "Catalog Audit Spell", ["system"] = system }.ToString();
+    }
+
+    private static AreaTargetResult PrepareHauntingArea(
+        CreatureFixture caster,
+        CreatureFixture target,
+        out Tile[,] tiles
+    )
+    {
+        tiles = new Tile[1, 4];
+        for (int z = 0; z < tiles.GetLength(1); z++)
+            tiles[0, z] = new Tile();
+        caster.GameObject.transform.position = Vector3Int.zero;
+        target.GameObject.transform.position = new Vector3Int(0, 0, 2);
+        tiles[0, 0].Occupants.Add(caster.GameObject);
+        tiles[0, 2].Occupants.Add(target.GameObject);
+        AreaTargetResult result = AreaTargeting.Evaluate(
+            caster.GameObject,
+            tiles,
+            new AreaTargetRequest
+            {
+                Shape = AreaShape.Cone,
+                SizeFeet = 15,
+                RequiresLineOfEffect = true,
+            },
+            new AreaPlacement
+            {
+                Shape = AreaShape.Cone,
+                OriginCell = Vector3Int.zero,
+                OriginCorner = Vector2Int.zero,
+                Direction = AreaDirection.North,
+            }
+        );
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result.Creatures.Count(value => value.IsAffected), Is.EqualTo(1));
+        return result;
+    }
+
     private static ConditionApplicationSnapshot Persisted(
         GameObject sourceCreature,
         RuleDefinitionId definition,
@@ -1837,6 +2826,25 @@ public sealed class ConditionUnityIntegrationTests
     {
         string durableActorId = $"condition-actor-{created.Count + 1}";
         return CreateCreatureWithDurableId(name, teamName, initiative, durableActorId);
+    }
+
+    private CreatureFixture CreateCreatureFromJson(string path, string teamName, int initiative)
+    {
+        GameObject gameObject = CreatureJsonConverter.CreateFromFile(path);
+        Assert.That(gameObject, Is.Not.Null);
+        created.Add(gameObject);
+        string durableActorId = $"condition-json-actor-{created.Count}";
+        gameObject
+            .AddComponent<DungeonPartyMemberIdentity>()
+            .Configure(durableActorId, "condition-json-test-creature");
+        CreatureComponent creature = gameObject.GetComponent<CreatureComponent>();
+        creature.initiative = initiative;
+        Conditions conditions = gameObject.AddComponent<Conditions>();
+        Team team = gameObject.AddComponent<Team>();
+        team.Name = teamName;
+        ConditionTestActionController controller =
+            gameObject.AddComponent<ConditionTestActionController>();
+        return new CreatureFixture(gameObject, creature, conditions, controller, durableActorId);
     }
 
     private CreatureFixture CreateCreatureWithDurableId(
@@ -1900,6 +2908,27 @@ public sealed class ConditionUnityIntegrationTests
         field.SetValue(component, value);
     }
 
+    private static void AssertEncounterSetupRolls(EncounterThenSpellRollService rolls) =>
+        Assert.That(
+            rolls.EncounterRequests,
+            Is.EqualTo(new[] { DiceExpressions.D20, DiceExpressions.D20 })
+        );
+
+    private static void AssertSingleHauntingHymnResolution(
+        CastSpellResult result,
+        EncounterThenSpellRollService rolls,
+        ScriptedRollService spellRolls
+    )
+    {
+        Assert.That(result.Targets, Has.Count.EqualTo(1));
+        Assert.That(result.Rolls, Has.Count.EqualTo(1));
+        Assert.That(
+            rolls.SpellRequests,
+            Is.EqualTo(new[] { DiceExpressions.D20, new DiceExpression(1, 8) })
+        );
+        Assert.That(spellRolls.Remaining, Is.Zero);
+    }
+
     private static Tile[,] CreateTiles() =>
         new[,]
         {
@@ -1914,6 +2943,39 @@ public sealed class ConditionUnityIntegrationTests
         );
         Assert.That(field, Is.Not.Null);
         return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private sealed class EncounterThenSpellRollService : IRollService
+    {
+        private readonly ScriptedRollService spellRolls;
+        private readonly List<DiceExpression> encounterRequests = new();
+        private readonly List<DiceExpression> spellRequests = new();
+        private bool resolvingSpell;
+
+        internal EncounterThenSpellRollService(ScriptedRollService spellRolls) =>
+            this.spellRolls = spellRolls ?? throw new ArgumentNullException(nameof(spellRolls));
+
+        internal IReadOnlyList<DiceExpression> EncounterRequests => encounterRequests;
+        internal IReadOnlyList<DiceExpression> SpellRequests => spellRequests;
+
+        internal void BeginSpellResolution()
+        {
+            if (resolvingSpell)
+                throw new InvalidOperationException("Spell resolution already began.");
+            resolvingSpell = true;
+        }
+
+        public RollResult Roll(DiceExpression dice)
+        {
+            if (resolvingSpell)
+            {
+                spellRequests.Add(dice);
+                return spellRolls.Roll(dice);
+            }
+
+            encounterRequests.Add(dice);
+            return new RollResult(dice, Enumerable.Repeat(1, dice.Count));
+        }
     }
 
     private sealed class ControllableInstallationModule : IUnityCombatantEnrollmentModule

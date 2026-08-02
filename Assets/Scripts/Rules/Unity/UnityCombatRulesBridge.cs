@@ -950,6 +950,7 @@ namespace Game.Rules.Unity
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet),
+                UnityCreatureStatisticsAdapter.Capture(creatureId, creature),
                 preparationLifetime
             );
         }
@@ -1298,6 +1299,7 @@ namespace Game.Rules.Unity
             CreatureId id = state.Creature.Id;
             seed.SeedCreature(state.Creature)
                 .SeedPreparedInputs(id, state.PreparedInputs)
+                .SeedStatistics(state.Statistics)
                 .SeedHealth(id, state.Health)
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)

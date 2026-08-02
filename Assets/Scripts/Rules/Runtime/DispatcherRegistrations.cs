@@ -43,6 +43,7 @@ namespace Game.Rules.Runtime
         );
         ValueTask<object> Invoke(IFrameInvocation invocation, RuleDispatcher dispatcher);
         object CreateInvalidResult(string reason);
+        object CreateResolvedResult(object value);
         object CreateInterruptedResult();
         OpStatus GetResultStatus(object result);
     }
@@ -126,6 +127,13 @@ namespace Game.Rules.Runtime
         }
 
         public object CreateInvalidResult(string reason) => OpResult<TResult>.Invalid(reason);
+
+        public object CreateResolvedResult(object value) =>
+            value is TResult typed
+                ? OpResult<TResult>.Resolved(typed)
+                : throw new InvalidOperationException(
+                    $"Resolver for {typeof(TOp).Name} received an impossible receipted outcome."
+                );
 
         public object CreateInterruptedResult() => OpResult<TResult>.Interrupted();
 

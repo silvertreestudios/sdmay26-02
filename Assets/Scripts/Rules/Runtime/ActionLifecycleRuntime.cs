@@ -99,6 +99,16 @@ namespace Game.Rules.Runtime
             RulesSnapshot snapshot
         );
 
+        public abstract FrameActionState CreateRetriedFrameState(
+            OpId id,
+            OpId rootId,
+            OpId? parentId,
+            OpId? causeId,
+            InvocationPolicy invocationPolicy,
+            IRuleOp op,
+            ActionProfile frozenProfile
+        );
+
         public abstract ActionValidationResult Validate(IFrameInvocation invocation);
 
         public static ActionRuntime Create(
@@ -131,6 +141,19 @@ namespace Game.Rules.Runtime
             public override ActionValidationResult Validate(IFrameInvocation invocation) =>
                 throw new InvalidOperationException(
                     "A disabled action runtime cannot validate an action frame."
+                );
+
+            public override FrameActionState CreateRetriedFrameState(
+                OpId id,
+                OpId rootId,
+                OpId? parentId,
+                OpId? causeId,
+                InvocationPolicy invocationPolicy,
+                IRuleOp op,
+                ActionProfile frozenProfile
+            ) =>
+                throw new InvalidOperationException(
+                    $"Action lifecycle services are not configured for {op.GetType().Name}."
                 );
         }
 
@@ -175,15 +198,14 @@ namespace Game.Rules.Runtime
                 if (!(op is IActionOpMetadata action))
                     return FrameActionState.NonAction;
 
-                ActionOpInfo info = new ActionOpInfo(
+                ActionOpInfo info = CreateInfo(
                     id,
                     rootId,
                     parentId,
                     causeId,
                     invocationPolicy,
-                    action.Actor,
-                    action.DefinitionId,
-                    op.GetType()
+                    op,
+                    action
                 );
                 ActionProfile baseProfile =
                     action.GetBaseProfile(catalog)
@@ -197,6 +219,46 @@ namespace Game.Rules.Runtime
                     );
                 return FrameActionState.Frozen(info, effective);
             }
+
+            public override FrameActionState CreateRetriedFrameState(
+                OpId id,
+                OpId rootId,
+                OpId? parentId,
+                OpId? causeId,
+                InvocationPolicy invocationPolicy,
+                IRuleOp op,
+                ActionProfile frozenProfile
+            )
+            {
+                if (!(op is IActionOpMetadata action))
+                    throw new InvalidOperationException(
+                        $"Receipted operation {op.GetType().Name} is not an action."
+                    );
+                return FrameActionState.Frozen(
+                    CreateInfo(id, rootId, parentId, causeId, invocationPolicy, op, action),
+                    frozenProfile ?? throw new ArgumentNullException(nameof(frozenProfile))
+                );
+            }
+
+            private static ActionOpInfo CreateInfo(
+                OpId id,
+                OpId rootId,
+                OpId? parentId,
+                OpId? causeId,
+                InvocationPolicy invocationPolicy,
+                IRuleOp op,
+                IActionOpMetadata action
+            ) =>
+                new ActionOpInfo(
+                    id,
+                    rootId,
+                    parentId,
+                    causeId,
+                    invocationPolicy,
+                    action.Actor,
+                    action.DefinitionId,
+                    op.GetType()
+                );
 
             public override ActionValidationResult Validate(IFrameInvocation invocation)
             {

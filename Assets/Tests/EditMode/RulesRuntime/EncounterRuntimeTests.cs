@@ -28,6 +28,9 @@ namespace Game.Rules.Runtime.Tests
             /// <summary>The immutable prepared-input slice.</summary>
             PreparedInputs,
 
+            /// <summary>The immutable base-statistics slice.</summary>
+            Statistics,
+
             /// <summary>The health slice.</summary>
             Health,
 
@@ -1063,6 +1066,7 @@ namespace Game.Rules.Runtime.Tests
         /// <summary>Verifies every join-owned base slice rejects before the draft commits.</summary>
         [TestCase(JoinRegistrationCollision.Creature)]
         [TestCase(JoinRegistrationCollision.PreparedInputs)]
+        [TestCase(JoinRegistrationCollision.Statistics)]
         [TestCase(JoinRegistrationCollision.Health)]
         [TestCase(JoinRegistrationCollision.Position)]
         [TestCase(JoinRegistrationCollision.LandSpeed)]
@@ -1091,6 +1095,7 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(3, 0, 2),
                 new GridDistance(25),
+                CreatureStatisticsState.Empty(Reinforcement),
                 PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slotId, Reinforcement, 1, 1) },
                 new[] { binding }
@@ -1103,6 +1108,20 @@ namespace Game.Rules.Runtime.Tests
                     break;
                 case JoinRegistrationCollision.PreparedInputs:
                     seed.SeedPreparedInputs(Reinforcement, PreparedCreatureInputs.Empty);
+                    break;
+                case JoinRegistrationCollision.Statistics:
+                    seed.SeedStatistics(
+                        new CreatureStatisticsState(
+                            Reinforcement,
+                            1,
+                            11,
+                            2,
+                            3,
+                            4,
+                            new Dictionary<Skill, int>(),
+                            Array.Empty<Modifier>()
+                        )
+                    );
                     break;
                 case JoinRegistrationCollision.Health:
                     seed.SeedHealth(Reinforcement, new HealthState(7, 10));
@@ -1178,6 +1197,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(
                 dispatcher.Snapshot.PreparedInputs.Count(),
                 Is.EqualTo(before.PreparedInputs.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.Statistics.Count(),
+                Is.EqualTo(before.Statistics.Count())
             );
             Assert.That(dispatcher.Snapshot.Health.Count(), Is.EqualTo(before.Health.Count()));
             Assert.That(
@@ -1852,6 +1875,80 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(reconstructedInputs, Is.EqualTo(originalInputs));
             Assert.That(result.Facts, Is.Empty);
             Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+        }
+
+        [Test]
+        public async Task ExactJoinReplayUsesExactStatisticsReceipt()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 8),
+                JoinSeed()
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+            CreatureStatisticsState original = CreateReplayStatistics(7);
+            Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateJoinStateWithStatistics(Reinforcement, original)
+                            ),
+                        }
+                    )
+                )
+            );
+            long committedVersion = dispatcher.Snapshot.Version;
+            CreatureStatisticsState reconstructed = CreateReplayStatistics(7);
+
+            ResolvedOpResult<EncounterJoinOutcome> replay = Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateJoinStateWithStatistics(Reinforcement, reconstructed)
+                            ),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(reconstructed, Is.Not.SameAs(original));
+            Assert.That(reconstructed, Is.EqualTo(original));
+            Assert.That(reconstructed.GetHashCode(), Is.EqualTo(original.GetHashCode()));
+            Assert.That(replay.Facts, Is.Empty);
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateJoinStateWithStatistics(
+                                    Reinforcement,
+                                    CreateReplayStatistics(8)
+                                )
+                            ),
+                        }
+                    )
+                )
+            );
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(dispatcher.Snapshot.Statistics[Reinforcement], Is.EqualTo(original));
         }
 
         [Test]
@@ -2961,6 +3058,7 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
+                CreatureStatisticsState.Empty(creature),
                 PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slot, creature, 1, 1) },
                 new[]
@@ -3064,6 +3162,7 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
+                CreatureStatisticsState.Empty(creature),
                 PreparedCreatureInputs.Empty,
                 Array.Empty<SpellSlotState>(),
                 Array.Empty<ActiveRuleBinding>(),
@@ -3079,9 +3178,37 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
+                CreatureStatisticsState.Empty(creature),
                 preparedInputs,
                 Array.Empty<SpellSlotState>(),
                 Array.Empty<ActiveRuleBinding>()
+            );
+
+        private static CombatantRulesState CreateJoinStateWithStatistics(
+            CreatureId creature,
+            CreatureStatisticsState statistics
+        ) =>
+            new CombatantRulesState(
+                new CreatureState(creature, Enemies),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                statistics,
+                PreparedCreatureInputs.Empty,
+                Array.Empty<SpellSlotState>(),
+                Array.Empty<ActiveRuleBinding>()
+            );
+
+        private static CreatureStatisticsState CreateReplayStatistics(int willModifier) =>
+            new CreatureStatisticsState(
+                Reinforcement,
+                6,
+                18,
+                4,
+                5,
+                willModifier,
+                new Dictionary<Skill, int> { [Skill.FromName("religion")] = 9 },
+                Array.Empty<Modifier>()
             );
 
         private static PreparedCreatureInputs CreateReplayPreparedInputs(int level) =>

@@ -1,47 +1,86 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
-    /// <summary>Pairs one immutable condition effect with its exact active binding.</summary>
-    public sealed class ConditionRegistration
+    /// <summary>Identifies whether a legal condition application changed authoritative state.</summary>
+    public enum ConditionApplicationStatus
     {
-        /// <summary>Creates one immutable registration pair.</summary>
-        public ConditionRegistration(
-            ActiveEffectInstance effect,
-            ActiveRuleBinding binding,
-            ActiveEffectTimingState timing = null
-        )
-        {
-            ActiveEffectRegistration registration = new ActiveEffectRegistration(
-                effect,
-                binding,
-                timing
-            );
-            Effect = registration.Effect;
-            Binding = registration.Binding;
-            Timing = registration.Timing;
-            if (!ConditionRuleDefinitions.Accepts(effect.DefinitionId, effect.State))
-                throw new ArgumentException(
-                    "The effect is not a canonical condition.",
-                    nameof(effect)
-                );
-        }
+        /// <summary>The condition effect and binding were created.</summary>
+        Applied,
 
-        /// <summary>Gets the active-effect half of the registration.</summary>
-        public ActiveEffectInstance Effect { get; }
-
-        /// <summary>Gets the exact active binding.</summary>
-        public ActiveRuleBinding Binding { get; }
-
-        /// <summary>Gets the exact encounter timing, when the active finite effect is scheduled.</summary>
-        public ActiveEffectTimingState Timing { get; }
+        /// <summary>A game-rule prevention such as immunity accepted the request without mutation.</summary>
+        Blocked,
     }
 
-    /// <summary>Requests creation of one canonical sourced condition.</summary>
-    public sealed class ApplyConditionOp : IRuleOp<ConditionCreationOutcome>, IRuleSourcedOp
+    /// <summary>Reports either one created condition or an expected game-rule prevention.</summary>
+    public sealed class ConditionApplicationOutcome
+    {
+        private readonly ActiveEffectCreationOutcome creation;
+
+        private ConditionApplicationOutcome(
+            ConditionApplicationStatus status,
+            ActiveEffectCreationOutcome creation,
+            string blockedReason
+        )
+        {
+            Status = status;
+            this.creation = creation;
+            BlockedReason = blockedReason ?? string.Empty;
+        }
+
+        /// <summary>Gets whether the request created state or was legally blocked.</summary>
+        public ConditionApplicationStatus Status { get; }
+
+        /// <summary>Gets the explicit game-rule reason when <see cref="Status"/> is blocked.</summary>
+        public string BlockedReason { get; }
+
+        /// <summary>Gets the created effect ID.</summary>
+        /// <exception cref="InvalidOperationException">The application was blocked.</exception>
+        public ActiveEffectId EffectId => RequireCreation().EffectId;
+
+        /// <summary>Gets the created binding ID.</summary>
+        /// <exception cref="InvalidOperationException">The application was blocked.</exception>
+        public BindingId BindingId => RequireCreation().BindingId;
+
+        /// <summary>Gets the created effect's initial version.</summary>
+        /// <exception cref="InvalidOperationException">The application was blocked.</exception>
+        public EffectStateVersion Version => RequireCreation().Version;
+
+        internal static ConditionApplicationOutcome Applied(ActiveEffectCreationOutcome creation) =>
+            new ConditionApplicationOutcome(
+                ConditionApplicationStatus.Applied,
+                creation,
+                string.Empty
+            );
+
+        internal static ConditionApplicationOutcome Blocked(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new ArgumentException(
+                    "A blocked application requires a reason.",
+                    nameof(reason)
+                );
+            return new ConditionApplicationOutcome(
+                ConditionApplicationStatus.Blocked,
+                default,
+                reason.Trim()
+            );
+        }
+
+        private ActiveEffectCreationOutcome RequireCreation()
+        {
+            if (Status != ConditionApplicationStatus.Applied)
+                throw new InvalidOperationException(
+                    "A blocked condition application has no created identity."
+                );
+            return creation;
+        }
+    }
+
+    /// <summary>Requests application of one canonical sourced condition.</summary>
+    public sealed class ApplyConditionOp : IRuleOp<ConditionApplicationOutcome>, IRuleSourcedOp
     {
         /// <summary>Creates a condition request from an external canonical or legacy alias name.</summary>
         public ApplyConditionOp(
@@ -100,43 +139,6 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the typed condition state.</summary>
         public IEffectState State { get; }
-    }
-
-    /// <summary>Idempotently adopts prepared condition registration pairs into one store.</summary>
-    public sealed class AdoptConditionRegistrationsOp
-        : IRuleOp<ConditionAdoptionOutcome>,
-            IRuleSourcedOp
-    {
-        private readonly IReadOnlyList<ConditionRegistration> registrations;
-
-        /// <summary>Creates one adoption request for prepared persistence or enrollment state.</summary>
-        public AdoptConditionRegistrationsOp(IEnumerable<ConditionRegistration> registrations)
-        {
-            if (registrations == null)
-                throw new ArgumentNullException(nameof(registrations));
-            ConditionRegistration[] copied = registrations.ToArray();
-            if (copied.Any(registration => registration == null))
-                throw new ArgumentException(
-                    "Registrations cannot contain null.",
-                    nameof(registrations)
-                );
-            this.registrations = Array.AsReadOnly(copied);
-        }
-
-        /// <summary>Gets prepared registrations in deterministic adoption order.</summary>
-        public IReadOnlyList<ConditionRegistration> Registrations => registrations;
-
-        /// <inheritdoc/>
-        public RuleSource Source => RuleSource.FromSlug("condition-enrollment");
-    }
-
-    /// <summary>Reports how many prepared registrations were newly committed.</summary>
-    public readonly struct ConditionAdoptionOutcome
-    {
-        internal ConditionAdoptionOutcome(int adopted) => Adopted = adopted;
-
-        /// <summary>Gets the number of newly adopted registrations.</summary>
-        public int Adopted { get; }
     }
 
     /// <summary>Selects whether source-wide cleanup expires or removes matching conditions.</summary>
@@ -214,44 +216,99 @@ namespace Game.Rules.Runtime
         public IReadOnlyList<ActiveEffectId> Affected { get; }
     }
 
-    internal sealed class ApplyConditionHandler
-        : IOpHandler<ApplyConditionOp, ConditionCreationOutcome>
+    internal sealed class ApplyConditionReducer
+        : IOpReducer<ApplyConditionOp, ConditionApplicationOutcome>
     {
-        public async ValueTask<ConditionCreationOutcome> Handle(
-            OpFrame<ApplyConditionOp> frame,
-            OpHandlerContext context
+        private readonly RuleRegistry registry;
+
+        internal ApplyConditionReducer(RuleRegistry registry) =>
+            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
+
+        public ReductionResult<ConditionApplicationOutcome> Reduce(
+            ReductionContext<ApplyConditionOp> context,
+            RulesStateDraft state,
+            FactSink facts
         )
         {
+            if (
+                !ConditionApplicationReduction.TryApply(
+                    registry,
+                    state,
+                    facts,
+                    context.SourceOpId,
+                    context.Op,
+                    out ConditionApplicationOutcome outcome,
+                    out string rejection
+                )
+            )
+                return ReductionResult<ConditionApplicationOutcome>.Reject(rejection);
+            return ReductionResult<ConditionApplicationOutcome>.Accept(outcome);
+        }
+    }
+
+    internal static class ConditionApplicationReduction
+    {
+        internal static bool TryApply(
+            RuleRegistry registry,
+            RulesStateDraft state,
+            FactSink facts,
+            OpId operationId,
+            ApplyConditionOp operation,
+            out ConditionApplicationOutcome outcome,
+            out string rejection
+        )
+        {
+            if (!state.Creatures.Contains(operation.SourceCreature))
+            {
+                outcome = null;
+                rejection = "A freshly applied condition requires a registered source creature.";
+                return false;
+            }
             ConditionIdentityAllocation identity = ConditionIdentityAllocator.Allocate(
-                frame.Id,
-                context.Snapshot
+                operationId,
+                state
             );
             ActiveEffectInstance effect = new ActiveEffectInstance(
                 identity.EffectId,
-                frame.Op.DefinitionId,
-                frame.Op.SourceCreature,
-                frame.Op.Source,
-                frame.Op.Duration,
-                frame.Op.State
+                operation.DefinitionId,
+                operation.SourceCreature,
+                operation.Source,
+                operation.Duration,
+                operation.State
             );
             ActiveRuleBinding binding = new ActiveRuleBinding(
                 identity.BindingId,
                 effect.DefinitionId,
-                frame.Op.Target,
+                operation.Target,
                 effect.Id,
                 effect.Source,
                 identity.CreationOrder
             );
-            OpResult<ConditionCreationOutcome> created = await context.Dispatch(
-                new CreateConditionOp(effect, binding)
-            );
-            return created switch
+            if (
+                !ActiveEffectCreationReduction.TryCreate(
+                    registry,
+                    state,
+                    facts,
+                    effect,
+                    binding,
+                    out ActiveEffectCreationOutcome created,
+                    out ActiveEffectCreationFailure failure,
+                    out rejection
+                )
+            )
             {
-                ResolvedOpResult<ConditionCreationOutcome> resolved => resolved.Value,
-                InvalidOpResult<ConditionCreationOutcome> invalid =>
-                    throw new InvalidOperationException(invalid.Reason),
-                _ => throw new InvalidOperationException("Condition creation did not resolve."),
-            };
+                if (failure == ActiveEffectCreationFailure.ConditionImmune)
+                {
+                    outcome = ConditionApplicationOutcome.Blocked(rejection);
+                    rejection = string.Empty;
+                    return true;
+                }
+                outcome = null;
+                return false;
+            }
+            outcome = ConditionApplicationOutcome.Applied(created);
+            rejection = string.Empty;
+            return true;
         }
     }
 
@@ -275,18 +332,18 @@ namespace Game.Rules.Runtime
 
     internal static class ConditionIdentityAllocator
     {
-        internal static ConditionIdentityAllocation Allocate(OpId frameId, RulesSnapshot snapshot)
+        internal static ConditionIdentityAllocation Allocate(OpId frameId, RulesStateDraft state)
         {
-            if (snapshot == null)
-                throw new ArgumentNullException(nameof(snapshot));
+            if (state == null)
+                throw new ArgumentNullException(nameof(state));
             long maximumCreationOrder = 0;
-            foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in snapshot.RuleBindings)
+            foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in state.RuleBindings)
                 maximumCreationOrder = Math.Max(maximumCreationOrder, pair.Value.CreationOrder);
             foreach (
                 KeyValuePair<
                     ActiveEffectId,
                     ActiveEffectTimingState
-                > pair in snapshot.ActiveEffectTimings
+                > pair in state.ActiveEffectTimings
             )
                 maximumCreationOrder = Math.Max(maximumCreationOrder, pair.Value.CreationOrder);
             if (maximumCreationOrder == long.MaxValue)
@@ -300,8 +357,8 @@ namespace Game.Rules.Runtime
                 ActiveEffectId effectId = new ActiveEffectId($"condition-effect-{candidate}");
                 BindingId bindingId = new BindingId($"condition-binding-{candidate}");
                 if (
-                    !snapshot.ActiveEffects.Contains(effectId)
-                    && !snapshot.RuleBindings.Contains(bindingId)
+                    !state.ActiveEffects.Contains(effectId)
+                    && !state.RuleBindings.Contains(bindingId)
                 )
                     return new ConditionIdentityAllocation(effectId, bindingId, candidate);
                 if (candidate == long.MaxValue)
@@ -313,49 +370,11 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class AdoptConditionRegistrationsReducer
-        : IOpReducer<AdoptConditionRegistrationsOp, ConditionAdoptionOutcome>
-    {
-        private readonly RuleRegistry registry;
-
-        internal AdoptConditionRegistrationsReducer(RuleRegistry registry) =>
-            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
-
-        public ReductionResult<ConditionAdoptionOutcome> Reduce(
-            ReductionContext<AdoptConditionRegistrationsOp> context,
-            RulesStateDraft state,
-            FactSink facts
-        )
-        {
-            ActiveEffectRegistration[] registrations = context
-                .Op.Registrations.Select(registration => new ActiveEffectRegistration(
-                    registration.Effect,
-                    registration.Binding,
-                    registration.Timing
-                ))
-                .ToArray();
-            if (
-                !ActiveEffectAdoptionReduction.TryAdopt(
-                    registry,
-                    registrations,
-                    state,
-                    facts,
-                    out int adopted,
-                    out string rejection
-                )
-            )
-                return ReductionResult<ConditionAdoptionOutcome>.Reject(rejection);
-            return ReductionResult<ConditionAdoptionOutcome>.Accept(
-                new ConditionAdoptionOutcome(adopted)
-            );
-        }
-    }
-
     internal sealed class CleanupConditionsFromSourceReducer
         : IOpReducer<CleanupConditionsFromSourceOp, ConditionCleanupOutcome>
     {
-        private readonly ExpireConditionReducer expire = new ExpireConditionReducer();
-        private readonly RemoveConditionReducer remove = new RemoveConditionReducer();
+        private readonly ExpireActiveEffectReducer expire = new ExpireActiveEffectReducer();
+        private readonly RemoveActiveEffectReducer remove = new RemoveActiveEffectReducer();
 
         public ReductionResult<ConditionCleanupOutcome> Reduce(
             ReductionContext<CleanupConditionsFromSourceOp> context,
@@ -412,10 +431,10 @@ namespace Game.Rules.Runtime
             {
                 if (context.Op.Kind == ConditionCleanupKind.Expire)
                 {
-                    ReductionResult<ConditionExpirationOutcome> result = expire.Reduce(
+                    ReductionResult<ActiveEffectExpirationOutcome> result = expire.Reduce(
                         ConditionReduction.Translate(
                             context,
-                            new ExpireConditionOp(
+                            new ExpireActiveEffectOp(
                                 match.EffectId,
                                 match.BindingId,
                                 match.Version,
@@ -432,10 +451,10 @@ namespace Game.Rules.Runtime
                 }
                 else
                 {
-                    ReductionResult<ConditionRemovalOutcome> result = remove.Reduce(
+                    ReductionResult<ActiveEffectRemovalOutcome> result = remove.Reduce(
                         ConditionReduction.Translate(
                             context,
-                            new RemoveConditionOp(
+                            new RemoveActiveEffectOp(
                                 match.EffectId,
                                 match.BindingId,
                                 match.Version,

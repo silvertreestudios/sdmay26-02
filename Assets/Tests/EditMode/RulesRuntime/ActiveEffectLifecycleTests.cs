@@ -355,6 +355,84 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void UpdateRejectsARequestFromTheWrongSourceWithoutMutationOrFacts()
+        {
+            ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
+            InMemoryRulesStore store = CreateSeededStore(effect);
+            RulesSnapshot original = store.Snapshot;
+
+            ReductionResult<ActiveEffectStateUpdateOutcome> result = store.Reduce(
+                Context(
+                    UpdateActiveEffectStateOp.Create(
+                        EffectId,
+                        EffectStateVersion.Initial,
+                        new AuraEffectState(2),
+                        RuleSource.FromSlug("wrong-update-source")
+                    )
+                ),
+                new UpdateActiveEffectStateReducer()
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.RejectionReason, Does.Contain("does not own active effect"));
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot, Is.SameAs(original));
+        }
+
+        [Test]
+        public void ExpirationRejectsARequestFromTheWrongSourceWithoutMutationOrFacts()
+        {
+            ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
+            InMemoryRulesStore store = CreateSeededStore(effect);
+            RulesSnapshot original = store.Snapshot;
+
+            ReductionResult<ActiveEffectExpirationOutcome> result = store.Reduce(
+                Context(
+                    new ExpireActiveEffectOp(
+                        EffectId,
+                        BindingId,
+                        EffectStateVersion.Initial,
+                        RuleSource.FromSlug("wrong-expiration-source")
+                    )
+                ),
+                new ExpireActiveEffectReducer()
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.RejectionReason, Does.Contain("does not own active effect"));
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot, Is.SameAs(original));
+        }
+
+        [Test]
+        public void RemovalRejectsARequestFromTheWrongSourceWithoutMutationOrFacts()
+        {
+            ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
+            InMemoryRulesStore store = CreateSeededStore(effect);
+            RulesSnapshot original = store.Snapshot;
+
+            ReductionResult<ActiveEffectRemovalOutcome> result = store.Reduce(
+                Context(
+                    new RemoveActiveEffectOp(
+                        EffectId,
+                        BindingId,
+                        EffectStateVersion.Initial,
+                        RuleSource.FromSlug("wrong-removal-source")
+                    )
+                ),
+                new RemoveActiveEffectReducer()
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.RejectionReason, Does.Contain("does not own active effect"));
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot, Is.SameAs(original));
+        }
+
+        [Test]
         public void ExpireDisablesBindingAndRemoveDeletesBothInAtomicTransactions()
         {
             ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));

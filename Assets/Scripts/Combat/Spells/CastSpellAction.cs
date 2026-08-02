@@ -71,11 +71,6 @@ namespace Game.Combat.Spells
             GridPublic.AreaTargetResult area = null
         )
         {
-            ActionController controller = caster?.GetComponent<ActionController>();
-            if (controller != null && controller.TryGetCombatRules(out _, out _))
-                throw new InvalidOperationException(
-                    "Encounter spellcasting requires a typed rules spell operation."
-                );
             return SpellcastingRuntime.Cast(
                 caster,
                 spell,

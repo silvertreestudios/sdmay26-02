@@ -357,6 +357,7 @@ namespace Game.Rules.Runtime
                 if (
                     state.Creatures.Contains(entry.Creature)
                     || state.PreparedInputs.Contains(entry.Creature)
+                    || state.Statistics.Contains(entry.Creature)
                     || state.Health.Contains(entry.Creature)
                     || state.Positions.Contains(entry.Creature)
                     || state.LandSpeeds.Contains(entry.Creature)
@@ -415,6 +416,7 @@ namespace Game.Rules.Runtime
                 CombatantRulesState registration = context.Op.Registrations[entry.Creature];
                 state.Creatures.Set(entry.Creature, registration.Creature);
                 state.PreparedInputs.Set(entry.Creature, registration.PreparedInputs);
+                state.Statistics.Set(entry.Creature, registration.Statistics);
                 state.Health.Set(entry.Creature, registration.Health);
                 state.Positions.Set(entry.Creature, registration.Position);
                 state.LandSpeeds.Set(entry.Creature, registration.LandSpeed);
@@ -697,7 +699,7 @@ namespace Game.Rules.Runtime
             state.Encounters.Set(updated.Id, updated);
             state.ActionEconomy.Set(
                 context.Op.Actor,
-                new ActionEconomyState(context.Op.Actions, true)
+                new ActionEconomyState(context.Op.Actions, context.Op.ReactionAvailable)
             );
             state.MultipleAttackPenalty.Set(context.Op.Actor, new MultipleAttackPenaltyState(0));
             facts.Stage(new TurnBeganFact(turn));
@@ -745,6 +747,7 @@ namespace Game.Rules.Runtime
                 || encounter.Roster[encounter.Cursor].Creature != actor
                 || progress.NextAdapterIndex != expectedNextAdapterIndex
                 || progress.Contribution.Actions != priorContribution.Actions
+                || progress.Contribution.ReactionAvailable != priorContribution.ReactionAvailable
                 || expectedNextAdapterIndex == int.MaxValue
             )
             {

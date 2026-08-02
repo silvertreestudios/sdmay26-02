@@ -182,6 +182,13 @@ namespace Game.Rules.Runtime
         /// </summary>
         public ActiveEffectTimingState Timing { get; }
 
+        /// <summary>Compares every immutable effect, binding, and optional timing field.</summary>
+        public bool HasSameStructure(ActiveEffectRegistration other) =>
+            other != null
+            && ActiveEffectInstanceExactEquality.Equals(Effect, other.Effect)
+            && Binding.Equals(other.Binding)
+            && Equals(Timing, other.Timing);
+
         internal static bool BindingMatchesEffect(
             ActiveEffectInstance effect,
             ActiveRuleBinding binding
@@ -254,7 +261,9 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to update.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
         /// <param name="state">The immutable replacement state.</param>
-        /// <param name="source">The rule source stamped onto a committed update Fact.</param>
+        /// <param name="source">
+        /// The stable owner of the effect. It must equal <see cref="ActiveEffectInstance.Source"/>.
+        /// </param>
         /// <exception cref="ArgumentException">A required ID or source is empty.</exception>
         /// <exception cref="ArgumentNullException"><paramref name="state"/> is <see langword="null"/>.</exception>
         public UpdateActiveEffectStateOp(
@@ -277,7 +286,9 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to update.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
         /// <param name="state">The immutable replacement state.</param>
-        /// <param name="source">The rule source stamped onto a committed update Fact.</param>
+        /// <param name="source">
+        /// The stable owner of the effect. It must equal <see cref="ActiveEffectInstance.Source"/>.
+        /// </param>
         /// <returns>A dispatchable update operation.</returns>
         public static UpdateActiveEffectStateOp Create<TState>(
             ActiveEffectId effectId,
@@ -312,7 +323,9 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to expire.</param>
         /// <param name="bindingId">The associated binding to deactivate.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
-        /// <param name="source">The rule source stamped onto a committed expiration Fact.</param>
+        /// <param name="source">
+        /// The stable owner of the effect. It must equal <see cref="ActiveEffectInstance.Source"/>.
+        /// </param>
         public ExpireActiveEffectOp(
             ActiveEffectId effectId,
             BindingId bindingId,
@@ -346,7 +359,9 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to remove.</param>
         /// <param name="bindingId">The associated binding to remove.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
-        /// <param name="source">The rule source stamped onto a committed removal Fact.</param>
+        /// <param name="source">
+        /// The stable owner of the effect. It must equal <see cref="ActiveEffectInstance.Source"/>.
+        /// </param>
         public RemoveActiveEffectOp(
             ActiveEffectId effectId,
             BindingId bindingId,

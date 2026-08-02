@@ -25,6 +25,7 @@ namespace Game.Rules.Runtime
         public Dictionary<BindingId, FrequencyState> Frequencies { get; }
         public Dictionary<EncounterId, EncounterState> Encounters { get; }
         public Dictionary<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
+        public Dictionary<ActionInvocationId, ActionInvocationReceipt> ActionReceipts { get; }
 
         public RulesStateData(RulesStateSeed seed)
             : this(
@@ -48,7 +49,8 @@ namespace Game.Rules.Runtime
                 new Dictionary<BindingId, long>(seed.StatelessRuleBindingGenerations),
                 new Dictionary<BindingId, FrequencyState>(seed.Frequencies),
                 new Dictionary<EncounterId, EncounterState>(seed.Encounters),
-                new Dictionary<ActiveEffectId, ActiveEffectTimingState>(seed.ActiveEffectTimings)
+                new Dictionary<ActiveEffectId, ActiveEffectTimingState>(seed.ActiveEffectTimings),
+                new Dictionary<ActionInvocationId, ActionInvocationReceipt>()
             ) { }
 
         public RulesStateData(
@@ -72,7 +74,8 @@ namespace Game.Rules.Runtime
             Dictionary<BindingId, long> statelessRuleBindingGenerations,
             Dictionary<BindingId, FrequencyState> frequencies,
             Dictionary<EncounterId, EncounterState> encounters,
-            Dictionary<ActiveEffectId, ActiveEffectTimingState> activeEffectTimings
+            Dictionary<ActiveEffectId, ActiveEffectTimingState> activeEffectTimings,
+            Dictionary<ActionInvocationId, ActionInvocationReceipt> actionReceipts
         )
         {
             Version = version;
@@ -96,6 +99,7 @@ namespace Game.Rules.Runtime
             Frequencies = frequencies;
             Encounters = encounters;
             ActiveEffectTimings = activeEffectTimings;
+            ActionReceipts = actionReceipts;
             ConditionImmunityValidation.ValidateStateInvariant(
                 Creatures,
                 PreparedInputs,

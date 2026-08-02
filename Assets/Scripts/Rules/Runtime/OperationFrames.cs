@@ -166,6 +166,8 @@ namespace Game.Rules.Runtime
         OpId? ParentId { get; }
         OpId? CauseId { get; }
         Type OpType { get; }
+        IRuleOp Operation { get; }
+        RulesSnapshot Snapshot { get; }
         object TypedFrame { get; }
         bool IsAction { get; }
         ActionOpInfo ActionInfo { get; }
@@ -185,6 +187,8 @@ namespace Game.Rules.Runtime
         public OpId? ParentId => frame.ParentId;
         public OpId? CauseId => frame.CauseId;
         public Type OpType => typeof(TOp);
+        public IRuleOp Operation => frame.Op;
+        public RulesSnapshot Snapshot => frame.StartSnapshot;
         public object TypedFrame => frame;
         public bool IsAction => frame.IsAction;
         public ActionOpInfo ActionInfo => frame.ActionInfo;

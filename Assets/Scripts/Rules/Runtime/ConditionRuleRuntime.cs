@@ -9,7 +9,7 @@ namespace Game.Rules.Runtime
             "condition-lifecycle"
         );
 
-        /// <summary>Adds condition application, lifecycle, cleanup, and enrollment workflows.</summary>
+        /// <summary>Adds condition application and source-cleanup workflows.</summary>
         public static RuleDispatcherBuilder UseConditionRules(
             this RuleDispatcherBuilder builder,
             RuleRegistry registry
@@ -21,11 +21,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(registry));
 
             return builder
-                .RegisterHandler<ApplyConditionOp, ConditionCreationOutcome>(
-                    new ApplyConditionHandler()
-                )
-                .RegisterReducer<AdoptConditionRegistrationsOp, ConditionAdoptionOutcome>(
-                    new AdoptConditionRegistrationsReducer(registry),
+                .RegisterReducer<ApplyConditionOp, ConditionApplicationOutcome>(
+                    new ApplyConditionReducer(registry),
                     LifecycleSource,
                     InvocationPolicy.ExternalAllowed
                 )
@@ -33,22 +30,6 @@ namespace Game.Rules.Runtime
                     new CleanupConditionsFromSourceReducer(),
                     LifecycleSource,
                     InvocationPolicy.ExternalAllowed
-                )
-                .RegisterReducer<CreateConditionOp, ConditionCreationOutcome>(
-                    new CreateConditionReducer(registry),
-                    LifecycleSource
-                )
-                .RegisterReducer<UpdateConditionStateOp, ConditionStateUpdateOutcome>(
-                    new UpdateConditionStateReducer(),
-                    LifecycleSource
-                )
-                .RegisterReducer<ExpireConditionOp, ConditionExpirationOutcome>(
-                    new ExpireConditionReducer(),
-                    LifecycleSource
-                )
-                .RegisterReducer<RemoveConditionOp, ConditionRemovalOutcome>(
-                    new RemoveConditionReducer(),
-                    LifecycleSource
                 );
         }
     }

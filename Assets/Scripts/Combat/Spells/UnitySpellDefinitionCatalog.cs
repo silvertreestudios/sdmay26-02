@@ -21,6 +21,8 @@ namespace Game.Combat.Spells
             foreach (TextAsset asset in Resources.LoadAll<TextAsset>("DataFiles/spells"))
             {
                 RulesSpellDefinition definition = Parse(asset.text);
+                if (definition == null)
+                    continue;
                 if (
                     values.TryGetValue(definition.Id, out RulesSpellDefinition existing)
                     && !Equivalent(existing, definition)
@@ -52,7 +54,10 @@ namespace Game.Combat.Spells
             if (
                 definitions.TryGetValue(reference.Spell, out definition)
                 && reference.Rank >= definition.MinimumRank
-                && (definition.Attacks.Count == 0 || reference.Rank == definition.MinimumRank)
+                && (
+                    definition.Attacks.Count == 0 && definition.Saves.Count == 0
+                    || reference.Rank == definition.MinimumRank
+                )
             )
                 return true;
             definition = null;
@@ -65,7 +70,7 @@ namespace Game.Combat.Spells
                 $"Spell profiles require a selected SpellReference and variant, not '{definitionId}'."
             );
 
-        private static RulesSpellDefinition Parse(string json)
+        internal static RulesSpellDefinition Parse(string json)
         {
             JObject root = JObject.Parse(json);
             string name =
@@ -74,6 +79,8 @@ namespace Game.Combat.Spells
             JObject system =
                 root["system"] as JObject
                 ?? throw new InvalidOperationException($"Spell '{name}' requires system data.");
+            if (system.Value<bool?>("rulesNativeReady") != true)
+                return null;
             SpellId id = new(Game.Creature.Rules.Pf2eSlug.FromName(name));
             int rank = system.SelectToken("level.value")?.Value<int>() ?? 0;
             if (rank <= 0)
@@ -86,11 +93,18 @@ namespace Game.Combat.Spells
                 .ToArray();
             List<SpellEffectDirective> effects = new();
             List<SpellAttackDefinition> attacks = new();
+            List<SpellSaveConditionDirective> saveConditions = new();
+            List<SpellSaveDefinition> saves = new();
             foreach (
                 JObject rule in system["rules"]?.Children<JObject>() ?? Enumerable.Empty<JObject>()
             )
             {
                 string key = rule.Value<string>("key") ?? string.Empty;
+                if (string.Equals(key, "ApplyConditionOnSave", StringComparison.Ordinal))
+                {
+                    saveConditions.Add(ParseSaveCondition(name, rule));
+                    continue;
+                }
                 if (!string.Equals(key, "CreateActiveEffect", StringComparison.Ordinal))
                     continue;
                 if (!string.Equals(rule.Value<string>("target"), "self", StringComparison.Ordinal))
@@ -101,21 +115,75 @@ namespace Game.Combat.Spells
                 effects.Add(
                     new SpellEffectDirective(
                         new RuleDefinitionId(definition),
-                        ParseDuration(system.SelectToken("duration.value")?.Value<string>()),
+                        ParseDuration(name, system.SelectToken("duration.value")?.Value<string>()),
                         rule.Value<string>("target")
                     )
                 );
             }
-            if (TryParseAttack(id, system, traits, out SpellAttackDefinition attack))
+            bool authorsAttack = traits.Contains(Trait.FromSlug("attack"));
+            bool authorsSave = HasAuthoredSave(system);
+            int authoredResolutionCategories =
+                (effects.Count > 0 ? 1 : 0) + (authorsAttack ? 1 : 0) + (authorsSave ? 1 : 0);
+            if (authoredResolutionCategories != 1)
+                throw new InvalidOperationException(
+                    $"Spell '{name}' requires exactly one authored resolution category."
+                );
+            if (authorsAttack)
+            {
+                if (!TryParseAttack(id, system, traits, out SpellAttackDefinition attack))
+                    throw new InvalidOperationException(
+                        $"Spell '{name}' has an incomplete or unsupported authored attack category."
+                    );
                 attacks.Add(attack);
+            }
+            if (authorsSave)
+            {
+                if (!TryParseSave(id, system, saveConditions, out SpellSaveDefinition save))
+                    throw new InvalidOperationException(
+                        $"Spell '{name}' has an incomplete or unsupported authored save category."
+                    );
+                saves.Add(save);
+            }
             return new RulesSpellDefinition(
                 id,
                 name,
                 rank,
-                ParseVariants(time),
+                ParseVariants(name, time),
                 traits,
                 effects,
-                attacks
+                attacks,
+                saves
+            );
+        }
+
+        private static bool HasAuthoredSave(JObject system) =>
+            system["defense"] is JObject defense && defense.Property("save") != null;
+
+        private static SpellSaveConditionDirective ParseSaveCondition(
+            string spellName,
+            JObject rule
+        )
+        {
+            string condition = rule.Value<string>("condition");
+            if (!ConditionInputNormalizer.TryNormalize(condition, out RuleDefinitionId definition))
+                throw new InvalidOperationException(
+                    $"Spell '{spellName}' contains an unsupported save condition."
+                );
+            if (
+                !Enum.TryParse(
+                    rule.Value<string>("degree"),
+                    ignoreCase: true,
+                    out DegreeOfSuccess degree
+                )
+            )
+                throw new InvalidOperationException(
+                    $"Spell '{spellName}' contains an unsupported save degree."
+                );
+            return new SpellSaveConditionDirective(
+                definition,
+                degree,
+                ParseDuration(spellName, rule.Value<string>("duration")),
+                ConditionMarkerState.Instance
             );
         }
 
@@ -160,10 +228,92 @@ namespace Game.Combat.Spells
                         return false;
                 }
             }
+            if (!TryParseDamage(spell, system, out IReadOnlyList<TypedDamageDice> components))
+                return false;
+            attack = new SpellAttackDefinition(
+                new OneCreatureSpellAttackTarget(rangeFeet),
+                components
+            );
+            return true;
+        }
+
+        private static bool TryParseSave(
+            SpellId spell,
+            JObject system,
+            IReadOnlyList<SpellSaveConditionDirective> conditions,
+            out SpellSaveDefinition save
+        )
+        {
+            save = null;
+            JToken saveToken = system.SelectToken("defense.save");
+            if (saveToken == null || saveToken.Type == JTokenType.Null)
+                return false;
+            if (saveToken is not JObject saveObject || saveObject.Value<bool?>("basic") != true)
+                return false;
+            if (
+                !Enum.TryParse(
+                    saveObject.Value<string>("statistic"),
+                    ignoreCase: true,
+                    out SaveKind saveKind
+                )
+                || system["area"] is not JObject area
+                || !TryParseAreaShape(area.Value<string>("type"), out SpellAreaShape shape)
+                || area.Value<int?>("value") is not int sizeFeet
+                || sizeFeet <= 0
+                || !TryParseDamage(spell, system, out IReadOnlyList<TypedDamageDice> damage)
+            )
+                return false;
+            int rangeFeet = 0;
+            if (
+                shape == SpellAreaShape.Burst
+                && !DistanceValues.TryParseFeet(
+                    system.SelectToken("range.value")?.Value<string>(),
+                    out rangeFeet
+                )
+            )
+                return false;
+            save = new SpellSaveDefinition(
+                saveKind,
+                isBasic: true,
+                new SpellAreaTarget(shape, sizeFeet, rangeFeet),
+                damage,
+                conditions
+            );
+            return true;
+        }
+
+        private static bool TryParseAreaShape(string value, out SpellAreaShape shape)
+        {
+            switch (value?.Trim().ToLowerInvariant())
+            {
+                case "cone":
+                    shape = SpellAreaShape.Cone;
+                    return true;
+                case "burst":
+                    shape = SpellAreaShape.Burst;
+                    return true;
+                case "emanation":
+                    shape = SpellAreaShape.Emanation;
+                    return true;
+                case "line":
+                    shape = SpellAreaShape.Line;
+                    return true;
+                default:
+                    shape = default;
+                    return false;
+            }
+        }
+
+        private static bool TryParseDamage(
+            SpellId spell,
+            JObject system,
+            out IReadOnlyList<TypedDamageDice> components
+        )
+        {
+            List<TypedDamageDice> parsed = new();
+            components = parsed;
             if (system["damage"] is not JObject damage || !damage.Properties().Any())
                 return false;
-
-            List<TypedDamageDice> components = new();
             foreach (JProperty property in damage.Properties())
             {
                 if (property.Value is not JObject component)
@@ -192,45 +342,70 @@ namespace Game.Combat.Spells
                     || hasUnsupportedMaterials;
                 if (unsupported)
                     return false;
-                components.Add(new TypedDamageDice(dice, damageType, spell.Value));
+                parsed.Add(new TypedDamageDice(dice, damageType, spell.Value));
             }
-            attack = new SpellAttackDefinition(
-                new OneCreatureSpellAttackTarget(rangeFeet),
-                components
-            );
             return true;
         }
 
-        private static IReadOnlyList<SpellActionVariant> ParseVariants(string time)
+        private static IReadOnlyList<SpellActionVariant> ParseVariants(
+            string spellName,
+            string time
+        )
         {
-            if (int.TryParse(time, out int actions))
-                return new[] { new SpellActionVariant(actions) };
-            if (string.Equals(time?.Trim(), "1 to 3", StringComparison.Ordinal))
+            string normalized = time?.Trim() ?? string.Empty;
+            switch (normalized)
             {
-                return new[]
-                {
-                    new SpellActionVariant(1),
-                    new SpellActionVariant(2),
-                    new SpellActionVariant(3),
-                };
+                case "1":
+                    return new[] { new SpellActionVariant(1) };
+                case "2":
+                    return new[] { new SpellActionVariant(2) };
+                case "3":
+                    return new[] { new SpellActionVariant(3) };
+                case "1 to 3":
+                    return new[]
+                    {
+                        new SpellActionVariant(1),
+                        new SpellActionVariant(2),
+                        new SpellActionVariant(3),
+                    };
+                case "":
+                    throw new InvalidOperationException(
+                        $"Spell '{spellName}' requires a casting-time value."
+                    );
+                default:
+                    throw new InvalidOperationException(
+                        $"Spell '{spellName}' has unsupported casting time '{normalized}'."
+                    );
             }
-            return new[] { new SpellActionVariant(1) };
         }
 
-        private static EffectDuration ParseDuration(string value)
+        private static EffectDuration ParseDuration(string spellName, string value)
         {
-            if (string.IsNullOrWhiteSpace(value))
-                return EffectDuration.Indefinite;
-            string normalized = value.Trim().ToLowerInvariant();
-            if (normalized == "1 minute")
-                return EffectDuration.OneMinute;
-            if (normalized.EndsWith(" minutes", StringComparison.Ordinal))
+            string normalized = value?.Trim().ToLowerInvariant() ?? string.Empty;
+            switch (normalized)
             {
-                string count = normalized.Substring(0, normalized.Length - " minutes".Length);
-                if (int.TryParse(count, out int minutes) && minutes > 0)
-                    return EffectDuration.Minutes(minutes);
+                case "1 minute":
+                    return EffectDuration.OneMinute;
+                case "until your next daily preparations":
+                    return EffectDuration.Indefinite;
+                case "":
+                    throw new InvalidOperationException(
+                        $"Spell '{spellName}' requires an effect-duration value."
+                    );
             }
-            return EffectDuration.Indefinite;
+            const string minutesSuffix = " minutes";
+            if (
+                normalized.EndsWith(minutesSuffix, StringComparison.Ordinal)
+                && int.TryParse(
+                    normalized.Substring(0, normalized.Length - minutesSuffix.Length),
+                    out int minutes
+                )
+                && minutes > 1
+            )
+                return EffectDuration.Minutes(minutes);
+            throw new InvalidOperationException(
+                $"Spell '{spellName}' has unsupported effect duration '{normalized}'."
+            );
         }
 
         private static bool Equivalent(RulesSpellDefinition left, RulesSpellDefinition right) =>
@@ -249,7 +424,9 @@ namespace Game.Combat.Spells
                     right.Attacks,
                     (leftAttack, rightAttack) => Equivalent(leftAttack, rightAttack)
                 )
-                .All(value => value);
+                .All(value => value)
+            && left.Saves.Count == right.Saves.Count
+            && left.Saves.Zip(right.Saves, Equivalent).All(value => value);
 
         private static bool Equivalent(SpellAttackDefinition left, SpellAttackDefinition right) =>
             left.Target is OneCreatureSpellAttackTarget leftTarget
@@ -261,6 +438,34 @@ namespace Game.Combat.Spells
                 .SequenceEqual(
                     right.Damage.Select(component =>
                         (component.Dice, component.DamageType, component.Source)
+                    )
+                );
+
+        private static bool Equivalent(SpellSaveDefinition left, SpellSaveDefinition right) =>
+            left.Save == right.Save
+            && left.IsBasic == right.IsBasic
+            && left.Target.Shape == right.Target.Shape
+            && left.Target.SizeFeet == right.Target.SizeFeet
+            && left.Target.RangeFeet == right.Target.RangeFeet
+            && left.Damage.Select(component =>
+                    (component.Dice, component.DamageType, component.Source)
+                )
+                .SequenceEqual(
+                    right.Damage.Select(component =>
+                        (component.Dice, component.DamageType, component.Source)
+                    )
+                )
+            && left.Conditions.Select(condition =>
+                    (condition.DefinitionId, condition.Degree, condition.Duration, condition.State)
+                )
+                .SequenceEqual(
+                    right.Conditions.Select(condition =>
+                        (
+                            condition.DefinitionId,
+                            condition.Degree,
+                            condition.Duration,
+                            condition.State
+                        )
                     )
                 );
     }

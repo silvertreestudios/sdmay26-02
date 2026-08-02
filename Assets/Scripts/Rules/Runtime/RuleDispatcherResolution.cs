@@ -111,15 +111,35 @@ namespace Game.Rules.Runtime
             // Catalog and profile resolution are extension points. They consume the captured
             // snapshot but must never run while the dispatcher monitor is held; a slow or
             // cross-thread implementation must not block unrelated ownership checks.
-            FrameActionState actionState = actionRuntime.CreateFrameState(
-                id,
-                rootId,
-                parentId,
-                causeId,
-                registration.Policy,
-                op,
-                startSnapshot
-            );
+            ActionInvocationReceipt retryReceipt = null;
+            if (
+                op is IReceiptedActionOp receipted
+                && startSnapshot.ActionReceipts.TryGet(
+                    receipted.InvocationId,
+                    out ActionInvocationReceipt existingReceipt
+                )
+            )
+                retryReceipt = existingReceipt;
+            FrameActionState actionState =
+                retryReceipt == null
+                    ? actionRuntime.CreateFrameState(
+                        id,
+                        rootId,
+                        parentId,
+                        causeId,
+                        registration.Policy,
+                        op,
+                        startSnapshot
+                    )
+                    : actionRuntime.CreateRetriedFrameState(
+                        id,
+                        rootId,
+                        parentId,
+                        causeId,
+                        registration.Policy,
+                        op,
+                        retryReceipt.FrozenProfile
+                    );
 
             lock (gate)
             {
@@ -198,7 +218,8 @@ namespace Game.Rules.Runtime
                         op,
                         typeof(TResult),
                         resolved.Value,
-                        completedSnapshot
+                        completedSnapshot,
+                        parentId == null
                     );
                 return completed;
             }

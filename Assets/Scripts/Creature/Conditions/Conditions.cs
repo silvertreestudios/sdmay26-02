@@ -13,9 +13,9 @@ using UnityEngine;
 /// </remarks>
 public sealed class Conditions : MonoBehaviour
 {
-    private IReadOnlyList<ConditionApplicationSnapshot> pending = Array.AsReadOnly(
-        Array.Empty<ConditionApplicationSnapshot>()
-    );
+    private static readonly IReadOnlyList<ConditionApplicationSnapshot> EmptyApplications =
+        Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
+    private IReadOnlyList<ConditionApplicationSnapshot> pending = EmptyApplications;
     private long pendingGeneration;
     private bool hasPending;
     private bool wasEnrolled;
@@ -38,7 +38,7 @@ public sealed class Conditions : MonoBehaviour
             if (hasPending)
                 return pending;
             if (!wasEnrolled && !hasPending)
-                return Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
+                return EmptyApplications;
             throw new InvalidOperationException(
                 "Condition persistence capture requires attached authoritative combat rules."
             );
@@ -68,6 +68,14 @@ public sealed class Conditions : MonoBehaviour
         CreatureId owner
     )
     {
+        string durableOwner = bridge.GetDurableActorId(owner);
+        if (string.IsNullOrEmpty(durableOwner))
+            return EmptyApplications;
+        if (!DurableActorSourceIdentity.IsCanonical(durableOwner))
+            throw new InvalidOperationException(
+                $"Condition owner {owner.Value} has noncanonical durable actor provenance."
+            );
+
         List<ConditionApplicationSnapshot> captured = new List<ConditionApplicationSnapshot>();
         foreach (
             ActiveRuleBinding binding in bridge
@@ -175,7 +183,7 @@ public sealed class Conditions : MonoBehaviour
             return false;
         }
 
-        ConditionRegistration[] registrations = pending
+        ActiveEffectRegistration[] registrations = pending
             .Select(application =>
                 application.CreateRegistration(
                     owner,
@@ -190,7 +198,7 @@ public sealed class Conditions : MonoBehaviour
 
     private void ConsumePending()
     {
-        pending = Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
+        pending = EmptyApplications;
         hasPending = false;
     }
 
@@ -234,7 +242,7 @@ public sealed class Conditions : MonoBehaviour
         internal ConditionRestoreLease(
             Conditions owner,
             long generation,
-            IReadOnlyList<ConditionRegistration> registrations
+            IReadOnlyList<ActiveEffectRegistration> registrations
         )
         {
             this.owner = owner;
@@ -242,7 +250,7 @@ public sealed class Conditions : MonoBehaviour
             Registrations = registrations;
         }
 
-        internal IReadOnlyList<ConditionRegistration> Registrations { get; }
+        internal IReadOnlyList<ActiveEffectRegistration> Registrations { get; }
 
         internal void Validate() => owner.ValidatePending(generation);
 
@@ -323,7 +331,7 @@ internal sealed class ConditionApplicationSnapshot
     internal bool BindingEnabled { get; }
     internal ConditionTimingSnapshot Timing { get; }
 
-    internal ConditionRegistration CreateRegistration(
+    internal ActiveEffectRegistration CreateRegistration(
         CreatureId owner,
         DurableActorSourceResolution sourceResolution,
         EncounterId encounter
@@ -378,7 +386,7 @@ internal sealed class ConditionApplicationSnapshot
                     timingSnapshot.ExpiresWithEncounter,
                     CreationOrder
                 );
-        return new ConditionRegistration(effect, binding, timing);
+        return new ActiveEffectRegistration(effect, binding, timing);
     }
 }
 

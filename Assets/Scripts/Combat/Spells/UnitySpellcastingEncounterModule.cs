@@ -24,6 +24,7 @@ namespace Game.Combat.Spells
 
         private readonly UnityCombatRulesBridge owner;
         private readonly ISpellActionCatalog catalog;
+        private readonly RuleRegistry registry;
         private readonly UnitySpellAttackContext attackContext;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly bool installUnityAuthority;
@@ -33,6 +34,7 @@ namespace Game.Combat.Spells
         internal UnitySpellcastingEncounterModule(
             UnityCombatRulesBridge owner,
             ISpellActionCatalog catalog,
+            RuleRegistry registry,
             UnitySpellAttackContext attackContext,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             bool installUnityAuthority
@@ -40,6 +42,7 @@ namespace Game.Combat.Spells
         {
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
             this.attackContext =
                 attackContext ?? throw new ArgumentNullException(nameof(attackContext));
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
@@ -48,7 +51,7 @@ namespace Game.Combat.Spells
 
         /// <inheritdoc/>
         public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
-            builder.UseSpellcastingRules(catalog, attackContext);
+            builder.UseSpellcastingRules(catalog, registry, attackContext);
 
         /// <inheritdoc/>
         public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
@@ -56,11 +59,6 @@ namespace Game.Combat.Spells
             lifetime.Add(
                 dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
                     new UnityResolvedSpellCastPresentationObserver(creatures, catalog)
-                )
-            );
-            lifetime.Add(
-                dispatcher.RegisterResolvedOpObserver<ResolveSpellAttackOp, SpellAttackResolution>(
-                    new UnitySpellAttackPresentationObserver(creatures, catalog)
                 )
             );
             RestoredSpellEffectTimingObserver restored = new(restoredEffects);

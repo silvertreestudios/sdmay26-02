@@ -151,18 +151,22 @@ namespace Game.Rules.Runtime
             ReductionContext<CommitMultipleAttackPenaltyAdvanceOp> context,
             RulesStateDraft state,
             FactSink facts
+        ) => MultipleAttackPenaltyReduction.Advance(state, facts, context.Op.Actor);
+    }
+
+    internal static class MultipleAttackPenaltyReduction
+    {
+        internal static ReductionResult<MultipleAttackPenaltyState> Advance(
+            RulesStateDraft state,
+            FactSink facts,
+            CreatureId actor
         )
         {
-            if (!state.Creatures.Contains(context.Op.Actor))
+            if (!state.Creatures.Contains(actor))
                 return ReductionResult<MultipleAttackPenaltyState>.Reject(
                     "The attack actor is not registered."
                 );
-            if (
-                !state.MultipleAttackPenalty.TryGet(
-                    context.Op.Actor,
-                    out MultipleAttackPenaltyState current
-                )
-            )
+            if (!state.MultipleAttackPenalty.TryGet(actor, out MultipleAttackPenaltyState current))
                 return ReductionResult<MultipleAttackPenaltyState>.Reject(
                     "The attack actor has no authoritative multiple-attack-penalty state."
                 );
@@ -170,10 +174,8 @@ namespace Game.Rules.Runtime
             MultipleAttackPenaltyState advanced = new MultipleAttackPenaltyState(
                 checked(previous + 1)
             );
-            state.MultipleAttackPenalty.Set(context.Op.Actor, advanced);
-            facts.Stage(
-                new MultipleAttackPenaltyAdvancedFact(context.Op.Actor, advanced.AttackCount)
-            );
+            state.MultipleAttackPenalty.Set(actor, advanced);
+            facts.Stage(new MultipleAttackPenaltyAdvancedFact(actor, advanced.AttackCount));
             return ReductionResult<MultipleAttackPenaltyState>.Accept(advanced);
         }
     }

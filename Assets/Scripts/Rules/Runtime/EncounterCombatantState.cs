@@ -8,7 +8,7 @@ namespace Game.Rules.Runtime
     public sealed class CombatantRulesState : IEquatable<CombatantRulesState>
     {
         private static readonly IEqualityComparer<ActiveEffectRegistration> ActiveEffectReceiptComparer =
-            new StructuralActiveEffectRegistrationComparer();
+            StructuralActiveEffectRegistrationComparer.Instance;
 
         /// <summary>Creates one immutable participant registration.</summary>
         public CombatantRulesState(
@@ -16,6 +16,7 @@ namespace Game.Rules.Runtime
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
+            CreatureStatisticsState statistics,
             PreparedCreatureInputs preparedInputs,
             IReadOnlyList<SpellSlotState> spellSlots,
             IReadOnlyList<ActiveRuleBinding> ruleBindings
@@ -25,6 +26,7 @@ namespace Game.Rules.Runtime
                 health,
                 position,
                 landSpeed,
+                statistics,
                 preparedInputs,
                 spellSlots,
                 ruleBindings,
@@ -39,6 +41,7 @@ namespace Game.Rules.Runtime
         /// <param name="health">The participant's health at registration time.</param>
         /// <param name="position">The participant's grid position at registration time.</param>
         /// <param name="landSpeed">The participant's authoritative land Speed.</param>
+        /// <param name="statistics">The participant's immutable base statistics.</param>
         /// <param name="preparedInputs">The participant's immutable prepared rules inputs.</param>
         /// <param name="spellSlots">The participant-owned initial spell-slot pools.</param>
         /// <param name="ruleBindings">The participant-owned initial rule bindings.</param>
@@ -50,6 +53,7 @@ namespace Game.Rules.Runtime
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
+            CreatureStatisticsState statistics,
             PreparedCreatureInputs preparedInputs,
             IReadOnlyList<SpellSlotState> spellSlots,
             IReadOnlyList<ActiveRuleBinding> ruleBindings,
@@ -59,6 +63,12 @@ namespace Game.Rules.Runtime
             Creature = creature ?? throw new ArgumentNullException(nameof(creature));
             PreparedInputs =
                 preparedInputs ?? throw new ArgumentNullException(nameof(preparedInputs));
+            Statistics = statistics ?? throw new ArgumentNullException(nameof(statistics));
+            if (Statistics.Creature != creature.Id)
+                throw new ArgumentException(
+                    "The statistics state must be owned by the combatant.",
+                    nameof(statistics)
+                );
             SpellSlots = CopyOwned(spellSlots, creature.Id);
             RuleBindings = CopyOwned(ruleBindings, creature.Id);
             ActiveEffects = CopyOwned(activeEffects, creature.Id, RuleBindings);
@@ -79,6 +89,9 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the participant's authoritative land Speed.</summary>
         public GridDistance LandSpeed { get; }
 
+        /// <summary>Gets immutable base check values and snapshot-owned modifier inputs.</summary>
+        public CreatureStatisticsState Statistics { get; }
+
         /// <summary>Gets immutable build-time inputs owned by the rules store.</summary>
         public PreparedCreatureInputs PreparedInputs { get; }
 
@@ -98,6 +111,7 @@ namespace Game.Rules.Runtime
             && Health.Equals(other.Health)
             && Position.Equals(other.Position)
             && LandSpeed.Equals(other.LandSpeed)
+            && Statistics.Equals(other.Statistics)
             && PreparedInputs.Equals(other.PreparedInputs)
             && SpellSlots.SequenceEqual(other.SpellSlots)
             && RuleBindings.SequenceEqual(other.RuleBindings)
@@ -115,6 +129,7 @@ namespace Game.Rules.Runtime
             hash.Add(Health);
             hash.Add(Position);
             hash.Add(LandSpeed);
+            hash.Add(Statistics);
             hash.Add(PreparedInputs);
             foreach (SpellSlotState slot in SpellSlots)
                 hash.Add(slot);
@@ -132,6 +147,8 @@ namespace Game.Rules.Runtime
         internal sealed class StructuralActiveEffectRegistrationComparer
             : IEqualityComparer<ActiveEffectRegistration>
         {
+            internal static StructuralActiveEffectRegistrationComparer Instance { get; } = new();
+
             /// <inheritdoc/>
             public bool Equals(ActiveEffectRegistration left, ActiveEffectRegistration right)
             {

@@ -644,7 +644,12 @@ namespace Game.Rules.Runtime
             }
             return EncounterHandlerResults.Require(
                 await context.Dispatch(
-                    new CommitTurnBeginOp(frame.Op.Encounter, entry.Creature, contribution.Actions)
+                    new CommitTurnBeginOp(
+                        frame.Op.Encounter,
+                        entry.Creature,
+                        contribution.Actions,
+                        contribution.ReactionAvailable
+                    )
                 ),
                 "turn begin"
             );
@@ -951,6 +956,7 @@ namespace Game.Rules.Runtime
                         progress == null
                         || progress.NextAdapterIndex != index + 1
                         || progress.Contribution.Actions != returned.Actions
+                        || progress.Contribution.ReactionAvailable != returned.ReactionAvailable
                     )
                         throw new InvalidOperationException(
                             "The atomically completed adapter returned a conflicting contribution."

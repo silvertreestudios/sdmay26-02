@@ -10,22 +10,25 @@ namespace Game.Rules.Runtime.Tests
     {
         private static readonly CreatureId Owner = new CreatureId("condition-owner");
         private static readonly CreatureId SourceCreature = new CreatureId("condition-source");
+        private static readonly RuleSource AdoptionSource = RuleSource.FromSlug(
+            "condition-enrollment"
+        );
 
         [Test]
-        public async Task AliasApplyCommitsCanonicalGenericAndConditionFactsTogether()
+        public async Task AliasApplyCommitsOneCanonicalGenericCreationFact()
         {
             InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
 
-            OpResult<ConditionCreationOutcome> result = await dispatcher.Dispatch(
+            OpResult<ConditionApplicationOutcome> result = await dispatcher.Dispatch(
                 Apply("Flat-Footed", "alias-source", ConditionMarkerState.Instance)
             );
 
-            ResolvedOpResult<ConditionCreationOutcome> resolved = RequireResolved(result);
-            Assert.That(
-                resolved.Facts.Select(fact => fact.GetType()),
-                Is.EqualTo(new[] { typeof(ActiveEffectCreatedFact), typeof(ConditionCreatedFact) })
-            );
+            ResolvedOpResult<ConditionApplicationOutcome> resolved = RequireResolved(result);
+            ActiveEffectCreatedFact created = resolved
+                .Facts.OfType<ActiveEffectCreatedFact>()
+                .Single(fact => fact.DefinitionId == ConditionRuleDefinitions.OffGuard);
+            Assert.That(created.EffectId, Is.EqualTo(resolved.Value.EffectId));
             Assert.That(
                 resolved.Facts.Select(fact => fact.RootOpId).Distinct().Count(),
                 Is.EqualTo(1)
@@ -45,7 +48,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void PreparedConditionImmunityRejectsCanonicalApplicationWithoutMutation()
+        public async Task PreparedConditionImmunityBlocksCanonicalApplicationWithoutMutation()
         {
             PreparedCreatureInputs prepared = PreparedWithConditionImmunity("Flat-Footed");
             InMemoryRulesStore store = new InMemoryRulesStore(
@@ -59,17 +62,119 @@ namespace Game.Rules.Runtime.Tests
             RuleDispatcher dispatcher = CreateDispatcher(store);
             long version = store.Snapshot.Version;
 
-            InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
-                async () =>
-                    await dispatcher.Dispatch(
-                        Apply("off-guard", "immune-source", ConditionMarkerState.Instance)
-                    )
+            ResolvedOpResult<ConditionApplicationOutcome> blocked = RequireResolved(
+                await dispatcher.Dispatch(
+                    Apply("off-guard", "immune-source", ConditionMarkerState.Instance)
+                )
             );
 
-            Assert.That(rejected.Message, Does.Contain("immune to off-guard"));
+            Assert.That(blocked.Value.Status, Is.EqualTo(ConditionApplicationStatus.Blocked));
+            Assert.That(blocked.Value.BlockedReason, Does.Contain("immune to off-guard"));
+            Assert.That(blocked.Facts, Is.Empty);
             Assert.That(store.Snapshot.Version, Is.EqualTo(version));
             Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+        }
+
+        [Test]
+        public async Task FreshApplicationFromUnregisteredSourceRejectsAtomically()
+        {
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+
+            OpResult<ConditionApplicationOutcome> result = await dispatcher.Dispatch(
+                new ApplyConditionOp(
+                    "off-guard",
+                    Owner,
+                    new CreatureId("reserved-historical-source"),
+                    RuleSource.FromSlug("unregistered-fresh-source"),
+                    EffectDuration.Indefinite,
+                    ConditionMarkerState.Instance
+                )
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionApplicationOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<ConditionApplicationOutcome>)result).Reason,
+                Does.Contain("registered source creature")
+            );
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+        }
+
+        [Test]
+        public async Task ImmunityCannotMaskFreshUnregisteredSource()
+        {
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedCreature(
+                    new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
+                )
+                .SeedPreparedInputs(Owner, PreparedWithConditionImmunity("off-guard"))
+                .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty);
+            InMemoryRulesStore store = new(seed);
+
+            OpResult<ConditionApplicationOutcome> result = await CreateDispatcher(store)
+                .Dispatch(
+                    new ApplyConditionOp(
+                        "off-guard",
+                        Owner,
+                        new CreatureId("reserved-immune-source"),
+                        RuleSource.FromSlug("unregistered-immune-source"),
+                        EffectDuration.Indefinite,
+                        ConditionMarkerState.Instance
+                    )
+                );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionApplicationOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<ConditionApplicationOutcome>)result).Reason,
+                Does.Contain("registered source creature")
+            );
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.Zero);
+        }
+
+        [Test]
+        public void MalformedActiveConditionPairFailsBeforeImmunityClassification()
+        {
+            RuleSource effectSource = RuleSource.FromSlug("malformed-source");
+            ActiveEffectInstance effect = new(
+                new ActiveEffectId("malformed-effect"),
+                ConditionRuleDefinitions.OffGuard,
+                SourceCreature,
+                effectSource,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            );
+            ActiveRuleBinding binding = new(
+                new BindingId("malformed-binding"),
+                effect.DefinitionId,
+                Owner,
+                effect.Id,
+                RuleSource.FromSlug("conflicting-binding-source"),
+                1
+            );
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedCreature(
+                    new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
+                )
+                .SeedPreparedInputs(Owner, PreparedWithConditionImmunity("off-guard"))
+                .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty)
+                .SeedActiveEffect(effect)
+                .SeedRuleBinding(binding);
+
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                _ = new InMemoryRulesStore(seed)
+            );
+
+            Assert.That(
+                failure.Message,
+                Is.EqualTo("Active condition malformed-effect has a malformed registration.")
+            );
         }
 
         [Test]
@@ -100,7 +205,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void ActiveConditionForUnregisteredOwnerIsRejectedFromInitialState()
         {
-            ConditionRegistration registration = Registration(
+            ActiveEffectRegistration registration = Registration(
                 "unregistered-initial-owner",
                 Owner,
                 ConditionRuleDefinitions.OffGuard,
@@ -205,12 +310,21 @@ namespace Game.Rules.Runtime.Tests
             if (invalidPair != "missing")
                 seed.SeedActiveEffect(effect);
 
-            IReadOnlyList<string> slugs = ConditionSelectors.GetActiveSlugs(
-                new InMemoryRulesStore(seed).Snapshot,
-                Owner
-            );
-
-            Assert.That(slugs, Is.Empty);
+            if (invalidPair == "missing" || invalidPair == "expired")
+            {
+                IReadOnlyList<string> slugs = ConditionSelectors.GetActiveSlugs(
+                    new InMemoryRulesStore(seed).Snapshot,
+                    Owner
+                );
+                Assert.That(slugs, Is.Empty);
+            }
+            else
+            {
+                InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                    _ = new InMemoryRulesStore(seed)
+                );
+                Assert.That(failure.Message, Does.Contain("malformed registration"));
+            }
         }
 
         [Test]
@@ -235,21 +349,28 @@ namespace Game.Rules.Runtime.Tests
             );
             InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
-            AdoptConditionRegistrationsOp adopt = new AdoptConditionRegistrationsOp(
-                new[] { new ConditionRegistration(effect, binding) }
+            AdoptActiveEffectRegistrationsOp adopt = new AdoptActiveEffectRegistrationsOp(
+                new[] { new ActiveEffectRegistration(effect, binding) },
+                AdoptionSource
             );
 
-            ResolvedOpResult<ConditionAdoptionOutcome> first = RequireResolved(
+            ResolvedOpResult<ActiveEffectAdoptionOutcome> first = RequireResolved(
                 await dispatcher.Dispatch(adopt)
             );
             long committedVersion = store.Snapshot.Version;
-            ResolvedOpResult<ConditionAdoptionOutcome> repeated = RequireResolved(
+            ResolvedOpResult<ActiveEffectAdoptionOutcome> repeated = RequireResolved(
                 await dispatcher.Dispatch(adopt)
             );
 
             Assert.That(first.Value.Adopted, Is.EqualTo(1));
             Assert.That(first.Facts, Has.Count.EqualTo(1));
-            Assert.That(first.Facts.Single(), Is.TypeOf<ActiveEffectAdoptedFact>());
+            Assert.That(
+                first
+                    .Facts.OfType<ActiveEffectAdoptedFact>()
+                    .Single(fact => fact.DefinitionId == ConditionRuleDefinitions.Deafened)
+                    .EffectId,
+                Is.EqualTo(effect.Id)
+            );
             Assert.That(repeated.Value.Adopted, Is.Zero);
             Assert.That(repeated.Facts, Is.Empty);
             Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
@@ -269,22 +390,22 @@ namespace Game.Rules.Runtime.Tests
                 .SeedPreparedInputs(SourceCreature, PreparedCreatureInputs.Empty);
             InMemoryRulesStore store = new InMemoryRulesStore(seed);
             RuleDispatcher dispatcher = CreateDispatcher(store);
-            ConditionRegistration allowed = Registration(
+            ActiveEffectRegistration allowed = Registration(
                 "allowed-adoption",
                 ConditionRuleDefinitions.Deafened
             );
-            ConditionRegistration immune = Registration(
+            ActiveEffectRegistration immune = Registration(
                 "immune-adoption",
                 ConditionRuleDefinitions.OffGuard
             );
 
-            OpResult<ConditionAdoptionOutcome> result = await dispatcher.Dispatch(
-                new AdoptConditionRegistrationsOp(new[] { allowed, immune })
+            OpResult<ActiveEffectAdoptionOutcome> result = await dispatcher.Dispatch(
+                new AdoptActiveEffectRegistrationsOp(new[] { allowed, immune }, AdoptionSource)
             );
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionAdoptionOutcome>>());
+            Assert.That(result, Is.TypeOf<InvalidOpResult<ActiveEffectAdoptionOutcome>>());
             Assert.That(
-                ((InvalidOpResult<ConditionAdoptionOutcome>)result).Reason,
+                ((InvalidOpResult<ActiveEffectAdoptionOutcome>)result).Reason,
                 Does.Contain("immune to off-guard")
             );
             Assert.That(store.Snapshot.Version, Is.Zero);
@@ -292,7 +413,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(store.Snapshot.RuleBindings, Is.Empty);
             Assert.That(result.Facts, Is.Empty);
 
-            ConditionRegistration Registration(string identity, RuleDefinitionId definition)
+            ActiveEffectRegistration Registration(string identity, RuleDefinitionId definition)
             {
                 RuleSource source = RuleSource.FromSlug(identity);
                 ActiveEffectInstance effect = new ActiveEffectInstance(
@@ -303,7 +424,7 @@ namespace Game.Rules.Runtime.Tests
                     EffectDuration.Indefinite,
                     ConditionMarkerState.Instance
                 );
-                return new ConditionRegistration(
+                return new ActiveEffectRegistration(
                     effect,
                     new ActiveRuleBinding(
                         new BindingId($"{identity}-binding"),
@@ -361,28 +482,35 @@ namespace Game.Rules.Runtime.Tests
             InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
             CountingConditionCreatedObserver created = new CountingConditionCreatedObserver();
-            using IDisposable registration = dispatcher.RegisterFactObserver<ConditionCreatedFact>(
-                created
-            );
+            using IDisposable registration =
+                dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(created);
 
-            ResolvedOpResult<ConditionAdoptionOutcome> result = RequireResolved(
+            ResolvedOpResult<ActiveEffectAdoptionOutcome> result = RequireResolved(
                 await dispatcher.Dispatch(
-                    new AdoptConditionRegistrationsOp(
+                    new AdoptActiveEffectRegistrationsOp(
                         new[]
                         {
-                            new ConditionRegistration(active, activeBinding),
-                            new ConditionRegistration(expired, expiredBinding),
-                        }
+                            new ActiveEffectRegistration(active, activeBinding),
+                            new ActiveEffectRegistration(expired, expiredBinding),
+                        },
+                        AdoptionSource
                     )
                 )
             );
 
             Assert.That(result.Value.Adopted, Is.EqualTo(2));
             Assert.That(created.Count, Is.Zero, "Restore must not trigger creation listeners.");
-            Assert.That(result.Facts.OfType<ActiveEffectCreatedFact>(), Is.Empty);
-            Assert.That(result.Facts.OfType<ConditionCreatedFact>(), Is.Empty);
+            Assert.That(
+                result
+                    .Facts.OfType<ActiveEffectCreatedFact>()
+                    .Where(fact =>
+                        ConditionRuleDefinitions.IsConditionDefinition(fact.DefinitionId)
+                    ),
+                Is.Empty
+            );
             ActiveEffectAdoptedFact[] adopted = result
-                .Facts.Cast<ActiveEffectAdoptedFact>()
+                .Facts.OfType<ActiveEffectAdoptedFact>()
+                .Where(fact => ConditionRuleDefinitions.IsConditionDefinition(fact.DefinitionId))
                 .ToArray();
             Assert.That(adopted.Select(fact => fact.Effect), Is.EqualTo(new[] { active, expired }));
             Assert.That(
@@ -397,7 +525,7 @@ namespace Game.Rules.Runtime.Tests
         public async Task AdoptionRejectsLaterLifecycleConflictWithoutStateOrFacts()
         {
             RuleSource source = RuleSource.FromSlug("atomic-adoption");
-            ConditionRegistration pending = Registration(
+            ActiveEffectRegistration pending = Registration(
                 "valid",
                 Owner,
                 ConditionRuleDefinitions.Deafened,
@@ -405,7 +533,7 @@ namespace Game.Rules.Runtime.Tests
                 ConditionMarkerState.Instance,
                 1
             );
-            ConditionRegistration existing = Registration(
+            ActiveEffectRegistration existing = Registration(
                 "conflicting",
                 Owner,
                 ConditionRuleDefinitions.Fatigued,
@@ -416,7 +544,9 @@ namespace Game.Rules.Runtime.Tests
             InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
             RequireResolved(
-                await dispatcher.Dispatch(new AdoptConditionRegistrationsOp(new[] { existing }))
+                await dispatcher.Dispatch(
+                    new AdoptActiveEffectRegistrationsOp(new[] { existing }, AdoptionSource)
+                )
             );
             RequireResolved(
                 await dispatcher.Dispatch(
@@ -430,13 +560,13 @@ namespace Game.Rules.Runtime.Tests
             );
             long conflictedVersion = store.Snapshot.Version;
 
-            OpResult<ConditionAdoptionOutcome> result = await dispatcher.Dispatch(
-                new AdoptConditionRegistrationsOp(new[] { pending, existing })
+            OpResult<ActiveEffectAdoptionOutcome> result = await dispatcher.Dispatch(
+                new AdoptActiveEffectRegistrationsOp(new[] { pending, existing }, AdoptionSource)
             );
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionAdoptionOutcome>>());
+            Assert.That(result, Is.TypeOf<InvalidOpResult<ActiveEffectAdoptionOutcome>>());
             Assert.That(
-                ((InvalidOpResult<ConditionAdoptionOutcome>)result).Reason,
+                ((InvalidOpResult<ActiveEffectAdoptionOutcome>)result).Reason,
                 Is.EqualTo(
                     "An adopted active-effect identity is already used by different or partial state."
                 )
@@ -455,7 +585,7 @@ namespace Game.Rules.Runtime.Tests
         public async Task CleanupRemovesActiveAndExpiredRegistrationsInStableOrder()
         {
             RuleSource source = RuleSource.FromSlug("atomic-cleanup");
-            ConditionRegistration active = Registration(
+            ActiveEffectRegistration active = Registration(
                 "cleanup-valid",
                 Owner,
                 ConditionRuleDefinitions.OffGuard,
@@ -463,7 +593,7 @@ namespace Game.Rules.Runtime.Tests
                 ConditionMarkerState.Instance,
                 1
             );
-            ConditionRegistration expiresFirst = Registration(
+            ActiveEffectRegistration expiresFirst = Registration(
                 "cleanup-conflict",
                 Owner,
                 ConditionRuleDefinitions.Deafened,
@@ -475,7 +605,10 @@ namespace Game.Rules.Runtime.Tests
             RuleDispatcher dispatcher = CreateDispatcher(store);
             RequireResolved(
                 await dispatcher.Dispatch(
-                    new AdoptConditionRegistrationsOp(new[] { active, expiresFirst })
+                    new AdoptActiveEffectRegistrationsOp(
+                        new[] { active, expiresFirst },
+                        AdoptionSource
+                    )
                 )
             );
             RequireResolved(
@@ -530,7 +663,9 @@ namespace Game.Rules.Runtime.Tests
                 SourceCreature,
                 source,
                 EffectDuration.Indefinite,
-                ConditionMarkerState.Instance
+                ConditionMarkerState.Instance,
+                EffectStateVersion.Initial,
+                ActiveEffectStatus.Expired
             );
             ActiveRuleBinding conflictingBinding = new ActiveRuleBinding(
                 new BindingId("binding-cleanup-conflict"),
@@ -539,7 +674,7 @@ namespace Game.Rules.Runtime.Tests
                 conflictingEffect.Id,
                 source,
                 2,
-                isEnabled: false
+                isEnabled: true
             );
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
@@ -587,7 +722,7 @@ namespace Game.Rules.Runtime.Tests
         {
             CreatureId otherOwner = new CreatureId("other-condition-owner");
             RuleSource source = RuleSource.FromSlug("source-wide-cleanup");
-            ConditionRegistration later = Registration(
+            ActiveEffectRegistration later = Registration(
                 "later",
                 Owner,
                 ConditionRuleDefinitions.Slowed,
@@ -595,7 +730,7 @@ namespace Game.Rules.Runtime.Tests
                 new SlowedConditionState(1),
                 9
             );
-            ConditionRegistration first = Registration(
+            ActiveEffectRegistration first = Registration(
                 "first",
                 otherOwner,
                 ConditionRuleDefinitions.Fatigued,
@@ -603,7 +738,7 @@ namespace Game.Rules.Runtime.Tests
                 ConditionMarkerState.Instance,
                 2
             );
-            ConditionRegistration middle = Registration(
+            ActiveEffectRegistration middle = Registration(
                 "middle",
                 Owner,
                 ConditionRuleDefinitions.Deafened,
@@ -615,7 +750,10 @@ namespace Game.Rules.Runtime.Tests
             RuleDispatcher dispatcher = CreateDispatcher(store);
             RequireResolved(
                 await dispatcher.Dispatch(
-                    new AdoptConditionRegistrationsOp(new[] { later, first, middle })
+                    new AdoptActiveEffectRegistrationsOp(
+                        new[] { later, first, middle },
+                        AdoptionSource
+                    )
                 )
             );
 
@@ -637,12 +775,12 @@ namespace Game.Rules.Runtime.Tests
         {
             InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
-            ResolvedOpResult<ConditionCreationOutcome> low = RequireResolved(
+            ResolvedOpResult<ConditionApplicationOutcome> low = RequireResolved(
                 await dispatcher.Dispatch(
                     Apply("Slowed", "low-source", new SlowedConditionState(1))
                 )
             );
-            ResolvedOpResult<ConditionCreationOutcome> highFirst = RequireResolved(
+            ResolvedOpResult<ConditionApplicationOutcome> highFirst = RequireResolved(
                 await dispatcher.Dispatch(
                     Apply("Slowed", "high-source", new SlowedConditionState(2))
                 )
@@ -652,7 +790,7 @@ namespace Game.Rules.Runtime.Tests
                 Is.True
             );
             Assert.That(selected.State.Value, Is.EqualTo(2), "Slowed sources must not sum.");
-            ResolvedOpResult<ConditionCreationOutcome> highSecond = RequireResolved(
+            ResolvedOpResult<ConditionApplicationOutcome> highSecond = RequireResolved(
                 await dispatcher.Dispatch(
                     Apply("Slowed", "high-source", new SlowedConditionState(3))
                 )
@@ -854,7 +992,7 @@ namespace Game.Rules.Runtime.Tests
                 state
             );
 
-        private static ConditionRegistration Registration(
+        private static ActiveEffectRegistration Registration(
             string identity,
             CreatureId owner,
             RuleDefinitionId definition,
@@ -872,7 +1010,7 @@ namespace Game.Rules.Runtime.Tests
                 EffectDuration.Indefinite,
                 state
             );
-            return new ConditionRegistration(
+            return new ActiveEffectRegistration(
                 effect,
                 new ActiveRuleBinding(
                     new BindingId($"binding-{identity}"),
@@ -958,16 +1096,18 @@ namespace Game.Rules.Runtime.Tests
             internal bool IncludeFlanking { get; }
         }
 
-        private sealed class CountingConditionCreatedObserver : IFactObserver<ConditionCreatedFact>
+        private sealed class CountingConditionCreatedObserver
+            : IFactObserver<ActiveEffectCreatedFact>
         {
             internal int Count { get; private set; }
 
             public ValueTask OnFactCommitted(
-                ConditionCreatedFact fact,
+                ActiveEffectCreatedFact fact,
                 RulesSnapshot currentSnapshot
             )
             {
-                Count++;
+                if (ConditionRuleDefinitions.IsConditionDefinition(fact.DefinitionId))
+                    Count++;
                 return default;
             }
         }

@@ -123,6 +123,16 @@ namespace Game.Rules.Runtime
                 initialHealth,
                 new GridPosition(0, 0, 0),
                 new GridDistance(0),
+                new CreatureStatisticsState(
+                    participant.Creature,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    new Dictionary<Skill, int>(),
+                    Array.Empty<Modifier>()
+                ),
                 PreparedCreatureInputs.Empty,
                 Array.Empty<SpellSlotState>(),
                 Array.Empty<ActiveRuleBinding>()
@@ -674,7 +684,8 @@ namespace Game.Rules.Runtime
         public bool Equals(TurnStartAdapterProgress other) =>
             other != null
             && NextAdapterIndex == other.NextAdapterIndex
-            && Contribution.Actions == other.Contribution.Actions;
+            && Contribution.Actions == other.Contribution.Actions
+            && Contribution.ReactionAvailable == other.Contribution.ReactionAvailable;
 
         /// <inheritdoc/>
         public override bool Equals(object obj) =>
@@ -682,7 +693,11 @@ namespace Game.Rules.Runtime
 
         /// <inheritdoc/>
         public override int GetHashCode() =>
-            HashCode.Combine(NextAdapterIndex, Contribution.Actions);
+            HashCode.Combine(
+                NextAdapterIndex,
+                Contribution.Actions,
+                Contribution.ReactionAvailable
+            );
     }
 
     /// <summary>

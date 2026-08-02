@@ -521,19 +521,24 @@ namespace Game.Rules.Runtime
         ) => new EncounterEvaluationOutcome(snapshot.Encounters[State.Id]);
     }
 
-    /// <summary>Carries the final action count through ordered turn-start adapters.</summary>
+    /// <summary>Carries final action and reaction regain through ordered turn-start adapters.</summary>
     public readonly struct TurnStartContribution
     {
         /// <summary>Gets the non-negative actions to grant if the actor remains eligible.</summary>
         public int Actions { get; }
 
+        /// <summary>Gets whether the actor regains a reaction for the reached initiative turn.</summary>
+        public bool ReactionAvailable { get; }
+
         /// <summary>Creates a validated contribution for final resource regain.</summary>
         /// <param name="actions">The non-negative derived action count.</param>
-        public TurnStartContribution(int actions)
+        /// <param name="reactionAvailable">Whether the reached turn restores a reaction.</param>
+        public TurnStartContribution(int actions, bool reactionAvailable = true)
         {
             if (actions < 0)
                 throw new ArgumentOutOfRangeException(nameof(actions));
             Actions = actions;
+            ReactionAvailable = reactionAvailable;
         }
 
         /// <summary>Gets the normal unmodified three-action contribution.</summary>
@@ -669,12 +674,19 @@ namespace Game.Rules.Runtime
         public EncounterId Encounter { get; }
         public CreatureId Actor { get; }
         public int Actions { get; }
+        public bool ReactionAvailable { get; }
 
-        public CommitTurnBeginOp(EncounterId encounter, CreatureId actor, int actions)
+        public CommitTurnBeginOp(
+            EncounterId encounter,
+            CreatureId actor,
+            int actions,
+            bool reactionAvailable
+        )
         {
             Encounter = encounter;
             Actor = actor;
             Actions = actions;
+            ReactionAvailable = reactionAvailable;
         }
     }
 

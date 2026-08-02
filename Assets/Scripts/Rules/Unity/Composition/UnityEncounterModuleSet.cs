@@ -92,7 +92,7 @@ namespace Game.Rules.Unity.Composition
                 new UnityPreparedRulesEncounterModule(),
                 new RottingAuraEncounterModule(owner),
                 new ConditionEncounterModule(owner, registry, installUnityAuthority),
-                new SlowedEncounterModule(),
+                new SlowedEncounterModule(owner),
                 new UnityRageEncounterModule(rageDefinition),
                 new UnityStrikeEncounterModule(
                     strikeContext,
@@ -103,6 +103,7 @@ namespace Game.Rules.Unity.Composition
                 new UnitySpellcastingEncounterModule(
                     owner,
                     actionCatalog,
+                    registry,
                     spellAttackContext,
                     creatures,
                     installUnityAuthority

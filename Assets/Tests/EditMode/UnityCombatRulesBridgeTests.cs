@@ -48,6 +48,10 @@ public sealed class UnityCombatRulesBridgeTests
                     new HealthState(1, 1),
                     new GridPosition(0, 0, 0),
                     new GridDistance(0),
+                    UnityCreatureStatisticsAdapter.Capture(
+                        new CreatureId("initial"),
+                        firstCreature
+                    ),
                     firstLifetime
                 )
             );
@@ -62,6 +66,10 @@ public sealed class UnityCombatRulesBridgeTests
                     new HealthState(1, 1),
                     new GridPosition(1, 0, 0),
                     new GridDistance(0),
+                    UnityCreatureStatisticsAdapter.Capture(
+                        new CreatureId("reinforcement"),
+                        secondCreature
+                    ),
                     secondLifetime
                 )
             );
@@ -2829,6 +2837,7 @@ public sealed class UnityCombatRulesBridgeTests
             new HealthState(10, 10),
             new GridPosition(0, 0, 0),
             new GridDistance(25),
+            UnityCreatureStatisticsAdapter.Capture(creatureId, creature),
             lifetime
         );
 
@@ -2907,6 +2916,16 @@ public sealed class UnityCombatRulesBridgeTests
     private static void ConfigureFeatureState(CreatureComponent creature)
     {
         creature.level = 1;
+        creature.attackBonus = 7;
+        creature.ac = 18;
+        creature.fortitudeSave = 5;
+        creature.reflexSave = 6;
+        creature.willSave = 7;
+        creature.allSaves = 2;
+        creature.skills = new List<SkillValue>
+        {
+            new SkillValue { skillName = "religion", skillMod = 9 },
+        };
         CharacterBuild build = new CharacterBuild { ClassName = "Barbarian" };
         creature.Build = build;
         PreparedCharacter prepared = Pf2eCharacterPreparer.Prepare(creature, build);
@@ -2934,6 +2953,16 @@ public sealed class UnityCombatRulesBridgeTests
 
     private static void AssertFeatureState(RulesSnapshot snapshot, CreatureId creature)
     {
+        Assert.That(snapshot.Statistics.Contains(creature), Is.True);
+        CreatureStatisticsState statistics = snapshot.Statistics[creature];
+        Assert.That(statistics.AttackModifier, Is.EqualTo(7));
+        Assert.That(statistics.ArmorClass, Is.EqualTo(18));
+        Assert.That(statistics.FortitudeModifier, Is.EqualTo(5));
+        Assert.That(statistics.ReflexModifier, Is.EqualTo(6));
+        Assert.That(statistics.WillModifier, Is.EqualTo(7));
+        Assert.That(statistics.GetSkillModifier(Skill.FromName("religion")), Is.EqualTo(9));
+        Assert.That(statistics.Modifiers, Has.Count.EqualTo(3));
+        Assert.That(statistics.Modifiers.All(value => value.Value == 2), Is.True);
         Assert.That(snapshot.PreparedInputs.Contains(creature), Is.True);
         Assert.That(snapshot.PreparedInputs[creature].Level, Is.EqualTo(1));
         Assert.That(

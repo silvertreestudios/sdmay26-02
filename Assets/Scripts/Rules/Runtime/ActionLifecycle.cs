@@ -5,6 +5,239 @@ using System.Linq;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Identifies one stable caller-owned action invocation across exact retries.</summary>
+    public readonly struct ActionInvocationId : IEquatable<ActionInvocationId>
+    {
+        /// <summary>Creates a non-empty stable invocation identity.</summary>
+        public ActionInvocationId(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                throw new ArgumentException("An action invocation ID is required.", nameof(value));
+            Value = value.Trim();
+        }
+
+        /// <summary>Gets the stable identity value.</summary>
+        public string Value { get; }
+
+        /// <summary>Gets whether this value is uninitialized.</summary>
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+
+        /// <inheritdoc/>
+        public bool Equals(ActionInvocationId other) =>
+            string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) => obj is ActionInvocationId other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            Value == null ? 0 : StringComparer.Ordinal.GetHashCode(Value);
+
+        /// <summary>Compares two invocation identities.</summary>
+        public static bool operator ==(ActionInvocationId left, ActionInvocationId right) =>
+            left.Equals(right);
+
+        /// <summary>Compares two invocation identities.</summary>
+        public static bool operator !=(ActionInvocationId left, ActionInvocationId right) =>
+            !left.Equals(right);
+    }
+
+    internal interface IReceiptedActionOp : IRuleOp
+    {
+        ActionInvocationId InvocationId { get; }
+        CreatureId Actor { get; }
+        ActionDefinitionId DefinitionId { get; }
+        bool HasSameIntent(IReceiptedActionOp other);
+    }
+
+    internal abstract class ActionInvocationReceipt
+    {
+        protected ActionInvocationReceipt(IReceiptedActionOp operation, ActionProfile frozenProfile)
+        {
+            Operation = operation ?? throw new ArgumentNullException(nameof(operation));
+            FrozenProfile = frozenProfile ?? throw new ArgumentNullException(nameof(frozenProfile));
+        }
+
+        internal IReceiptedActionOp Operation { get; }
+        internal ActionProfile FrozenProfile { get; }
+    }
+
+    internal sealed class CostsCommittedActionReceipt : ActionInvocationReceipt
+    {
+        internal CostsCommittedActionReceipt(
+            IReceiptedActionOp operation,
+            ActionProfile frozenProfile
+        )
+            : base(operation, frozenProfile) { }
+    }
+
+    internal sealed class ResolvedActionReceipt : ActionInvocationReceipt
+    {
+        internal ResolvedActionReceipt(
+            IReceiptedActionOp operation,
+            ActionProfile frozenProfile,
+            object outcome
+        )
+            : base(operation, frozenProfile)
+        {
+            Outcome = outcome ?? throw new ArgumentNullException(nameof(outcome));
+        }
+
+        internal object Outcome { get; }
+    }
+
+    internal sealed class InterruptedActionReceipt : ActionInvocationReceipt
+    {
+        internal InterruptedActionReceipt(IReceiptedActionOp operation, ActionProfile frozenProfile)
+            : base(operation, frozenProfile) { }
+    }
+
+    /// <summary>Reports that a receipted action committed its frozen cost checkpoint.</summary>
+    /// <remarks>
+    /// Generic observers can identify the acting creature and action definition without receiving
+    /// the caller-owned invocation identity, stored operation, selected targets, or outcome payload.
+    /// Those private values remain available only to the dispatcher for exact replay validation.
+    /// </remarks>
+    public sealed class ActionCostsCommittedFact : RuleFact
+    {
+        /// <summary>Gets the creature whose action costs were checkpointed.</summary>
+        public CreatureId Actor { get; }
+
+        /// <summary>Gets the definition of the action whose costs were checkpointed.</summary>
+        public ActionDefinitionId DefinitionId { get; }
+
+        internal ActionCostsCommittedFact(CreatureId actor, ActionDefinitionId definitionId)
+        {
+            Actor = actor;
+            DefinitionId = definitionId;
+        }
+    }
+
+    /// <summary>Reports that a receipted action committed its interrupted transition.</summary>
+    /// <remarks>
+    /// Generic observers can identify the acting creature and action definition without receiving
+    /// the caller-owned invocation identity, stored operation, selected targets, or outcome payload.
+    /// Those private values remain available only to the dispatcher for exact replay validation.
+    /// </remarks>
+    public sealed class ActionInterruptedFact : RuleFact
+    {
+        /// <summary>Gets the creature whose action was interrupted.</summary>
+        public CreatureId Actor { get; }
+
+        /// <summary>Gets the definition of the action that was interrupted.</summary>
+        public ActionDefinitionId DefinitionId { get; }
+
+        internal ActionInterruptedFact(CreatureId actor, ActionDefinitionId definitionId)
+        {
+            Actor = actor;
+            DefinitionId = definitionId;
+        }
+    }
+
+    /// <summary>Reports that a receipted action committed its successful final resolution.</summary>
+    /// <remarks>
+    /// Generic observers can identify the acting creature and action definition without receiving
+    /// the caller-owned invocation identity, stored operation, selected targets, or outcome payload.
+    /// Those private values remain available only to the dispatcher for exact replay validation.
+    /// </remarks>
+    public sealed class ActionReceiptCommittedFact : RuleFact
+    {
+        /// <summary>Gets the creature whose action receipt was committed.</summary>
+        public CreatureId Actor { get; }
+
+        /// <summary>Gets the definition of the action whose receipt was committed.</summary>
+        public ActionDefinitionId DefinitionId { get; }
+
+        internal ActionReceiptCommittedFact(CreatureId actor, ActionDefinitionId definitionId)
+        {
+            Actor = actor;
+            DefinitionId = definitionId;
+        }
+    }
+
+    internal static class ActionReceiptReduction
+    {
+        internal const string ConflictingIntentReason =
+            "The action invocation ID belongs to a different intent.";
+        internal const string AlreadyCheckpointedReason =
+            "The action invocation already has a lifecycle checkpoint.";
+        internal const string NotPendingReason =
+            "The action invocation does not have an exact pending cost checkpoint.";
+
+        internal static bool TryCheckpointCosts(
+            RulesStateDraft state,
+            FactSink facts,
+            IReceiptedActionOp operation,
+            ActionProfile frozenProfile
+        )
+        {
+            if (state.ActionReceipts.Contains(operation.InvocationId))
+                return false;
+            state.ActionReceipts.Set(
+                operation.InvocationId,
+                new CostsCommittedActionReceipt(operation, frozenProfile)
+            );
+            facts.Stage(new ActionCostsCommittedFact(operation.Actor, operation.DefinitionId));
+            return true;
+        }
+
+        internal static bool TryResolve(
+            RulesStateDraft state,
+            FactSink facts,
+            IReceiptedActionOp operation,
+            object outcome
+        )
+        {
+            if (!TryGetExactPending(state, operation, out CostsCommittedActionReceipt pending))
+                return false;
+            state.ActionReceipts.Set(
+                operation.InvocationId,
+                new ResolvedActionReceipt(pending.Operation, pending.FrozenProfile, outcome)
+            );
+            facts.Stage(new ActionReceiptCommittedFact(operation.Actor, operation.DefinitionId));
+            return true;
+        }
+
+        internal static bool TryInterrupt(
+            RulesStateDraft state,
+            FactSink facts,
+            IReceiptedActionOp operation
+        )
+        {
+            if (!TryGetExactPending(state, operation, out CostsCommittedActionReceipt pending))
+                return false;
+            state.ActionReceipts.Set(
+                operation.InvocationId,
+                new InterruptedActionReceipt(pending.Operation, pending.FrozenProfile)
+            );
+            facts.Stage(new ActionInterruptedFact(operation.Actor, operation.DefinitionId));
+            return true;
+        }
+
+        internal static bool TryGetExactPending(
+            RulesStateDraft state,
+            IReceiptedActionOp operation,
+            out CostsCommittedActionReceipt pending
+        )
+        {
+            if (
+                state.ActionReceipts.TryGet(
+                    operation.InvocationId,
+                    out ActionInvocationReceipt receipt
+                )
+                && receipt is CostsCommittedActionReceipt costsCommitted
+                && operation.HasSameIntent(costsCommitted.Operation)
+            )
+            {
+                pending = costsCommitted;
+                return true;
+            }
+
+            pending = null;
+            return false;
+        }
+    }
+
     /// <summary>
     /// Freezes all shared rules metadata used by one action invocation.
     /// </summary>
@@ -204,7 +437,9 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// The dispatcher recognizes this base type and owns profile resolution, pure validation,
     /// atomic cost commitment, and the action-begun timing window. Derived feature handlers run
-    /// only after those shared steps complete.
+    /// only after those shared steps complete. Receipted actions additionally checkpoint their
+    /// exact intent and frozen profile with costs, so an in-process retry spends costs at most once
+    /// and resumes after that checkpoint. Work before a final receipt is not taped and may reroll.
     /// </remarks>
     public abstract class ActionOp<TResult> : IRuleOp<TResult>, IActionOpMetadata
     {

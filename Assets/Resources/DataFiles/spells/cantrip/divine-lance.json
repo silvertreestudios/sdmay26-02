@@ -4,6 +4,7 @@
     "img": "systems/pf2e/icons/spells/divine-lance.webp",
     "name": "Divine Lance",
     "system": {
+        "rulesNativeReady": true,
         "area": null,
         "cost": {
             "value": ""

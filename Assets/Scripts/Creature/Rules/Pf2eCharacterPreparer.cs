@@ -342,6 +342,7 @@ namespace Game.Creature.Rules
                 {
                     PreparedSpellEntry.Cantrip(Reference("light")),
                     PreparedSpellEntry.Cantrip(Reference("divine-lance")),
+                    PreparedSpellEntry.Cantrip(Reference("haunting-hymn")),
                 },
                 Array.Empty<PreparedSpellSlotPool>(),
                 spellAttackModifier
@@ -370,9 +371,6 @@ namespace Game.Creature.Rules
             );
             spellcasting.AddSpell(
                 new PreparedSpell("Guidance", 1, true, false, string.Empty, new[] { 1u })
-            );
-            spellcasting.AddSpell(
-                new PreparedSpell("Haunting Hymn", 1, true, false, string.Empty, new[] { 2u })
             );
             spellcasting.AddSpell(
                 new PreparedSpell("Bless", 1, false, false, "rank-1-bless", new[] { 2u })

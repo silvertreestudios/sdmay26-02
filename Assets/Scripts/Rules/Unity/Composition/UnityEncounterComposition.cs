@@ -126,6 +126,7 @@ namespace Game.Rules.Unity.Composition
         private readonly HealthState health;
         private readonly GridPosition position;
         private readonly GridDistance landSpeed;
+        private readonly CreatureStatisticsState statistics;
         private PreparedCreatureInputs preparedInputs;
 
         internal UnityCombatantEnrollmentBuilder(
@@ -135,6 +136,7 @@ namespace Game.Rules.Unity.Composition
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
+            CreatureStatisticsState statistics,
             CompositeLifetime preparationLifetime
         )
         {
@@ -145,6 +147,7 @@ namespace Game.Rules.Unity.Composition
             this.health = health;
             this.position = position;
             this.landSpeed = landSpeed;
+            this.statistics = statistics ?? throw new ArgumentNullException(nameof(statistics));
             this.preparationLifetime =
                 preparationLifetime ?? throw new ArgumentNullException(nameof(preparationLifetime));
         }
@@ -201,7 +204,29 @@ namespace Game.Rules.Unity.Composition
         {
             if (registrations == null)
                 throw new ArgumentNullException(nameof(registrations));
-            activeEffects.AddRange(registrations);
+            foreach (ActiveEffectRegistration registration in registrations)
+            {
+                if (registration == null)
+                    throw new ArgumentException(
+                        "Active-effect registrations cannot contain null.",
+                        nameof(registrations)
+                    );
+                ActiveEffectRegistration[] collisions = activeEffects
+                    .Where(existing =>
+                        existing.Effect.Id == registration.Effect.Id
+                        || existing.Binding.Id == registration.Binding.Id
+                    )
+                    .ToArray();
+                if (collisions.Length == 0)
+                {
+                    activeEffects.Add(registration);
+                    continue;
+                }
+                if (collisions.Length != 1 || !collisions[0].HasSameStructure(registration))
+                    throw new InvalidOperationException(
+                        "Prepared active-effect identities collide with different registration state."
+                    );
+            }
         }
 
         /// <summary>Adds one fully prepared Unity installation.</summary>
@@ -240,11 +265,61 @@ namespace Game.Rules.Unity.Composition
                 health,
                 position,
                 landSpeed,
+                statistics,
                 PreparedInputs,
                 spellSlots,
                 ruleBindings,
                 activeEffects
             );
+    }
+
+    /// <summary>Captures raw Unity creature values without resolving live rule providers.</summary>
+    internal static class UnityCreatureStatisticsAdapter
+    {
+        private static readonly RuleSource AllSavesSource = RuleSource.FromSlug(
+            "creature-base-all-saves"
+        );
+
+        internal static CreatureStatisticsState Capture(
+            CreatureId creatureId,
+            CreatureComponent creature
+        )
+        {
+            if (creature == null)
+                throw new ArgumentNullException(nameof(creature));
+            Dictionary<Skill, int> skills = new();
+            foreach (SkillValue value in creature.skills)
+            {
+                Skill skill = Skill.FromName(value.skillName);
+                if (!skills.TryAdd(skill, value.skillMod))
+                    throw new InvalidOperationException(
+                        $"Creature '{creature.name}' defines base skill '{skill.Slug}' more than once."
+                    );
+            }
+            List<Modifier> modifiers = new();
+            if (creature.allSaves != 0)
+            {
+                modifiers.Add(
+                    Modifier.Untyped(creature.allSaves, AllSavesSource, Statistic.FortitudeSave)
+                );
+                modifiers.Add(
+                    Modifier.Untyped(creature.allSaves, AllSavesSource, Statistic.ReflexSave)
+                );
+                modifiers.Add(
+                    Modifier.Untyped(creature.allSaves, AllSavesSource, Statistic.WillSave)
+                );
+            }
+            return new CreatureStatisticsState(
+                creatureId,
+                creature.attackBonus,
+                Math.Max(0, creature.ac),
+                creature.fortitudeSave,
+                creature.reflexSave,
+                creature.willSave,
+                skills,
+                modifiers
+            );
+        }
     }
 
     /// <summary>Invokes explicitly supplied encounter modules without discovering features.</summary>

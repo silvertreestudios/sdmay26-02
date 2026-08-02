@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
@@ -60,13 +58,7 @@ namespace Game.Creature.Rules
             )
             {
                 if (lease.Registrations.Count > 0)
-                    builder.AddActiveEffects(
-                        lease.Registrations.Select(registration => new ActiveEffectRegistration(
-                            registration.Effect,
-                            registration.Binding,
-                            registration.Timing
-                        ))
-                    );
+                    builder.AddActiveEffects(lease.Registrations);
                 builder.AddFinalization(
                     new CompleteRestoredConditionEnrollmentContribution(persistence, lease)
                 );

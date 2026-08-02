@@ -17,95 +17,6 @@ namespace Game.Rules.Runtime.Tests
         private static readonly RuleSource Source = RuleSource.FromSlug("condition-test-source");
 
         [Test]
-        public void CreateAtomicallyStagesGenericAndConditionFacts()
-        {
-            ActiveEffectInstance effect = Effect(
-                "slowed-effect",
-                ConditionRuleDefinitions.Slowed,
-                new SlowedConditionState(1)
-            );
-            ActiveRuleBinding binding = Binding("slowed-binding", effect, Owner, 4);
-            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
-
-            ReductionResult<ConditionCreationOutcome> result = store.Reduce(
-                Context(new CreateConditionOp(effect, binding)),
-                new CreateConditionReducer(Registry())
-            );
-
-            Assert.That(result.IsAccepted, Is.True);
-            Assert.That(result.DidCommit, Is.True);
-            Assert.That(result.Value.EffectId, Is.EqualTo(effect.Id));
-            Assert.That(result.Snapshot.ActiveEffects[effect.Id], Is.EqualTo(effect));
-            Assert.That(result.Snapshot.RuleBindings[binding.Id], Is.EqualTo(binding));
-            Assert.That(
-                result.Facts.Select(fact => fact.GetType()),
-                Is.EqualTo(new[] { typeof(ActiveEffectCreatedFact), typeof(ConditionCreatedFact) })
-            );
-            ConditionCreatedFact conditionFact = (ConditionCreatedFact)result.Facts[1];
-            Assert.That(conditionFact.Owner, Is.EqualTo(Owner));
-            Assert.That(conditionFact.StableSource, Is.EqualTo(Source));
-            Assert.That(conditionFact.State, Is.SameAs(effect.State));
-            Assert.That(result.Facts.All(fact => fact.RootOpId == new OpId(1)), Is.True);
-        }
-
-        [Test]
-        public void CreateRejectsUnregisteredSourceWithoutPartialCommitOrFacts()
-        {
-            ActiveEffectInstance effect = EffectFrom(
-                "unregistered-source-effect",
-                ConditionRuleDefinitions.Fatigued,
-                ConditionMarkerState.Instance,
-                HistoricalSourceCreature
-            );
-            ActiveRuleBinding binding = Binding("unregistered-source-binding", effect, Owner, 4);
-            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
-
-            ReductionResult<ConditionCreationOutcome> result = store.Reduce(
-                Context(new CreateConditionOp(effect, binding)),
-                new CreateConditionReducer(Registry())
-            );
-
-            Assert.That(result.IsRejected, Is.True);
-            Assert.That(
-                result.RejectionReason,
-                Is.EqualTo("The condition source is not a registered creature.")
-            );
-            Assert.That(result.DidCommit, Is.False);
-            Assert.That(result.Facts, Is.Empty);
-            Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
-            Assert.That(result.Snapshot.RuleBindings, Is.Empty);
-            Assert.That(result.Snapshot.Version, Is.Zero);
-        }
-
-        [Test]
-        public void CreateRejectsUnregisteredOwnerWithoutPartialCommitOrFacts()
-        {
-            ActiveEffectInstance effect = Effect(
-                "orphan-owner-effect",
-                ConditionRuleDefinitions.Fatigued,
-                ConditionMarkerState.Instance
-            );
-            ActiveRuleBinding binding = Binding("orphan-owner-binding", effect, OrphanOwner, 4);
-            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
-
-            ReductionResult<ConditionCreationOutcome> result = store.Reduce(
-                Context(new CreateConditionOp(effect, binding)),
-                new CreateConditionReducer(Registry())
-            );
-
-            Assert.That(result.IsRejected, Is.True);
-            Assert.That(
-                result.RejectionReason,
-                Is.EqualTo("The condition owner is not a registered creature.")
-            );
-            Assert.That(result.DidCommit, Is.False);
-            Assert.That(result.Facts, Is.Empty);
-            Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
-            Assert.That(result.Snapshot.RuleBindings, Is.Empty);
-            Assert.That(result.Snapshot.Version, Is.Zero);
-        }
-
-        [Test]
         public void AdoptionRejectsAnyUnregisteredOwnerAtomicallyWhileAllowingAbsentSources()
         {
             ActiveEffectInstance validEffect = EffectFrom(
@@ -134,17 +45,18 @@ namespace Game.Rules.Runtime.Tests
             );
             InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
 
-            ReductionResult<ConditionAdoptionOutcome> result = store.Reduce(
+            ReductionResult<ActiveEffectAdoptionOutcome> result = store.Reduce(
                 Context(
-                    new AdoptConditionRegistrationsOp(
+                    new AdoptActiveEffectRegistrationsOp(
                         new[]
                         {
-                            new ConditionRegistration(validEffect, validBinding),
-                            new ConditionRegistration(orphanEffect, orphanBinding),
-                        }
+                            new ActiveEffectRegistration(validEffect, validBinding),
+                            new ActiveEffectRegistration(orphanEffect, orphanBinding),
+                        },
+                        Source
                     )
                 ),
-                new AdoptConditionRegistrationsReducer(Registry())
+                new AdoptActiveEffectRegistrationsReducer(Registry())
             );
 
             Assert.That(result.IsRejected, Is.True);
@@ -161,55 +73,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void CreateRejectsWrongDefinitionStateWithoutPartialCommitOrFacts()
-        {
-            ActiveEffectInstance invalid = Effect(
-                "invalid-effect",
-                ConditionRuleDefinitions.OffGuard,
-                new SlowedConditionState(1)
-            );
-            ActiveRuleBinding binding = Binding("invalid-binding", invalid, Owner, 0);
-            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
-
-            ReductionResult<ConditionCreationOutcome> result = store.Reduce(
-                Context(new CreateConditionOp(invalid, binding)),
-                new CreateConditionReducer(Registry())
-            );
-
-            Assert.That(result.IsRejected, Is.True);
-            Assert.That(result.DidCommit, Is.False);
-            Assert.That(result.Facts, Is.Empty);
-            Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
-            Assert.That(result.Snapshot.RuleBindings, Is.Empty);
-            Assert.That(result.Snapshot.Version, Is.Zero);
-        }
-
-        [Test]
-        public void DuplicateConditionIdsRejectWithoutPartialCommitOrFacts()
-        {
-            ActiveEffectInstance effect = Effect(
-                "duplicate-effect",
-                ConditionRuleDefinitions.Deafened,
-                ConditionMarkerState.Instance
-            );
-            ActiveRuleBinding binding = Binding("duplicate-binding", effect, Owner, 0);
-            InMemoryRulesStore store = Seeded(effect, binding);
-
-            ReductionResult<ConditionCreationOutcome> result = store.Reduce(
-                Context(new CreateConditionOp(effect, binding)),
-                new CreateConditionReducer(Registry())
-            );
-
-            Assert.That(result.IsRejected, Is.True);
-            Assert.That(result.DidCommit, Is.False);
-            Assert.That(result.Facts, Is.Empty);
-            Assert.That(result.Snapshot.Version, Is.Zero);
-            Assert.That(result.Snapshot.ActiveEffects.Count, Is.EqualTo(1));
-            Assert.That(result.Snapshot.RuleBindings.Count, Is.EqualTo(1));
-        }
-
-        [Test]
-        public void UpdateAtomicallyStagesBothFactsAndStaleUpdateStagesNeither()
+        public void UpdateStagesOneGenericConditionFactAndStaleUpdateStagesNone()
         {
             ActiveEffectInstance effect = Effect(
                 "slowed-effect",
@@ -218,11 +82,11 @@ namespace Game.Rules.Runtime.Tests
             );
             ActiveRuleBinding binding = Binding("slowed-binding", effect, Owner, 0);
             InMemoryRulesStore store = Seeded(effect, binding);
-            UpdateConditionStateReducer reducer = new UpdateConditionStateReducer();
+            UpdateActiveEffectStateReducer reducer = new UpdateActiveEffectStateReducer();
 
-            ReductionResult<ConditionStateUpdateOutcome> updated = store.Reduce(
+            ReductionResult<ActiveEffectStateUpdateOutcome> updated = store.Reduce(
                 Context(
-                    UpdateConditionStateOp.Create(
+                    UpdateActiveEffectStateOp.Create(
                         effect.Id,
                         EffectStateVersion.Initial,
                         new SlowedConditionState(3),
@@ -234,24 +98,18 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(updated.IsAccepted, Is.True);
             Assert.That(updated.Value.CurrentVersion, Is.EqualTo(new EffectStateVersion(1)));
-            Assert.That(
-                updated.Facts.Select(fact => fact.GetType()),
-                Is.EqualTo(
-                    new[]
-                    {
-                        typeof(ActiveEffectStateUpdatedFact),
-                        typeof(ConditionStateUpdatedFact),
-                    }
-                )
-            );
+            ActiveEffectStateUpdatedFact updateFact = updated
+                .Facts.OfType<ActiveEffectStateUpdatedFact>()
+                .Single(fact => fact.DefinitionId == ConditionRuleDefinitions.Slowed);
+            Assert.That(updateFact.EffectId, Is.EqualTo(effect.Id));
             Assert.That(
                 updated.Snapshot.ActiveEffects[effect.Id].GetState<SlowedConditionState>().Value,
                 Is.EqualTo(3)
             );
 
-            ReductionResult<ConditionStateUpdateOutcome> stale = store.Reduce(
+            ReductionResult<ActiveEffectStateUpdateOutcome> stale = store.Reduce(
                 Context(
-                    UpdateConditionStateOp.Create(
+                    UpdateActiveEffectStateOp.Create(
                         effect.Id,
                         EffectStateVersion.Initial,
                         new SlowedConditionState(4),
@@ -281,16 +139,16 @@ namespace Game.Rules.Runtime.Tests
             );
             InMemoryRulesStore store = Seeded(effect, Binding("stunned-binding", effect, Owner, 0));
 
-            ReductionResult<ConditionStateUpdateOutcome> result = store.Reduce(
+            ReductionResult<ActiveEffectStateUpdateOutcome> result = store.Reduce(
                 Context(
-                    UpdateConditionStateOp.Create(
+                    UpdateActiveEffectStateOp.Create(
                         effect.Id,
                         EffectStateVersion.Initial,
                         DurationOnlyStunnedConditionState.Instance,
                         Source
                     )
                 ),
-                new UpdateConditionStateReducer()
+                new UpdateActiveEffectStateReducer()
             );
 
             Assert.That(result.IsRejected, Is.True);
@@ -304,7 +162,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void ExpireAndRemoveEachStageGenericAndConditionFactsAtomically()
+        public void ExpireAndRemoveEachStageOneGenericConditionFactAtomically()
         {
             ActiveEffectInstance effect = Effect(
                 "off-guard-effect",
@@ -314,36 +172,41 @@ namespace Game.Rules.Runtime.Tests
             ActiveRuleBinding binding = Binding("off-guard-binding", effect, Owner, 0);
             InMemoryRulesStore store = Seeded(effect, binding);
 
-            ReductionResult<ConditionExpirationOutcome> expired = store.Reduce(
+            ReductionResult<ActiveEffectExpirationOutcome> expired = store.Reduce(
                 Context(
-                    new ExpireConditionOp(effect.Id, binding.Id, EffectStateVersion.Initial, Source)
+                    new ExpireActiveEffectOp(
+                        effect.Id,
+                        binding.Id,
+                        EffectStateVersion.Initial,
+                        Source
+                    )
                 ),
-                new ExpireConditionReducer()
+                new ExpireActiveEffectReducer()
             );
 
             Assert.That(expired.IsAccepted, Is.True);
-            Assert.That(
-                expired.Facts.Select(fact => fact.GetType()),
-                Is.EqualTo(new[] { typeof(ActiveEffectExpiredFact), typeof(ConditionExpiredFact) })
-            );
+            ActiveEffectExpiredFact expirationFact = expired
+                .Facts.OfType<ActiveEffectExpiredFact>()
+                .Single(fact => fact.DefinitionId == ConditionRuleDefinitions.OffGuard);
+            Assert.That(expirationFact.EffectId, Is.EqualTo(effect.Id));
             Assert.That(
                 expired.Snapshot.ActiveEffects[effect.Id].Status,
                 Is.EqualTo(ActiveEffectStatus.Expired)
             );
             Assert.That(expired.Snapshot.RuleBindings[binding.Id].IsEnabled, Is.False);
 
-            ReductionResult<ConditionRemovalOutcome> removed = store.Reduce(
+            ReductionResult<ActiveEffectRemovalOutcome> removed = store.Reduce(
                 Context(
-                    new RemoveConditionOp(effect.Id, binding.Id, expired.Value.Version, Source)
+                    new RemoveActiveEffectOp(effect.Id, binding.Id, expired.Value.Version, Source)
                 ),
-                new RemoveConditionReducer()
+                new RemoveActiveEffectReducer()
             );
 
             Assert.That(removed.IsAccepted, Is.True);
-            Assert.That(
-                removed.Facts.Select(fact => fact.GetType()),
-                Is.EqualTo(new[] { typeof(ActiveEffectRemovedFact), typeof(ConditionRemovedFact) })
-            );
+            ActiveEffectRemovedFact removalFact = removed
+                .Facts.OfType<ActiveEffectRemovedFact>()
+                .Single(fact => fact.DefinitionId == ConditionRuleDefinitions.OffGuard);
+            Assert.That(removalFact.EffectId, Is.EqualTo(effect.Id));
             Assert.That(removed.Snapshot.ActiveEffects.Contains(effect.Id), Is.False);
             Assert.That(removed.Snapshot.RuleBindings.Contains(binding.Id), Is.False);
         }
@@ -371,16 +234,16 @@ namespace Game.Rules.Runtime.Tests
                     .SeedRuleBinding(otherBinding)
             );
 
-            ReductionResult<ConditionExpirationOutcome> result = store.Reduce(
+            ReductionResult<ActiveEffectExpirationOutcome> result = store.Reduce(
                 Context(
-                    new ExpireConditionOp(
+                    new ExpireActiveEffectOp(
                         effect.Id,
                         otherBinding.Id,
                         EffectStateVersion.Initial,
                         Source
                     )
                 ),
-                new ExpireConditionReducer()
+                new ExpireActiveEffectReducer()
             );
 
             Assert.That(result.IsRejected, Is.True);
@@ -395,7 +258,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void SelectorFiltersInvalidCandidatesAndUsesBindingOwner()
+        public void SelectorFiltersNonMatchingAndInactiveCandidatesAndUsesBindingOwner()
         {
             RulesStateSeed seed = RegisteredSourceSeed();
             Add(
@@ -424,38 +287,13 @@ namespace Game.Rules.Runtime.Tests
             );
             Add(
                 seed,
-                "wrong-state",
-                ConditionRuleDefinitions.Slowed,
-                ConditionMarkerState.Instance,
-                Owner,
-                0
-            );
-            Add(
-                seed,
-                "disabled",
-                ConditionRuleDefinitions.Slowed,
-                new SlowedConditionState(9),
-                Owner,
-                0,
-                isEnabled: false
-            );
-            Add(
-                seed,
                 "expired",
                 ConditionRuleDefinitions.Slowed,
                 new SlowedConditionState(9),
                 Owner,
                 0,
+                isEnabled: false,
                 status: ActiveEffectStatus.Expired
-            );
-            Add(
-                seed,
-                "wrong-source",
-                ConditionRuleDefinitions.Slowed,
-                new SlowedConditionState(9),
-                Owner,
-                0,
-                mismatchSource: true
             );
 
             bool found = ConditionSelectors.TryGetSlowed(
@@ -525,7 +363,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void RegistrationAddsAllConditionWrapperReducers()
+        public void RegistrationAddsConditionApplicationAndCleanupReducers()
         {
             RuleRegistry registry = MarkerRegistry();
 
@@ -561,18 +399,19 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(
                 await dispatcher.Dispatch(
-                    new AdoptConditionRegistrationsOp(
-                        new[] { new ConditionRegistration(adoptedEffect, adoptedBinding) }
+                    new AdoptActiveEffectRegistrationsOp(
+                        new[] { new ActiveEffectRegistration(adoptedEffect, adoptedBinding) },
+                        Source
                     )
                 ),
-                Is.TypeOf<ResolvedOpResult<ConditionAdoptionOutcome>>()
+                Is.TypeOf<ResolvedOpResult<ActiveEffectAdoptionOutcome>>()
             );
             Assert.That(dispatcher.Snapshot.Creatures.Contains(HistoricalSourceCreature), Is.False);
             Assert.That(
                 dispatcher.Snapshot.ActiveEffects[adoptedEffect.Id].SourceCreature,
                 Is.EqualTo(HistoricalSourceCreature)
             );
-            ResolvedOpResult<ConditionCreationOutcome> created = RequireResolved(
+            ResolvedOpResult<ConditionApplicationOutcome> created = RequireResolved(
                 await dispatcher.Dispatch(NewMarkerCondition())
             );
 
@@ -621,7 +460,7 @@ namespace Game.Rules.Runtime.Tests
                 .UseConditionRules(registry)
                 .Build();
 
-            ResolvedOpResult<ConditionCreationOutcome> created = RequireResolved(
+            ResolvedOpResult<ConditionApplicationOutcome> created = RequireResolved(
                 await dispatcher.Dispatch(NewMarkerCondition())
             );
 
@@ -658,8 +497,9 @@ namespace Game.Rules.Runtime.Tests
             );
             RequireResolved(
                 await dispatcher.Dispatch(
-                    new AdoptConditionRegistrationsOp(
-                        new[] { new ConditionRegistration(adoptedEffect, adoptedBinding) }
+                    new AdoptActiveEffectRegistrationsOp(
+                        new[] { new ActiveEffectRegistration(adoptedEffect, adoptedBinding) },
+                        Source
                     )
                 )
             );

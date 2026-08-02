@@ -388,7 +388,7 @@ namespace TestsUI
                         new SlowedConditionState(1)
                     )
                 ),
-                Is.TypeOf<ResolvedOpResult<ConditionCreationOutcome>>()
+                Is.TypeOf<ResolvedOpResult<ConditionApplicationOutcome>>()
             );
             CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
             int remainingTurns = combatants.Count + 1;

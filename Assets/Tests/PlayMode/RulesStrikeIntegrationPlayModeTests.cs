@@ -499,14 +499,26 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         bridge.BeginTurn(actor, 3);
         RequireResolved(bridge.Dispatch(new StrikeActionOp(actor, unarmed.Item.Item, targetId)));
         OpResult<CastSpellOutcome> spellSecond = bridge.Dispatch(
-            new CastSpellActionOp(actor, divineLance, new SpellActionVariant(2), selection)
+            new CastSpellActionOp(
+                new ActionInvocationId("playmode-divine-lance-second"),
+                actor,
+                divineLance,
+                new SpellActionVariant(2),
+                selection
+            )
         );
         Assert.That(spellSecond, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
         Assert.That(clericController.StrikePenalty, Is.EqualTo(2));
 
         bridge.BeginTurn(actor, 3);
         OpResult<CastSpellOutcome> spellFirst = bridge.Dispatch(
-            new CastSpellActionOp(actor, divineLance, new SpellActionVariant(2), selection)
+            new CastSpellActionOp(
+                new ActionInvocationId("playmode-divine-lance-first"),
+                actor,
+                divineLance,
+                new SpellActionVariant(2),
+                selection
+            )
         );
         Assert.That(spellFirst, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
         ResolvedOpResult<StrikeResolution> strikeSecond = RequireResolved(

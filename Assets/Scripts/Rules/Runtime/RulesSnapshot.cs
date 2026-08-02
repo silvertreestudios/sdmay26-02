@@ -70,6 +70,11 @@ namespace Game.Rules.Runtime
             ActiveEffectTimingState
         > ActiveEffectTimings { get; }
 
+        internal StateSliceSnapshot<
+            ActionInvocationId,
+            ActionInvocationReceipt
+        > ActionReceipts { get; }
+
         internal RulesSnapshot(RulesStateData data)
         {
             Version = data.Version;
@@ -107,6 +112,9 @@ namespace Game.Rules.Runtime
             Encounters = new StateSliceSnapshot<EncounterId, EncounterState>(data.Encounters);
             ActiveEffectTimings = new StateSliceSnapshot<ActiveEffectId, ActiveEffectTimingState>(
                 data.ActiveEffectTimings
+            );
+            ActionReceipts = new StateSliceSnapshot<ActionInvocationId, ActionInvocationReceipt>(
+                data.ActionReceipts
             );
         }
     }

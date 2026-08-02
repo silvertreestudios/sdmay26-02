@@ -24,6 +24,7 @@ controller and creature are attached to that exact bridge, the following state i
 | Position and movement | `RulesSnapshot.Positions`, movement budgets, permissions, and movement reducers. Token movement is a committed-Fact projection. |
 | Encounter roster, initiative, round, and outcome | `EncounterState`, its roster and cursor, durable published-boundary turn-start checkpoint, and encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
 | Active-effect timing | `ActiveEffectInstance` and `ActiveEffectTimingState`, advanced at encounter initiative boundaries. |
+| Base statistics | `RulesSnapshot.Statistics` owns immutable base attack, Armor Class, saves, skills, and normalized snapshot modifiers captured at enrollment. Unity adapters must read base fields, not `Resolve*` totals that already include active rules. |
 | Prepared rule participation | `RulesSnapshot.PreparedInputs` owns normalized creature facts and `RulesSnapshot.RuleBindings` alone controls whether definition-owned compiled behavior participates. `PreparedRulePackage` is only the ephemeral compiler result used to seed those slices. |
 | Migrated action slices | Stride, Strike, Reload, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
 
@@ -235,11 +236,11 @@ both routes. JSON, mutable build choices, and Unity components do not cross that
 predicates and collectors receive only the frozen package, typed current context, and authoritative
 snapshot.
 
-- Initial participants call `SeedInitial`. Base creature, health, position, land speed, action
+- Initial participants call `SeedInitial`. Base creature, health, position, land speed, statistics, action
   economy, MAP, spell slots, bindings, and feature contributions enter the seed before the
   dispatcher exists. Initiative is rolled later by `StartEncounterOp`.
 - Reinforcements call `CommitReinforcements`. One `JoinEncounterOp` atomically adds each prepared
-  `CombatantRulesState` (including spell slots, base bindings, and prepared active effects) to the
+  `CombatantRulesState` (including statistics, spell slots, base bindings, and prepared active effects) to the
   active encounter, rolls initiative, and assigns `EligibleFromRound` so a higher-than-current
   result waits until the next round. The join reducer first validates every base registration, then
   stages the complete future roster and base slices on one draft before adopting all active effects
@@ -256,9 +257,10 @@ An exact replay therefore converges both checkpoints even when roster Fact deliv
 state legitimately changed by an assignment listener does not make the original registration look
 conflicting. A post-commit roster observer failure is preserved for the caller only after the
 assignment checkpoint is attempted, so retry cannot alter causation, Facts, or version.
-`PreparedCreatureInputs` and every nested prepared descriptor use structural value equality for
-this receipt comparison. A separately reconstructed but field-for-field equal snapshot is an exact
-replay; changing any prepared field is a conflicting registration and rejects.
+`PreparedCreatureInputs`, `CreatureStatisticsState`, and their nested immutable values use
+structural value equality for this receipt comparison. A separately reconstructed but
+field-for-field equal snapshot is an exact replay; changing any prepared or statistics field is a
+conflicting registration and rejects.
 
 Strike's Unity context freezes only the defender's base Armor Class. Cover and
 flanking/off-guard are contextual candidates supplied once to `CollectDefenseModifiersOp`, where
@@ -341,12 +343,18 @@ save dictionaries, but map provenance through the versioned
 configures it on every member. The bridge validates both the raw `InstanceId` and computed durable
 identity without normalization. Party identities may not occupy the reserved `dungeon-enemy-v1/`
 namespace. Enrollment fails and rolls back the batch when any identity invariant is violated.
-Condition provenance must likewise be a nonempty canonical durable ID; it is never trimmed,
-inferred from the owner, or replaced with the owner. Only the exact scoped enemy identity maps to a
-live enemy. An older unscoped enemy string, or the same local instance ID from another depth,
-remains an absent historical source. An absent source receives a deterministic, reversible
-base64url `CreatureId` in a reserved namespace disjoint from live `combat-creature-*` identities,
-and
+Condition capture is a persistence projection, not the live rules query. An intentionally
+nondurable owner has no persistence key, so capture returns the canonical immutable empty set
+without enumerating that owner's condition bindings or sources. Encounter release stores that
+authoritative empty set and thereby clears stale detached input. This is not a fallback or
+feature-specific filter: live authoritative conditions remain available through condition
+selectors and `ActiveConditionNames` while the actor is attached. A durable owner still projects
+every authoritative condition, and each source must have a nonempty canonical durable ID; source
+identity is never trimmed, inferred from the owner, or replaced with the owner. Only the exact
+scoped enemy identity maps to a live enemy. An older unscoped enemy string, or the same local
+instance ID from another depth, remains an absent historical source. An absent source receives a
+deterministic, reversible base64url `CreatureId` in a reserved namespace disjoint from live
+`combat-creature-*` identities, and
 release decodes that identity back to the exact original durable string without a global registry.
 An active absent-source indefinite condition remains active and selectable by its target. An active
 absent-source finite condition is normalized before adoption to one expired, disabled tombstone
@@ -372,13 +380,15 @@ retains feature provenance; no source override is used.
 `RestoredSpellEffectTimingObserver` projects initiative-boundary counts and removes expired or
 removed Unity effects. Do not bypass the active-effect runtime for restored effects.
 
-All condition authority boundaries share one compiled-immunity invariant. Fresh creation,
-external adoption, reinforcement-join adoption, and initial seed validation reject an active
-condition when the registered owner has a matching `PreparedImmunityKind.Condition`; recognized
-aliases are normalized to the canonical definition, so `Flat-Footed` immunity rejects
-`off-guard`. A registered condition owner without `PreparedInputs` is invariant corruption and
-fails closed. Expired, disabled tombstones may remain because they are not active authority. Batch
-adoption and encounter join validate every registration before committing any state or Facts.
+All condition authority boundaries share one registration primitive. It first validates the
+canonical definition and contract, registered owner and source, exact effect/binding/timing
+identity, version, status, and registry authority. Only a structurally valid fresh application may
+then classify a matching `PreparedImmunityKind.Condition` as resolved `Blocked`, with no mutation
+or Facts. External adoption, reinforcement-join adoption, and initial seed validation instead
+reject an impossible immune active state atomically. Recognized aliases are normalized to the
+canonical definition, so `Flat-Footed` immunity matches `off-guard`; malformed registration can
+never be hidden by immunity. Expired, disabled tombstones may remain because they are not active
+authority.
 
 Effect-derived runtime options and active condition slugs require one enabled binding joined to an
 existing `Active` effect with the exact effect ID, definition, and source. A disabled, expired,
@@ -449,8 +459,55 @@ encounter handlers and engine reducers. Its current division of responsibility i
 
 `ActionOp<TResult>` uses the engine-owned lifecycle implemented by `RuleDispatcher`: freeze the
 effective profile, validate, commit all costs atomically, dispatch `ActionBegunOp`, stop on
-disruption, and only then invoke feature middleware and the handler. Feature code must not spend the
-same costs or publish a parallel action-begun event.
+disruption, and only then invoke feature middleware and the handler. For an
+`IReceiptedActionOp`, the cost reducer atomically stores the exact intent and frozen profile in a
+`CostsCommitted` checkpoint. An exact pending retry resumes at `ActionBegunOp` without resolving
+the profile, validating, or committing costs again; a conflicting intent rejects. Disruption
+advances that checkpoint to `Interrupted`, and a feature's final atomic reducer advances it to
+`Resolved` with the outcome. Feature code must not spend the same costs or publish a parallel
+action-begun event.
+
+Supported Cast a Spell definitions carry an explicit rules-native readiness marker and exactly one
+resolution category (effect, attack, or save); mixed categories and superficially parsed but
+unmodeled spells never enter the authoritative catalog. Area save casts carry an immutable authored
+placement plus the selected creature IDs. Immediately before action costs, the generic
+`ISpellSaveTargetingProvider` re-evaluates shape, size, range, current positions, topology, line of
+effect, and the exact affected set. Duplicate, extra, omitted, or otherwise stale targets reject;
+programmatic callers that cannot provide authoritative placement fail closed.
+Unity area requests and placements cross one explicit adapter whose exhaustive switches map every
+grid and rules shape and direction in both directions; enum ordinals are never boundary contracts.
+Definition-owned self targeting requires no area placement and zero selected creature IDs.
+Extraneous self selection rejects before costs; the immutable operation remains the exact
+receipt-comparison intent and is never normalized.
+
+Area basic-save damage rolls once per save definition for the cast, then scales that shared typed
+roll by each ordered target's degree and applies that target's immunity, weakness, and resistance.
+`SpellSaveResolution` retains both requested typed damage and the committed `DamageOutcome`;
+`FinalDamage` is the amount actually removed from temporary plus current Hit Points, including
+overkill clamping.
+
+Spell attacks resolve their check and typed damage first, then the shared prepared-spell reducer
+atomically commits final health damage, shared MAP advancement, and the invocation receipt. Effect,
+attack, and save casts use tagged prepared payloads through this same final reducer. Fact observers
+therefore see the complete post-attack state even when one callback fails. Attack presentation is
+carried by the final `CastSpellOutcome` and runs only from the root cast observer after this commit.
+
+Every Cast a Spell invocation also supplies an `ActionInvocationId`. The final prepared-spell
+reducer stores an exact immutable `ActionInvocationReceipt` with the outcome in the same commit and
+publishes one generic `ActionReceiptCommittedFact`. The Fact identifies only the actor and action
+definition; invocation identity, selected intent, and the stored outcome remain private replay data.
+After a post-commit observer or presentation failure, an exact retry returns that outcome without
+costs, rolls, mutation, or Facts; reuse of the ID for a different actor, spell, variant, placement,
+or target set rejects. Immediately before root resolved-operation observers, the dispatcher claims
+the complete observer batch by invocation ID. A claimed batch is never replayed by that dispatcher,
+even when one observer fails after an earlier observer succeeded. A final Fact observer failure
+occurs before that claim, so an exact retry still runs the root presentation batch once.
+
+These are in-process retry guarantees, not crash-durable exactly-once execution. Costs are
+at-most-once in the authoritative rules state, and final spell presentation is at-most-once within
+one dispatcher instance. Work after the cost checkpoint but before the final receipt may run again;
+in particular, arbitrary preparation exceptions may reroll because the dispatcher stores no roll
+or input tape.
 
 ## Projection, settlement, and topology
 

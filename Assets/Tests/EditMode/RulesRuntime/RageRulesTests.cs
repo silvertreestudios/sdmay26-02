@@ -929,6 +929,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new HealthState(10, 10),
                 new GridPosition(2, 0, 0),
                 new GridDistance(25),
+                CreatureStatisticsState.Empty(Reinforcement),
                 PreparedInputsFor(quickTempered),
                 Array.Empty<SpellSlotState>(),
                 RageRules
@@ -1136,6 +1137,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new HealthState(0, 10).CommitDefeat(),
                 new GridPosition(2, 0, 0),
                 new GridDistance(25),
+                CreatureStatisticsState.Empty(Reinforcement),
                 PreparedInputsFor(quickTempered),
                 Array.Empty<SpellSlotState>(),
                 initialBindings
@@ -2388,6 +2390,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                     new HealthState(10, 10),
                     new GridPosition(0, 0, 0),
                     new GridDistance(25),
+                    CreatureStatisticsState.Empty(actor),
                     PreparedInputsFor(state),
                     Array.Empty<SpellSlotState>(),
                     RageRules.CreateInitialBindings(actor, state)
@@ -2527,6 +2530,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 initialHealth,
                 new GridPosition(2, 0, 0),
                 new GridDistance(25),
+                CreatureStatisticsState.Empty(Reinforcement),
                 PreparedInputsFor(quickTempered),
                 Array.Empty<SpellSlotState>(),
                 RageRules
@@ -2871,6 +2875,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new HealthState(10, 10),
                 new GridPosition(2, 0, 0),
                 new GridDistance(25),
+                CreatureStatisticsState.Empty(Reinforcement),
                 PreparedInputsFor(quickTempered),
                 Array.Empty<SpellSlotState>(),
                 RageRules
@@ -2958,6 +2963,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                     new HealthState(9, 10),
                     registration.Position,
                     registration.LandSpeed,
+                    registration.Statistics,
                     registration.PreparedInputs,
                     registration.SpellSlots,
                     registration.RuleBindings

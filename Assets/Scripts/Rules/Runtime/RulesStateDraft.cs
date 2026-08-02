@@ -73,6 +73,11 @@ namespace Game.Rules.Runtime
         /// <summary>Gets transaction-scoped access to active-effect schedules.</summary>
         public StateSliceDraft<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
 
+        internal StateSliceDraft<
+            ActionInvocationId,
+            ActionInvocationReceipt
+        > ActionReceipts { get; }
+
         internal RulesStateDraft(RulesStateData data)
         {
             Creatures = new StateSliceDraft<CreatureId, CreatureState>(
@@ -148,6 +153,10 @@ namespace Game.Rules.Runtime
                 data.ActiveEffectTimings,
                 (id, value) => !id.IsEmpty && value != null && id == value.Effect
             );
+            ActionReceipts = new StateSliceDraft<ActionInvocationId, ActionInvocationReceipt>(
+                data.ActionReceipts,
+                (id, value) => !id.IsEmpty && value != null && id == value.Operation.InvocationId
+            );
         }
 
         internal bool IsDirty =>
@@ -169,7 +178,8 @@ namespace Game.Rules.Runtime
             || StatelessRuleBindingGenerations.IsDirty
             || Frequencies.IsDirty
             || Encounters.IsDirty
-            || ActiveEffectTimings.IsDirty;
+            || ActiveEffectTimings.IsDirty
+            || ActionReceipts.IsDirty;
 
         internal RulesStateData Build(long version)
         {
@@ -194,7 +204,8 @@ namespace Game.Rules.Runtime
                 StatelessRuleBindingGenerations.BuildCommittedValues(),
                 Frequencies.BuildCommittedValues(),
                 Encounters.BuildCommittedValues(),
-                ActiveEffectTimings.BuildCommittedValues()
+                ActiveEffectTimings.BuildCommittedValues(),
+                ActionReceipts.BuildCommittedValues()
             );
         }
     }

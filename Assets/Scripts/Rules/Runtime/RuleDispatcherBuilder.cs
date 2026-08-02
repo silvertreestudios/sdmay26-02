@@ -526,6 +526,15 @@ namespace Game.Rules.Runtime
                         ResolverMiddlewarePolicy.Disabled
                     )
                 );
+                AddLifecycleRegistration(
+                    completedRegistrations,
+                    new ReducerRegistration<InterruptReceiptedActionOp, ActionStartOutcome>(
+                        new InterruptReceiptedActionReducer(),
+                        RuleSource.FromSlug("action-lifecycle"),
+                        InvocationPolicy.NestedOnly,
+                        ResolverMiddlewarePolicy.Disabled
+                    )
+                );
             }
 
             ActionRuntime actionRuntime = actionRuntimeConfiguration.CreateRuntime(

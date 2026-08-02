@@ -25,7 +25,13 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void OperationFreezesDefinitionVariantTraitsAndCantripCost()
         {
-            CastSpellActionOp operation = new(Actor, Light, TwoActions, SpellCastSelection.Empty);
+            CastSpellActionOp operation = new(
+                new ActionInvocationId("light-profile"),
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
 
             ActionProfile profile = operation.GetBaseProfile(new TestCatalog(new TestBook(true)));
 
@@ -45,9 +51,16 @@ namespace Game.Rules.Runtime.Tests
             RuleDispatcher dispatcher = CreateDispatcher(store, new TestBook(true));
             CountingObserver observer = new();
             dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(observer);
+            ActionInvocationId invocation = new("light-resolves");
 
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(
-                new CastSpellActionOp(Actor, Light, TwoActions, SpellCastSelection.Empty)
+                new CastSpellActionOp(
+                    invocation,
+                    Actor,
+                    Light,
+                    TwoActions,
+                    SpellCastSelection.Empty
+                )
             );
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
@@ -63,27 +76,231 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(effect.GetState<SpellEffectState>().Target, Is.EqualTo(Actor));
             Assert.That(result.Facts.OfType<ActiveEffectCreatedFact>().Count(), Is.EqualTo(1));
             Assert.That(observer.Calls, Is.EqualTo(1));
+            Assert.That(
+                dispatcher.Trace.OrderedFrames.Count(frame =>
+                    frame.OpType == typeof(CommitPreparedSpellCastOp)
+                ),
+                Is.EqualTo(1)
+            );
+
+            long committedVersion = store.Snapshot.Version;
+            OpResult<CastSpellOutcome> exactRetry = await dispatcher.Dispatch(
+                new CastSpellActionOp(
+                    invocation,
+                    Actor,
+                    Light,
+                    TwoActions,
+                    SpellCastSelection.Empty
+                )
+            );
+
+            Assert.That(exactRetry, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
+            Assert.That(((ResolvedOpResult<CastSpellOutcome>)exactRetry).Value, Is.SameAs(outcome));
+            Assert.That(exactRetry.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(store.Snapshot.ActiveEffects, Has.Count.EqualTo(1));
+            Assert.That(observer.Calls, Is.EqualTo(1));
         }
 
         [Test]
-        public async Task SelfTargetMetadataIgnoresPlayerSelectedCreatureIds()
+        public void CostCheckpointRetrySkipsProfileValidationAndDoubleSpend()
+        {
+            InMemoryRulesStore store = CreateStore(3, slotUses: 1);
+            RuleRegistry registry = CreateRegistryBuilder().Build();
+            TestCatalog catalog = new(new SlotTestBook());
+            CountingProfileResolver resolver = new();
+            CountingCastValidator validator = new();
+            ThrowOnceCostsCommittedObserver failure = new();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .UseActiveEffectRules(registry)
+                .UseActionLifecycle(catalog, resolver)
+                .RegisterActionValidator<CastSpellActionOp>(validator)
+                .UseSpellcastingRules(catalog, registry)
+                .Build();
+            dispatcher.RegisterFactObserver<ActionCostsCommittedFact>(failure);
+            ActionInvocationId invocation = new("light-cost-checkpoint");
+            CastSpellActionOp operation = new(
+                invocation,
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(operation)
+            );
+
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
+            Assert.That(
+                store.Snapshot.ActionReceipts[invocation],
+                Is.TypeOf<CostsCommittedActionReceipt>()
+            );
+            Assert.That(resolver.Calls, Is.EqualTo(1));
+            Assert.That(validator.Calls, Is.EqualTo(1));
+
+            OpResult<CastSpellOutcome> conflict = dispatcher
+                .Dispatch(
+                    new CastSpellActionOp(
+                        invocation,
+                        Actor,
+                        Light,
+                        TwoActions,
+                        new SpellCastSelection(new[] { Actor })
+                    )
+                )
+                .GetAwaiter()
+                .GetResult();
+
+            Assert.That(conflict, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<CastSpellOutcome>)conflict).Reason,
+                Is.EqualTo(ActionReceiptReduction.ConflictingIntentReason)
+            );
+            Assert.That(resolver.Calls, Is.EqualTo(1));
+            Assert.That(validator.Calls, Is.EqualTo(1));
+
+            ResolvedOpResult<CastSpellOutcome> retry = RequireResolved(
+                dispatcher.Dispatch(operation).GetAwaiter().GetResult()
+            );
+
+            Assert.That(retry.Value.CreatedEffects, Has.Count.EqualTo(1));
+            Assert.That(retry.Facts.OfType<ActionCostsCommittedFact>(), Is.Empty);
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
+            Assert.That(
+                store.Snapshot.ActionReceipts[invocation],
+                Is.TypeOf<ResolvedActionReceipt>()
+            );
+            Assert.That(resolver.Calls, Is.EqualTo(1));
+            Assert.That(validator.Calls, Is.EqualTo(1));
+            Assert.That(failure.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ResolvedObserverBatchClaimPreventsPartialReplay()
         {
             InMemoryRulesStore store = CreateStore(3);
             RuleDispatcher dispatcher = CreateDispatcher(store, new TestBook(true));
+            CountingObserver first = new();
+            ThrowingObserver second = new();
+            dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(first);
+            dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(second);
+            CastSpellActionOp operation = new(
+                new ActionInvocationId("light-observer-claim"),
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(operation)
+            );
+            ResolvedOpResult<CastSpellOutcome> retry = RequireResolved(
+                dispatcher.Dispatch(operation).GetAwaiter().GetResult()
+            );
+
+            Assert.That(retry.Facts, Is.Empty);
+            Assert.That(first.Calls, Is.EqualTo(1));
+            Assert.That(second.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void FinalFactFailureLeavesRootPresentationUnclaimedUntilRetry()
+        {
+            InMemoryRulesStore store = CreateStore(3);
+            RuleDispatcher dispatcher = CreateDispatcher(store, new TestBook(true));
+            ThrowOnceReceiptObserver factObserver = new();
+            CountingObserver presentation = new();
+            dispatcher.RegisterFactObserver<ActionReceiptCommittedFact>(factObserver);
+            dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
+                presentation
+            );
+            CastSpellActionOp operation = new(
+                new ActionInvocationId("light-final-fact-failure"),
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(operation)
+            );
+            Assert.That(presentation.Calls, Is.Zero);
+
+            RequireResolved(dispatcher.Dispatch(operation).GetAwaiter().GetResult());
+            RequireResolved(dispatcher.Dispatch(operation).GetAwaiter().GetResult());
+
+            Assert.That(factObserver.Calls, Is.EqualTo(1));
+            Assert.That(presentation.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task SelfTargetMetadataRejectsSelectedCreatureIdsBeforeCostsEffectsFactsOrRolls()
+        {
             SpellCastSelection forgedSelection = new(new[] { new CreatureId("forged-target") });
+            await AssertSelfTargetSelectionRejectsBeforeWork(
+                "light-forged-target",
+                forgedSelection,
+                "cannot carry selected creatures"
+            );
+        }
+
+        [Test]
+        public async Task SelfTargetMetadataRejectsAreaPlacementBeforeCostsEffectsFactsOrRolls()
+        {
+            SpellAreaPlacement forgedPlacement = new(
+                SpellAreaShape.Cone,
+                new GridPosition(0, 0, 0),
+                0,
+                0,
+                SpellAreaDirection.North
+            );
+            SpellCastSelection forgedSelection = new(forgedPlacement, Array.Empty<CreatureId>());
+
+            await AssertSelfTargetSelectionRejectsBeforeWork(
+                "light-forged-area",
+                forgedSelection,
+                "cannot carry an area placement"
+            );
+        }
+
+        private static async Task AssertSelfTargetSelectionRejectsBeforeWork(
+            string invocationId,
+            SpellCastSelection forgedSelection,
+            string expectedReason
+        )
+        {
+            InMemoryRulesStore store = CreateStore(3);
+            CountingRollService rolls = new();
+            RuleDispatcher dispatcher = CreateDispatcher(store, new TestBook(true), rolls);
+            long initialVersion = store.Snapshot.Version;
 
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(
-                new CastSpellActionOp(Actor, Light, TwoActions, forgedSelection)
+                new CastSpellActionOp(
+                    new ActionInvocationId(invocationId),
+                    Actor,
+                    Light,
+                    TwoActions,
+                    forgedSelection
+                )
             );
 
-            Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
-            ActiveEffectId effectId = (
-                (ResolvedOpResult<CastSpellOutcome>)result
-            ).Value.CreatedEffects.Single();
+            Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
             Assert.That(
-                store.Snapshot.ActiveEffects[effectId].GetState<SpellEffectState>().Target,
-                Is.EqualTo(Actor)
+                ((InvalidOpResult<CastSpellOutcome>)result).Reason,
+                Does.Contain(expectedReason)
             );
+            Assert.That(store.Snapshot.Version, Is.EqualTo(initialVersion));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.ActionReceipts, Is.Empty);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(rolls.Calls, Is.Zero);
         }
 
         [Test]
@@ -94,6 +311,7 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<CastSpellOutcome> wrongRank = await dispatcher.Dispatch(
                 new CastSpellActionOp(
+                    new ActionInvocationId("light-wrong-rank"),
                     Actor,
                     new SpellReference(new SpellId("light"), 2),
                     TwoActions,
@@ -139,7 +357,13 @@ namespace Game.Rules.Runtime.Tests
             RuleDispatcher dispatcher = CreateDispatcher(store, new SlotTestBook());
 
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(
-                new CastSpellActionOp(Actor, Light, TwoActions, SpellCastSelection.Empty)
+                new CastSpellActionOp(
+                    new ActionInvocationId("light-ranked"),
+                    Actor,
+                    Light,
+                    TwoActions,
+                    SpellCastSelection.Empty
+                )
             );
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
@@ -191,9 +415,15 @@ namespace Game.Rules.Runtime.Tests
                 registryBuilder.Build()
             );
 
-            OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(
-                new CastSpellActionOp(Actor, Light, TwoActions, SpellCastSelection.Empty)
+            ActionInvocationId invocation = new("light-interrupted");
+            CastSpellActionOp operation = new(
+                invocation,
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
             );
+            OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(operation);
 
             Assert.That(result, Is.TypeOf<InterruptedOpResult<CastSpellOutcome>>());
             Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
@@ -201,11 +431,55 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
             Assert.That(result.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
             Assert.That(result.Facts.OfType<SpellSlotSpentFact>().Count(), Is.EqualTo(1));
+            ActionCostsCommittedFact costsCommitted = result
+                .Facts.OfType<ActionCostsCommittedFact>()
+                .Single();
+            Assert.That(costsCommitted.Actor, Is.EqualTo(Actor));
+            Assert.That(
+                costsCommitted.DefinitionId,
+                Is.EqualTo(CastSpellActionDefinition.DefinitionId)
+            );
+            ActionInterruptedFact interrupted = result
+                .Facts.OfType<ActionInterruptedFact>()
+                .Single();
+            Assert.That(interrupted.Actor, Is.EqualTo(Actor));
+            Assert.That(
+                interrupted.DefinitionId,
+                Is.EqualTo(CastSpellActionDefinition.DefinitionId)
+            );
+            Assert.That(result.Facts.OfType<ActionReceiptCommittedFact>(), Is.Empty);
             Assert.That(middleware.Calls, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionReceipts[invocation],
+                Is.TypeOf<InterruptedActionReceipt>()
+            );
+            long interruptedVersion = store.Snapshot.Version;
+
+            OpResult<CastSpellOutcome> retry = await dispatcher.Dispatch(operation);
+
+            Assert.That(retry, Is.TypeOf<InterruptedOpResult<CastSpellOutcome>>());
+            Assert.That(retry.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(interruptedVersion));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(middleware.Calls, Is.EqualTo(1));
+            Assert.That(
+                dispatcher.Trace.OrderedFrames.Count(frame =>
+                    frame.OpType == typeof(CommitPreparedSpellCastOp)
+                ),
+                Is.Zero
+            );
         }
 
         private static CastSpellActionOp Cast() =>
-            new(Actor, Light, TwoActions, SpellCastSelection.Empty);
+            new(
+                new ActionInvocationId($"test-light-{Guid.NewGuid():N}"),
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
 
         private static InMemoryRulesStore CreateStore(
             int actions,
@@ -217,7 +491,8 @@ namespace Game.Rules.Runtime.Tests
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Actor, Player))
                 .SeedHealth(Actor, new HealthState(10, 10))
-                .SeedActionEconomy(Actor, new ActionEconomyState(actions, true));
+                .SeedActionEconomy(Actor, new ActionEconomyState(actions, true))
+                .SeedStatistics(CreatureStatisticsState.Empty(Actor));
             if (binding != null)
                 seed.SeedRuleBinding(binding);
             if (slotUses.HasValue)
@@ -247,7 +522,28 @@ namespace Game.Rules.Runtime.Tests
             return new RuleDispatcherBuilder(store)
                 .UseActiveEffectRules(effectiveRegistry)
                 .UseActionLifecycle(catalog)
-                .UseSpellcastingRules(catalog)
+                .UseSpellcastingRules(catalog, effectiveRegistry)
+                .Build();
+        }
+
+        private static ResolvedOpResult<TResult> RequireResolved<TResult>(OpResult<TResult> result)
+        {
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<TResult>>());
+            return (ResolvedOpResult<TResult>)result;
+        }
+
+        private static RuleDispatcher CreateDispatcher(
+            InMemoryRulesStore store,
+            ISpellBook book,
+            IRollService rolls
+        )
+        {
+            RuleRegistry registry = CreateRegistryBuilder().Build();
+            TestCatalog catalog = new(book);
+            return new RuleDispatcherBuilder(store, rolls)
+                .UseActiveEffectRules(registry)
+                .UseActionLifecycle(catalog)
+                .UseSpellcastingRules(catalog, registry)
                 .Build();
         }
 
@@ -267,7 +563,13 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<CastSpellOutcome> result = await CreateDispatcher(store, book)
                 .Dispatch(
-                    definition.CreateOp(Actor, Light, invalidVariant, SpellCastSelection.Empty)
+                    definition.CreateOp(
+                        new ActionInvocationId("light-invalid-variant"),
+                        Actor,
+                        Light,
+                        invalidVariant,
+                        SpellCastSelection.Empty
+                    )
                 );
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
@@ -295,7 +597,8 @@ namespace Game.Rules.Runtime.Tests
                 {
                     new SpellEffectDirective(EffectDefinition, EffectDuration.Indefinite, "self"),
                 },
-                Array.Empty<SpellAttackDefinition>()
+                Array.Empty<SpellAttackDefinition>(),
+                Array.Empty<SpellSaveDefinition>()
             );
 
             public TestCatalog(ISpellBook book) => this.book = book;
@@ -417,6 +720,95 @@ namespace Game.Rules.Runtime.Tests
             {
                 Calls++;
                 return default;
+            }
+        }
+
+        private sealed class ThrowingObserver
+            : IResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask OnOperationResolved(
+                CastSpellActionOp operation,
+                CastSpellOutcome result,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Calls++;
+                throw new InvalidOperationException("injected resolved observer failure");
+            }
+        }
+
+        private sealed class CountingProfileResolver : IActionProfileResolver
+        {
+            public int Calls { get; private set; }
+
+            public ActionProfile Resolve(
+                ActionOpInfo action,
+                ActionProfile baseProfile,
+                RulesSnapshot snapshot
+            )
+            {
+                Calls++;
+                return baseProfile;
+            }
+        }
+
+        private sealed class CountingCastValidator : IActionValidator<CastSpellActionOp>
+        {
+            public int Calls { get; private set; }
+
+            public ActionValidationResult Validate(
+                OpFrame<CastSpellActionOp> frame,
+                RulesSnapshot snapshot
+            )
+            {
+                Calls++;
+                return ActionValidationResult.Valid;
+            }
+        }
+
+        private sealed class ThrowOnceCostsCommittedObserver
+            : IFactObserver<ActionCostsCommittedFact>
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask OnFactCommitted(
+                ActionCostsCommittedFact fact,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Calls++;
+                if (Calls == 1)
+                    throw new InvalidOperationException("injected cost checkpoint failure");
+                return default;
+            }
+        }
+
+        private sealed class ThrowOnceReceiptObserver : IFactObserver<ActionReceiptCommittedFact>
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask OnFactCommitted(
+                ActionReceiptCommittedFact fact,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Calls++;
+                if (Calls == 1)
+                    throw new InvalidOperationException("injected final receipt observer failure");
+                return default;
+            }
+        }
+
+        private sealed class CountingRollService : IRollService
+        {
+            public int Calls { get; private set; }
+
+            public RollResult Roll(DiceExpression dice)
+            {
+                Calls++;
+                return new RollResult(dice, Enumerable.Repeat(1, dice.Count));
             }
         }
 
