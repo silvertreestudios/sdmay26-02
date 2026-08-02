@@ -314,6 +314,7 @@ namespace TestsUI
             HUDController hud = HUDController.GetInstance();
             Button original = root.Q<Button>("TacticsModeButton");
             Assert.That(original, Is.Not.Null);
+            Assert.That(original.ClassListContains("btn-tactics-mode"), Is.True);
             int returnRequests = 0;
             hud.ConfigureTacticsControl(
                 () => Assert.Fail("The tactics callback should not run in Tactics."),
@@ -323,6 +324,7 @@ namespace TestsUI
                     return true;
                 }
             );
+            Assert.That(original.text, Is.EqualTo("Enter Tactics"));
             hud.ShowTactics();
 
             hud.enabled = false;

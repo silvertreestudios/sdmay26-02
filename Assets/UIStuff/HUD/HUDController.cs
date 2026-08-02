@@ -198,6 +198,7 @@ public class HUDController
         {
             tacticsModeButton = new Button { name = "TacticsModeButton", text = "Enter Tactics" };
             tacticsModeButton.AddToClassList("btn-speed");
+            tacticsModeButton.AddToClassList("btn-tactics-mode");
             VisualElement tacticsControlHost = ui.Q<VisualElement>("SpeedControlBar");
             if (tacticsControlHost == null)
                 throw new InvalidOperationException("The HUD is missing SpeedControlBar.");
