@@ -117,6 +117,61 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task MatchingTargetPreparedDamageImmunityPreventsSpellAttackDamage()
+        {
+            InMemoryRulesStore store = CreateStore(
+                targetImmunities: new[]
+                {
+                    new PreparedImmunityDescriptor("spirit", PreparedImmunityKind.Damage),
+                }
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                new TestResolutionDataProvider(Data(15), ActionValidationResult.Valid),
+                new ScriptedRollService(10, 2, 3)
+            );
+
+            var dispatch = await DispatchResolvedAttack(dispatcher, Cast(Target));
+
+            Assert.That(dispatch.Attack.Degree, Is.EqualTo(DegreeOfSuccess.Success));
+            Assert.That(dispatch.Attack.Damage.Single().DamageType, Is.EqualTo("spirit"));
+            Assert.That(dispatch.Attack.Damage.Single().Amount, Is.Zero);
+            Assert.That(dispatch.Attack.FinalDamage, Is.Zero);
+            Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(30));
+            Assert.That(dispatch.Cast.Facts.OfType<DamageAppliedFact>(), Is.Empty);
+        }
+
+        [Test]
+        public async Task SpellAttackIgnoresActorAndNonDamageOrNonmatchingTargetImmunities()
+        {
+            InMemoryRulesStore store = CreateStore(
+                actorImmunities: new[]
+                {
+                    new PreparedImmunityDescriptor("spirit", PreparedImmunityKind.Damage),
+                },
+                targetImmunities: new[]
+                {
+                    new PreparedImmunityDescriptor("spirit", PreparedImmunityKind.Condition),
+                    new PreparedImmunityDescriptor("spirit", PreparedImmunityKind.EffectTrait),
+                    new PreparedImmunityDescriptor("fire", PreparedImmunityKind.Damage),
+                }
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                store,
+                new TestResolutionDataProvider(Data(15), ActionValidationResult.Valid),
+                new ScriptedRollService(10, 2, 3)
+            );
+
+            SpellAttackResolution attack = (
+                await DispatchResolvedAttack(dispatcher, Cast(Target))
+            ).Attack;
+
+            Assert.That(attack.Degree, Is.EqualTo(DegreeOfSuccess.Success));
+            Assert.That(attack.FinalDamage, Is.EqualTo(5));
+            Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(25));
+        }
+
+        [Test]
         public async Task MissDealsNoDamageButAdvancesSharedMap()
         {
             InMemoryRulesStore store = CreateStore();
@@ -314,7 +369,9 @@ namespace Game.Rules.Runtime.Tests
             ActiveRuleBinding binding = null,
             IEnumerable<Modifier> snapshotModifiers = null,
             int priorAttacks = 0,
-            bool seedMap = true
+            bool seedMap = true,
+            IEnumerable<PreparedImmunityDescriptor> actorImmunities = null,
+            IEnumerable<PreparedImmunityDescriptor> targetImmunities = null
         )
         {
             RulesStateSeed seed = new RulesStateSeed()
@@ -324,6 +381,9 @@ namespace Game.Rules.Runtime.Tests
                 .SeedHealth(Actor, new HealthState(30, 30))
                 .SeedHealth(Target, new HealthState(30, 30))
                 .SeedHealth(DeadTarget, new HealthState(0, 30))
+                .SeedPreparedInputs(Actor, PreparedInputs(actorImmunities))
+                .SeedPreparedInputs(Target, PreparedInputs(targetImmunities))
+                .SeedPreparedInputs(DeadTarget, PreparedCreatureInputs.Empty)
                 .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
                 .SeedStatistics(
                     new CreatureStatisticsState(
@@ -343,6 +403,22 @@ namespace Game.Rules.Runtime.Tests
                 seed.SeedRuleBinding(binding);
             return new InMemoryRulesStore(seed);
         }
+
+        private static PreparedCreatureInputs PreparedInputs(
+            IEnumerable<PreparedImmunityDescriptor> immunities
+        ) =>
+            new(
+                0,
+                default,
+                Array.Empty<KeyValuePair<string, int>>(),
+                Array.Empty<string>(),
+                string.Empty,
+                Array.Empty<string>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                Array.Empty<PreparedDefenseDescriptor>(),
+                immunities ?? Array.Empty<PreparedImmunityDescriptor>(),
+                Array.Empty<string>()
+            );
 
         private static RuleDispatcher CreateDispatcher(
             InMemoryRulesStore store,
