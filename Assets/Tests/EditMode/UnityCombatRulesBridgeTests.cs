@@ -993,6 +993,48 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public async Task ProjectedStrideReportsResolutionUntilAsyncProjectionCompletes()
+    {
+        GameObject creatureObject = new GameObject("async-projection-stride-creature");
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            creature.speed = 25;
+            BridgeTestActionController controller =
+                creatureObject.AddComponent<BridgeTestActionController>();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
+                controller,
+                CreateTiles(2)
+            );
+            CreatureId id = bridge.GetCreatureId(controller);
+            BlockingMovementObserver observer = new BlockingMovementObserver();
+
+            ValueTask<bool> pending = bridge.DispatchProjectedStride(
+                id,
+                new MovementPath(new GridPosition(0, 0, 0), new[] { new GridPosition(1, 0, 0) }),
+                observer
+            );
+            await observer.Started;
+
+            Assert.That(bridge.IsResolutionActive, Is.True);
+            bool ownershipReleased = false;
+            bridge.ReleaseOwnership(() => ownershipReleased = true);
+            Assert.That(ownershipReleased, Is.False);
+
+            observer.Complete();
+
+            Assert.That(await pending, Is.True);
+            Assert.That(bridge.IsResolutionActive, Is.False);
+            Assert.That(ownershipReleased, Is.True);
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
     public void ProjectedStridePropagatesUnrelatedProjectionFailure()
     {
         GameObject creatureObject = new GameObject("failed-exploration-stride-creature");
@@ -1340,6 +1382,26 @@ public sealed class UnityCombatRulesBridgeTests
             Facts.Add(fact);
             return default;
         }
+    }
+
+    private sealed class BlockingMovementObserver : IFactObserver<TokenMovedFact>
+    {
+        private readonly TaskCompletionSource<bool> started = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> completion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        public Task Started => started.Task;
+
+        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+        {
+            started.TrySetResult(true);
+            return new ValueTask(completion.Task);
+        }
+
+        public void Complete() => completion.TrySetResult(true);
     }
 
     private sealed class FailingMovementObserver : IFactObserver<TokenMovedFact>

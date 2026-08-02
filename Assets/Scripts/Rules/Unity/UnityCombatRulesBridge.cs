@@ -578,14 +578,14 @@ namespace Game.Rules.Unity
             MovementPath path
         )
         {
-            topologyProvider.BeginResolution();
+            BeginResolution();
             try
             {
                 return await dispatcher.Dispatch(new StrideActionOp(creature, path));
             }
             finally
             {
-                topologyProvider.EndResolution();
+                EndResolution();
             }
         }
 
@@ -774,8 +774,7 @@ namespace Game.Rules.Unity
 
         private OpResult<TResult> DispatchResultNow<TResult>(IRuleOp<TResult> operation)
         {
-            dispatchDepth++;
-            topologyProvider.BeginResolution();
+            BeginResolution();
             try
             {
                 ValueTask<OpResult<TResult>> pending = dispatcher.Dispatch(operation);
@@ -789,7 +788,24 @@ namespace Game.Rules.Unity
             }
             finally
             {
+                EndResolution();
+            }
+        }
+
+        private void BeginResolution()
+        {
+            topologyProvider.BeginResolution();
+            dispatchDepth++;
+        }
+
+        private void EndResolution()
+        {
+            try
+            {
                 topologyProvider.EndResolution();
+            }
+            finally
+            {
                 dispatchDepth--;
                 if (dispatchDepth == 0 && releaseRequested)
                     CompleteReleaseOwnership();

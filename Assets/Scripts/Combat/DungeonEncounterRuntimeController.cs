@@ -91,6 +91,7 @@ namespace Game.Combat.Encounters
         private DestinationTravelOwner destinationTravelOwner;
         private bool travelCancelled;
         private DungeonCell? pendingDoorCell;
+        private Vector3Int? pendingDestinationCell;
 
         private bool HasActiveDestinationTravel =>
             destinationTravelOwner != null && destinationTravelOwner.IsActive;
@@ -593,6 +594,7 @@ namespace Game.Combat.Encounters
                 OnPreviewPath.Invoke(new List<Vector3Int>());
             }
             pendingDoorCell = null;
+            pendingDestinationCell = null;
             if (combatManager != null)
                 combatManager.CombatActivityChanged -= OnCombatActivityChanged;
             if (gridInput != null)
@@ -765,6 +767,7 @@ namespace Game.Combat.Encounters
             {
                 travelCancelled = true;
                 pendingDoorCell = clickedCell;
+                pendingDestinationCell = null;
                 return;
             }
             if (TryOpenDoor(clickedCell))
@@ -772,9 +775,24 @@ namespace Game.Combat.Encounters
                 travelCancelled = true;
                 return;
             }
-            if (!IsExplorationActive || HasActionInProgress || HasActiveDestinationTravel)
+            if (!IsExplorationActive)
                 return;
 
+            if (HasActiveDestinationTravel)
+            {
+                travelCancelled = true;
+                pendingDoorCell = null;
+                pendingDestinationCell = cell;
+                return;
+            }
+            if (HasActionInProgress)
+                return;
+
+            TryStartDestinationTravel(cell);
+        }
+
+        private void TryStartDestinationTravel(Vector3Int cell)
+        {
             ActionController travelLeader = selectedLeader;
             Vector3Int origin = Vector3Int.RoundToInt(travelLeader.transform.position);
             List<PathNode> path = grid.GetPathfinder()
@@ -868,8 +886,12 @@ namespace Game.Combat.Encounters
             OnPreviewPath.Invoke(new List<Vector3Int>());
             DungeonCell? queuedDoorCell = pendingDoorCell;
             pendingDoorCell = null;
+            Vector3Int? queuedDestinationCell = pendingDestinationCell;
+            pendingDestinationCell = null;
             if (queuedDoorCell.HasValue && IsExplorationActive)
                 TryOpenDoor(queuedDoorCell.Value);
+            else if (queuedDestinationCell.HasValue && IsExplorationActive)
+                TryStartDestinationTravel(queuedDestinationCell.Value);
         }
 
         private void CancelDestinationTravel()

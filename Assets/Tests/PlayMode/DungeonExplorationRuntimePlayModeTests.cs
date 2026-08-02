@@ -670,6 +670,57 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator DestinationTravelClickReplacesRouteAtCommittedBoundary()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 2) },
+            width: 12,
+            height: 8,
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Replacement Destination Travel Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(activeTravel, Is.Not.Null);
+        bool replacementRequested = false;
+
+        void ReplaceRouteAfterFirstStride()
+        {
+            if (replacementRequested)
+                return;
+
+            replacementRequested = true;
+            RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), new DungeonCell(2, 6));
+        }
+
+        OnActionComplete.AddListener(ReplaceRouteAfterFirstStride);
+        int remainingFrames = 600;
+        try
+        {
+            RaiseGridCellClick(fixture.Map.GetComponent<GridInput>(), new DungeonCell(10, 2));
+            while (remainingFrames-- > 0 && (bool)activeTravel.GetValue(fixture.Runtime))
+                yield return null;
+        }
+        finally
+        {
+            OnActionComplete.RemoveListener(ReplaceRouteAfterFirstStride);
+        }
+
+        Assert.That(
+            remainingFrames,
+            Is.GreaterThan(0),
+            "Replacement destination travel timed out."
+        );
+        Assert.That(replacementRequested, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(2, 6));
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    [UnityTest]
     public IEnumerator DestinationTravelRightClickInputCancelsQueuedStridesFromIdleState()
     {
         RuntimeFixture fixture = CreateRuntimeFixture(
