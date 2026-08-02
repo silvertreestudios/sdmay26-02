@@ -159,7 +159,7 @@ public sealed class DungeonProductionFlowPlayModeTests
     /// controls and preserves party health while confirming traversal through the live HUD.
     /// </summary>
     [UnityTest]
-    public IEnumerator CompletedCombatThenExplorationStrideTraversesStairAndPreservesHealth()
+    public IEnumerator CompletedCombatThenExplorationTravelTraversesStairAndPreservesHealth()
     {
         string directory = TrackDirectory("post-combat-stair-confirm");
         yield return LaunchNewRun(directory, "362");
@@ -189,7 +189,7 @@ public sealed class DungeonProductionFlowPlayModeTests
         ResolveGeneratedEncountersForTraversal(runtime.Lifecycle);
         Assert.That(controller.StartingSeed, Is.EqualTo(362));
 
-        yield return WalkLeaderWithExplorationStride(
+        yield return WalkLeaderWithExplorationTravel(
             leader,
             grid,
             new Vector3Int(down.ArrivalCell.X, 0, down.ArrivalCell.Z)
@@ -871,21 +871,19 @@ public sealed class DungeonProductionFlowPlayModeTests
         update.Invoke(runtime, null);
     }
 
-    private static IEnumerator WalkLeaderWithExplorationStride(
+    private static IEnumerator WalkLeaderWithExplorationTravel(
         ActionController leader,
         GridBase grid,
         Vector3Int destination
     )
     {
-        int remainingStrides = 100;
-        HashSet<Vector3Int> visited = new();
+        int remainingSegments = 100;
         while (
             Vector3Int.RoundToInt(leader.transform.position) != destination
-            && remainingStrides-- > 0
+            && remainingSegments-- > 0
         )
         {
             Vector3Int origin = Vector3Int.RoundToInt(leader.transform.position);
-            visited.Add(origin);
             List<PathNode> route = grid.GetPathfinder()
                 .Pathfind(leader.gameObject, origin, destination);
             if (route == null || route.Count == 0)
@@ -923,53 +921,13 @@ public sealed class DungeonProductionFlowPlayModeTests
                 }
             }
 
-            Vector3Int routeDestination = route[^1].Location;
-            Tile[,] tiles = grid.GetTiles();
-            Vector3Int strideDestination = route
-                .Skip(1)
-                .Take(5)
-                .TakeWhile(node => tiles[node.Location.x, node.Location.z].Occupants.Count == 0)
-                .Select(node => node.Location)
-                .LastOrDefault();
-            if (strideDestination == default)
-            {
-                strideDestination = new[]
-                {
-                    Vector3Int.right,
-                    Vector3Int.left,
-                    new Vector3Int(0, 0, 1),
-                    new Vector3Int(0, 0, -1),
-                }
-                    .Select(offset => origin + offset)
-                    .Where(cell =>
-                        cell.x >= 0
-                        && cell.z >= 0
-                        && cell.x < tiles.GetLength(0)
-                        && cell.z < tiles.GetLength(1)
-                        && tiles[cell.x, cell.z] != null
-                        && tiles[cell.x, cell.z].Occupants.Count == 0
-                    )
-                    .Select(cell => new
-                    {
-                        Cell = cell,
-                        Route = grid.GetPathfinder()
-                            .Pathfind(leader.gameObject, cell, routeDestination),
-                    })
-                    .Where(candidate => candidate.Route != null && candidate.Route.Count > 0)
-                    .OrderBy(candidate => visited.Contains(candidate.Cell))
-                    .ThenBy(candidate => candidate.Route.Count)
-                    .ThenBy(candidate => candidate.Cell.z)
-                    .ThenBy(candidate => candidate.Cell.x)
-                    .Select(candidate => candidate.Cell)
-                    .First();
-            }
-            yield return ExecuteExplorationStrideThroughHud(leader, grid, strideDestination);
+            yield return ExecuteExplorationDestinationClick(leader, grid, route[^1].Location);
         }
 
         Assert.That(
-            remainingStrides,
+            remainingSegments,
             Is.GreaterThan(0),
-            $"Exploration Stride did not reach {destination} within the deterministic bound."
+            $"Exploration travel did not reach {destination} within the deterministic bound."
         );
     }
 
@@ -1044,66 +1002,54 @@ public sealed class DungeonProductionFlowPlayModeTests
         return selected;
     }
 
-    private static IEnumerator ExecuteExplorationStrideThroughHud(
+    private static IEnumerator ExecuteExplorationDestinationClick(
         ActionController leader,
         GridBase grid,
         Vector3Int destination
     )
     {
-        Button stride = null;
-        float buttonDeadline = Time.realtimeSinceStartup + 5f;
-        while (stride == null && Time.realtimeSinceStartup < buttonDeadline)
-        {
-            stride = Object
-                .FindObjectsByType<UIDocument>(
-                    FindObjectsInactive.Exclude,
-                    FindObjectsSortMode.None
-                )
-                .Select(document => document.rootVisualElement.Q<Button>("StrideButton"))
-                .FirstOrDefault(button => button != null && button.enabledSelf);
-            if (stride == null)
-                yield return null;
-        }
-        Assert.That(stride, Is.Not.Null, "The production exploration Stride button was not ready.");
-        PushButton(stride);
+        DungeonEncounterRuntimeController runtime =
+            Object.FindFirstObjectByType<DungeonEncounterRuntimeController>();
+        Assert.That(runtime, Is.Not.Null, "The production dungeon encounter runtime is missing.");
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(activeTravel, Is.Not.Null);
 
-        float selectionDeadline = Time.realtimeSinceStartup + 5f;
+        RaiseGridCellClick(
+            grid.GetComponent<GridInput>(),
+            new DungeonCell(destination.x, destination.z)
+        );
+
+        float movementDeadline = Time.realtimeSinceStartup + 20f;
         while (
-            grid.Fsm.CurrentState is not StateStride
-            && Time.realtimeSinceStartup < selectionDeadline
+            (
+                (bool)activeTravel.GetValue(runtime)
+                || runtime.HasActionInProgress
+                || leader.IsTakingAction
+            )
+            && Time.realtimeSinceStartup < movementDeadline
         )
         {
             yield return null;
         }
-        Assert.That(grid.Fsm.CurrentState, Is.TypeOf<StateStride>());
-
-        OnHover.Invoke(new List<Vector3Int> { destination });
-        grid.Fsm.CurrentState.Leftclick();
-
-        float movementDeadline = Time.realtimeSinceStartup + 10f;
-        while (leader.IsTakingAction && Time.realtimeSinceStartup < movementDeadline)
-            yield return null;
 
         Assert.That(
-            leader.IsTakingAction,
+            (bool)activeTravel.GetValue(runtime),
             Is.False,
-            $"The production exploration Stride from "
-                + $"{Vector3Int.RoundToInt(leader.transform.position)} toward {destination} timed out."
+            $"Production exploration travel toward {destination} timed out."
         );
-        DungeonEncounterRuntimeController runtime =
-            Object.FindFirstObjectByType<DungeonEncounterRuntimeController>();
-        Assert.That(runtime, Is.Not.Null, "The production dungeon encounter runtime is missing.");
-        while (runtime.HasActionInProgress && Time.realtimeSinceStartup < movementDeadline)
-            yield return null;
         Assert.That(
             runtime.HasActionInProgress,
             Is.False,
             "The production exploration party did not finish following the leader."
         );
+        Assert.That(leader.IsTakingAction, Is.False);
         Assert.That(
             Vector3Int.RoundToInt(leader.transform.position),
             Is.EqualTo(destination),
-            "The production exploration Stride did not commit its selected destination."
+            "Production exploration travel did not commit its clicked destination."
         );
     }
 
