@@ -29,10 +29,7 @@ namespace Game.DungeonPersistence.Actors
             CreatureComponent creature = RequireCreature(controller);
             HealthState health = creature.Health;
 
-            IReadOnlyList<DungeonConditionSaveState> conditions = CaptureConditions(
-                controller,
-                identifyActor
-            );
+            IReadOnlyList<DungeonConditionSaveState> conditions = CaptureConditions(controller);
             IReadOnlyList<DungeonTimedEffectSaveState> timedEffects = CaptureTimedEffects(
                 controller,
                 identifyActor
@@ -111,10 +108,7 @@ namespace Game.DungeonPersistence.Actors
                 saved.RageWasActive
             );
 
-            ConditionApplicationSnapshot[] conditions = PrepareConditions(
-                saved.Conditions,
-                resolveActor
-            );
+            ConditionApplicationSnapshot[] conditions = PrepareConditions(saved.Conditions);
             ActiveSpellEffect[] timedEffects = saved
                 .TimedEffects.Select(effect => RestoreTimedEffect(effect, resolveActor))
                 .ToArray();
@@ -187,8 +181,7 @@ namespace Game.DungeonPersistence.Actors
         }
 
         private static IReadOnlyList<DungeonConditionSaveState> CaptureConditions(
-            ActionController controller,
-            Func<GameObject, string> identifyActor
+            ActionController controller
         )
         {
             Conditions conditions = controller.GetComponent<Conditions>();
@@ -198,10 +191,10 @@ namespace Game.DungeonPersistence.Actors
             List<DungeonConditionSaveState> captured = new();
             foreach (ConditionApplicationSnapshot application in conditions.CaptureApplications())
             {
-                string sourceActorId = identifyActor(application.SourceCreature);
-                if (string.IsNullOrWhiteSpace(sourceActorId))
+                string sourceActorId = application.SourceActorId;
+                if (!DurableActorSourceIdentity.IsCanonical(sourceActorId))
                     throw new InvalidOperationException(
-                        $"Condition {application.EffectId.Value} has no stable source actor."
+                        $"Condition {application.EffectId.Value} has no canonical durable source actor provenance."
                     );
                 DungeonConditionStateKind stateKind = GetConditionStateKind(application.State);
                 captured.Add(
@@ -233,23 +226,17 @@ namespace Game.DungeonPersistence.Actors
         }
 
         private static ConditionApplicationSnapshot[] PrepareConditions(
-            IReadOnlyList<DungeonConditionSaveState> saved,
-            Func<string, GameObject> resolveActor
+            IReadOnlyList<DungeonConditionSaveState> saved
         )
         {
             return saved
                 .Select(application =>
                 {
-                    GameObject sourceCreature = resolveActor(application.SourceActorId);
-                    if (sourceCreature == null)
-                        throw new InvalidOperationException(
-                            $"Condition source actor '{application.SourceActorId}' is unavailable."
-                        );
                     return new ConditionApplicationSnapshot(
                         new ActiveEffectId(application.EffectId),
                         new BindingId(application.BindingId),
                         new RuleDefinitionId(application.DefinitionId),
-                        sourceCreature,
+                        application.SourceActorId,
                         RuleSource.FromSlug(application.RuleSource),
                         RestoreDuration(application),
                         new EffectStateVersion(application.Version),

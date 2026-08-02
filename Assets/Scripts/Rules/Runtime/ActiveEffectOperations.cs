@@ -60,23 +60,91 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Pairs one prepared initial effect with its exact active binding.</summary>
+    /// <summary>
+    /// Pairs one prepared effect with its exact binding and optional finite-duration timing.
+    /// </summary>
     public sealed class ActiveEffectRegistration
     {
-        /// <summary>Creates one structurally matched registration pair.</summary>
+        /// <summary>Creates one lifecycle-consistent registration pair without timing.</summary>
+        /// <param name="effect">The prepared active-effect instance.</param>
+        /// <param name="binding">The prepared binding associated with the effect.</param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="effect"/> or <paramref name="binding"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// The binding does not match the effect, or its enabled state does not match the effect's
+        /// lifecycle status.
+        /// </exception>
         public ActiveEffectRegistration(ActiveEffectInstance effect, ActiveRuleBinding binding)
+            : this(effect, binding, null) { }
+
+        /// <summary>
+        /// Creates one lifecycle-consistent registration with optional exact finite timing.
+        /// </summary>
+        /// <param name="effect">The prepared active-effect instance.</param>
+        /// <param name="binding">The prepared binding associated with the effect.</param>
+        /// <param name="timing">
+        /// The prepared encounter timing, or <see langword="null"/> when timing must be derived or
+        /// the effect is not scheduled.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="effect"/> or <paramref name="binding"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// The binding does not match the effect; its enabled state does not match the effect's
+        /// lifecycle status; or timing is supplied for an expired or indefinite effect, has
+        /// different stable identity, or disagrees with the effect's encounter duration.
+        /// </exception>
+        public ActiveEffectRegistration(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            ActiveEffectTimingState timing
+        )
         {
             Effect = effect ?? throw new ArgumentNullException(nameof(effect));
             Binding = binding ?? throw new ArgumentNullException(nameof(binding));
-            if (
-                !binding.EffectId.HasValue
-                || binding.EffectId.Value != effect.Id
-                || binding.DefinitionId != effect.DefinitionId
-                || binding.Source != effect.Source
-            )
+            Timing = timing;
+            if (!BindingMatchesEffect(effect, binding))
                 throw new ArgumentException(
                     "The binding does not match the active effect.",
                     nameof(binding)
+                );
+            if ((effect.Status == ActiveEffectStatus.Active) != binding.IsEnabled)
+                throw new ArgumentException(
+                    "The binding enabled state must match the active effect lifecycle status.",
+                    nameof(binding)
+                );
+            if (timing != null && effect.Status != ActiveEffectStatus.Active)
+                throw new ArgumentException(
+                    "Timing is allowed only for an active effect.",
+                    nameof(timing)
+                );
+            if (timing != null && effect.Duration.Kind == EffectDurationKind.Indefinite)
+                throw new ArgumentException(
+                    "Timing is allowed only for a finite-duration effect.",
+                    nameof(timing)
+                );
+            if (
+                timing != null
+                && (
+                    timing.Effect != effect.Id
+                    || timing.Binding != binding.Id
+                    || timing.SourceCreature != effect.SourceCreature
+                    || timing.CreationOrder != binding.CreationOrder
+                )
+            )
+                throw new ArgumentException(
+                    "The timing does not match the active-effect registration.",
+                    nameof(timing)
+                );
+            if (
+                timing != null
+                && timing.ExpiresWithEncounter
+                    != (effect.Duration.Kind == EffectDurationKind.Encounter)
+            )
+                throw new ArgumentException(
+                    "The timing encounter-expiration flag does not match the effect duration.",
+                    nameof(timing)
                 );
         }
 
@@ -85,6 +153,20 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the prepared binding.</summary>
         public ActiveRuleBinding Binding { get; }
+
+        /// <summary>
+        /// Gets exact prepared timing for this active finite-duration effect, when supplied.
+        /// </summary>
+        public ActiveEffectTimingState Timing { get; }
+
+        internal static bool BindingMatchesEffect(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding
+        ) =>
+            binding.EffectId.HasValue
+            && binding.EffectId.Value == effect.Id
+            && binding.DefinitionId == effect.DefinitionId
+            && binding.Source == effect.Source;
     }
 
     /// <summary>Atomically adopts a deterministic batch of prepared active-effect pairs.</summary>

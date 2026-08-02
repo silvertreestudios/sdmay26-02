@@ -340,11 +340,42 @@ namespace Game.Rules.Runtime
         /// </summary>
         public bool IsInitiativeBoundaryPending { get; }
 
+        /// <summary>
+        /// Gets whether the current round and cursor identify a published initiative boundary
+        /// whose exact actor turn has not begun.
+        /// </summary>
+        /// <remarks>
+        /// This durable checkpoint distinguishes retrying the already published boundary from
+        /// ordinary advancement, which would consume the next roster slot.
+        /// </remarks>
+        public bool IsTurnStartPending { get; }
+
+        /// <summary>
+        /// Gets the durable progress of ordered turn-start adapters for the published boundary.
+        /// </summary>
+        /// <remarks>
+        /// This is present exactly while <see cref="IsTurnStartPending"/> is <see langword="true"/>.
+        /// It lets a fresh dispatcher root resume after the most recently committed adapter instead
+        /// of replaying adapters that have already completed their external work.
+        /// </remarks>
+        public TurnStartAdapterProgress TurnStartAdapterProgress { get; }
+
         internal IReadOnlyDictionary<CreatureId, CombatantRulesState> ReinforcementRegistrations =>
             reinforcementRegistrations;
 
         internal IReadOnlyList<CreatureId> PublishedInitiativeAssignments =>
             publishedInitiativeAssignments;
+
+        /// <summary>
+        /// Determines whether a reinforcement registration committed for the supplied creature.
+        /// </summary>
+        /// <param name="creature">The prospective reinforcement identity.</param>
+        /// <returns>
+        /// <see langword="true"/> when the encounter contains the committed registration;
+        /// otherwise, <see langword="false"/>.
+        /// </returns>
+        public bool HasReinforcementRegistration(CreatureId creature) =>
+            reinforcementRegistrations.ContainsKey(creature);
 
         /// <summary>Creates a validated immutable encounter snapshot.</summary>
         /// <param name="id">The stable encounter identity.</param>
@@ -360,6 +391,10 @@ namespace Game.Rules.Runtime
         /// Whether <paramref name="cursor"/> identifies a boundary whose due effects must settle
         /// before its <see cref="InitiativeBoundaryReachedFact"/> can publish.
         /// </param>
+        /// <param name="isTurnStartPending">
+        /// Whether <paramref name="round"/> and <paramref name="cursor"/> identify an already
+        /// published boundary whose exact actor turn has not begun.
+        /// </param>
         public EncounterState(
             EncounterId id,
             EncounterPhase phase,
@@ -370,7 +405,9 @@ namespace Game.Rules.Runtime
             TurnIdentity? currentTurn,
             long nextTurnSequence,
             EncounterOutcome? outcome,
-            bool isInitiativeBoundaryPending = false
+            bool isInitiativeBoundaryPending = false,
+            bool isTurnStartPending = false,
+            TurnStartAdapterProgress turnStartAdapterProgress = null
         )
             : this(
                 id,
@@ -383,6 +420,8 @@ namespace Game.Rules.Runtime
                 nextTurnSequence,
                 outcome,
                 isInitiativeBoundaryPending,
+                isTurnStartPending,
+                turnStartAdapterProgress,
                 Array.Empty<KeyValuePair<CreatureId, CombatantRulesState>>(),
                 Array.Empty<CreatureId>()
             ) { }
@@ -398,6 +437,8 @@ namespace Game.Rules.Runtime
             long nextTurnSequence,
             EncounterOutcome? outcome,
             bool isInitiativeBoundaryPending,
+            bool isTurnStartPending,
+            TurnStartAdapterProgress turnStartAdapterProgress,
             IEnumerable<KeyValuePair<CreatureId, CombatantRulesState>> reinforcementRegistrations,
             IEnumerable<CreatureId> publishedInitiativeAssignments
         )
@@ -418,11 +459,36 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(nextTurnSequence));
             if (
                 isInitiativeBoundaryPending
-                && (phase != EncounterPhase.Active || cursor < 0 || currentTurn.HasValue)
+                && (
+                    phase != EncounterPhase.Active
+                    || cursor < 0
+                    || currentTurn.HasValue
+                    || isTurnStartPending
+                )
             )
                 throw new ArgumentException(
                     "A pending initiative boundary requires an active encounter, a reached cursor, and no open turn.",
                     nameof(isInitiativeBoundaryPending)
+                );
+            if (
+                isTurnStartPending
+                && (
+                    phase != EncounterPhase.Active
+                    || cursor < 0
+                    || currentTurn.HasValue
+                    || isInitiativeBoundaryPending
+                )
+            )
+                throw new ArgumentException(
+                    "A pending turn start requires an active encounter, one published boundary, and no open turn.",
+                    nameof(isTurnStartPending)
+                );
+            if (isTurnStartPending && turnStartAdapterProgress == null)
+                turnStartAdapterProgress = TurnStartAdapterProgress.Initial;
+            if (!isTurnStartPending && turnStartAdapterProgress != null)
+                throw new ArgumentException(
+                    "Turn-start adapter progress requires a published turn-start checkpoint.",
+                    nameof(turnStartAdapterProgress)
                 );
             Dictionary<CreatureId, CombatantRulesState> copiedRegistrations =
                 reinforcementRegistrations?.ToDictionary(pair => pair.Key, pair => pair.Value)
@@ -462,6 +528,8 @@ namespace Game.Rules.Runtime
             NextTurnSequence = nextTurnSequence;
             Outcome = outcome;
             IsInitiativeBoundaryPending = isInitiativeBoundaryPending;
+            IsTurnStartPending = isTurnStartPending;
+            TurnStartAdapterProgress = turnStartAdapterProgress;
             this.reinforcementRegistrations = new ReadOnlyDictionary<
                 CreatureId,
                 CombatantRulesState
@@ -479,11 +547,20 @@ namespace Game.Rules.Runtime
             long? nextTurnSequence = null,
             EncounterOutcome? outcome = null,
             bool? isInitiativeBoundaryPending = null,
+            bool? isTurnStartPending = null,
+            TurnStartAdapterProgress turnStartAdapterProgress = null,
+            bool clearTurnStartAdapterProgress = false,
             IEnumerable<KeyValuePair<CreatureId, CombatantRulesState>> reinforcementRegistrations =
                 null,
             IEnumerable<CreatureId> publishedInitiativeAssignments = null
-        ) =>
-            new EncounterState(
+        )
+        {
+            bool updatedTurnStartPending = isTurnStartPending ?? IsTurnStartPending;
+            TurnStartAdapterProgress updatedProgress =
+                !updatedTurnStartPending || clearTurnStartAdapterProgress
+                    ? null
+                    : turnStartAdapterProgress ?? TurnStartAdapterProgress;
+            return new EncounterState(
                 Id,
                 phase ?? Phase,
                 ProtagonistTeam,
@@ -494,9 +571,12 @@ namespace Game.Rules.Runtime
                 nextTurnSequence ?? NextTurnSequence,
                 outcome ?? Outcome,
                 isInitiativeBoundaryPending ?? IsInitiativeBoundaryPending,
+                updatedTurnStartPending,
+                updatedProgress,
                 reinforcementRegistrations ?? this.reinforcementRegistrations,
                 publishedInitiativeAssignments ?? this.publishedInitiativeAssignments
             );
+        }
 
         /// <inheritdoc/>
         public bool Equals(EncounterState other) =>
@@ -510,6 +590,8 @@ namespace Game.Rules.Runtime
             && NextTurnSequence == other.NextTurnSequence
             && Outcome == other.Outcome
             && IsInitiativeBoundaryPending == other.IsInitiativeBoundaryPending
+            && IsTurnStartPending == other.IsTurnStartPending
+            && Equals(TurnStartAdapterProgress, other.TurnStartAdapterProgress)
             && roster.SequenceEqual(other.roster)
             && reinforcementRegistrations.Count == other.reinforcementRegistrations.Count
             && reinforcementRegistrations.All(pair =>
@@ -534,6 +616,8 @@ namespace Game.Rules.Runtime
             hash.Add(NextTurnSequence);
             hash.Add(Outcome);
             hash.Add(IsInitiativeBoundaryPending);
+            hash.Add(IsTurnStartPending);
+            hash.Add(TurnStartAdapterProgress);
             foreach (InitiativeEntry entry in roster)
                 hash.Add(entry);
             foreach (
@@ -553,6 +637,52 @@ namespace Game.Rules.Runtime
                 hash.Add(assignment);
             return hash.ToHashCode();
         }
+    }
+
+    /// <summary>
+    /// Identifies the next ordered adapter and its current contribution at one published turn start.
+    /// </summary>
+    /// <remarks>
+    /// The enclosing <see cref="EncounterState"/> supplies the exact encounter, round, roster slot,
+    /// and actor. This value carries only the portion that changes after each successfully returned
+    /// adapter.
+    /// </remarks>
+    public sealed class TurnStartAdapterProgress : IEquatable<TurnStartAdapterProgress>
+    {
+        /// <summary>Gets the first adapter index with work that has not committed.</summary>
+        public int NextAdapterIndex { get; }
+
+        /// <summary>Gets the contribution returned by the immediately preceding adapter.</summary>
+        public TurnStartContribution Contribution { get; }
+
+        /// <summary>Gets the initial standard contribution before any adapter runs.</summary>
+        public static TurnStartAdapterProgress Initial =>
+            new TurnStartAdapterProgress(0, TurnStartContribution.Standard);
+
+        /// <summary>Creates immutable validated turn-start adapter progress.</summary>
+        /// <param name="nextAdapterIndex">The non-negative next adapter index.</param>
+        /// <param name="contribution">The current action contribution.</param>
+        public TurnStartAdapterProgress(int nextAdapterIndex, TurnStartContribution contribution)
+        {
+            if (nextAdapterIndex < 0)
+                throw new ArgumentOutOfRangeException(nameof(nextAdapterIndex));
+            NextAdapterIndex = nextAdapterIndex;
+            Contribution = contribution;
+        }
+
+        /// <inheritdoc/>
+        public bool Equals(TurnStartAdapterProgress other) =>
+            other != null
+            && NextAdapterIndex == other.NextAdapterIndex
+            && Contribution.Actions == other.Contribution.Actions;
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) =>
+            obj is TurnStartAdapterProgress other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            HashCode.Combine(NextAdapterIndex, Contribution.Actions);
     }
 
     /// <summary>

@@ -13,21 +13,75 @@ namespace Game.Rules.Runtime
             out string rejection
         )
         {
-            if (!registry.TryGetDefinition(effect.DefinitionId, out _))
+            if (!registry.ContainsDefinition(effect.DefinitionId))
             {
                 rejection = $"Rule definition {effect.DefinitionId.Value} is unknown.";
                 return false;
             }
-            if (
-                !binding.EffectId.HasValue
-                || binding.EffectId.Value != effect.Id
-                || binding.DefinitionId != effect.DefinitionId
-                || binding.Source != effect.Source
-            )
+            if (!ActiveEffectRegistration.BindingMatchesEffect(effect, binding))
             {
                 rejection =
                     $"Active binding {binding.Id.Value} does not match effect {effect.Id.Value}.";
                 return false;
+            }
+            rejection = string.Empty;
+            return true;
+        }
+
+        public static bool TryResolveCreationTiming(
+            RuleRegistry registry,
+            RulesStateDraft state,
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            out ActiveEffectTimingState timing,
+            out string rejection
+        )
+        {
+            timing = null;
+            if (state.ActiveEffects.Contains(effect.Id))
+            {
+                rejection = $"Active effect {effect.Id.Value} already exists.";
+                return false;
+            }
+            if (state.RuleBindings.Contains(binding.Id))
+            {
+                rejection = $"Active binding {binding.Id.Value} already exists.";
+                return false;
+            }
+            if (!TryValidateRegistration(registry, effect, binding, out rejection))
+                return false;
+            if (effect.EffectStateVersion != EffectStateVersion.Initial)
+            {
+                rejection = "A new active effect must use the initial state version.";
+                return false;
+            }
+            if (effect.Status != ActiveEffectStatus.Active)
+            {
+                rejection = "A new active effect must begin active.";
+                return false;
+            }
+            if (!binding.IsEnabled)
+            {
+                rejection = "A new active effect requires an enabled binding.";
+                return false;
+            }
+
+            if (effect.Duration.Kind != EffectDurationKind.Indefinite)
+            {
+                // Exploration-owned finite effects retain their host-managed lifetime until an
+                // encounter clock exists. Once one exists, scheduling requires that exact roster.
+                EncounterState encounter = state
+                    .Encounters.Select(pair => pair.Value)
+                    .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
+                if (encounter != null)
+                {
+                    if (!encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature))
+                    {
+                        rejection = "The effect source is not in the active encounter roster.";
+                        return false;
+                    }
+                    timing = ActiveEffectTimingState.ForEncounter(effect, binding, encounter);
+                }
             }
             rejection = string.Empty;
             return true;
@@ -63,6 +117,26 @@ namespace Game.Rules.Runtime
             facts.Stage(new ActiveEffectAdoptedFact(effect, binding));
         }
 
+        public static EffectStateVersion CommitStateUpdate(
+            RulesStateDraft state,
+            ActiveEffectInstance effect,
+            IEffectState nextState,
+            FactSink facts
+        )
+        {
+            EffectStateVersion nextVersion = effect.EffectStateVersion.Next();
+            state.ActiveEffects.Set(effect.Id, effect.WithState(nextState, nextVersion));
+            facts.Stage(
+                new ActiveEffectStateUpdatedFact(
+                    effect.Id,
+                    effect.DefinitionId,
+                    effect.EffectStateVersion,
+                    nextVersion
+                )
+            );
+            return nextVersion;
+        }
+
         public static bool TryResolveAdoptionTiming(
             RuleRegistry registry,
             RulesStateDraft state,
@@ -76,28 +150,6 @@ namespace Game.Rules.Runtime
             timing = null;
             if (!TryValidateRegistration(registry, effect, binding, out rejection))
                 return false;
-            if ((effect.Status == ActiveEffectStatus.Active) != binding.IsEnabled)
-            {
-                rejection = "An adopted effect's lifecycle status and binding state disagree.";
-                return false;
-            }
-            if (
-                suppliedTiming != null
-                && (
-                    effect.Status != ActiveEffectStatus.Active
-                    || effect.Duration.Kind == EffectDurationKind.Indefinite
-                    || suppliedTiming.Effect != effect.Id
-                    || suppliedTiming.Binding != binding.Id
-                    || suppliedTiming.SourceCreature != effect.SourceCreature
-                    || suppliedTiming.CreationOrder != binding.CreationOrder
-                    || suppliedTiming.ExpiresWithEncounter
-                        != (effect.Duration.Kind == EffectDurationKind.Encounter)
-                )
-            )
-            {
-                rejection = "Adopted effect timing does not match its exact registration.";
-                return false;
-            }
             EncounterState encounter = state
                 .Encounters.Select(pair => pair.Value)
                 .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
@@ -196,6 +248,136 @@ namespace Game.Rules.Runtime
             rejection = string.Empty;
             return true;
         }
+
+        public static ActiveEffectRemovalOutcome CommitRemoval(
+            RulesStateDraft state,
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            FactSink facts
+        )
+        {
+            state.ActiveEffects.Remove(effect.Id);
+            state.RuleBindings.Remove(binding.Id);
+            state.Frequencies.Remove(binding.Id);
+            state.ActiveEffectTimings.Remove(effect.Id);
+            facts.Stage(
+                new ActiveEffectRemovedFact(
+                    effect.Id,
+                    effect.DefinitionId,
+                    binding.Id,
+                    effect.EffectStateVersion,
+                    effect.Status
+                )
+            );
+            return new ActiveEffectRemovalOutcome(effect.Id, binding.Id);
+        }
+    }
+
+    /// <summary>Validates and commits one generic active-effect adoption transaction.</summary>
+    internal static class ActiveEffectAdoptionReduction
+    {
+        internal static bool TryAdopt(
+            RuleRegistry registry,
+            IReadOnlyList<ActiveEffectRegistration> registrations,
+            RulesStateDraft state,
+            FactSink facts,
+            out int adopted,
+            out string rejection
+        )
+        {
+            if (registry == null)
+                throw new ArgumentNullException(nameof(registry));
+            if (registrations == null)
+                throw new ArgumentNullException(nameof(registrations));
+            if (state == null)
+                throw new ArgumentNullException(nameof(state));
+            if (facts == null)
+                throw new ArgumentNullException(nameof(facts));
+
+            HashSet<ActiveEffectId> effectIds = new HashSet<ActiveEffectId>();
+            HashSet<BindingId> bindingIds = new HashSet<BindingId>();
+            List<(ActiveEffectRegistration Registration, ActiveEffectTimingState Timing)> pending =
+                new List<(ActiveEffectRegistration Registration, ActiveEffectTimingState Timing)>();
+            foreach (ActiveEffectRegistration registration in registrations)
+            {
+                if (
+                    !effectIds.Add(registration.Effect.Id)
+                    || !bindingIds.Add(registration.Binding.Id)
+                )
+                {
+                    adopted = 0;
+                    rejection =
+                        "An active-effect adoption batch contains duplicate stable identities.";
+                    return false;
+                }
+                if (!state.Creatures.Contains(registration.Binding.Owner))
+                {
+                    adopted = 0;
+                    rejection = "An active-effect binding owner is not a registered creature.";
+                    return false;
+                }
+                if (
+                    !ActiveEffectReduction.TryResolveAdoptionTiming(
+                        registry,
+                        state,
+                        registration.Effect,
+                        registration.Binding,
+                        registration.Timing,
+                        out ActiveEffectTimingState expectedTiming,
+                        out rejection
+                    )
+                )
+                {
+                    adopted = 0;
+                    return false;
+                }
+
+                bool hasEffect = state.ActiveEffects.TryGet(
+                    registration.Effect.Id,
+                    out ActiveEffectInstance existingEffect
+                );
+                bool hasBinding = state.RuleBindings.TryGet(
+                    registration.Binding.Id,
+                    out ActiveRuleBinding existingBinding
+                );
+                bool hasTiming = state.ActiveEffectTimings.TryGet(
+                    registration.Effect.Id,
+                    out ActiveEffectTimingState existingTiming
+                );
+                if (hasEffect || hasBinding || hasTiming)
+                {
+                    if (
+                        hasEffect
+                        && hasBinding
+                        && ActiveEffectInstanceExactEquality.Equals(
+                            existingEffect,
+                            registration.Effect
+                        )
+                        && existingBinding.Equals(registration.Binding)
+                        && hasTiming == (expectedTiming != null)
+                        && (!hasTiming || existingTiming.Equals(expectedTiming))
+                    )
+                        continue;
+                    adopted = 0;
+                    rejection =
+                        "An adopted active-effect identity is already used by different or partial state.";
+                    return false;
+                }
+                pending.Add((registration, expectedTiming));
+            }
+
+            foreach (var item in pending)
+                ActiveEffectReduction.CommitAdoption(
+                    state,
+                    item.Registration.Effect,
+                    item.Registration.Binding,
+                    item.Timing,
+                    facts
+                );
+            adopted = pending.Count;
+            rejection = string.Empty;
+            return true;
+        }
     }
 
     internal sealed class CreateActiveEffectReducer
@@ -214,64 +396,17 @@ namespace Game.Rules.Runtime
         {
             ActiveEffectInstance effect = context.Op.Effect;
             ActiveRuleBinding binding = context.Op.Binding;
-            if (state.ActiveEffects.Contains(effect.Id))
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    $"Active effect {effect.Id.Value} already exists."
-                );
-            }
-            if (state.RuleBindings.Contains(binding.Id))
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    $"Active binding {binding.Id.Value} already exists."
-                );
-            }
             if (
-                !ActiveEffectReduction.TryValidateRegistration(
+                !ActiveEffectReduction.TryResolveCreationTiming(
                     registry,
+                    state,
                     effect,
                     binding,
+                    out ActiveEffectTimingState timing,
                     out string rejection
                 )
             )
                 return ReductionResult<ActiveEffectCreationOutcome>.Reject(rejection);
-            if (effect.EffectStateVersion != EffectStateVersion.Initial)
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    "A new active effect must use the initial state version."
-                );
-            }
-            if (effect.Status != ActiveEffectStatus.Active)
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    "A new active effect must begin active."
-                );
-            }
-            if (!binding.IsEnabled)
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    "A new active effect requires an enabled binding."
-                );
-            }
-
-            ActiveEffectTimingState timing = null;
-            if (effect.Duration.Kind != EffectDurationKind.Indefinite)
-            {
-                EncounterState encounter = state
-                    .Encounters.Select(pair => pair.Value)
-                    .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
-                // Exploration-owned effects retain their existing host-managed lifetime until an
-                // encounter clock exists. Once a clock exists, every finite effect is scheduled
-                // deterministically and its source must belong to that exact roster.
-                if (encounter != null)
-                {
-                    if (!encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature))
-                        return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                            "The effect source is not in the active encounter roster."
-                        );
-                    timing = ActiveEffectTimingState.ForEncounter(effect, binding, encounter);
-                }
-            }
 
             ActiveEffectReduction.CommitCreation(state, effect, binding, timing, facts);
             return ReductionResult<ActiveEffectCreationOutcome>.Accept(
@@ -311,15 +446,11 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            EffectStateVersion nextVersion = effect.EffectStateVersion.Next();
-            state.ActiveEffects.Set(effect.Id, effect.WithState(context.Op.State, nextVersion));
-            facts.Stage(
-                new ActiveEffectStateUpdatedFact(
-                    effect.Id,
-                    effect.DefinitionId,
-                    effect.EffectStateVersion,
-                    nextVersion
-                )
+            EffectStateVersion nextVersion = ActiveEffectReduction.CommitStateUpdate(
+                state,
+                effect,
+                context.Op.State,
+                facts
             );
             return ReductionResult<ActiveEffectStateUpdateOutcome>.Accept(
                 new ActiveEffectStateUpdateOutcome(
@@ -345,70 +476,19 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            HashSet<ActiveEffectId> effectIds = new HashSet<ActiveEffectId>();
-            HashSet<BindingId> bindingIds = new HashSet<BindingId>();
-            List<(ActiveEffectRegistration Registration, ActiveEffectTimingState Timing)> pending =
-                new List<(ActiveEffectRegistration Registration, ActiveEffectTimingState Timing)>();
-            foreach (ActiveEffectRegistration registration in context.Op.Registrations)
-            {
-                if (
-                    !effectIds.Add(registration.Effect.Id)
-                    || !bindingIds.Add(registration.Binding.Id)
-                )
-                    return ReductionResult<ActiveEffectAdoptionOutcome>.Reject(
-                        "An active-effect adoption batch contains duplicate stable identities."
-                    );
-                if (
-                    !ActiveEffectReduction.TryResolveAdoptionTiming(
-                        registry,
-                        state,
-                        registration.Effect,
-                        registration.Binding,
-                        null,
-                        out ActiveEffectTimingState timing,
-                        out string rejection
-                    )
-                )
-                    return ReductionResult<ActiveEffectAdoptionOutcome>.Reject(rejection);
-                bool hasEffect = state.ActiveEffects.TryGet(
-                    registration.Effect.Id,
-                    out ActiveEffectInstance existingEffect
-                );
-                bool hasBinding = state.RuleBindings.TryGet(
-                    registration.Binding.Id,
-                    out ActiveRuleBinding existingBinding
-                );
-                if (hasEffect || hasBinding)
-                {
-                    bool hasTiming = state.ActiveEffectTimings.TryGet(
-                        registration.Effect.Id,
-                        out ActiveEffectTimingState existingTiming
-                    );
-                    if (
-                        hasEffect
-                        && hasBinding
-                        && existingEffect.Equals(registration.Effect)
-                        && existingBinding.Equals(registration.Binding)
-                        && hasTiming == (timing != null)
-                        && (!hasTiming || existingTiming.Equals(timing))
-                    )
-                        continue;
-                    return ReductionResult<ActiveEffectAdoptionOutcome>.Reject(
-                        "An adopted active-effect ID is already used by different state."
-                    );
-                }
-                pending.Add((registration, timing));
-            }
-            foreach (var item in pending)
-                ActiveEffectReduction.CommitAdoption(
+            if (
+                !ActiveEffectAdoptionReduction.TryAdopt(
+                    registry,
+                    context.Op.Registrations,
                     state,
-                    item.Registration.Effect,
-                    item.Registration.Binding,
-                    item.Timing,
-                    facts
-                );
+                    facts,
+                    out int adopted,
+                    out string rejection
+                )
+            )
+                return ReductionResult<ActiveEffectAdoptionOutcome>.Reject(rejection);
             return ReductionResult<ActiveEffectAdoptionOutcome>.Accept(
-                new ActiveEffectAdoptionOutcome(pending.Count)
+                new ActiveEffectAdoptionOutcome(adopted)
             );
         }
     }
@@ -497,21 +577,8 @@ namespace Game.Rules.Runtime
                 return ReductionResult<ActiveEffectRemovalOutcome>.Reject(rejection);
             }
 
-            state.ActiveEffects.Remove(effect.Id);
-            state.RuleBindings.Remove(binding.Id);
-            state.Frequencies.Remove(binding.Id);
-            state.ActiveEffectTimings.Remove(effect.Id);
-            facts.Stage(
-                new ActiveEffectRemovedFact(
-                    effect.Id,
-                    effect.DefinitionId,
-                    binding.Id,
-                    effect.EffectStateVersion,
-                    effect.Status
-                )
-            );
             return ReductionResult<ActiveEffectRemovalOutcome>.Accept(
-                new ActiveEffectRemovalOutcome(effect.Id, binding.Id)
+                ActiveEffectReduction.CommitRemoval(state, effect, binding, facts)
             );
         }
     }

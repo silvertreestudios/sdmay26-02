@@ -15,36 +15,18 @@ namespace Game.Rules.Runtime
             ActiveEffectTimingState timing = null
         )
         {
-            Effect = effect ?? throw new ArgumentNullException(nameof(effect));
-            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
-            Timing = timing;
+            ActiveEffectRegistration registration = new ActiveEffectRegistration(
+                effect,
+                binding,
+                timing
+            );
+            Effect = registration.Effect;
+            Binding = registration.Binding;
+            Timing = registration.Timing;
             if (!ConditionRuleDefinitions.Accepts(effect.DefinitionId, effect.State))
                 throw new ArgumentException(
                     "The effect is not a canonical condition.",
                     nameof(effect)
-                );
-            if (
-                !binding.EffectId.HasValue
-                || binding.EffectId.Value != effect.Id
-                || binding.DefinitionId != effect.DefinitionId
-                || binding.Source != effect.Source
-            )
-                throw new ArgumentException(
-                    "The binding does not match the condition effect.",
-                    nameof(binding)
-                );
-            if (
-                timing != null
-                && (
-                    timing.Effect != effect.Id
-                    || timing.Binding != binding.Id
-                    || timing.SourceCreature != effect.SourceCreature
-                    || timing.CreationOrder != binding.CreationOrder
-                )
-            )
-                throw new ArgumentException(
-                    "The timing does not match the condition registration.",
-                    nameof(timing)
                 );
         }
 
@@ -240,9 +222,12 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         )
         {
-            string suffix = frame.Id.Value.ToString();
+            ConditionIdentityAllocation identity = ConditionIdentityAllocator.Allocate(
+                frame.Id,
+                context.Snapshot
+            );
             ActiveEffectInstance effect = new ActiveEffectInstance(
-                new ActiveEffectId($"condition-effect-{suffix}"),
+                identity.EffectId,
                 frame.Op.DefinitionId,
                 frame.Op.SourceCreature,
                 frame.Op.Source,
@@ -250,12 +235,12 @@ namespace Game.Rules.Runtime
                 frame.Op.State
             );
             ActiveRuleBinding binding = new ActiveRuleBinding(
-                new BindingId($"condition-binding-{suffix}"),
+                identity.BindingId,
                 effect.DefinitionId,
                 frame.Op.Target,
                 effect.Id,
                 effect.Source,
-                frame.Id.Value
+                identity.CreationOrder
             );
             OpResult<ConditionCreationOutcome> created = await context.Dispatch(
                 new CreateConditionOp(effect, binding)
@@ -267,6 +252,64 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException(invalid.Reason),
                 _ => throw new InvalidOperationException("Condition creation did not resolve."),
             };
+        }
+    }
+
+    internal readonly struct ConditionIdentityAllocation
+    {
+        internal ConditionIdentityAllocation(
+            ActiveEffectId effectId,
+            BindingId bindingId,
+            long creationOrder
+        )
+        {
+            EffectId = effectId;
+            BindingId = bindingId;
+            CreationOrder = creationOrder;
+        }
+
+        internal ActiveEffectId EffectId { get; }
+        internal BindingId BindingId { get; }
+        internal long CreationOrder { get; }
+    }
+
+    internal static class ConditionIdentityAllocator
+    {
+        internal static ConditionIdentityAllocation Allocate(OpId frameId, RulesSnapshot snapshot)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            long maximumCreationOrder = 0;
+            foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in snapshot.RuleBindings)
+                maximumCreationOrder = Math.Max(maximumCreationOrder, pair.Value.CreationOrder);
+            foreach (
+                KeyValuePair<
+                    ActiveEffectId,
+                    ActiveEffectTimingState
+                > pair in snapshot.ActiveEffectTimings
+            )
+                maximumCreationOrder = Math.Max(maximumCreationOrder, pair.Value.CreationOrder);
+            if (maximumCreationOrder == long.MaxValue)
+                throw new InvalidOperationException(
+                    "The condition identity sequence is exhausted."
+                );
+
+            long candidate = Math.Max(frameId.Value, maximumCreationOrder + 1);
+            while (true)
+            {
+                ActiveEffectId effectId = new ActiveEffectId($"condition-effect-{candidate}");
+                BindingId bindingId = new BindingId($"condition-binding-{candidate}");
+                if (
+                    !snapshot.ActiveEffects.Contains(effectId)
+                    && !snapshot.RuleBindings.Contains(bindingId)
+                )
+                    return new ConditionIdentityAllocation(effectId, bindingId, candidate);
+                if (candidate == long.MaxValue)
+                    throw new InvalidOperationException(
+                        "The condition identity sequence is exhausted."
+                    );
+                candidate++;
+            }
         }
     }
 
@@ -284,74 +327,26 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            List<(ConditionRegistration Registration, ActiveEffectTimingState Timing)> pending =
-                new List<(ConditionRegistration Registration, ActiveEffectTimingState Timing)>();
-            HashSet<ActiveEffectId> effectIds = new HashSet<ActiveEffectId>();
-            HashSet<BindingId> bindingIds = new HashSet<BindingId>();
-            foreach (ConditionRegistration registration in context.Op.Registrations)
-            {
-                if (
-                    !effectIds.Add(registration.Effect.Id)
-                    || !bindingIds.Add(registration.Binding.Id)
-                )
-                    return ReductionResult<ConditionAdoptionOutcome>.Reject(
-                        "A condition adoption batch contains duplicate stable identities."
-                    );
-                if (
-                    !ActiveEffectReduction.TryResolveAdoptionTiming(
-                        registry,
-                        state,
-                        registration.Effect,
-                        registration.Binding,
-                        registration.Timing,
-                        out ActiveEffectTimingState expectedTiming,
-                        out string rejection
-                    )
-                )
-                    return ReductionResult<ConditionAdoptionOutcome>.Reject(rejection);
-
-                bool hasEffect = state.ActiveEffects.TryGet(
-                    registration.Effect.Id,
-                    out ActiveEffectInstance effect
-                );
-                bool hasBinding = state.RuleBindings.TryGet(
-                    registration.Binding.Id,
-                    out ActiveRuleBinding binding
-                );
-                if (hasEffect || hasBinding)
-                {
-                    bool hasTiming = state.ActiveEffectTimings.TryGet(
-                        registration.Effect.Id,
-                        out ActiveEffectTimingState timing
-                    );
-                    if (
-                        hasEffect
-                        && hasBinding
-                        && effect.Equals(registration.Effect)
-                        && binding.Equals(registration.Binding)
-                        && hasTiming == (expectedTiming != null)
-                        && (!hasTiming || timing.Equals(expectedTiming))
-                    )
-                        continue;
-                    return ReductionResult<ConditionAdoptionOutcome>.Reject(
-                        "A condition registration ID is already used by different state."
-                    );
-                }
-                pending.Add((registration, expectedTiming));
-            }
-
-            foreach (var item in pending)
-            {
-                ActiveEffectReduction.CommitAdoption(
+            ActiveEffectRegistration[] registrations = context
+                .Op.Registrations.Select(registration => new ActiveEffectRegistration(
+                    registration.Effect,
+                    registration.Binding,
+                    registration.Timing
+                ))
+                .ToArray();
+            if (
+                !ActiveEffectAdoptionReduction.TryAdopt(
+                    registry,
+                    registrations,
                     state,
-                    item.Registration.Effect,
-                    item.Registration.Binding,
-                    item.Timing,
-                    facts
-                );
-            }
+                    facts,
+                    out int adopted,
+                    out string rejection
+                )
+            )
+                return ReductionResult<ConditionAdoptionOutcome>.Reject(rejection);
             return ReductionResult<ConditionAdoptionOutcome>.Accept(
-                new ConditionAdoptionOutcome(pending.Count)
+                new ConditionAdoptionOutcome(adopted)
             );
         }
     }

@@ -61,7 +61,8 @@ public sealed class DungeonEncounterDirectorPlayModeTests
         DungeonEncounterMaterializer materializer = new(
             catalog,
             factory,
-            new DirectorTestRuntimeRegistration()
+            new DirectorTestRuntimeRegistration(),
+            0
         );
         director = new DungeonEncounterDirector(
             new DungeonEncounterStateMachine(CreatePlans()),
@@ -147,7 +148,8 @@ public sealed class DungeonEncounterDirectorPlayModeTests
             new DungeonEncounterMaterializer(
                 catalog,
                 factory,
-                new DirectorTestRuntimeRegistration()
+                new DirectorTestRuntimeRegistration(),
+                0
             ),
             encounterRoot.transform,
             CreateRooms()

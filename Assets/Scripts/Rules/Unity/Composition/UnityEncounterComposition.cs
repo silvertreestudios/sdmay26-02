@@ -61,6 +61,18 @@ namespace Game.Rules.Unity.Composition
         void Reconcile();
     }
 
+    /// <summary>Projects final feature state immediately before Unity authority detaches.</summary>
+    /// <remarks>
+    /// Contributions run once during enrollment-lifetime cleanup while the exact controller and
+    /// rules bridge are still attached. Cleanup continues and aggregates failures if projection
+    /// fails; a feature must not retain the bridge or snapshot after this callback.
+    /// </remarks>
+    internal interface IUnityCombatantOwnershipReleaseContribution
+    {
+        /// <summary>Projects the final immutable feature state needed after detachment.</summary>
+        void ProjectBeforeDetach();
+    }
+
     /// <summary>Completes one-shot enrollment input after the entire batch is installed.</summary>
     /// <remarks>
     /// <see cref="Validate"/> performs every fallible check for the contribution. After every
@@ -96,9 +108,12 @@ namespace Game.Rules.Unity.Composition
     {
         private readonly List<IUnityCombatantStateContribution> stateContributions = new();
         private readonly List<IUnityCombatantInstallationContribution> installations = new();
+        private readonly List<IUnityCombatantOwnershipReleaseContribution> releaseContributions =
+            new();
         private readonly List<IUnityCombatantBatchFinalizationContribution> finalizations = new();
         private readonly List<SpellSlotState> spellSlots = new();
         private readonly List<ActiveRuleBinding> ruleBindings = new();
+        private readonly List<ActiveEffectRegistration> activeEffects = new();
         private readonly CompositeLifetime preparationLifetime;
         private readonly CreatureState creatureState;
         private readonly HealthState health;
@@ -174,9 +189,25 @@ namespace Game.Rules.Unity.Composition
             ruleBindings.AddRange(bindings);
         }
 
+        /// <summary>Adds prepared active effects to the atomic combatant registration.</summary>
+        internal void AddActiveEffects(IEnumerable<ActiveEffectRegistration> registrations)
+        {
+            if (registrations == null)
+                throw new ArgumentNullException(nameof(registrations));
+            activeEffects.AddRange(registrations);
+        }
+
         /// <summary>Adds one fully prepared Unity installation.</summary>
         internal void AddInstallation(IUnityCombatantInstallationContribution contribution) =>
             installations.Add(
+                contribution ?? throw new ArgumentNullException(nameof(contribution))
+            );
+
+        /// <summary>Adds final projection that runs while exact rules authority is attached.</summary>
+        internal void AddOwnershipRelease(
+            IUnityCombatantOwnershipReleaseContribution contribution
+        ) =>
+            releaseContributions.Add(
                 contribution ?? throw new ArgumentNullException(nameof(contribution))
             );
 
@@ -190,6 +221,8 @@ namespace Game.Rules.Unity.Composition
             stateContributions;
         internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations =>
             installations;
+        internal IReadOnlyList<IUnityCombatantOwnershipReleaseContribution> ReleaseContributions =>
+            releaseContributions;
         internal IReadOnlyList<IUnityCombatantBatchFinalizationContribution> Finalizations =>
             finalizations;
 
@@ -202,7 +235,8 @@ namespace Game.Rules.Unity.Composition
                 landSpeed,
                 PreparedInputs,
                 spellSlots,
-                ruleBindings
+                ruleBindings,
+                activeEffects
             );
     }
 

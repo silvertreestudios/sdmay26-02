@@ -5,6 +5,7 @@ using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using UnityEngine;
 
 namespace Game.DungeonPersistence.Repository
@@ -469,17 +470,6 @@ namespace Game.DungeonPersistence.Repository
                         $"Timed effect source actor '{effect.SourceActorId}' is unavailable on '{floorPath}'."
                     );
             }
-            foreach (
-                DungeonConditionSaveState condition in allStates.SelectMany(state =>
-                    state.Conditions
-                )
-            )
-            {
-                if (!actorIds.Contains(condition.SourceActorId))
-                    throw new ArgumentException(
-                        $"Condition source actor '{condition.SourceActorId}' is unavailable on '{floorPath}'."
-                    );
-            }
         }
 
         private static void ValidateCurrentFloorParty(
@@ -722,7 +712,7 @@ namespace Game.DungeonPersistence.Repository
                 || state.TimedEffects.Any(item =>
                     item == null
                     || !IsSupportedTimedEffect(item.Kind)
-                    || string.IsNullOrWhiteSpace(item.SourceActorId)
+                    || !DurableActorSourceIdentity.IsCanonical(item.SourceActorId)
                     || item.RemainingTurnStarts < 0
                 )
                 || state.PreparedEffects.Any(item =>
@@ -751,7 +741,7 @@ namespace Game.DungeonPersistence.Repository
                     || string.IsNullOrWhiteSpace(item.EffectId)
                     || string.IsNullOrWhiteSpace(item.BindingId)
                     || string.IsNullOrWhiteSpace(item.DefinitionId)
-                    || string.IsNullOrWhiteSpace(item.SourceActorId)
+                    || !DurableActorSourceIdentity.IsCanonical(item.SourceActorId)
                     || string.IsNullOrWhiteSpace(item.RuleSource)
                     || RuleSource.FromSlug(item.RuleSource).Slug != item.RuleSource
                     || item.AllowedActionIds == null

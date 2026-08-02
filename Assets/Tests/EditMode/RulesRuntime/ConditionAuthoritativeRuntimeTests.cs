@@ -14,7 +14,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task AliasApplyCommitsCanonicalGenericAndConditionFactsTogether()
         {
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
 
             OpResult<ConditionCreationOutcome> result = await dispatcher.Dispatch(
@@ -64,7 +64,7 @@ namespace Game.Rules.Runtime.Tests
                 source,
                 4
             );
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
             AdoptConditionRegistrationsOp adopt = new AdoptConditionRegistrationsOp(
                 new[] { new ConditionRegistration(effect, binding) }
@@ -128,7 +128,7 @@ namespace Game.Rules.Runtime.Tests
                 8,
                 isEnabled: false
             );
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
             CountingConditionCreatedObserver created = new CountingConditionCreatedObserver();
             using IDisposable registration = dispatcher.RegisterFactObserver<ConditionCreatedFact>(
@@ -167,7 +167,7 @@ namespace Game.Rules.Runtime.Tests
         public async Task AdoptionRejectsLaterLifecycleConflictWithoutStateOrFacts()
         {
             RuleSource source = RuleSource.FromSlug("atomic-adoption");
-            ConditionRegistration valid = Registration(
+            ConditionRegistration pending = Registration(
                 "valid",
                 Owner,
                 ConditionRuleDefinitions.Deafened,
@@ -175,47 +175,57 @@ namespace Game.Rules.Runtime.Tests
                 ConditionMarkerState.Instance,
                 1
             );
-            ActiveEffectInstance conflictingEffect = new ActiveEffectInstance(
-                new ActiveEffectId("effect-conflicting"),
+            ConditionRegistration existing = Registration(
+                "conflicting",
+                Owner,
                 ConditionRuleDefinitions.Fatigued,
-                SourceCreature,
                 source,
-                EffectDuration.Indefinite,
                 ConditionMarkerState.Instance,
-                new EffectStateVersion(2),
-                ActiveEffectStatus.Expired
+                2
             );
-            ConditionRegistration conflicting = new ConditionRegistration(
-                conflictingEffect,
-                new ActiveRuleBinding(
-                    new BindingId("binding-conflicting"),
-                    conflictingEffect.DefinitionId,
-                    Owner,
-                    conflictingEffect.Id,
-                    source,
-                    2,
-                    isEnabled: true
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+            RequireResolved(
+                await dispatcher.Dispatch(new AdoptConditionRegistrationsOp(new[] { existing }))
+            );
+            RequireResolved(
+                await dispatcher.Dispatch(
+                    new CleanupConditionsFromSourceOp(
+                        Owner,
+                        existing.Effect.DefinitionId,
+                        source,
+                        ConditionCleanupKind.Expire
+                    )
                 )
             );
-            InMemoryRulesStore store = new InMemoryRulesStore();
-            RuleDispatcher dispatcher = CreateDispatcher(store);
+            long conflictedVersion = store.Snapshot.Version;
 
             OpResult<ConditionAdoptionOutcome> result = await dispatcher.Dispatch(
-                new AdoptConditionRegistrationsOp(new[] { valid, conflicting })
+                new AdoptConditionRegistrationsOp(new[] { pending, existing })
             );
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionAdoptionOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<ConditionAdoptionOutcome>)result).Reason,
+                Is.EqualTo(
+                    "An adopted active-effect identity is already used by different or partial state."
+                )
+            );
             Assert.That(result.Facts, Is.Empty);
-            Assert.That(store.Snapshot.Version, Is.Zero);
-            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
-            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(conflictedVersion));
+            Assert.That(store.Snapshot.ActiveEffects.Contains(pending.Effect.Id), Is.False);
+            Assert.That(
+                store.Snapshot.ActiveEffects[existing.Effect.Id].Status,
+                Is.EqualTo(ActiveEffectStatus.Expired)
+            );
+            Assert.That(store.Snapshot.RuleBindings[existing.Binding.Id].IsEnabled, Is.False);
         }
 
         [Test]
-        public async Task CleanupRejectsLaterConflictWithoutPartialCommitOrFacts()
+        public async Task CleanupRemovesActiveAndExpiredRegistrationsInStableOrder()
         {
             RuleSource source = RuleSource.FromSlug("atomic-cleanup");
-            ConditionRegistration valid = Registration(
+            ConditionRegistration active = Registration(
                 "cleanup-valid",
                 Owner,
                 ConditionRuleDefinitions.OffGuard,
@@ -223,31 +233,121 @@ namespace Game.Rules.Runtime.Tests
                 ConditionMarkerState.Instance,
                 1
             );
-            ConditionRegistration conflicting = Registration(
+            ConditionRegistration expiresFirst = Registration(
                 "cleanup-conflict",
                 Owner,
                 ConditionRuleDefinitions.Deafened,
                 source,
                 ConditionMarkerState.Instance,
+                2
+            );
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
+            RuleDispatcher dispatcher = CreateDispatcher(store);
+            RequireResolved(
+                await dispatcher.Dispatch(
+                    new AdoptConditionRegistrationsOp(new[] { active, expiresFirst })
+                )
+            );
+            RequireResolved(
+                await dispatcher.Dispatch(
+                    new CleanupConditionsFromSourceOp(
+                        Owner,
+                        expiresFirst.Effect.DefinitionId,
+                        source,
+                        ConditionCleanupKind.Expire
+                    )
+                )
+            );
+
+            ResolvedOpResult<ConditionCleanupOutcome> result = RequireResolved(
+                await dispatcher.Dispatch(
+                    new CleanupConditionsFromSourceOp(source, ConditionCleanupKind.Remove)
+                )
+            );
+
+            Assert.That(
+                result.Value.Affected,
+                Is.EqualTo(new[] { active.Effect.Id, expiresFirst.Effect.Id })
+            );
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+        }
+
+        [Test]
+        public async Task CleanupRejectsLaterConflictWithoutPartialCommitOrFacts()
+        {
+            RuleSource source = RuleSource.FromSlug("atomic-cleanup-rejection");
+            ActiveEffectInstance validEffect = new ActiveEffectInstance(
+                new ActiveEffectId("effect-cleanup-valid"),
+                ConditionRuleDefinitions.OffGuard,
+                SourceCreature,
+                source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            );
+            ActiveRuleBinding validBinding = new ActiveRuleBinding(
+                new BindingId("binding-cleanup-valid"),
+                validEffect.DefinitionId,
+                Owner,
+                validEffect.Id,
+                source,
+                1,
+                isEnabled: true
+            );
+            ActiveEffectInstance conflictingEffect = new ActiveEffectInstance(
+                new ActiveEffectId("effect-cleanup-conflict"),
+                ConditionRuleDefinitions.Deafened,
+                SourceCreature,
+                source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            );
+            ActiveRuleBinding conflictingBinding = new ActiveRuleBinding(
+                new BindingId("binding-cleanup-conflict"),
+                conflictingEffect.DefinitionId,
+                Owner,
+                conflictingEffect.Id,
+                source,
                 2,
                 isEnabled: false
             );
             RulesStateSeed seed = new RulesStateSeed()
-                .SeedActiveEffect(valid.Effect)
-                .SeedRuleBinding(valid.Binding)
-                .SeedActiveEffect(conflicting.Effect)
-                .SeedRuleBinding(conflicting.Binding);
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedCreature(
+                    new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
+                )
+                .SeedActiveEffect(validEffect)
+                .SeedRuleBinding(validBinding)
+                .SeedActiveEffect(conflictingEffect)
+                .SeedRuleBinding(conflictingBinding);
             InMemoryRulesStore store = new InMemoryRulesStore(seed);
             RuleDispatcher dispatcher = CreateDispatcher(store);
+            RulesSnapshot original = store.Snapshot;
 
             OpResult<ConditionCleanupOutcome> result = await dispatcher.Dispatch(
                 new CleanupConditionsFromSourceOp(source, ConditionCleanupKind.Remove)
             );
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<ConditionCleanupOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<ConditionCleanupOutcome>)result).Reason,
+                Is.EqualTo(
+                    "Source cleanup found conflicting lifecycle state for effect-cleanup-conflict."
+                )
+            );
             Assert.That(result.Facts, Is.Empty);
-            Assert.That(store.Snapshot.ActiveEffects.Contains(valid.Effect.Id), Is.True);
-            Assert.That(store.Snapshot.RuleBindings.Contains(valid.Binding.Id), Is.True);
+            Assert.That(store.Snapshot, Is.SameAs(original));
+            Assert.That(store.Snapshot.Version, Is.EqualTo(original.Version));
+            Assert.That(store.Snapshot.ActiveEffects[validEffect.Id], Is.SameAs(validEffect));
+            Assert.That(store.Snapshot.RuleBindings[validBinding.Id], Is.SameAs(validBinding));
+            Assert.That(
+                store.Snapshot.ActiveEffects[conflictingEffect.Id],
+                Is.SameAs(conflictingEffect)
+            );
+            Assert.That(
+                store.Snapshot.RuleBindings[conflictingBinding.Id],
+                Is.SameAs(conflictingBinding)
+            );
         }
 
         [Test]
@@ -279,7 +379,7 @@ namespace Game.Rules.Runtime.Tests
                 ConditionMarkerState.Instance,
                 5
             );
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures(otherOwner);
             RuleDispatcher dispatcher = CreateDispatcher(store);
             RequireResolved(
                 await dispatcher.Dispatch(
@@ -303,7 +403,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task SourceCleanupUsesStableOrderAndExposesLowerSlowedSource()
         {
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
             ResolvedOpResult<ConditionCreationOutcome> low = RequireResolved(
                 await dispatcher.Dispatch(
@@ -358,7 +458,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task StunnedQuickenedAndMarkerSelectorsComposeActiveSources()
         {
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
             await dispatcher.Dispatch(
                 Apply("Stunned", "valued-one", new ValuedStunnedConditionState(1))
@@ -440,7 +540,7 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task MultipleOffGuardSourcesResolveOnePenaltyUntilLastSourceExpires()
         {
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
             RuleDispatcher dispatcher = CreateDispatcher(store);
             await dispatcher.Dispatch(
                 Apply("Off-Guard", "first-off-guard", ConditionMarkerState.Instance)
@@ -567,6 +667,25 @@ namespace Game.Rules.Runtime.Tests
                 .UseActiveEffectRules(registry)
                 .UseConditionRules(registry)
                 .Build();
+        }
+
+        private static InMemoryRulesStore CreateStoreWithRegisteredCreatures(
+            params CreatureId[] additionalCreatures
+        )
+        {
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedCreature(
+                    new CreatureState(SourceCreature, new PlayerId("condition-source-player"))
+                );
+            for (int index = 0; index < additionalCreatures.Length; index++)
+                seed.SeedCreature(
+                    new CreatureState(
+                        additionalCreatures[index],
+                        new PlayerId($"additional-condition-owner-{index}")
+                    )
+                );
+            return new InMemoryRulesStore(seed);
         }
 
         private static ResolvedOpResult<TResult> RequireResolved<TResult>(OpResult<TResult> result)

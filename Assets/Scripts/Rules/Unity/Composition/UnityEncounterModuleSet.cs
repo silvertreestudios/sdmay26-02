@@ -82,7 +82,7 @@ namespace Game.Rules.Unity.Composition
             {
                 new UnityPreparedRulesEncounterModule(),
                 new RottingAuraEncounterModule(owner),
-                new ConditionEncounterModule(owner, registry),
+                new ConditionEncounterModule(owner, registry, installUnityAuthority),
                 new SlowedEncounterModule(),
                 new UnityRageEncounterModule(rageDefinition),
                 new UnityStrikeEncounterModule(

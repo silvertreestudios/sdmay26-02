@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Strike;
@@ -15,6 +16,7 @@ using Object = UnityEngine.Object;
 public class Pf2eRulesTests
 {
     private readonly List<GameObject> created = new();
+    private int nextTargetIdentity;
 
     private static GridPrivate.Tile[,] CreateTiles() =>
         new[,]
@@ -29,6 +31,7 @@ public class Pf2eRulesTests
             if (go != null)
                 Object.DestroyImmediate(go);
         created.Clear();
+        nextTargetIdentity = 0;
         Pf2eItemCatalog.ResetForTests();
     }
 
@@ -720,12 +723,18 @@ public class Pf2eRulesTests
         string identity
     )
     {
+        DungeonPartyMemberIdentity sourceIdentity =
+            sourceCreature.GetComponent<DungeonPartyMemberIdentity>();
+        if (sourceIdentity == null || !sourceIdentity.IsConfigured)
+            throw new System.InvalidOperationException(
+                $"Persisted Off-Guard source '{sourceCreature.name}' requires a configured dungeon party identity."
+            );
         RuleSource source = RuleSource.FromSlug(identity);
         return new ConditionApplicationSnapshot(
             new ActiveEffectId($"effect-{identity}"),
             new BindingId($"binding-{identity}"),
             ConditionRuleDefinitions.OffGuard,
-            sourceCreature,
+            sourceIdentity.RosterSlotId,
             source,
             EffectDuration.Indefinite,
             EffectStateVersion.Initial,
@@ -803,6 +812,9 @@ public class Pf2eRulesTests
     {
         GameObject go = new(name);
         created.Add(go);
+        int identity = nextTargetIdentity++;
+        go.AddComponent<DungeonPartyMemberIdentity>()
+            .Configure($"pf2e-target-{identity}", $"pf2e-target-content-{identity}");
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
         creature.ac = 15;

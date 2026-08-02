@@ -17,16 +17,20 @@ namespace Game.Creature.Rules
             ActionController acting,
             IEnumerable<ActionController> combatants,
             Tile[,] tiles,
-            Func<CreatureComponent, int, RuleSource, ValueTask<DamageOutcome>> applyDamage,
-            Func<CreatureComponent, bool> canReceiveAura,
+            Func<
+                CreatureComponent,
+                IReadOnlyList<CreatureAuraEffectResult>,
+                ValueTask<IReadOnlyList<DamageOutcome>>
+            > commitDamageBatch,
+            Func<CreatureComponent, HealthState> getAuthoritativeHealth,
             Func<CreatureAuraEffectResult, ValueTask> presentResult,
             IPf2eDiceRoller diceRoller = null
         )
         {
-            if (applyDamage == null)
-                throw new ArgumentNullException(nameof(applyDamage));
-            if (canReceiveAura == null)
-                throw new ArgumentNullException(nameof(canReceiveAura));
+            if (commitDamageBatch == null)
+                throw new ArgumentNullException(nameof(commitDamageBatch));
+            if (getAuthoritativeHealth == null)
+                throw new ArgumentNullException(nameof(getAuthoritativeHealth));
             if (presentResult == null)
                 throw new ArgumentNullException(nameof(presentResult));
             List<CreatureAuraEffectResult> results = new();
@@ -34,8 +38,15 @@ namespace Game.Creature.Rules
                 return results;
 
             diceRoller ??= new UnityPf2eDiceRoller();
+            CreatureComponent targetCreature = acting.GetComponent<CreatureComponent>();
+            HealthState projectedHealth = getAuthoritativeHealth(targetCreature);
+            int projectedCurrent = projectedHealth.Current;
+            int projectedTemporary = projectedHealth.Temporary;
+            List<DamageOutcome> projectedOutcomes = new();
             foreach (CreatureAuraInstance instance in GetActiveAuras(combatants))
             {
+                if (projectedCurrent == 0)
+                    break;
                 if (instance.Rule.Timing != CreatureAuraTiming.TurnStart)
                     continue;
                 AreaTargetResult area = CreatureAuraArea.EvaluateEmanation(
@@ -46,9 +57,6 @@ namespace Game.Creature.Rules
                 if (!CreatureAuraArea.AffectsCreature(area, acting.gameObject))
                     continue;
 
-                CreatureComponent targetCreature = acting.GetComponent<CreatureComponent>();
-                if (!canReceiveAura(targetCreature))
-                    continue;
                 CreatureAuraContext context = new(
                     instance.SourceController,
                     acting,
@@ -66,15 +74,46 @@ namespace Game.Creature.Rules
                         $"Aura rule '{instance.Rule.Slug}' has no encounter resolver."
                     );
                 CreatureAuraEffectResult result = rottingAura.Resolve(context);
-                await applyDamage(
-                    targetCreature,
-                    Math.Max(0, result.AppliedDamage),
-                    RuleSource.FromSlug(RottingAuraRule.RuleSlug)
-                );
-                await presentResult(result);
                 results.Add(result);
+                int requested = Math.Max(0, result.AppliedDamage);
+                int appliedToTemporary = Math.Min(projectedTemporary, requested);
+                int appliedToCurrent = Math.Min(projectedCurrent, requested - appliedToTemporary);
+                projectedOutcomes.Add(
+                    new DamageOutcome(requested, appliedToTemporary, appliedToCurrent)
+                );
+                projectedTemporary -= appliedToTemporary;
+                projectedCurrent -= appliedToCurrent;
             }
-            return results;
+            if (results.Count == 0)
+                return results;
+
+            CreatureComponent target = acting.GetComponent<CreatureComponent>();
+            IReadOnlyList<DamageOutcome> outcomes = await commitDamageBatch(target, results);
+            if (outcomes == null || outcomes.Count != results.Count)
+                throw new InvalidOperationException(
+                    "The committed aura damage batch did not return one outcome per result."
+                );
+
+            List<CreatureAuraEffectResult> presented = new List<CreatureAuraEffectResult>(
+                results.Count
+            );
+            for (int index = 0; index < results.Count; index++)
+            {
+                CreatureAuraEffectResult result = results[index];
+                DamageOutcome outcome = outcomes[index];
+                DamageOutcome projected = projectedOutcomes[index];
+                if (
+                    outcome.Requested != projected.Requested
+                    || outcome.AppliedToTemporary != projected.AppliedToTemporary
+                    || outcome.AppliedToCurrent != projected.AppliedToCurrent
+                )
+                    throw new InvalidOperationException(
+                        "The committed aura damage outcome does not match its calculated result."
+                    );
+                await presentResult(result);
+                presented.Add(result);
+            }
+            return presented;
         }
 
         public static List<Vector3Int> GetAuraCells(

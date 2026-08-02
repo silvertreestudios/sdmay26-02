@@ -5,11 +5,11 @@ using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using UnityEngine;
 
-/// <summary>Accepts one-shot restore input and projects authoritative store conditions read-only.</summary>
+/// <summary>Owns one-shot condition input and read-only live or detached persistence projection.</summary>
 /// <remarks>
-/// Pending restore input is consumed after successful enrollment and is never exposed as live
-/// condition state. Once detached, projections fail closed and persistence capture reports that
-/// authoritative state is unavailable.
+/// Live reads use the attached rules store. Encounter release projects one final immutable set
+/// before detachment; that detached set is valid persistence and next-enrollment input even when
+/// empty. It is consumed only after a complete enrollment batch succeeds.
 /// </remarks>
 public sealed class Conditions : MonoBehaviour
 {
@@ -35,6 +35,8 @@ public sealed class Conditions : MonoBehaviour
     {
         if (!TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner))
         {
+            if (hasPending)
+                return pending;
             if (!wasEnrolled && !hasPending)
                 return Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
             throw new InvalidOperationException(
@@ -42,6 +44,30 @@ public sealed class Conditions : MonoBehaviour
             );
         }
 
+        return CaptureAuthoritative(bridge, owner);
+    }
+
+    internal void ProjectDetachedApplications(
+        UnityCombatRulesBridge expectedBridge,
+        CreatureId expectedOwner
+    )
+    {
+        if (
+            !TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner)
+            || !ReferenceEquals(bridge, expectedBridge)
+            || owner != expectedOwner
+        )
+            throw new InvalidOperationException(
+                "Condition detachment projection requires the exact attached combat rules."
+            );
+        ReplacePending(CaptureAuthoritative(bridge, owner));
+    }
+
+    private static IReadOnlyList<ConditionApplicationSnapshot> CaptureAuthoritative(
+        UnityCombatRulesBridge bridge,
+        CreatureId owner
+    )
+    {
         List<ConditionApplicationSnapshot> captured = new List<ConditionApplicationSnapshot>();
         foreach (
             ActiveRuleBinding binding in bridge
@@ -76,12 +102,17 @@ public sealed class Conditions : MonoBehaviour
                 effect.Id,
                 out ActiveEffectTimingState timing
             );
+            string sourceActorId = bridge.GetDurableActorId(effect.SourceCreature);
+            if (!DurableActorSourceIdentity.IsCanonical(sourceActorId))
+                throw new InvalidOperationException(
+                    $"Condition {effect.Id.Value} has no canonical durable source actor provenance."
+                );
             captured.Add(
                 new ConditionApplicationSnapshot(
                     effect.Id,
                     binding.Id,
                     effect.DefinitionId,
-                    bridge.GetController(effect.SourceCreature).gameObject,
+                    sourceActorId,
                     effect.Source,
                     effect.Duration,
                     effect.EffectStateVersion,
@@ -124,15 +155,13 @@ public sealed class Conditions : MonoBehaviour
                 "Restored condition applications require unique stable identities.",
                 nameof(applications)
             );
-        pending = Array.AsReadOnly(copied);
-        pendingGeneration = checked(pendingGeneration + 1);
-        hasPending = copied.Length > 0;
+        ReplacePending(Array.AsReadOnly(copied));
     }
 
     internal bool TryPrepareRestore(
         CreatureId owner,
         EncounterId encounter,
-        Func<GameObject, CreatureId> resolveSource,
+        Func<string, DurableActorSourceResolution> resolveSource,
         out ConditionRestoreLease lease
     )
     {
@@ -150,7 +179,7 @@ public sealed class Conditions : MonoBehaviour
             .Select(application =>
                 application.CreateRegistration(
                     owner,
-                    resolveSource(application.SourceCreature),
+                    resolveSource(application.SourceActorId),
                     encounter
                 )
             )
@@ -165,6 +194,13 @@ public sealed class Conditions : MonoBehaviour
         hasPending = false;
     }
 
+    private void ReplacePending(IReadOnlyList<ConditionApplicationSnapshot> applications)
+    {
+        pending = applications;
+        pendingGeneration = checked(pendingGeneration + 1);
+        hasPending = true;
+    }
+
     private void ValidatePending(long generation)
     {
         if (!hasPending || generation != pendingGeneration)
@@ -173,7 +209,10 @@ public sealed class Conditions : MonoBehaviour
             );
     }
 
-    internal void CompleteEnrollment() => wasEnrolled = true;
+    internal void CompleteEnrollment()
+    {
+        wasEnrolled = true;
+    }
 
     internal bool HasPendingRestore => hasPending;
 
@@ -218,7 +257,7 @@ internal sealed class ConditionApplicationSnapshot
         ActiveEffectId effectId,
         BindingId bindingId,
         RuleDefinitionId definitionId,
-        GameObject sourceCreature,
+        string sourceActorId,
         RuleSource source,
         EffectDuration duration,
         EffectStateVersion version,
@@ -231,8 +270,6 @@ internal sealed class ConditionApplicationSnapshot
     {
         if (effectId.IsEmpty || bindingId.IsEmpty || definitionId.IsEmpty || source.IsEmpty)
             throw new ArgumentException("A persisted condition requires complete stable identity.");
-        if (sourceCreature == null)
-            throw new ArgumentNullException(nameof(sourceCreature));
         if (!ConditionRuleDefinitions.Accepts(definitionId, state))
             throw new ArgumentException(
                 "Persisted state does not match its condition definition.",
@@ -259,7 +296,10 @@ internal sealed class ConditionApplicationSnapshot
         EffectId = effectId;
         BindingId = bindingId;
         DefinitionId = definitionId;
-        SourceCreature = sourceCreature;
+        SourceActorId = DurableActorSourceIdentity.RequireCanonical(
+            sourceActorId,
+            nameof(sourceActorId)
+        );
         Source = source;
         Duration = duration;
         Version = version;
@@ -273,7 +313,7 @@ internal sealed class ConditionApplicationSnapshot
     internal ActiveEffectId EffectId { get; }
     internal BindingId BindingId { get; }
     internal RuleDefinitionId DefinitionId { get; }
-    internal GameObject SourceCreature { get; }
+    internal string SourceActorId { get; }
     internal RuleSource Source { get; }
     internal EffectDuration Duration { get; }
     internal EffectStateVersion Version { get; }
@@ -285,10 +325,28 @@ internal sealed class ConditionApplicationSnapshot
 
     internal ConditionRegistration CreateRegistration(
         CreatureId owner,
-        CreatureId sourceCreature,
+        DurableActorSourceResolution sourceResolution,
         EncounterId encounter
     )
     {
+        CreatureId sourceCreature = sourceResolution.SourceCreature;
+        EffectStateVersion version = Version;
+        ActiveEffectStatus status = Status;
+        bool bindingEnabled = BindingEnabled;
+        ConditionTimingSnapshot timingSnapshot = Timing;
+        if (!sourceResolution.IsPresent)
+        {
+            timingSnapshot = null;
+            if (
+                status == ActiveEffectStatus.Active
+                && Duration.Kind != EffectDurationKind.Indefinite
+            )
+            {
+                version = version.Next();
+                status = ActiveEffectStatus.Expired;
+                bindingEnabled = false;
+            }
+        }
         ActiveEffectInstance effect = new ActiveEffectInstance(
             EffectId,
             DefinitionId,
@@ -296,8 +354,8 @@ internal sealed class ConditionApplicationSnapshot
             Source,
             Duration,
             State,
-            Version,
-            Status
+            version,
+            status
         );
         ActiveRuleBinding binding = new ActiveRuleBinding(
             BindingId,
@@ -306,18 +364,18 @@ internal sealed class ConditionApplicationSnapshot
             EffectId,
             Source,
             CreationOrder,
-            BindingEnabled
+            bindingEnabled
         );
         ActiveEffectTimingState timing =
-            Timing == null
+            timingSnapshot == null
                 ? null
                 : new ActiveEffectTimingState(
                     EffectId,
                     encounter,
                     BindingId,
                     sourceCreature,
-                    Timing.RemainingBoundaries,
-                    Timing.ExpiresWithEncounter,
+                    timingSnapshot.RemainingBoundaries,
+                    timingSnapshot.ExpiresWithEncounter,
                     CreationOrder
                 );
         return new ConditionRegistration(effect, binding, timing);

@@ -58,11 +58,36 @@ namespace Game.Rules.Runtime
         /// <summary>Seeds an active-effect timing schedule for deterministic fixtures.</summary>
         /// <param name="value">The complete effect timing schedule.</param>
         /// <returns>This seed so deterministic fixture composition can continue.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="value"/> is <see langword="null"/>.
+        /// </exception>
         public RulesStateSeed SeedActiveEffectTiming(ActiveEffectTimingState value)
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
             ActiveEffectTimings[value.Effect] = value;
+            return this;
+        }
+
+        /// <summary>
+        /// Adds one active-effect timing schedule without replacing an existing schedule.
+        /// </summary>
+        /// <param name="value">The complete effect timing schedule to add by effect identity.</param>
+        /// <returns>This seed so strict initial-state composition can continue fluently.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="value"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// A timing schedule with the same effect identity was already added.
+        /// </exception>
+        public RulesStateSeed AddUniqueActiveEffectTiming(ActiveEffectTimingState value)
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            if (!ActiveEffectTimings.TryAdd(value.Effect, value))
+                throw new InvalidOperationException(
+                    $"Active-effect timing {value.Effect.Value} is already seeded."
+                );
             return this;
         }
 
@@ -218,6 +243,28 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
+        /// Adds one active-effect instance without replacing an existing effect.
+        /// </summary>
+        /// <param name="value">The complete effect instance to add by ID.</param>
+        /// <returns>This seed so strict initial-state composition can continue fluently.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="value"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// An active effect with the same identity was already added.
+        /// </exception>
+        public RulesStateSeed AddUniqueActiveEffect(ActiveEffectInstance value)
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            if (!ActiveEffects.TryAdd(value.Id, value))
+                throw new InvalidOperationException(
+                    $"Active effect {value.Id.Value} is already seeded."
+                );
+            return this;
+        }
+
+        /// <summary>
         /// Seeds one active or disabled rule binding before the store begins resolving operations.
         /// </summary>
         /// <param name="value">The immutable binding to add or replace by ID.</param>
@@ -283,6 +330,28 @@ namespace Game.Rules.Runtime
                 );
             }
             StatelessRuleBindingGenerations[binding] = generation;
+            return this;
+        }
+
+        /// <summary>
+        /// Adds one active or disabled rule binding without replacing an existing binding.
+        /// </summary>
+        /// <param name="value">The immutable binding to add by ID.</param>
+        /// <returns>This seed so strict initial-state composition can continue fluently.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="value"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// A rule binding with the same identity was already added.
+        /// </exception>
+        public RulesStateSeed AddUniqueRuleBinding(ActiveRuleBinding value)
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            if (!RuleBindings.TryAdd(value.Id, value))
+                throw new InvalidOperationException(
+                    $"Rule binding {value.Id.Value} is already seeded."
+                );
             return this;
         }
 

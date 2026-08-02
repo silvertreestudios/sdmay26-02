@@ -67,8 +67,7 @@ namespace Game.Rules.Runtime
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
-    public sealed class StateSliceDraft<TKey, TValue>
-        : IReadOnlyCollection<KeyValuePair<TKey, TValue>>
+    public class StateSliceDraft<TKey, TValue> : IReadOnlyCollection<KeyValuePair<TKey, TValue>>
     {
         private readonly Dictionary<TKey, TValue> original;
         private readonly Func<TKey, TValue, bool> isValidEntry;
@@ -83,7 +82,7 @@ namespace Game.Rules.Runtime
             this.isValidEntry = isValidEntry;
         }
 
-        internal bool IsDirty
+        internal virtual bool IsDirty
         {
             get
             {
@@ -117,7 +116,7 @@ namespace Game.Rules.Runtime
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        public bool Set(TKey key, TValue value)
+        public virtual bool Set(TKey key, TValue value)
         {
             if (isValidEntry != null && !isValidEntry(key, value))
                 throw new ArgumentException(
@@ -138,7 +137,7 @@ namespace Game.Rules.Runtime
             return true;
         }
 
-        public bool Remove(TKey key)
+        public virtual bool Remove(TKey key)
         {
             if (!Current.ContainsKey(key))
                 return false;
@@ -158,6 +157,115 @@ namespace Game.Rules.Runtime
             // A reducer can retain the draft reference. Never let that reference
             // share a writable dictionary with committed state or old snapshots.
             return writable == null ? original : new Dictionary<TKey, TValue>(writable);
+        }
+    }
+
+    /// <summary>
+    /// Provides reducer-scoped health writes while preserving an internal exact-mutation stamp for
+    /// temporary-Hit-Point pools.
+    /// </summary>
+    /// <remarks>
+    /// A pool change receives a new stamp even when a later write restores the same public amount
+    /// and source. Other health changes preserve the current stamp. Removed entries leave a hidden
+    /// revision tombstone so a later re-add cannot recreate an earlier exact pool identity.
+    /// </remarks>
+    internal sealed class HealthStateDraft : StateSliceDraft<CreatureId, HealthState>
+    {
+        private readonly Dictionary<CreatureId, long> originalTemporaryHitPointRevisionTombstones;
+        private Dictionary<CreatureId, long> writableTemporaryHitPointRevisionTombstones;
+        private bool temporaryHitPointRevisionChanged;
+
+        internal HealthStateDraft(
+            Dictionary<CreatureId, HealthState> original,
+            Dictionary<CreatureId, long> temporaryHitPointRevisionTombstones
+        )
+            : base(original, (id, value) => !id.IsEmpty) =>
+            originalTemporaryHitPointRevisionTombstones =
+                temporaryHitPointRevisionTombstones
+                ?? throw new ArgumentNullException(nameof(temporaryHitPointRevisionTombstones));
+
+        /// <summary>
+        /// Writes health, stamping the value when its temporary-Hit-Point amount or source changed.
+        /// </summary>
+        /// <returns><see langword="true"/> when the transaction's health value changed.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The temporary-Hit-Point revision sequence is exhausted.
+        /// </exception>
+        public override bool Set(CreatureId key, HealthState value)
+        {
+            if (TryGet(key, out HealthState current))
+            {
+                bool poolChanged =
+                    current.Temporary != value.Temporary
+                    || current.TemporarySource != value.TemporarySource;
+                long revision = current.TemporaryHitPointRevision;
+                if (poolChanged)
+                {
+                    if (revision == long.MaxValue)
+                        throw new InvalidOperationException(
+                            "The temporary Hit Point revision sequence is exhausted."
+                        );
+                    revision++;
+                    temporaryHitPointRevisionChanged = true;
+                }
+                value = value.WithTemporaryHitPointRevision(revision);
+            }
+            else
+            {
+                if (
+                    CurrentTemporaryHitPointRevisionTombstones.TryGetValue(
+                        key,
+                        out long removedRevision
+                    )
+                )
+                {
+                    if (removedRevision == long.MaxValue)
+                        throw new InvalidOperationException(
+                            "The temporary Hit Point revision sequence is exhausted."
+                        );
+                    value = value.WithTemporaryHitPointRevision(removedRevision + 1);
+                    bool changed = base.Set(key, value);
+                    EnsureWritableTemporaryHitPointRevisionTombstones();
+                    writableTemporaryHitPointRevisionTombstones.Remove(key);
+                    temporaryHitPointRevisionChanged = true;
+                    return changed;
+                }
+                value = value.WithTemporaryHitPointRevision(0);
+            }
+
+            return base.Set(key, value);
+        }
+
+        /// <summary>
+        /// Removes existing health while retaining the last exact temporary-Hit-Point revision.
+        /// </summary>
+        public override bool Remove(CreatureId key)
+        {
+            if (!TryGet(key, out HealthState current))
+                return false;
+            EnsureWritableTemporaryHitPointRevisionTombstones();
+            writableTemporaryHitPointRevisionTombstones[key] = current.TemporaryHitPointRevision;
+            temporaryHitPointRevisionChanged = true;
+            return base.Remove(key);
+        }
+
+        internal override bool IsDirty => base.IsDirty || temporaryHitPointRevisionChanged;
+
+        internal Dictionary<CreatureId, long> BuildCommittedTemporaryHitPointRevisionTombstones() =>
+            new Dictionary<CreatureId, long>(CurrentTemporaryHitPointRevisionTombstones);
+
+        private Dictionary<CreatureId, long> CurrentTemporaryHitPointRevisionTombstones =>
+            writableTemporaryHitPointRevisionTombstones
+            ?? originalTemporaryHitPointRevisionTombstones;
+
+        private void EnsureWritableTemporaryHitPointRevisionTombstones()
+        {
+            if (writableTemporaryHitPointRevisionTombstones == null)
+            {
+                writableTemporaryHitPointRevisionTombstones = new Dictionary<CreatureId, long>(
+                    originalTemporaryHitPointRevisionTombstones
+                );
+            }
         }
     }
 }

@@ -128,6 +128,7 @@ namespace Game.Rules.Runtime
     public sealed class SequentialOpIdProvider : IOpIdProvider
     {
         private long next;
+        private bool isExhausted;
 
         /// <summary>
         /// Initializes a sequence at the specified positive value.
@@ -147,9 +148,14 @@ namespace Game.Rules.Runtime
         /// <exception cref="InvalidOperationException">The sequence has no remaining positive values.</exception>
         public OpId Next()
         {
-            if (next == long.MaxValue)
+            if (isExhausted)
                 throw new InvalidOperationException("The operation ID sequence is exhausted.");
-            return new OpId(next++);
+            long value = next;
+            if (next == long.MaxValue)
+                isExhausted = true;
+            else
+                next++;
+            return new OpId(value);
         }
     }
 

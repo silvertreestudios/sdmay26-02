@@ -9,6 +9,7 @@ namespace Game.Rules.Runtime
         public Dictionary<CreatureId, PreparedCreatureInputs> PreparedInputs { get; }
         public Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; }
         public Dictionary<CreatureId, HealthState> Health { get; }
+        internal Dictionary<CreatureId, long> TemporaryHitPointRevisionTombstones { get; }
         public Dictionary<CreatureId, GridPosition> Positions { get; }
         public Dictionary<CreatureId, GridDistance> LandSpeeds { get; }
         public Dictionary<CreatureId, MovementBudgetState> MovementBudgets { get; }
@@ -32,6 +33,7 @@ namespace Game.Rules.Runtime
                 new Dictionary<CreatureId, PreparedCreatureInputs>(seed.PreparedInputs),
                 new Dictionary<CreatureId, CreatureStatisticsState>(seed.Statistics),
                 new Dictionary<CreatureId, HealthState>(seed.Health),
+                new Dictionary<CreatureId, long>(),
                 new Dictionary<CreatureId, GridPosition>(seed.Positions),
                 new Dictionary<CreatureId, GridDistance>(seed.LandSpeeds),
                 new Dictionary<CreatureId, MovementBudgetState>(seed.MovementBudgets),
@@ -55,6 +57,7 @@ namespace Game.Rules.Runtime
             Dictionary<CreatureId, PreparedCreatureInputs> preparedInputs,
             Dictionary<CreatureId, CreatureStatisticsState> statistics,
             Dictionary<CreatureId, HealthState> health,
+            Dictionary<CreatureId, long> temporaryHitPointRevisionTombstones,
             Dictionary<CreatureId, GridPosition> positions,
             Dictionary<CreatureId, GridDistance> landSpeeds,
             Dictionary<CreatureId, MovementBudgetState> movementBudgets,
@@ -77,6 +80,7 @@ namespace Game.Rules.Runtime
             PreparedInputs = preparedInputs;
             Statistics = statistics;
             Health = health;
+            TemporaryHitPointRevisionTombstones = temporaryHitPointRevisionTombstones;
             Positions = positions;
             LandSpeeds = landSpeeds;
             MovementBudgets = movementBudgets;

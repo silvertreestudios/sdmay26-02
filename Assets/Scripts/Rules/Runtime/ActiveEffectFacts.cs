@@ -55,7 +55,9 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// Adoption is persistence or enrollment provenance, not gameplay creation. The immutable
     /// effect and binding preserve exact active or expired status, source, owner, version, state,
-    /// duration, and creation order for listeners that need to distinguish those workflows.
+    /// duration, and creation order for listeners that need to distinguish those workflows. When
+    /// adoption commits inside an encounter join, the Fact envelope uses the encounter/join
+    /// operation provenance while this payload retains the feature's exact provenance.
     /// </remarks>
     public sealed class ActiveEffectAdoptedFact : ActiveEffectFact
     {

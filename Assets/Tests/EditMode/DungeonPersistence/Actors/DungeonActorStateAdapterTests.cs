@@ -35,6 +35,9 @@ public sealed class DungeonActorStateAdapterTests
     public void CaptureAndRestorePreservesMutableActorStateWithoutSerializingInventory()
     {
         effectSourceObject = new GameObject("Effect Source");
+        effectSourceObject
+            .AddComponent<DungeonPartyMemberIdentity>()
+            .Configure("source-slot", "effect-source");
         DungeonPersistenceTestActionController effectSource =
             effectSourceObject.AddComponent<DungeonPersistenceTestActionController>();
         CreatureComponent effectSourceCreature =
@@ -163,6 +166,9 @@ public sealed class DungeonActorStateAdapterTests
     public void ConditionPersistenceRoundTripsExactTypedLifecycleAndStableElection()
     {
         effectSourceObject = new GameObject("Condition Source");
+        effectSourceObject
+            .AddComponent<DungeonPartyMemberIdentity>()
+            .Configure("source-slot", "condition-source");
         DungeonPersistenceTestActionController effectSource =
             effectSourceObject.AddComponent<DungeonPersistenceTestActionController>();
         CreatureComponent effectCreature = effectSourceObject.AddComponent<CreatureComponent>();
@@ -439,6 +445,35 @@ public sealed class DungeonActorStateAdapterTests
     }
 
     [Test]
+    public void ConditionRestoreRetainsUnavailableDurableSourceWithoutResolvingUnityActor()
+    {
+        SourceFixture restored = CreateFixture("Unavailable Condition Source", out restoredObject);
+        DungeonConditionSaveState condition = SavedMarkerCondition(
+            "effect-unavailable-source",
+            "binding-unavailable-source",
+            1
+        );
+        condition.SourceActorId = "defeated-source";
+        Action apply = DungeonActorStateAdapter.PrepareRestore(
+            restored.Controller,
+            ValidSavedActor(condition),
+            12,
+            false,
+            _ =>
+                throw new AssertionException(
+                    "Condition restoration must not resolve a durable source to a Unity object."
+                )
+        );
+
+        apply();
+
+        Assert.That(
+            restored.Conditions.CaptureApplications().Single().SourceActorId,
+            Is.EqualTo("defeated-source")
+        );
+    }
+
+    [Test]
     public void ActorParserRejectsPaddedPersistedRuleIdsBeforeCanonicalUniqueness()
     {
         DungeonActorSaveState paddedEffect = ValidSavedActor(
@@ -455,6 +490,12 @@ public sealed class DungeonActorStateAdapterTests
             1
         );
         paddedDefinition.DefinitionId = $" {ConditionRuleDefinitions.Fatigued.Value} ";
+        DungeonConditionSaveState paddedSource = SavedMarkerCondition(
+            "effect-source",
+            "binding-source",
+            1
+        );
+        paddedSource.SourceActorId = " actor-source ";
 
         Assert.That(
             DungeonSaveJson.ParseActor(JsonUtility.ToJson(paddedEffect)).IsSuccess,
@@ -468,6 +509,10 @@ public sealed class DungeonActorStateAdapterTests
             DungeonSaveJson
                 .ParseActor(JsonUtility.ToJson(ValidSavedActor(paddedDefinition)))
                 .IsSuccess,
+            Is.False
+        );
+        Assert.That(
+            DungeonSaveJson.ParseActor(JsonUtility.ToJson(ValidSavedActor(paddedSource))).IsSuccess,
             Is.False
         );
     }
@@ -504,6 +549,9 @@ public sealed class DungeonActorStateAdapterTests
     private static SourceFixture CreateFixture(string name, out GameObject gameObject)
     {
         gameObject = new GameObject(name);
+        gameObject
+            .AddComponent<DungeonPartyMemberIdentity>()
+            .Configure("owner-slot", "persistence-test-owner");
         DungeonPersistenceTestActionController controller =
             gameObject.AddComponent<DungeonPersistenceTestActionController>();
         CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
@@ -549,7 +597,10 @@ public sealed class DungeonActorStateAdapterTests
                 LeftHandId = string.Empty,
                 RightHandId = string.Empty,
                 ArmorId = string.Empty,
-                Ammunition = Array.Empty<AmmoCount>(),
+                Ammunition = new[]
+                {
+                    new AmmoCount { ammoName = "bolt", quantity = 5 },
+                },
                 UnloadedWeaponIds = Array.Empty<string>(),
             },
         };
@@ -610,7 +661,7 @@ public sealed class DungeonActorStateAdapterTests
             new ActiveEffectId($"effect-{identity}"),
             new BindingId($"binding-{identity}"),
             definition,
-            sourceCreature,
+            "source-slot",
             source,
             duration,
             new EffectStateVersion(version),

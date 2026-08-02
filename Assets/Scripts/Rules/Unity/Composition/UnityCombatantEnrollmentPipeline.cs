@@ -14,16 +14,19 @@ namespace Game.Rules.Unity.Composition
     {
         private readonly UnityCombatRulesBridge owner;
         private readonly UnityEncounterComposition composition;
+        private readonly RuleRegistry registry;
         private readonly bool installUnityAuthority;
 
         internal UnityCombatantEnrollmentPipeline(
             UnityCombatRulesBridge owner,
             UnityEncounterComposition composition,
+            RuleRegistry registry,
             bool installUnityAuthority
         )
         {
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.composition = composition ?? throw new ArgumentNullException(nameof(composition));
+            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
             this.installUnityAuthority = installUnityAuthority;
         }
 
@@ -99,9 +102,58 @@ namespace Game.Rules.Unity.Composition
                             initiativeModifier,
                             builder.StateContributions,
                             builder.Installations,
+                            builder.ReleaseContributions,
                             builder.Finalizations
                         )
                     );
+                }
+                HashSet<CreatureId> preparedCreatureIds = new HashSet<CreatureId>(
+                    combatants.Select(combatant => combatant.Registration.State.Creature.Id)
+                );
+                // Registration construction owns structural invariants. Resolve the remaining
+                // encounter-specific invariants against the complete batch while preparation is
+                // still reversible and before the caller can create an initial seed.
+                foreach (PreparedCombatantEnrollment combatant in combatants)
+                {
+                    foreach (
+                        ActiveEffectRegistration registration in combatant
+                            .Registration
+                            .State
+                            .ActiveEffects
+                    )
+                    {
+                        if (!registry.ContainsDefinition(registration.Effect.DefinitionId))
+                            throw new InvalidOperationException(
+                                $"Rule definition {registration.Effect.DefinitionId.Value} is unknown."
+                            );
+                        if (
+                            registration.Effect.Status != ActiveEffectStatus.Active
+                            || registration.Effect.Duration.Kind == EffectDurationKind.Indefinite
+                        )
+                            continue;
+                        if (!preparedCreatureIds.Contains(registration.Effect.SourceCreature))
+                        {
+                            try
+                            {
+                                // Reinforcements may reference an already-enrolled source.
+                                owner.GetController(registration.Effect.SourceCreature);
+                            }
+                            catch (InvalidOperationException exception)
+                            {
+                                throw new InvalidOperationException(
+                                    $"Active finite effect {registration.Effect.Id.Value} has source creature {registration.Effect.SourceCreature.Value}, which is not registered in this encounter.",
+                                    exception
+                                );
+                            }
+                        }
+                        if (
+                            registration.Timing != null
+                            && registration.Timing.Encounter != owner.EncounterId
+                        )
+                            throw new InvalidOperationException(
+                                $"Active finite effect {registration.Effect.Id.Value} has timing for encounter {registration.Timing.Encounter.Value}, not owning encounter {owner.EncounterId.Value}."
+                            );
+                    }
                 }
                 return new UnityCombatantEnrollmentPlan(
                     owner,
@@ -140,6 +192,7 @@ namespace Game.Rules.Unity.Composition
         private readonly bool installUnityAuthority;
         private readonly bool[] healthAttached;
         private readonly bool[] controllersAttached;
+        private readonly bool[] releasesAttached;
         private readonly int[] nextInstallation;
         private int stateCombatantIndex;
         private int stateContributionIndex;
@@ -164,10 +217,29 @@ namespace Game.Rules.Unity.Composition
             this.installUnityAuthority = installUnityAuthority;
             healthAttached = new bool[combatants.Count];
             controllersAttached = new bool[combatants.Count];
+            releasesAttached = new bool[combatants.Count];
             nextInstallation = new int[combatants.Count];
         }
 
-        internal bool ReinforcementCommitStarted => reinforcementCommitStarted;
+        internal bool ReinforcementCommitStarted
+        {
+            get
+            {
+                if (joinCommitted)
+                    return true;
+                if (
+                    !reinforcementCommitStarted
+                    || !owner.Snapshot.Encounters.TryGet(
+                        owner.EncounterId,
+                        out EncounterState encounter
+                    )
+                )
+                    return false;
+                return combatants.Any(combatant =>
+                    encounter.HasReinforcementRegistration(combatant.Registration.State.Creature.Id)
+                );
+            }
+        }
 
         /// <summary>Gets whether this plan owns exactly the supplied retry batch.</summary>
         internal bool Matches(IEnumerable<ActionController> controllers)
@@ -204,7 +276,10 @@ namespace Game.Rules.Unity.Composition
         {
             if (reinforcementsCommitted)
                 return;
-            reinforcementCommitStarted = true;
+            if (!reinforcementCommitStarted)
+            {
+                reinforcementCommitStarted = true;
+            }
             if (!joinCommitted)
             {
                 owner.DispatchEnrollmentRequired(
@@ -278,6 +353,14 @@ namespace Game.Rules.Unity.Composition
                     );
                     controllersAttached[index] = true;
                 }
+                if (!releasesAttached[index])
+                {
+                    foreach (
+                        IUnityCombatantOwnershipReleaseContribution release in combatant.Releases
+                    )
+                        lifetime.Add(new RegistrationToken(release.ProjectBeforeDetach));
+                    releasesAttached[index] = true;
+                }
                 while (nextInstallation[index] < combatant.Installations.Count)
                 {
                     owner.EnsureEnrollmentCanContinue();
@@ -300,6 +383,7 @@ namespace Game.Rules.Unity.Composition
                         (combatant, index) =>
                             healthAttached[index]
                             && controllersAttached[index]
+                            && releasesAttached[index]
                             && nextInstallation[index] == combatant.Installations.Count
                     )
                     .Any(complete => !complete)
@@ -353,6 +437,7 @@ namespace Game.Rules.Unity.Composition
             int initiativeModifier,
             IReadOnlyList<IUnityCombatantStateContribution> state,
             IReadOnlyList<IUnityCombatantInstallationContribution> installations,
+            IReadOnlyList<IUnityCombatantOwnershipReleaseContribution> releases,
             IReadOnlyList<IUnityCombatantBatchFinalizationContribution> finalizations
         )
         {
@@ -360,6 +445,7 @@ namespace Game.Rules.Unity.Composition
             InitiativeModifier = initiativeModifier;
             State = state;
             Installations = installations;
+            Releases = releases;
             Finalizations = finalizations;
         }
 
@@ -369,6 +455,7 @@ namespace Game.Rules.Unity.Composition
         internal int InitiativeModifier { get; }
         internal IReadOnlyList<IUnityCombatantStateContribution> State { get; }
         internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations { get; }
+        internal IReadOnlyList<IUnityCombatantOwnershipReleaseContribution> Releases { get; }
         internal IReadOnlyList<IUnityCombatantBatchFinalizationContribution> Finalizations { get; }
     }
 

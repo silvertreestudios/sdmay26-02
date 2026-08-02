@@ -50,7 +50,11 @@ namespace Game.Rules.Runtime
         /// <returns>The same builder with encounter rules and no transitional start adapters.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="builder"/> is null.</exception>
         public static RuleDispatcherBuilder UseEncounterRules(this RuleDispatcherBuilder builder) =>
-            UseEncounterRules(builder, Array.Empty<IEncounterTurnStartAdapter>());
+            UseEncounterRules(
+                builder,
+                Array.Empty<IEncounterTurnStartAdapter>(),
+                RuleRegistry.Empty
+            );
 
         /// <summary>
         /// Registers encounter transitions plus ordered adapters for unmigrated turn-start behavior.
@@ -64,10 +68,32 @@ namespace Game.Rules.Runtime
         public static RuleDispatcherBuilder UseEncounterRules(
             this RuleDispatcherBuilder builder,
             IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters
+        ) => UseEncounterRules(builder, turnStartAdapters, RuleRegistry.Empty);
+
+        /// <summary>
+        /// Registers encounter transitions, ordered turn-start adapters, and atomic effect adoption.
+        /// </summary>
+        /// <param name="builder">The shared dispatcher builder that owns all encounter rules.</param>
+        /// <param name="turnStartAdapters">
+        /// The spell, aura, and action-contribution adapters to await in exact registration order.
+        /// </param>
+        /// <param name="registry">
+        /// The registry used to validate atomic reinforcement effects. Unity enrollment and these
+        /// encounter reducers must receive the same <see cref="RuleRegistry"/> instance used by
+        /// active-effect rules.
+        /// </param>
+        /// <returns>The same builder so composition can continue.</returns>
+        /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+        public static RuleDispatcherBuilder UseEncounterRules(
+            this RuleDispatcherBuilder builder,
+            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters,
+            RuleRegistry registry
         )
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
+            if (registry == null)
+                throw new ArgumentNullException(nameof(registry));
             IEncounterTurnStartAdapter[] copied =
                 turnStartAdapters?.ToArray()
                 ?? throw new ArgumentNullException(nameof(turnStartAdapters));
@@ -112,7 +138,7 @@ namespace Game.Rules.Runtime
                     Source
                 )
                 .RegisterEngineReducer<CommitEncounterJoinOp, EncounterJoinOutcome>(
-                    new CommitEncounterJoinReducer(),
+                    new CommitEncounterJoinReducer(registry),
                     Source
                 )
                 .RegisterEngineReducer<CommitInitiativeAssignmentsOp, InitiativeAssignmentsOutcome>(
@@ -129,6 +155,18 @@ namespace Game.Rules.Runtime
                 >(new CommitInitiativeBoundaryPublicationReducer(), Source)
                 .RegisterEngineReducer<CommitTurnBeginOp, EncounterAdvanceOutcome>(
                     new CommitTurnBeginReducer(),
+                    Source
+                )
+                .RegisterEngineReducer<CommitTurnStartAdapterProgressOp, TurnStartAdapterProgress>(
+                    new CommitTurnStartAdapterProgressReducer(),
+                    Source
+                )
+                .RegisterEngineReducer<
+                    CommitTurnStartDamageBatchOp,
+                    CommitTurnStartDamageBatchOutcome
+                >(new CommitTurnStartDamageBatchReducer(), Source)
+                .RegisterEngineReducer<CommitInitiativeTurnStartSkippedOp, EncounterAdvanceOutcome>(
+                    new CommitInitiativeTurnStartSkippedReducer(),
                     Source
                 )
                 .RegisterEngineReducer<CommitTurnEndOp, EncounterAdvanceOutcome>(
@@ -435,6 +473,27 @@ namespace Game.Rules.Runtime
                 );
                 return new EncounterAdvanceOutcome(ended.State);
             }
+            if (initial.IsTurnStartPending)
+            {
+                InitiativeEntry pending = initial.Roster[initial.Cursor];
+                if (
+                    pending.EligibleFromRound.CompareTo(initial.Round) <= 0
+                    && EncounterEndValidation.IsLiving(context.Snapshot, pending.Creature)
+                )
+                {
+                    return EncounterHandlerResults.Require(
+                        await context.Dispatch(
+                            new BeginInitiativeTurnOp(
+                                initial.Id,
+                                initial.Round,
+                                initial.Cursor,
+                                pending.Creature
+                            )
+                        ),
+                        "published initiative turn resume"
+                    );
+                }
+            }
             if (initial.IsInitiativeBoundaryPending)
             {
                 await PublishBoundary(initial, context);
@@ -541,6 +600,7 @@ namespace Game.Rules.Runtime
                 encounter.Phase != EncounterPhase.Active
                 || encounter.CurrentTurn.HasValue
                 || encounter.IsInitiativeBoundaryPending
+                || !encounter.IsTurnStartPending
                 || encounter.Round != frame.Op.Round
                 || encounter.Cursor != frame.Op.Slot
                 || encounter.Roster[encounter.Cursor].Creature != frame.Op.Actor
@@ -566,15 +626,21 @@ namespace Game.Rules.Runtime
                 await context.Dispatch(new TurnStartingOp(frame.Op.Encounter, entry.Creature)),
                 "turn-start hook"
             );
-            EncounterState latest = EncounterRuleRuntime.RequireEncounter(
-                context.Snapshot,
-                frame.Op.Encounter
-            );
             if (!EncounterEndValidation.IsLiving(context.Snapshot, entry.Creature))
             {
                 // The hook's zero-HP Fact belongs to this causal root. Return without a turn so
                 // its Reaction listeners settle before encounter Observation evaluates outcome.
-                return new EncounterAdvanceOutcome(latest);
+                return EncounterHandlerResults.Require(
+                    await context.Dispatch(
+                        new CommitInitiativeTurnStartSkippedOp(
+                            frame.Op.Encounter,
+                            frame.Op.Round,
+                            frame.Op.Slot,
+                            frame.Op.Actor
+                        )
+                    ),
+                    "initiative turn-start skip"
+                );
             }
             return EncounterHandlerResults.Require(
                 await context.Dispatch(
@@ -622,10 +688,64 @@ namespace Game.Rules.Runtime
                 await context.Dispatch(new CommitTurnEndOp(frame.Op.Turn)),
                 "turn end"
             );
-            return EncounterHandlerResults.Require(
-                await context.Dispatch(new AdvanceEncounterOp(frame.Op.Turn.Encounter)),
-                "turn advance"
-            );
+            return await AdvanceAfterCommittedTurnEnd(frame.Op.Turn.Encounter, context);
+        }
+
+        /// <summary>
+        /// Advances the encounter after a committed turn end, resuming one uncertain post-commit
+        /// advance before reporting its original failure.
+        /// </summary>
+        /// <remarks>
+        /// A committed initiative boundary can invoke arbitrary fact delivery before it starts the
+        /// next turn. If that delivery fails, the durable encounter state is the recovery
+        /// checkpoint: only the same active encounter with no current turn can be resumed. A
+        /// completed next turn is never replayed, and failures before <see cref="CommitTurnEndOp"/>
+        /// never reach this method.
+        /// </remarks>
+        private static async ValueTask<EncounterAdvanceOutcome> AdvanceAfterCommittedTurnEnd(
+            EncounterId encounter,
+            OpHandlerContext context
+        )
+        {
+            try
+            {
+                return EncounterHandlerResults.Require(
+                    await context.Dispatch(new AdvanceEncounterOp(encounter)),
+                    "turn advance"
+                );
+            }
+            catch (Exception failure)
+            {
+                EncounterState latest = EncounterRuleRuntime.RequireEncounter(
+                    context.Snapshot,
+                    encounter
+                );
+                if (
+                    latest.Phase != EncounterPhase.Active
+                    || latest.CurrentTurn.HasValue
+                    || latest.IsTurnStartPending
+                )
+                    ExceptionDispatchInfo.Capture(failure).Throw();
+
+                ObserverFailureState failures = ObserverFailureState
+                    .CreateEmpty("Multiple turn-advance recovery failures were preserved.")
+                    .Add(failure);
+                try
+                {
+                    EncounterHandlerResults.Require(
+                        await context.Dispatch(new AdvanceEncounterOp(encounter)),
+                        "turn-advance recovery"
+                    );
+                }
+                catch (Exception recoveryFailure)
+                {
+                    failures = failures.Add(recoveryFailure);
+                }
+                failures.ThrowIfAny();
+                throw new InvalidOperationException(
+                    "Turn-advance recovery did not report a failure."
+                );
+            }
         }
     }
 
@@ -788,15 +908,72 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         )
         {
-            TurnStartContribution contribution = TurnStartContribution.Standard;
-            EncounterTurnStartContext adapterContext = new EncounterTurnStartContext(
-                frame.Op.Encounter,
-                frame.Op.Actor,
-                context
+            EncounterState encounter = EncounterRuleRuntime.RequireEncounter(
+                context.Snapshot,
+                frame.Op.Encounter
             );
-            foreach (IEncounterTurnStartAdapter adapter in adapters)
+            TurnStartAdapterProgress progress = encounter.TurnStartAdapterProgress;
+            if (
+                encounter.Phase != EncounterPhase.Active
+                || encounter.CurrentTurn.HasValue
+                || encounter.IsInitiativeBoundaryPending
+                || !encounter.IsTurnStartPending
+                || encounter.Cursor < 0
+                || encounter.Roster[encounter.Cursor].Creature != frame.Op.Actor
+                || progress == null
+                || progress.NextAdapterIndex > adapters.Count
+            )
+                throw new InvalidOperationException(
+                    "Turn-start adapters require the exact current published boundary progress."
+                );
+            TurnStartContribution contribution = progress.Contribution;
+            for (int index = progress.NextAdapterIndex; index < adapters.Count; index++)
             {
-                contribution = await adapter.Apply(adapterContext, contribution);
+                EncounterTurnStartContext adapterContext = new EncounterTurnStartContext(
+                    frame.Op.Encounter,
+                    frame.Op.Actor,
+                    encounter.Round,
+                    encounter.Cursor,
+                    index,
+                    contribution,
+                    context
+                );
+                TurnStartContribution returned = await adapters[index]
+                    .Apply(adapterContext, contribution);
+                progress = EncounterRuleRuntime
+                    .RequireEncounter(context.Snapshot, frame.Op.Encounter)
+                    .TurnStartAdapterProgress;
+                if (adapterContext.HasCommittedCompletion)
+                {
+                    // The adapter used its atomic mutation-plus-completion boundary. Its durable
+                    // checkpoint already owns recovery, so a second progress commit would conflict.
+                    if (
+                        progress == null
+                        || progress.NextAdapterIndex != index + 1
+                        || progress.Contribution.Actions != returned.Actions
+                    )
+                        throw new InvalidOperationException(
+                            "The atomically completed adapter returned a conflicting contribution."
+                        );
+                }
+                else
+                {
+                    progress = EncounterHandlerResults.Require(
+                        await context.Dispatch(
+                            new CommitTurnStartAdapterProgressOp(
+                                frame.Op.Encounter,
+                                encounter.Round,
+                                encounter.Cursor,
+                                frame.Op.Actor,
+                                index,
+                                contribution,
+                                returned
+                            )
+                        ),
+                        "turn-start adapter progress"
+                    );
+                }
+                contribution = progress.Contribution;
                 if (!EncounterEndValidation.IsLiving(context.Snapshot, frame.Op.Actor))
                     break;
             }
@@ -914,6 +1091,7 @@ namespace Game.Rules.Runtime
             if (
                 encounter.Cursor < 0
                 || encounter.IsInitiativeBoundaryPending
+                || !encounter.IsTurnStartPending
                 || encounter.Round != fact.Round
                 || encounter.Roster[encounter.Cursor].Creature != fact.Creature
             )

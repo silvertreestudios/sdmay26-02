@@ -92,11 +92,12 @@ namespace Game.Combat.Spells
                     .Where(projection => projection != null)
                     .ToArray();
                 if (projections.Length > 0)
-                    builder.AddState(
-                        builder.Own(
-                            new RestoredSpellEffectContribution(owner, restoredEffects, projections)
-                        )
+                {
+                    RestoredSpellEffectContribution contribution = builder.Own(
+                        new RestoredSpellEffectContribution(owner, restoredEffects, projections)
                     );
+                    builder.AddActiveEffects(contribution.Registrations);
+                }
             }
             builder.AddSpellSlots(
                 catalog.GetSpellBook(builder.CreatureId).CreateInitialSlotStates(builder.CreatureId)
@@ -113,11 +114,8 @@ namespace Game.Combat.Spells
     /// Owns pre-encounter restored spell-effect state until the encounter releases its complete
     /// composition.
     /// </summary>
-    internal sealed class RestoredSpellEffectContribution
-        : IUnityCombatantStateContribution,
-            IDisposable
+    internal sealed class RestoredSpellEffectContribution : IDisposable
     {
-        private readonly UnityCombatRulesBridge owner;
         private readonly IDictionary<ActiveEffectId, RestoredSpellEffectProjection> projections;
         private readonly IReadOnlyList<RestoredSpellEffectProjection> owned;
         private bool isDisposed;
@@ -128,7 +126,8 @@ namespace Game.Combat.Spells
             IEnumerable<RestoredSpellEffectProjection> owned
         )
         {
-            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            if (owner == null)
+                throw new ArgumentNullException(nameof(owner));
             this.projections = projections ?? throw new ArgumentNullException(nameof(projections));
             RestoredSpellEffectProjection[] copied =
                 owned?.ToArray() ?? throw new ArgumentNullException(nameof(owned));
@@ -142,42 +141,21 @@ namespace Game.Combat.Spells
                     "Restored spell effects require unique encounter identities."
                 );
             this.owned = copied;
+            Registrations = Array.AsReadOnly(
+                copied
+                    .Select(projection => projection.CreateRegistration(owner))
+                    .Select(registration => new ActiveEffectRegistration(
+                        registration.Effect,
+                        registration.Binding
+                    ))
+                    .ToArray()
+            );
             foreach (RestoredSpellEffectProjection projection in copied)
                 projections.Add(projection.EffectId, projection);
         }
 
-        /// <inheritdoc/>
-        public void Seed(RulesStateSeed seed)
-        {
-            if (seed == null)
-                throw new ArgumentNullException(nameof(seed));
-            foreach (RestoredSpellEffectProjection projection in owned)
-            {
-                RestoredSpellEffectRegistration registration = projection.CreateRegistration(owner);
-                seed.SeedActiveEffect(registration.Effect).SeedRuleBinding(registration.Binding);
-            }
-        }
-
-        /// <inheritdoc/>
-        public void Register(UnityCombatRulesBridge bridge)
-        {
-            if (bridge == null)
-                throw new ArgumentNullException(nameof(bridge));
-            ActiveEffectRegistration[] registrations = owned
-                .Select(projection => projection.CreateRegistration(owner))
-                .Select(registration => new ActiveEffectRegistration(
-                    registration.Effect,
-                    registration.Binding
-                ))
-                .ToArray();
-            ActiveEffectAdoptionOutcome result = bridge.DispatchRequired(
-                new AdoptActiveEffectRegistrationsOp(
-                    registrations,
-                    RuleSource.FromSlug("restored-spell-effect-enrollment")
-                )
-            );
-            _ = result;
-        }
+        /// <summary>Gets the prepared registrations contributed to atomic combatant state.</summary>
+        internal IReadOnlyList<ActiveEffectRegistration> Registrations { get; }
 
         /// <inheritdoc/>
         public void Dispose()
@@ -276,7 +254,7 @@ namespace Game.Combat.Spells
             ActiveRuleBinding binding = new(
                 BindingId,
                 UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId,
-                sourceId,
+                Target,
                 EffectId,
                 ruleSource,
                 CreationOrder

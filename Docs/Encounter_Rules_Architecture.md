@@ -20,9 +20,9 @@ controller and creature are attached to that exact bridge, the following state i
 | Turn ownership | `EncounterState.CurrentTurn` and exact `TurnIdentity`; `ActionController.HasTurnAuthority` is a read projection. |
 | Actions and reactions | `ActionEconomyState`; `ActionController.ActionPoints` and `Reacted` project it. |
 | Multiple attack penalty | `MultipleAttackPenaltyState`; `ActionController.StrikePenalty` projects its attack count. |
-| Health | `HealthState`; `CreatureComponent.Health`, `hp`, `maxHp`, and `tempHp` read it while attached. Health Facts project committed values and presentation back to Unity. |
+| Health | `HealthState`; `CreatureComponent.Health`, `hp`, `maxHp`, and `tempHp` read it while attached. Health Facts project committed values and presentation back to Unity. A private temporary-Hit-Point pool revision distinguishes exact internal mutations for rollback safety but is deliberately absent from public equality, Facts, outcomes, and persistence. |
 | Position and movement | `RulesSnapshot.Positions`, movement budgets, permissions, and movement reducers. Token movement is a committed-Fact projection. |
-| Encounter roster, initiative, round, and outcome | `EncounterState`, its roster and cursor, and encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
+| Encounter roster, initiative, round, and outcome | `EncounterState`, its roster and cursor, durable published-boundary turn-start checkpoint, and encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
 | Active-effect timing | `ActiveEffectInstance` and `ActiveEffectTimingState`, advanced at encounter initiative boundaries. |
 | Prepared rule participation | `RulesSnapshot.PreparedInputs` owns normalized creature facts and `RulesSnapshot.RuleBindings` alone controls whether definition-owned compiled behavior participates. `PreparedRulePackage` is only the ephemeral compiler result used to seed those slices. |
 | Migrated action slices | Stride, Strike, Reload, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
@@ -71,8 +71,10 @@ explicit static-composition pass that feature modules cannot defer to `Configure
 
 `RuleRegistry` is immutable. `CombatActionCatalog` is instead a stable composed interface over
 encounter-live adapters. Both are constructed before `UnityCombatRulesBridge` supplies them to
-`UseActionLifecycle(modules.ActionCatalog)` and `UseActiveEffectRules(modules.Registry)`, and before
-any module's `ConfigureDispatcher` pass. The catalog's composed capabilities are stable, but
+`UseActionLifecycle(modules.ActionCatalog)`, `UseActiveEffectRules(modules.Registry)`, and
+`UseEncounterRules(..., modules.Registry)`, and before any module's `ConfigureDispatcher` pass.
+The shared registry instance keeps Unity enrollment and encounter join reducers under the same
+definition authority. The catalog's composed capabilities are stable, but
 combatant-specific data remains encounter-live:
 `UnityStrikeContext.Register` adds item definitions during reinforcement preparation, and
 `UnitySpellBookProvider` reads the live creature map. Do not snapshot combatant-specific catalog
@@ -111,7 +113,10 @@ registration side effects.
 1. Create the mutable topology provider, shared feature contexts, catalogs, registry, explicit
    module set, composition, and enrollment pipeline.
 2. Call `UnityCombatantEnrollmentPipeline.Prepare` for all initial participants.
-3. Call `UnityCombatantEnrollmentPlan.SeedInitial` into one `RulesStateSeed`.
+3. Call `UnityCombatantEnrollmentPlan.SeedInitial` into one `RulesStateSeed`. Prepared active
+   effects are part of each combatant's immutable state. Initial enrollment uses the strict
+   `AddUniqueActiveEffect`, `AddUniqueRuleBinding`, and `AddUniqueActiveEffectTiming` APIs so a
+   duplicate effect, binding, or timing identity rejects instead of replacing an earlier value.
 4. Configure shared runtimes on `RuleDispatcherBuilder`: health, MAP, checks, active effects,
    encounter rules, action lifecycle, movement, and Stride.
 5. Invoke `ConfigureDispatcher` for feature modules in module order, build the dispatcher, then
@@ -166,22 +171,28 @@ is the one path for constructor-time participants and later reinforcements.
 `Prepare` validates the complete controller batch, reserves creature/player identity allocation,
 creates Unity-to-rules maps provisionally, validates future attachments, invokes every enrollment
 module, captures initiative modifiers, and freezes `CombatantRulesState` plus installation plans.
+`CombatantRulesState.ActiveEffects` is the exhaustive generic payload for prepared active-effect,
+binding, and optional timing state; the pipeline does not inspect feature or condition types.
 `UnityCombatantEnrollmentBuilder` exposes the supported contribution APIs:
 
 - `Own<TResource>` for reversible preparation resources;
 - `AddState(IUnityCombatantStateContribution)` for state that supports both initial seeding and
   reinforcement registration;
 - `AddSpellSlots` and `AddRuleBindings` for atomic base combatant state;
-- `AddInstallation(IUnityCombatantInstallationContribution)` for precomputed Unity changes.
+- `AddActiveEffects` for effect, binding, and optional timing registrations that must join
+  atomically with the roster;
+- `AddInstallation(IUnityCombatantInstallationContribution)` for precomputed Unity changes;
+- `AddOwnershipRelease(IUnityCombatantOwnershipReleaseContribution)` for a final immutable
+  feature projection while the exact rules authority is still attached;
 - `AddFinalization(IUnityCombatantBatchFinalizationContribution)` for one-shot input that may be
   consumed only after every attachment and installation in the batch succeeds.
 
-If any preparation read or preflight fails, the preparation `CompositeLifetime` rolls back maps,
+If any preparation read or validation fails, the preparation `CompositeLifetime` rolls back maps,
 identity allocation, and feature-owned resources. Cleanup failures are retained with the original
 failure. Preparation must therefore perform every fallible Unity query needed by `Reconcile`.
 `RegisterCombatants` checks ownership both before and immediately after it materializes the caller's
 enumerable, before `Prepare`; an iterator that begins release cannot cause provisional feature reads
-or reservations after ownership is gone.
+after ownership is gone.
 
 This is not a promise that arbitrary work after a reinforcement commit can roll back `RulesState`.
 The commit boundary is intentional. A root dispatch or state registration can commit and then
@@ -207,10 +218,16 @@ snapshot.
   economy, MAP, spell slots, bindings, and feature contributions enter the seed before the
   dispatcher exists. Initiative is rolled later by `StartEncounterOp`.
 - Reinforcements call `CommitReinforcements`. One `JoinEncounterOp` atomically adds each prepared
-  `CombatantRulesState` (including spell slots and bindings) to the active encounter, rolls
-  initiative, and assigns `EligibleFromRound` so a higher-than-current result waits until the next
-  round. Additional `IUnityCombatantStateContribution` objects then run their rules-owned
-  registration workflows.
+  `CombatantRulesState` (including spell slots, base bindings, and prepared active effects) to the
+  active encounter, rolls initiative, and assigns `EligibleFromRound` so a higher-than-current
+  result waits until the next round. The join reducer first validates every base registration, then
+  stages the complete future roster and base slices on one draft before adopting all active effects
+  in participant order through the shared generic adoption reduction. Owner and timing validation
+  therefore see the full future roster independent of participant order. Any effect, binding,
+  timing, registry, or owner rejection discards the entire draft and its Facts, rolls back prepared
+  Unity state, and leaves the enrollment gate clear for a corrected batch. Unrelated
+  `IUnityCombatantStateContribution` objects, such as Strike equipment and ammunition, retain
+  their later exact-replay registration workflows.
 
 The encounter stores the immutable reinforcement registration receipt separately from mutable live
 combatant state, and checkpoints initiative-assignment publication separately from roster joining.
@@ -221,15 +238,39 @@ assignment checkpoint is attempted, so retry cannot alter causation, Facts, or v
 
 Assignment-triggered feature workflows must close their own uncertain commit boundaries before a
 child failure escapes. Quick-Tempered never infers completion from the actor's current temporary
-Hit Points or immunity. Rage resolves a fixed two-offer sequence: the second identical offer is an
-idempotent confirmation after ordinary success and a same-root retry when the first attempt fails
-before settlement. Only a returned grant result or the exact first-attempt reducer transition can
-produce the private fully-settled signal that authorizes one-shot consumption. The operation
-sequence is fixed so recovery does not change later Fact causation, and every captured observer or
-middleware failure is rethrown after convergence. No cache or encounter-lifetime receipt is added.
-Once the published assignment receipt exists, Join retry remains a true no-op and cannot replay the
-feature's Facts or versions. Rage action validation also requires registered, non-defeated
-authoritative health before either manual or Quick-Tempered action costs and effect creation.
+Hit Points or immunity. The feature creates an exact root-derived Rage effect in `Pending` phase.
+The public `GrantTemporaryHitPointsOp` remains the single observable THP boundary and traverses the
+complete middleware chain, including Prevention. Only after that chain allows resolution does the
+health handler ask its immutable feature intent for the commit operation; Rage's feature reducer
+then atomically records both the health transition and exact grant outcome in the pending effect.
+A second feature reducer advances the receipt to `Settled` before the public child action returns.
+Failures after either commit are recovered only from that exact actor,
+effect, binding, origin, trigger, and causal-root identity; every captured observer or middleware
+failure is rethrown after convergence. Quick-Tempered consumes its trigger only from the same-root
+`Settled` receipt, so a child resolved observer or post-next middleware cannot strand an already
+completed Rage. A thrown public THP failure is recoverable only when that exact grant checkpoint
+already exists; an `Invalid` or interrupted result remains authoritative pipeline rejection and can
+never invoke the private feature reducer as a bypass. Settlement is likewise dispatched once and a
+thrown failure is recoverable only from the exact already-committed `Settled` receipt. It is never
+retried merely because that receipt is absent. The public THP operation is not replayed after its
+reducer checkpoint and runs once on ordinary success. A failed grant or pre-commit settlement
+promptly aborts its exact Pending receipt while preserving the original and cleanup failures. If
+the Rage grant displaced a lower pool, that same atomic abort restores the recorded prior amount
+and stable source only when the private pool revision and public amount/source still exactly match
+the committed Rage-owned pool. Restoration changes only the pool, preserves unrelated current Hit
+Points and immunities, and advances the private revision. If a later revision owns a foreign pool
+or the pool was fully consumed, that newer state wins and the abort removes the Pending effect pair
+without resurrecting prior temporary Hit Points. If a later revision still has a nonempty
+Rage-owned pool, including an identical-looking ABA pool, cleanup rejects atomically and retains the
+Pending effect pair for diagnosis rather than claiming ownership of the newer Rage pool. A
+same-revision amount/source mismatch is invariant corruption and also rejects without cleanup
+Facts. A no-op grant leaves health untouched. Expiration, explicit end, and encounter end recognize
+any remaining Pending tombstone and remove only that effect pair: they never remove temporary Hit
+Points or add Rage immunity until a start reached `Settled`. Once the published assignment receipt
+exists, Join retry remains a true no-op and cannot replay the feature's Facts or versions.
+`IsRaging` exposes only settled effects, while validation rejects another start in either pending
+or settled phase and requires registered, non-defeated authoritative health before manual or
+Quick-Tempered action costs and effect creation.
 
 After either state path, call `AttachAndInstall`, `FinalizeBatch`, then
 `TransferTo(encounterLifetime)`. Finalization first validates every contribution; successful
@@ -243,15 +284,59 @@ partially enrolled roster cannot participate in play. Ownership release rejects 
 before preparation and disposes any pending plan once. A new feature must support both paths; never
 assume all participants existed at encounter construction.
 
+Ownership-release contributions are added after controller attachment, so reverse lifetime cleanup
+projects them before controller and health detachment. Conditions use this boundary to copy their
+final exact applications into a feature-owned detached value after encounter-scoped cleanup has
+settled. The detached value retains no bridge, store, or snapshot. Its explicit validity is
+independent of application count: an authoritative empty set is valid persistence input. It is also
+the next encounter's one-shot adoption input and is consumed only by batch finalization; empty input
+adds no adoption state contribution but still participates in finalization. Cleanup remains
+best-effort and aggregates projection and detachment failures. A detached exploration-action
+composition neither adopts nor consumes this input because it does not own Unity combat authority
+and cannot project an encounter snapshot during release.
+
+Each detached condition also retains its immutable dungeon `SourceActorId`. The bridge maintains a
+scoped, one-to-one mapping between configured dungeon identity components and encounter
+`CreatureId` values. An actor with neither `DungeonPartyMemberIdentity` nor
+`DungeonEncounterMember` is intentionally nondurable and receives no mapping. Component presence
+is an identity assertion: a present component must be completely configured, its serialized
+durable ID must pass `DurableActorSourceIdentity.RequireCanonical` unchanged, and the two component
+types are mutually exclusive even when either is unconfigured. Party actors map their exact
+`RosterSlotId`. Generated enemies retain their floor-local `InstanceId` for encounter lifecycle and
+save dictionaries, but map provenance through the versioned
+`dungeon-enemy-v1/<floor-depth>/<instance-id>` identity computed by `DungeonEncounterMember`.
+`DungeonEncounterMaterializer` requires the document's explicit nonnegative generation depth and
+configures it on every member. The bridge validates both the raw `InstanceId` and computed durable
+identity without normalization. Party identities may not occupy the reserved `dungeon-enemy-v1/`
+namespace. Enrollment fails and rolls back the batch when any identity invariant is violated.
+Condition provenance must likewise be a nonempty canonical durable ID; it is never trimmed,
+inferred from the owner, or replaced with the owner. Only the exact scoped enemy identity maps to a
+live enemy. An older unscoped enemy string, or the same local instance ID from another depth,
+remains an absent historical source. An absent source receives a deterministic, reversible
+base64url `CreatureId` in a reserved namespace disjoint from live `combat-creature-*` identities,
+and
+release decodes that identity back to the exact original durable string without a global registry.
+An active absent-source indefinite condition remains active and selectable by its target. An active
+absent-source finite condition is normalized before adoption to one expired, disabled tombstone
+with no timing and exactly the next effect version; an already expired condition retains its
+version and remains disabled with no timing. The adoption Fact contains that normalized state and
+no separate expiration Fact is emitted. Dungeon save-graph validation treats condition provenance
+as historical and therefore does not require its source on the current floor; timed spell-effect
+sources retain their current-floor membership requirement. These adapter rules keep Unity objects
+and persistence types out of the generic rules runtime.
+
 ### Restored-effect adoption
 
 `UnitySpellcastingEncounterModule` is the production example of state that crosses both enrollment
 routes. During preparation it converts supported `SpellEffectController` entries into
 `RestoredSpellEffectContribution` objects with stable `ActiveEffectId` and `BindingId` values.
-Initial participants seed the effect and binding directly. Reinforcements dispatch the
-generic `AdoptActiveEffectRegistrationsOp`, whose atomic reducer publishes
-`ActiveEffectAdoptedFact` with exact effect and binding provenance. Adoption never publishes
-`ActiveEffectCreatedFact`, so restore cannot trigger gameplay-creation listeners.
+The contribution retains projection lifetime ownership and adds its generic registrations to
+`CombatantRulesState.ActiveEffects`. Initial participants seed those registrations directly;
+reinforcements adopt them inside the same join reduction that commits roster and base state.
+`ActiveEffectAdoptedFact` retains the exact feature effect and binding payload, never publishes
+`ActiveEffectCreatedFact`, and therefore cannot trigger gameplay-creation listeners. When adoption
+occurs inside Join, the Fact envelope has encounter/join operation provenance while the payload
+retains feature provenance; no source override is used.
 `RestoredSpellEffectTimingObserver` projects initiative-boundary counts and removes expired or
 removed Unity effects. Do not bypass the active-effect runtime for restored effects.
 
@@ -262,23 +347,55 @@ fact-listener roots, deterministic middleware/listener selection, Fact aggregati
 notifications. Handlers orchestrate; reducers are the only writers to `RulesStateDraft`; committed
 Facts are the notification contract.
 
+Before every allocation, the default dispatcher operation-ID sequence rebases strictly after the
+greatest authoritative `CreationOrder` in all current rule bindings, including disabled tombstones,
+and active-effect timings. Exhaustion in the initial snapshot rejects construction; exhaustion
+introduced by later reinforcement or adoption rejects the next allocation. Explicitly injected ID
+providers retain their supplied sequence unchanged. Condition creation additionally allocates from
+at least its frame ID and strictly above the current binding/timing maximum, probing both
+`condition-effect-N` and `condition-binding-N` until an available pair is found. This
+condition-local collision probing does not mutate the dispatcher provider and fails closed at
+exhaustion.
+
 [`EncounterRuleRuntime`](../Assets/Scripts/Rules/Runtime/EncounterRuleRuntime.cs) installs the
 encounter handlers and engine reducers. Its current division of responsibility is:
 
 - `StartEncounterHandler`: roll initiative through `IRollService`, retain registration-order ties,
   commit the roster, publish initiative assignments, and trigger the first boundary causally.
-- `JoinEncounterHandler`: validate an active turn, roll reinforcement initiative, commit full
-  combatant states, and publish assignments from a later frame so new bindings can observe them.
+- `JoinEncounterHandler`: validate an active turn, roll reinforcement initiative, atomically
+  commit full combatant and active-effect state, and publish assignments from a later frame so new
+  bindings can observe them. Listener selection remains frozen: newly committed bindings cannot
+  observe the Join frame, but can observe that later initiative-assignment frame.
 - `AdvanceEncounterHandler`: settle pending expirations, outcomes, initiative boundaries, skipped
-  or ineligible roster slots, and effect timing in deterministic order.
+  or ineligible roster slots, and effect timing in deterministic order. When
+  `EncounterState.IsTurnStartPending` is set, advancement resumes `BeginInitiativeTurnOp` for the
+  exact already published actor, round, and roster slot instead of consuming another boundary.
 - `BeginInitiativeTurnHandler`: reset movement budget, run ordered turn-start adapters, stop if the
-  actor is defeated, then commit the exact turn and final action contribution.
+  actor is defeated, then commit the exact turn and final action contribution. The published-boundary
+  checkpoint stores the next adapter index and current contribution; each adapter result commits
+  before the next adapter runs, so a fresh-root recovery resumes only unfinished adapters. The engine
+  checkpoints a successfully returned adapter, not partial internal work: an adapter with multiple
+  commits must itself be transactional or exact-replay-safe on internal failure. The narrow
+  `CommitFinalDamageBatchAndCompleteAdapter` boundary lets a transitional adapter atomically commit
+  an ordered same-actor damage batch and its completion checkpoint before fallible presentation;
+  an adapter using it may perform only presentation before returning the checkpointed contribution.
+  A completed
+  zero-HP turn-start attempt atomically clears the published-boundary checkpoint with
+  `InitiativeTurnStartSkippedFact` before deferred defeat reactions run, so rescuing the actor does
+  not replay adapters for the already resolved slot.
 - `EndTurnHandler`: require the exact current `TurnIdentity`, run turn-end work, reset movement,
-  clear turn resources through reducers, and advance.
+  clear turn resources through reducers, and advance. It may retry a safe pre-publication advance
+  checkpoint inside the same root, but an already published turn-start checkpoint must unwind so
+  deferred Fact notification finishes first. `UnityCombatRulesBridge.EndTurn` then dispatches the
+  generic `AdvanceEncounterOp` recovery from a new host root only when the old turn committed, the
+  encounter remains active, and no current turn exists. Successful recovery still reports the
+  original failure; a recovery failure is aggregated with it. An already begun turn or ended
+  encounter is never replayed.
 - `EncounterOutcomeListener`: after reaction-phase zero-HP listeners settle, finalize defeat and
   evaluate encounter outcome.
 - `SuspendEncounterHandler` and `EndEncounterHandler`: expire encounter-owned timed effects before
-  committing suspension or outcome.
+  committing suspension or outcome. Feature Prevention middleware must complete feature-owned
+  tombstone cleanup before either lifecycle transition commits.
 - Encounter reducers and the shared reducers they invoke atomically mutate roster, initiative
   boundary, current turn, actions, reactions, MAP, movement reset state, phase, and outcome while
   emitting committed Facts.
@@ -330,9 +447,9 @@ framework.
    `UnitySpellcastingEncounterModule` are production examples.
 3. **Model per-combatant enrollment for both routes.** Implement
    `IUnityCombatantEnrollmentModule.PrepareCombatant(UnityCombatantEnrollmentBuilder)`. Add base
-   slots/bindings directly, or implement `IUnityCombatantStateContribution.Seed` and `Register`
-   when feature state needs different seed and operation-based adoption mechanics. Use `Own` for
-   every provisional disposable.
+   slots/bindings directly, add every prepared effect/binding/timing through `AddActiveEffects`,
+   or implement `IUnityCombatantStateContribution.Seed` and `Register` only for unrelated state
+   that genuinely needs a later exact-replay workflow. Use `Own` for every provisional disposable.
 4. **Precompute Unity installation.** If the feature changes action lists or adapters, return an
    `IUnityCombatantInstallationContribution` from preparation. Its `Apply` method may only apply
    frozen work after rules authority is established. It may mutate Unity installation state, such as
@@ -403,8 +520,10 @@ framework.
 The encounter is authoritative without being fully rules-native. Keep these seams explicit and
 shrink them through vertical migrations:
 
-- `RottingAuraEncounterModule` calls the Unity aura resolver at `TurnStartingOp` timing, while final
-  damage still commits through encounter rules.
+- `RottingAuraEncounterModule` calls the Unity aura resolver at `TurnStartingOp` timing. It resolves
+  every applicable aura before mutation, then atomically commits the ordered final-damage batch and
+  adapter checkpoint through encounter rules before presentation, so post-commit failure cannot
+  replay any aura damage.
 - `SlowedEncounterModule` obtains the current action contribution through
   `ActionController.CalculateTurnStartActions` and legacy `ResetActionPointsEvent` listeners.
 - `UnityStrikeContext` and `UnitySpellAttackContext` adapt current creature/equipment/team/grid data

@@ -219,6 +219,9 @@ namespace Game.Rules.Runtime
     /// health changes only through the supplied <see cref="EncounterTurnStartContext"/>, keeping
     /// the work inside the active dispatcher root. The returned contribution becomes the input to
     /// the next adapter; the final value is the action count committed with <see cref="TurnBeganFact"/>.
+    /// The engine checkpoints only after <see cref="Apply"/> returns successfully. An adapter that
+    /// performs multiple internal commits must make those commits transactional or safe for exact
+    /// replay if one of them fails; this checkpoint does not roll back partial adapter work.
     /// </remarks>
     public interface IEncounterTurnStartAdapter
     {
@@ -238,15 +241,29 @@ namespace Game.Rules.Runtime
     public sealed class EncounterTurnStartContext
     {
         private readonly OpHandlerContext context;
+        private readonly RoundNumber round;
+        private readonly int slot;
+        private readonly int adapterIndex;
+        private readonly TurnStartContribution priorContribution;
+
+        internal bool HasCommittedCompletion { get; private set; }
 
         internal EncounterTurnStartContext(
             EncounterId encounter,
             CreatureId actor,
+            RoundNumber round,
+            int slot,
+            int adapterIndex,
+            TurnStartContribution priorContribution,
             OpHandlerContext context
         )
         {
             Encounter = encounter;
             Actor = actor;
+            this.round = round;
+            this.slot = slot;
+            this.adapterIndex = adapterIndex;
+            this.priorContribution = priorContribution;
             this.context = context ?? throw new ArgumentNullException(nameof(context));
         }
 
@@ -283,6 +300,53 @@ namespace Game.Rules.Runtime
                 await context.Dispatch(new ApplyDamageOp(target, amount, origin, source)),
                 "turn-start damage"
             );
+        }
+
+        /// <summary>
+        /// Atomically commits an ordered final-damage batch and this adapter's completion receipt.
+        /// </summary>
+        /// <param name="changes">
+        /// Non-empty, same-source damage entries for the reached actor. Repeated targets are
+        /// allowed, but each entry requires a distinct health-change origin.
+        /// </param>
+        /// <param name="returnedContribution">
+        /// The contribution that recovery must pass to the next adapter.
+        /// </param>
+        /// <returns>The exact damage outcomes in request order.</returns>
+        /// <remarks>
+        /// Use this boundary when an adapter must perform fallible presentation after damage has
+        /// committed. The damage and adapter checkpoint share one reducer transaction, so a later
+        /// observer or presentation failure resumes at the next adapter without replaying damage.
+        /// After this method resolves, the adapter may perform presentation but must not attempt
+        /// another authoritative mutation before returning <paramref name="returnedContribution"/>.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// The batch does not match the exact current adapter progress or its reducer rejects.
+        /// </exception>
+        public async ValueTask<
+            IReadOnlyList<DamageOutcome>
+        > CommitFinalDamageBatchAndCompleteAdapter(
+            IEnumerable<HealthBatchChange> changes,
+            TurnStartContribution returnedContribution
+        )
+        {
+            CommitTurnStartDamageBatchOutcome outcome = EncounterHandlerResults.Require(
+                await context.Dispatch(
+                    new CommitTurnStartDamageBatchOp(
+                        Encounter,
+                        round,
+                        slot,
+                        Actor,
+                        adapterIndex,
+                        priorContribution,
+                        returnedContribution,
+                        changes
+                    )
+                ),
+                "turn-start damage batch"
+            );
+            HasCommittedCompletion = true;
+            return outcome.Damage;
         }
     }
 
@@ -612,6 +676,141 @@ namespace Game.Rules.Runtime
             Actor = actor;
             Actions = actions;
         }
+    }
+
+    /// <summary>
+    /// Commits one successfully returned turn-start adapter result at the exact published boundary.
+    /// </summary>
+    internal sealed class CommitTurnStartAdapterProgressOp : IRuleOp<TurnStartAdapterProgress>
+    {
+        public EncounterId Encounter { get; }
+        public RoundNumber Round { get; }
+        public int Slot { get; }
+        public CreatureId Actor { get; }
+        public int ExpectedNextAdapterIndex { get; }
+        public TurnStartContribution PriorContribution { get; }
+        public TurnStartContribution ReturnedContribution { get; }
+
+        public CommitTurnStartAdapterProgressOp(
+            EncounterId encounter,
+            RoundNumber round,
+            int slot,
+            CreatureId actor,
+            int expectedNextAdapterIndex,
+            TurnStartContribution priorContribution,
+            TurnStartContribution returnedContribution
+        )
+        {
+            Encounter = encounter;
+            Round = round;
+            Slot = slot;
+            Actor = actor;
+            ExpectedNextAdapterIndex = expectedNextAdapterIndex;
+            PriorContribution = priorContribution;
+            ReturnedContribution = returnedContribution;
+        }
+    }
+
+    internal sealed class CommitTurnStartDamageBatchOutcome
+    {
+        public CommitTurnStartDamageBatchOutcome(
+            TurnStartAdapterProgress progress,
+            IEnumerable<DamageOutcome> damage
+        )
+        {
+            Progress = progress ?? throw new ArgumentNullException(nameof(progress));
+            Damage = Array.AsReadOnly(
+                damage?.ToArray() ?? throw new ArgumentNullException(nameof(damage))
+            );
+        }
+
+        public TurnStartAdapterProgress Progress { get; }
+        public IReadOnlyList<DamageOutcome> Damage { get; }
+    }
+
+    /// <summary>
+    /// Atomically commits an ordered same-actor damage batch and its adapter completion receipt.
+    /// </summary>
+    internal sealed class CommitTurnStartDamageBatchOp
+        : IRuleOp<CommitTurnStartDamageBatchOutcome>,
+            IRuleSourcedOp
+    {
+        public CommitTurnStartDamageBatchOp(
+            EncounterId encounter,
+            RoundNumber round,
+            int slot,
+            CreatureId actor,
+            int expectedNextAdapterIndex,
+            TurnStartContribution priorContribution,
+            TurnStartContribution returnedContribution,
+            IEnumerable<HealthBatchChange> changes
+        )
+        {
+            HealthBatchChange[] copied =
+                changes?.ToArray() ?? throw new ArgumentNullException(nameof(changes));
+            if (
+                copied.Length == 0
+                || copied.Any(change =>
+                    change == null
+                    || change.Kind != HealthBatchChangeKind.Damage
+                    || change.Target != actor
+                )
+            )
+                throw new ArgumentException(
+                    "A turn-start damage batch requires final damage entries for its exact actor.",
+                    nameof(changes)
+                );
+            if (copied.Select(change => change.Origin).Distinct().Count() != copied.Length)
+                throw new ArgumentException(
+                    "Every turn-start damage entry requires a distinct origin.",
+                    nameof(changes)
+                );
+            if (copied.Select(change => change.Source).Distinct().Count() != 1)
+                throw new ArgumentException(
+                    "Every turn-start damage entry requires the same rule source.",
+                    nameof(changes)
+                );
+            Encounter = encounter;
+            Round = round;
+            Slot = slot;
+            Actor = actor;
+            ExpectedNextAdapterIndex = expectedNextAdapterIndex;
+            PriorContribution = priorContribution;
+            ReturnedContribution = returnedContribution;
+            Changes = Array.AsReadOnly(copied);
+            Source = copied[0].Source;
+        }
+
+        public EncounterId Encounter { get; }
+        public RoundNumber Round { get; }
+        public int Slot { get; }
+        public CreatureId Actor { get; }
+        public int ExpectedNextAdapterIndex { get; }
+        public TurnStartContribution PriorContribution { get; }
+        public TurnStartContribution ReturnedContribution { get; }
+        public IReadOnlyList<HealthBatchChange> Changes { get; }
+        public RuleSource Source { get; }
+    }
+
+    internal sealed class CommitInitiativeTurnStartSkippedOp : IRuleOp<EncounterAdvanceOutcome>
+    {
+        public CommitInitiativeTurnStartSkippedOp(
+            EncounterId encounter,
+            RoundNumber round,
+            int slot,
+            CreatureId actor
+        )
+        {
+            Encounter = encounter;
+            Round = round;
+            Slot = slot;
+            Actor = actor;
+        }
+
+        public EncounterId Encounter { get; }
+        public RoundNumber Round { get; }
+        public int Slot { get; }
+        public CreatureId Actor { get; }
     }
 
     internal sealed class CommitTurnEndOp : IRuleOp<EncounterAdvanceOutcome>

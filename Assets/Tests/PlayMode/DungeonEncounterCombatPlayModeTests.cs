@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using Game.Combat.Encounters;
 using Game.Creature;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
@@ -21,6 +22,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
 {
     private readonly List<GameObject> createdObjects = new();
     private CombatManager manager;
+    private int nextCombatantIdentity;
     private UnityEngine.Random.State randomState;
 
     /// <summary>Creates isolated combat manager and log singletons with deterministic randomness.</summary>
@@ -28,6 +30,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
     public void SetUp()
     {
         DestroyExistingRuntime();
+        nextCombatantIdentity = 0;
         randomState = UnityEngine.Random.state;
         UnityEngine.Random.InitState(158);
 
@@ -130,9 +133,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(next.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
-    /// <summary>Verifies malformed encounter identity cannot interrupt committed defeat cleanup.</summary>
+    /// <summary>Verifies a configured encounter member completes defeat presentation exactly once.</summary>
     [Test]
-    public void LethalDamage_UnconfiguredEncounterMemberStillCompletesDefeatPresentation()
+    public void LethalDamage_ConfiguredEncounterMemberCompletesDefeatPresentationExactlyOnce()
     {
         FieldInfo singletonField = typeof(SingletonMonoBehaviour<GridAPI>).GetField(
             "Instance",
@@ -147,7 +150,17 @@ public sealed class DungeonEncounterCombatPlayModeTests
             CombatantFixture player = CreateCombatant("Player", "Players", 100);
             CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
             CombatantFixture survivingEnemy = CreateCombatant("Surviving Enemy", "Enemies", -100);
+            UnityEngine.Object.DestroyImmediate(
+                enemy.GameObject.GetComponent<DungeonPartyMemberIdentity>()
+            );
             DungeonEncounterMember member = enemy.GameObject.AddComponent<DungeonEncounterMember>();
+            member.Configure(
+                "encounter-1",
+                "encounter-1/creature-0000",
+                0,
+                "goblin-warrior",
+                string.Empty
+            );
             int deathCalls = 0;
             UnityAction<GameObject> deathListener = defeated =>
             {
@@ -168,8 +181,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
                     enemy.Creature.ApplyFinalDamage(1, RuleSource.FromSlug("test-repeated-damage"))
                 );
 
-                Assert.That(member.IsConfigured, Is.False);
-                Assert.That(member.DefeatWasReported, Is.False);
+                Assert.That(member.IsConfigured, Is.True);
+                Assert.That(member.DefeatWasReported, Is.True);
                 Assert.That(deathCalls, Is.EqualTo(1));
                 Assert.That(grid.DestroyedTokens, Contains.Item(enemy.GameObject));
                 Assert.That(enemy.Controller.enabled, Is.False);
@@ -340,12 +353,18 @@ public sealed class DungeonEncounterCombatPlayModeTests
         string identity
     )
     {
+        DungeonPartyMemberIdentity sourceIdentity =
+            sourceCreature.GetComponent<DungeonPartyMemberIdentity>();
+        if (sourceIdentity == null || !sourceIdentity.IsConfigured)
+            throw new InvalidOperationException(
+                $"Persisted Off-Guard source '{sourceCreature.name}' requires a configured dungeon party identity."
+            );
         RuleSource source = RuleSource.FromSlug(identity);
         return new ConditionApplicationSnapshot(
             new ActiveEffectId($"effect-{identity}"),
             new BindingId($"binding-{identity}"),
             ConditionRuleDefinitions.OffGuard,
-            sourceCreature,
+            sourceIdentity.RosterSlotId,
             source,
             EffectDuration.Indefinite,
             EffectStateVersion.Initial,
@@ -931,6 +950,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
     private CombatantFixture CreateCombatant(string name, string teamName, int initiative)
     {
         GameObject gameObject = Create(name);
+        int identity = nextCombatantIdentity++;
+        gameObject
+            .AddComponent<DungeonPartyMemberIdentity>()
+            .Configure($"combatant-slot-{identity}", $"combatant-content-{identity}");
         CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
         creature.name = name;
         creature.initiative = initiative;

@@ -19,14 +19,11 @@ namespace Game.Rules.Runtime.Tests
         private static readonly EncounterId Encounter = new EncounterId("test-encounter");
         private static readonly RuleSource Source = RuleSource.FromSlug("encounter-test");
 
-        /// <summary>Identifies one state collection that can collide during a join preflight.</summary>
+        /// <summary>Identifies one state collection that can reject an atomic join draft.</summary>
         public enum JoinRegistrationCollision
         {
             /// <summary>The creature identity slice.</summary>
             Creature,
-
-            /// <summary>The immutable prepared-input slice.</summary>
-            PreparedInputs,
 
             /// <summary>The health slice.</summary>
             Health,
@@ -81,6 +78,310 @@ namespace Game.Rules.Runtime.Tests
                     new[] { new EncounterParticipant(Hero, Players, 0) }
                 )
             );
+        }
+
+        [Test]
+        public void PublishedTurnStartCheckpointIsValidatedAndParticipatesInSnapshotIdentity()
+        {
+            InitiativeEntry[] roster = { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) };
+            EncounterState pending = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                roster,
+                0,
+                null,
+                1,
+                null,
+                isTurnStartPending: true
+            );
+            EncounterState matching = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                roster,
+                0,
+                null,
+                1,
+                null,
+                isTurnStartPending: true
+            );
+            EncounterState ordinary = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                roster,
+                0,
+                null,
+                1,
+                null
+            );
+            EncounterState progressed = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                roster,
+                0,
+                null,
+                1,
+                null,
+                isTurnStartPending: true,
+                turnStartAdapterProgress: new TurnStartAdapterProgress(
+                    1,
+                    new TurnStartContribution(2)
+                )
+            );
+
+            RulesSnapshot snapshot = new InMemoryRulesStore(
+                new RulesStateSeed().SeedEncounter(pending)
+            ).Snapshot;
+
+            Assert.That(snapshot.Encounters[Encounter].IsTurnStartPending, Is.True);
+            Assert.That(
+                snapshot.Encounters[Encounter].TurnStartAdapterProgress,
+                Is.EqualTo(TurnStartAdapterProgress.Initial)
+            );
+            Assert.That(pending, Is.EqualTo(matching));
+            Assert.That(pending.GetHashCode(), Is.EqualTo(matching.GetHashCode()));
+            Assert.That(pending, Is.Not.EqualTo(ordinary));
+            Assert.That(pending, Is.Not.EqualTo(progressed));
+            Assert.Throws<ArgumentException>(() =>
+                new EncounterState(
+                    Encounter,
+                    EncounterPhase.Active,
+                    Players,
+                    RoundNumber.First,
+                    roster,
+                    -1,
+                    null,
+                    1,
+                    null,
+                    isTurnStartPending: true
+                )
+            );
+            Assert.Throws<ArgumentException>(() =>
+                new EncounterState(
+                    Encounter,
+                    EncounterPhase.Active,
+                    Players,
+                    RoundNumber.First,
+                    roster,
+                    0,
+                    null,
+                    1,
+                    null,
+                    isInitiativeBoundaryPending: true,
+                    isTurnStartPending: true
+                )
+            );
+            Assert.Throws<ArgumentException>(() =>
+                new EncounterState(
+                    Encounter,
+                    EncounterPhase.Suspended,
+                    Players,
+                    RoundNumber.First,
+                    roster,
+                    0,
+                    null,
+                    1,
+                    null,
+                    isTurnStartPending: true
+                )
+            );
+        }
+
+        [Test]
+        public async Task AdvanceResumesExactPublishedBoundaryWithoutConsumingAnotherSlot()
+        {
+            RecordingTurnStartAdapter adapter = new RecordingTurnStartAdapter("resume");
+            EncounterState pending = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                new RoundNumber(3),
+                new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
+                1,
+                null,
+                7,
+                null,
+                isTurnStartPending: true
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(),
+                BaseSeed().SeedEncounter(pending),
+                turnStartAdapters: new[] { adapter }
+            );
+
+            EncounterState resumed = Resolved(
+                await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
+            ).Value.State;
+
+            Assert.That(resumed.Round, Is.EqualTo(new RoundNumber(3)));
+            Assert.That(resumed.Cursor, Is.EqualTo(1));
+            Assert.That(resumed.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+            Assert.That(resumed.CurrentTurn.Value.Round, Is.EqualTo(new RoundNumber(3)));
+            Assert.That(resumed.CurrentTurn.Value.RosterIndex, Is.EqualTo(1));
+            Assert.That(resumed.CurrentTurn.Value.Turn, Is.EqualTo(new TurnId(7)));
+            Assert.That(resumed.IsTurnStartPending, Is.False);
+            Assert.That(adapter.Actors, Is.EqualTo(new[] { Enemy }));
+        }
+
+        [Test]
+        public async Task TurnStartProgressCheckpointsCompletedAdaptersBeforeRetry()
+        {
+            EncounterState pending = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
+                0,
+                null,
+                1,
+                null,
+                isTurnStartPending: true
+            );
+            DamageAndContributionTurnStartAdapter first = new DamageAndContributionTurnStartAdapter(
+                Hero,
+                1,
+                2
+            );
+            ThrowOnceTurnStartAdapter second = new ThrowOnceTurnStartAdapter();
+            RecordingTurnStartAdapter third = new RecordingTurnStartAdapter("third", actions: 1);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(),
+                BaseSeed().SeedEncounter(pending),
+                turnStartAdapters: new IEncounterTurnStartAdapter[] { first, second, third }
+            );
+            CountingFactObserver<DamageAppliedFact> healthFacts =
+                new CountingFactObserver<DamageAppliedFact>();
+            using IDisposable healthRegistration = dispatcher.RegisterFactObserver(healthFacts);
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
+            );
+
+            EncounterState checkpoint = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(checkpoint.IsTurnStartPending, Is.True);
+            Assert.That(checkpoint.TurnStartAdapterProgress.NextAdapterIndex, Is.EqualTo(1));
+            Assert.That(checkpoint.TurnStartAdapterProgress.Contribution.Actions, Is.EqualTo(2));
+            Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.EqualTo(9));
+            Assert.That(first.Calls, Is.EqualTo(1));
+            Assert.That(second.Calls, Is.EqualTo(1));
+            Assert.That(third.Actors, Is.Empty);
+            Assert.That(healthFacts.Calls, Is.EqualTo(1));
+
+            EncounterState begun = Resolved(
+                await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
+            ).Value.State;
+
+            Assert.That(begun.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+            Assert.That(begun.IsTurnStartPending, Is.False);
+            Assert.That(begun.TurnStartAdapterProgress, Is.Null);
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Hero].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(first.Calls, Is.EqualTo(1));
+            Assert.That(second.Calls, Is.EqualTo(2));
+            Assert.That(third.Actors, Is.EqualTo(new[] { Hero }));
+            Assert.That(healthFacts.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task TurnStartProgressSurvivesPostCommitObserverFailureWithoutReplayingAdapter()
+        {
+            EncounterState pending = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
+                0,
+                null,
+                1,
+                null,
+                isTurnStartPending: true
+            );
+            RecordingTurnStartAdapter first = new RecordingTurnStartAdapter("first");
+            RecordingTurnStartAdapter second = new RecordingTurnStartAdapter("second");
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(),
+                BaseSeed().SeedEncounter(pending),
+                turnStartAdapters: new IEncounterTurnStartAdapter[] { first, second }
+            );
+            using (
+                dispatcher.RegisterFactObserver<TurnStartAdapterProgressCommittedFact>(
+                    new ThrowOnceFactObserver<TurnStartAdapterProgressCommittedFact>()
+                )
+            )
+            {
+                Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
+                );
+            }
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].TurnStartAdapterProgress.NextAdapterIndex,
+                Is.EqualTo(1)
+            );
+            EncounterState begun = Resolved(
+                await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
+            ).Value.State;
+
+            Assert.That(begun.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+            Assert.That(first.Actors, Is.EqualTo(new[] { Hero }));
+            Assert.That(second.Actors, Is.EqualTo(new[] { Hero }));
+        }
+
+        [TestCase("encounter")]
+        [TestCase("round")]
+        [TestCase("slot")]
+        [TestCase("actor")]
+        [TestCase("index")]
+        [TestCase("contribution")]
+        public async Task TurnStartProgressReducerRejectsEveryExactMismatchWithoutMutation(
+            string mismatch
+        )
+        {
+            EncounterState pending = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
+                0,
+                null,
+                1,
+                null,
+                isTurnStartPending: true
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(),
+                BaseSeed().SeedEncounter(pending)
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+            CommitTurnStartAdapterProgressOp operation = new CommitTurnStartAdapterProgressOp(
+                mismatch == "encounter" ? new EncounterId("stale-encounter") : Encounter,
+                mismatch == "round" ? RoundNumber.First.Next() : RoundNumber.First,
+                mismatch == "slot" ? 1 : 0,
+                mismatch == "actor" ? Enemy : Hero,
+                mismatch == "index" ? 1 : 0,
+                mismatch == "contribution"
+                    ? new TurnStartContribution(2)
+                    : TurnStartContribution.Standard,
+                new TurnStartContribution(2)
+            );
+
+            OpResult<TurnStartAdapterProgress> result = Resolved(
+                await dispatcher.Dispatch(new CommitTurnStartAdapterProgressWorkflowOp(operation))
+            ).Value;
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<TurnStartAdapterProgress>>());
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(dispatcher.Snapshot.Encounters[Encounter], Is.EqualTo(pending));
         }
 
         [Test]
@@ -613,7 +914,10 @@ namespace Game.Rules.Runtime.Tests
                 turnStartAdapters: new IEncounterTurnStartAdapter[] { lethal, afterLethal }
             );
             TurnBeganActorsObserver began = new TurnBeganActorsObserver();
+            CountingFactObserver<InitiativeTurnStartSkippedFact> skipped =
+                new CountingFactObserver<InitiativeTurnStartSkippedFact>();
             dispatcher.RegisterFactObserver<TurnBeganFact>(began);
+            dispatcher.RegisterFactObserver<InitiativeTurnStartSkippedFact>(skipped);
 
             await dispatcher.Dispatch(
                 Start(
@@ -625,6 +929,7 @@ namespace Game.Rules.Runtime.Tests
             EncounterState state = dispatcher.Snapshot.Encounters[Encounter];
             Assert.That(lethal.Calls, Is.EqualTo(1));
             Assert.That(rescue.Calls, Is.EqualTo(1));
+            Assert.That(skipped.Calls, Is.EqualTo(1));
             Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.EqualTo(1));
             Assert.That(
                 dispatcher.Snapshot.ActionEconomy[Hero],
@@ -740,7 +1045,6 @@ namespace Game.Rules.Runtime.Tests
             InitiativeEntry reinforcement = joined.Roster.Single(entry =>
                 entry.Creature == Reinforcement
             );
-            Assert.That(dispatcher.Snapshot.PreparedInputs.Contains(Reinforcement), Is.True);
             EncounterState enemyTurn = Resolved(
                 await dispatcher.Dispatch(new EndTurnOp(heroTurn.CurrentTurn.Value))
             ).Value.State;
@@ -753,9 +1057,8 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(reinforcementTurn.CurrentTurn.Value.Actor, Is.EqualTo(Reinforcement));
         }
 
-        /// <summary>Verifies every join-owned state slice is preflighted before any write.</summary>
+        /// <summary>Verifies every join-owned base slice rejects before the draft commits.</summary>
         [TestCase(JoinRegistrationCollision.Creature)]
-        [TestCase(JoinRegistrationCollision.PreparedInputs)]
         [TestCase(JoinRegistrationCollision.Health)]
         [TestCase(JoinRegistrationCollision.Position)]
         [TestCase(JoinRegistrationCollision.LandSpeed)]
@@ -784,7 +1087,6 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(3, 0, 2),
                 new GridDistance(25),
-                PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slotId, Reinforcement, 1, 1) },
                 new[] { binding }
             );
@@ -793,9 +1095,6 @@ namespace Game.Rules.Runtime.Tests
             {
                 case JoinRegistrationCollision.Creature:
                     seed.SeedCreature(new CreatureState(Reinforcement, Enemies));
-                    break;
-                case JoinRegistrationCollision.PreparedInputs:
-                    seed.SeedPreparedInputs(Reinforcement, PreparedCreatureInputs.Empty);
                     break;
                 case JoinRegistrationCollision.Health:
                     seed.SeedHealth(Reinforcement, new HealthState(7, 10));
@@ -973,68 +1272,765 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void ReinforcementRegistrationAdvancesStatelessBindingGenerationHistory()
+        public async Task JoinAdoptsPreparedEffectsInOneRosterTransaction()
         {
-            BindingId bindingId = new BindingId("reinforcement-generation-binding");
-            SpellSlotPoolId slotId = new SpellSlotPoolId("reinforcement-generation-slot");
-            InitiativeEntry hero = Entry(Hero, Players, 15, 0);
-            EncounterState active = new EncounterState(
-                Encounter,
-                EncounterPhase.Active,
-                Players,
-                RoundNumber.First,
-                new[] { hero },
-                0,
-                new TurnIdentity(Encounter, new TurnId(1), Hero, RoundNumber.First, 0),
-                2,
-                null
+            RuleDefinitionId conditionDefinition = new RuleDefinitionId(
+                "atomic-condition-definition"
+            );
+            RuleDefinitionId spellDefinition = new RuleDefinitionId("atomic-spell-definition");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(conditionDefinition);
+            registryBuilder.Define(spellDefinition);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10),
+                JoinSeed(),
+                registry
+            );
+            EncounterState active = Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            ).Value.State;
+            ActiveEffectRegistration condition = CreateActiveJoinRegistration(
+                "atomic-condition",
+                conditionDefinition,
+                Reinforcement,
+                Reinforcement,
+                20,
+                EffectDuration.Rounds(2),
+                new ActiveEffectTimingState(
+                    new ActiveEffectId("atomic-condition-effect"),
+                    Encounter,
+                    new BindingId("atomic-condition-binding"),
+                    Reinforcement,
+                    2,
+                    false,
+                    20
+                )
+            );
+            ActiveEffectRegistration spell = CreateActiveJoinRegistration(
+                "atomic-spell",
+                spellDefinition,
+                Reinforcement,
+                Hero,
+                21,
+                EffectDuration.Rounds(3)
+            );
+            CombatantRulesState registration = CreateActiveJoinState(
+                Reinforcement,
+                condition,
+                spell
             );
             InitiativeEntry addition = new InitiativeEntry(
                 Reinforcement,
                 Enemies,
-                10,
+                12,
                 0,
-                1,
+                active.Roster.Count,
                 RoundNumber.First
             );
-            InMemoryRulesStore store = new InMemoryRulesStore(
-                new RulesStateSeed()
-                    .SeedEncounter(active)
-                    .SeedStatelessRuleBindingGeneration(bindingId, 3)
-            );
+            long beforeVersion = dispatcher.Snapshot.Version;
 
-            ReductionResult<EncounterJoinOutcome> stale = Commit(
-                CreateJoinRegistration(Reinforcement, slotId, bindingId, 3)
-            );
-            Assert.That(stale.IsRejected, Is.True);
-            Assert.That(stale.Facts, Is.Empty);
-            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
-            Assert.That(store.Snapshot.StatelessRuleBindingGenerations[bindingId], Is.EqualTo(3));
-
-            ReductionResult<EncounterJoinOutcome> current = Commit(
-                CreateJoinRegistration(Reinforcement, slotId, bindingId, 4)
-            );
-            Assert.That(current.IsAccepted, Is.True);
-            Assert.That(current.Snapshot.RuleBindings[bindingId].CreationOrder, Is.EqualTo(4));
-            Assert.That(current.Snapshot.StatelessRuleBindingGenerations[bindingId], Is.EqualTo(4));
-
-            ReductionResult<EncounterJoinOutcome> Commit(CombatantRulesState registration) =>
-                store.Reduce(
-                    new ReductionContext<CommitEncounterJoinOp>(
+            OpResult<EncounterJoinOutcome> result = Resolved(
+                await dispatcher.Dispatch(
+                    new CommitEncounterJoinWorkflowOp(
                         new CommitEncounterJoinOp(
                             Encounter,
-                            Array.AsReadOnly(new[] { addition }),
+                            new[] { addition },
                             new Dictionary<CreatureId, CombatantRulesState>
                             {
                                 [Reinforcement] = registration,
                             }
-                        ),
-                        new OpId(2),
-                        new OpId(1),
-                        Source
-                    ),
-                    new CommitEncounterJoinReducer()
+                        )
+                    )
+                )
+            ).Value;
+            ResolvedOpResult<EncounterJoinOutcome> joined = Resolved(result);
+
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(beforeVersion + 1));
+            Assert.That(joined.Facts.OfType<ActiveEffectAdoptedFact>().Count(), Is.EqualTo(2));
+            Assert.That(joined.Facts.OfType<ActiveEffectCreatedFact>(), Is.Empty);
+            Assert.That(joined.Facts.Last(), Is.TypeOf<EncounterJoinedFact>());
+            Assert.That(
+                dispatcher
+                    .Snapshot.Encounters[Encounter]
+                    .Roster.Any(entry => entry.Creature == Reinforcement),
+                Is.True
+            );
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[condition.Effect.Id],
+                Is.EqualTo(condition.Timing)
+            );
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[spell.Effect.Id].RemainingBoundaries,
+                Is.EqualTo(3)
+            );
+            ActiveEffectAdoptedFact adopted = joined
+                .Facts.OfType<ActiveEffectAdoptedFact>()
+                .First();
+            Assert.That(adopted.Source, Is.Not.EqualTo(adopted.Effect.Source));
+            Assert.That(adopted.Effect.Source, Is.EqualTo(condition.Effect.Source));
+        }
+
+        [TestCase("effect")]
+        [TestCase("binding")]
+        [TestCase("timing")]
+        public async Task ExistingActiveEffectSliceCollisionRejectsWholeJoinDraft(string collision)
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("collision-definition");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            ActiveEffectRegistration incoming = CreateActiveJoinRegistration(
+                "existing-collision",
+                definition,
+                Reinforcement,
+                Reinforcement,
+                30,
+                EffectDuration.Rounds(2)
+            );
+            RulesStateSeed seed = JoinSeed().SeedEncounter(ActiveTurnEncounter());
+            if (collision == "effect")
+                seed.SeedActiveEffect(incoming.Effect);
+            else if (collision == "binding")
+                seed.SeedRuleBinding(incoming.Binding);
+            else
+                seed.SeedActiveEffectTiming(
+                    new ActiveEffectTimingState(
+                        incoming.Effect.Id,
+                        Encounter,
+                        incoming.Binding.Id,
+                        incoming.Effect.SourceCreature,
+                        1,
+                        false,
+                        incoming.Binding.CreationOrder
+                    )
                 );
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed, registry);
+            RulesSnapshot before = dispatcher.Snapshot;
+            CombatantRulesState registration = CreateActiveJoinState(Reinforcement, incoming);
+
+            OpResult<OpResult<EncounterJoinOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitEncounterJoinWorkflowOp(
+                    new CommitEncounterJoinOp(
+                        Encounter,
+                        new[]
+                        {
+                            new InitiativeEntry(Reinforcement, Enemies, 8, 0, 2, RoundNumber.First),
+                        },
+                        new Dictionary<CreatureId, CombatantRulesState>
+                        {
+                            [Reinforcement] = registration,
+                        }
+                    )
+                )
+            );
+
+            Assert.That(
+                Resolved(workflow).Value,
+                Is.TypeOf<InvalidOpResult<EncounterJoinOutcome>>()
+            );
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Roster,
+                Is.EqualTo(before.Encounters[Encounter].Roster)
+            );
+            Assert.That(dispatcher.Snapshot.Creatures.Contains(Reinforcement), Is.False);
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects.Count(),
+                Is.EqualTo(before.ActiveEffects.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings.Count(),
+                Is.EqualTo(before.RuleBindings.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings.Count(),
+                Is.EqualTo(before.ActiveEffectTimings.Count())
+            );
+        }
+
+        [TestCase("effect")]
+        [TestCase("binding")]
+        [TestCase("timing")]
+        public async Task SameBatchActiveEffectCollisionRejectsWholeJoinDraft(string collision)
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("batch-effect-definition");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            string firstIdentity = collision == "binding" ? "batch-first" : "batch-shared";
+            string secondIdentity =
+                collision == "effect" || collision == "timing" ? "batch-shared" : "batch-second";
+            ActiveEffectRegistration first = CreateActiveJoinRegistration(
+                firstIdentity,
+                definition,
+                Reinforcement,
+                Reinforcement,
+                40,
+                EffectDuration.Rounds(2)
+            );
+            ActiveEffectRegistration second = CreateActiveJoinRegistration(
+                secondIdentity,
+                definition,
+                SecondReinforcement,
+                SecondReinforcement,
+                41,
+                EffectDuration.Rounds(2)
+            );
+            if (collision == "binding")
+            {
+                second = new ActiveEffectRegistration(
+                    second.Effect,
+                    new ActiveRuleBinding(
+                        first.Binding.Id,
+                        definition,
+                        SecondReinforcement,
+                        second.Effect.Id,
+                        second.Effect.Source,
+                        second.Binding.CreationOrder
+                    )
+                );
+            }
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(),
+                JoinSeed().SeedEncounter(ActiveTurnEncounter()),
+                registry
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            OpResult<OpResult<EncounterJoinOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitEncounterJoinWorkflowOp(
+                    new CommitEncounterJoinOp(
+                        Encounter,
+                        new[]
+                        {
+                            Entry(Reinforcement, Enemies, 8, 2),
+                            Entry(SecondReinforcement, Enemies, 7, 3),
+                        },
+                        new Dictionary<CreatureId, CombatantRulesState>
+                        {
+                            [Reinforcement] = CreateActiveJoinState(Reinforcement, first),
+                            [SecondReinforcement] = CreateActiveJoinState(
+                                SecondReinforcement,
+                                second
+                            ),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(
+                Resolved(workflow).Value,
+                Is.TypeOf<InvalidOpResult<EncounterJoinOutcome>>()
+            );
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Roster,
+                Is.EqualTo(before.Encounters[Encounter].Roster)
+            );
+            Assert.That(dispatcher.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(dispatcher.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings, Is.Empty);
+        }
+
+        [TestCase("unknown")]
+        [TestCase("timing")]
+        public async Task InvalidPreparedActiveEffectRejectsWholeJoinDraft(string invalidity)
+        {
+            RuleDefinitionId defined = new RuleDefinitionId("valid-join-effect");
+            RuleDefinitionId selected =
+                invalidity == "unknown" ? new RuleDefinitionId("unknown-join-effect") : defined;
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(defined);
+            RuleRegistry registry = registryBuilder.Build();
+            ActiveEffectRegistration prepared = CreateActiveJoinRegistration(
+                "invalid-prepared",
+                selected,
+                Reinforcement,
+                Reinforcement,
+                50,
+                EffectDuration.Rounds(2),
+                invalidity == "timing"
+                    ? new ActiveEffectTimingState(
+                        new ActiveEffectId("invalid-prepared-effect"),
+                        new EncounterId("other-encounter"),
+                        new BindingId("invalid-prepared-binding"),
+                        Reinforcement,
+                        2,
+                        false,
+                        50
+                    )
+                    : null
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(),
+                JoinSeed().SeedEncounter(ActiveTurnEncounter()),
+                registry
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            OpResult<OpResult<EncounterJoinOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitEncounterJoinWorkflowOp(
+                    new CommitEncounterJoinOp(
+                        Encounter,
+                        new[] { Entry(Reinforcement, Enemies, 8, 2) },
+                        new Dictionary<CreatureId, CombatantRulesState>
+                        {
+                            [Reinforcement] = CreateActiveJoinState(Reinforcement, prepared),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(
+                Resolved(workflow).Value,
+                Is.TypeOf<InvalidOpResult<EncounterJoinOutcome>>()
+            );
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Roster,
+                Is.EqualTo(before.Encounters[Encounter].Roster)
+            );
+            Assert.That(dispatcher.Snapshot.Creatures.Contains(Reinforcement), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(dispatcher.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings, Is.Empty);
+        }
+
+        [Test]
+        public void CombatantRegistrationRejectsActiveEffectOwnedByAnotherCreature()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("wrong-owner-effect");
+            ActiveEffectRegistration prepared = CreateActiveJoinRegistration(
+                "wrong-owner",
+                definition,
+                Hero,
+                Reinforcement,
+                60,
+                EffectDuration.Indefinite
+            );
+
+            Assert.Throws<ArgumentException>(() => CreateActiveJoinState(Reinforcement, prepared));
+        }
+
+        [Test]
+        public async Task ExactJoinReplayAcceptsStructurallyRecreatedActiveEffectReceipt()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("recreated-replay-definition");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 8),
+                JoinSeed(),
+                registry
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+            ActiveEffectTimingState timing = new ActiveEffectTimingState(
+                new ActiveEffectId("recreated-replay-effect"),
+                Encounter,
+                new BindingId("recreated-replay-binding"),
+                Reinforcement,
+                2,
+                false,
+                70
+            );
+            ActiveEffectRegistration original = CreateActiveJoinRegistration(
+                "recreated-replay",
+                definition,
+                Reinforcement,
+                Reinforcement,
+                70,
+                EffectDuration.Rounds(2),
+                timing
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateActiveJoinState(Reinforcement, original)
+                            ),
+                        }
+                    )
+                )
+            );
+            ActiveEffectInstance recreatedEffect = new ActiveEffectInstance(
+                original.Effect.Id,
+                original.Effect.DefinitionId,
+                original.Effect.SourceCreature,
+                original.Effect.Source,
+                original.Effect.Duration,
+                original.Effect.State,
+                original.Effect.EffectStateVersion,
+                original.Effect.Status
+            );
+            ActiveRuleBinding recreatedBinding = new ActiveRuleBinding(
+                original.Binding.Id,
+                original.Binding.DefinitionId,
+                original.Binding.Owner,
+                original.Binding.EffectId,
+                original.Binding.Source,
+                original.Binding.CreationOrder,
+                original.Binding.IsEnabled
+            );
+            ActiveEffectTimingState recreatedTiming = new ActiveEffectTimingState(
+                original.Timing.Effect,
+                original.Timing.Encounter,
+                original.Timing.Binding,
+                original.Timing.SourceCreature,
+                original.Timing.RemainingBoundaries,
+                original.Timing.ExpiresWithEncounter,
+                original.Timing.CreationOrder
+            );
+            ActiveEffectRegistration recreated = new ActiveEffectRegistration(
+                recreatedEffect,
+                recreatedBinding,
+                recreatedTiming
+            );
+            long committedVersion = dispatcher.Snapshot.Version;
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateActiveJoinState(Reinforcement, recreated)
+                            ),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(recreated, Is.Not.EqualTo(original));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+        }
+
+        [TestCase("root")]
+        [TestCase("grant-pool")]
+        public async Task ExactJoinReplayUsesHiddenRageReceiptIdentity(string changedField)
+        {
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(RageActionDefinition.EffectDefinitionId);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 8),
+                JoinSeed(),
+                registryBuilder.Build()
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+            ActiveEffectRegistration original = CreateRageJoinRegistration(
+                CreateRageJoinReceipt(new OpId(71), 3)
+            );
+            JoinEncounterOp originalJoin = new JoinEncounterOp(
+                Encounter,
+                new[]
+                {
+                    new EncounterJoinParticipant(
+                        new EncounterParticipant(Reinforcement, Enemies, 0),
+                        CreateActiveJoinState(Reinforcement, original)
+                    ),
+                }
+            );
+            Resolved(await dispatcher.Dispatch(originalJoin));
+            long committedVersion = dispatcher.Snapshot.Version;
+            ActiveEffectRegistration recreated = CreateRageJoinRegistration(
+                CreateRageJoinReceipt(new OpId(71), 3)
+            );
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateActiveJoinState(Reinforcement, recreated)
+                            ),
+                        }
+                    )
+                )
+            );
+
+            RageEffectState changedReceipt =
+                changedField == "root"
+                    ? CreateRageJoinReceipt(new OpId(72), 3)
+                    : CreateRageJoinReceipt(new OpId(71), 4);
+            ActiveEffectRegistration changed = CreateRageJoinRegistration(changedReceipt);
+
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(changed.Effect, Is.EqualTo(original.Effect));
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateActiveJoinState(Reinforcement, changed)
+                            ),
+                        }
+                    )
+                )
+            );
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(
+                ActiveEffectInstanceExactEquality.Equals(
+                    dispatcher.Snapshot.ActiveEffects[original.Effect.Id],
+                    original.Effect
+                ),
+                Is.True
+            );
+        }
+
+        [TestCase("effect")]
+        [TestCase("binding")]
+        [TestCase("timing")]
+        public async Task ExactJoinReplayRejectsChangedActiveEffectReceipt(string changed)
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("replay-effect-definition");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 8),
+                JoinSeed(),
+                registry
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+            ActiveEffectTimingState timing = new ActiveEffectTimingState(
+                new ActiveEffectId("replay-effect"),
+                Encounter,
+                new BindingId("replay-binding"),
+                Reinforcement,
+                2,
+                false,
+                70
+            );
+            ActiveEffectRegistration original = CreateActiveJoinRegistration(
+                "replay",
+                definition,
+                Reinforcement,
+                Reinforcement,
+                70,
+                EffectDuration.Rounds(2),
+                timing
+            );
+            CombatantRulesState committed = CreateActiveJoinState(Reinforcement, original);
+            Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                committed
+                            ),
+                        }
+                    )
+                )
+            );
+            ActiveEffectInstance changedEffect =
+                changed == "effect"
+                    ? new ActiveEffectInstance(
+                        original.Effect.Id,
+                        definition,
+                        Reinforcement,
+                        original.Effect.Source,
+                        EffectDuration.Rounds(3),
+                        new TestEffectState()
+                    )
+                    : original.Effect;
+            ActiveRuleBinding changedBinding =
+                changed == "binding"
+                    ? new ActiveRuleBinding(
+                        original.Binding.Id,
+                        definition,
+                        Reinforcement,
+                        original.Effect.Id,
+                        original.Effect.Source,
+                        original.Binding.CreationOrder + 1
+                    )
+                    : original.Binding;
+            ActiveEffectTimingState changedTiming =
+                changed == "timing"
+                    ? new ActiveEffectTimingState(
+                        original.Effect.Id,
+                        Encounter,
+                        original.Binding.Id,
+                        Reinforcement,
+                        1,
+                        false,
+                        original.Binding.CreationOrder
+                    )
+                : changed == "binding"
+                    ? new ActiveEffectTimingState(
+                        original.Effect.Id,
+                        Encounter,
+                        original.Binding.Id,
+                        Reinforcement,
+                        original.Timing.RemainingBoundaries,
+                        false,
+                        changedBinding.CreationOrder
+                    )
+                : original.Timing;
+            ActiveEffectRegistration different = new ActiveEffectRegistration(
+                changedEffect,
+                changedBinding,
+                changedTiming
+            );
+            long committedVersion = dispatcher.Snapshot.Version;
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateActiveJoinState(Reinforcement, different)
+                            ),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[original.Effect.Id],
+                Is.EqualTo(original.Effect)
+            );
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings[original.Binding.Id],
+                Is.EqualTo(original.Binding)
+            );
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[original.Effect.Id],
+                Is.EqualTo(original.Timing)
+            );
+        }
+
+        [Test]
+        public async Task JoinFactListenerCannotClaimIncomingEffectIdentity()
+        {
+            RuleDefinitionId incomingDefinition = new RuleDefinitionId("incoming-effect");
+            RuleDefinitionId listenerDefinition = new RuleDefinitionId("join-claim-listener");
+            ActiveEffectRegistration incoming = CreateActiveJoinRegistration(
+                "listener-collision",
+                incomingDefinition,
+                Reinforcement,
+                Reinforcement,
+                80,
+                EffectDuration.Indefinite
+            );
+            ActiveEffectRegistration claim = CreateActiveJoinRegistration(
+                "listener-collision",
+                incomingDefinition,
+                Hero,
+                Hero,
+                81,
+                EffectDuration.Indefinite
+            );
+            ClaimIncomingEffectOnJoinListener listener = new ClaimIncomingEffectOnJoinListener(
+                claim
+            );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(incomingDefinition);
+            registryBuilder
+                .Define(listenerDefinition)
+                .FactListener(RuleLifecyclePhase.Observation, listener);
+            RuleRegistry registry = registryBuilder.Build();
+            RulesStateSeed seed = JoinSeed()
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        new BindingId("join-claim-listener-binding"),
+                        listenerDefinition,
+                        Hero,
+                        null,
+                        Source,
+                        0
+                    )
+                );
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 8),
+                seed,
+                registry
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    Start(
+                        new EncounterParticipant(Hero, Players, 0),
+                        new EncounterParticipant(Enemy, Enemies, 0)
+                    )
+                )
+            );
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                CreateActiveJoinState(Reinforcement, incoming)
+                            ),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(listener.Calls, Is.EqualTo(1));
+            Assert.That(listener.Result, Is.TypeOf<InvalidOpResult<ActiveEffectAdoptionOutcome>>());
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[incoming.Effect.Id],
+                Is.EqualTo(incoming.Effect)
+            );
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings[incoming.Binding.Id],
+                Is.EqualTo(incoming.Binding)
+            );
+            Assert.That(
+                dispatcher
+                    .Snapshot.Encounters[Encounter]
+                    .Roster.Any(entry => entry.Creature == Reinforcement),
+                Is.True
+            );
         }
 
         [Test]
@@ -1775,15 +2771,13 @@ namespace Game.Rules.Runtime.Tests
         private static CombatantRulesState CreateJoinRegistration(
             CreatureId creature,
             SpellSlotPoolId slot,
-            BindingId binding,
-            long creationOrder = 0
+            BindingId binding
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, Enemies),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
-                PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slot, creature, 1, 1) },
                 new[]
                 {
@@ -1793,10 +2787,102 @@ namespace Game.Rules.Runtime.Tests
                         creature,
                         null,
                         Source,
-                        creationOrder,
+                        0,
                         false
                     ),
                 }
+            );
+
+        private static ActiveEffectRegistration CreateActiveJoinRegistration(
+            string identity,
+            RuleDefinitionId definition,
+            CreatureId owner,
+            CreatureId sourceCreature,
+            long creationOrder,
+            EffectDuration duration,
+            ActiveEffectTimingState timing = null
+        )
+        {
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                new ActiveEffectId($"{identity}-effect"),
+                definition,
+                sourceCreature,
+                RuleSource.FromSlug(identity),
+                duration,
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId($"{identity}-binding"),
+                definition,
+                owner,
+                effect.Id,
+                effect.Source,
+                creationOrder
+            );
+            return new ActiveEffectRegistration(effect, binding, timing);
+        }
+
+        private static RageEffectState CreateRageJoinReceipt(
+            OpId root,
+            int committedTemporaryHitPoints
+        )
+        {
+            HealthState before = new HealthState(10, 10);
+            HealthState after = new HealthState(
+                10,
+                10,
+                committedTemporaryHitPoints,
+                RageRules.Source
+            ).WithTemporaryHitPointRevision(1);
+            return RageEffectState
+                .CreatePending(Reinforcement, default, root, 3)
+                .WithGrantTransition(
+                    new TemporaryHitPointsGrantTransition(
+                        before,
+                        after,
+                        new TemporaryHitPointsGrantOutcome(
+                            true,
+                            false,
+                            0,
+                            committedTemporaryHitPoints
+                        )
+                    )
+                );
+        }
+
+        private static ActiveEffectRegistration CreateRageJoinRegistration(RageEffectState receipt)
+        {
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                new ActiveEffectId("rage-replay-effect"),
+                RageActionDefinition.EffectDefinitionId,
+                Reinforcement,
+                RageRules.Source,
+                EffectDuration.Indefinite,
+                receipt
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("rage-replay-binding"),
+                effect.DefinitionId,
+                Reinforcement,
+                effect.Id,
+                effect.Source,
+                70
+            );
+            return new ActiveEffectRegistration(effect, binding);
+        }
+
+        private static CombatantRulesState CreateActiveJoinState(
+            CreatureId creature,
+            params ActiveEffectRegistration[] activeEffects
+        ) =>
+            new CombatantRulesState(
+                new CreatureState(creature, Enemies),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                Array.Empty<SpellSlotState>(),
+                Array.Empty<ActiveRuleBinding>(),
+                activeEffects
             );
 
         private static RuleDispatcher CreateDispatcher(
@@ -1816,7 +2902,10 @@ namespace Game.Rules.Runtime.Tests
                 .UseHealthRules()
                 .UseActiveEffectRules(selected)
                 .UseMultipleAttackPenaltyRules()
-                .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>());
+                .UseEncounterRules(
+                    turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>(),
+                    selected
+                );
             builder.RegisterHandler<
                 CommitEncounterStartWorkflowOp,
                 OpResult<EncounterStartOutcome>
@@ -1824,6 +2913,10 @@ namespace Game.Rules.Runtime.Tests
             builder.RegisterHandler<CommitEncounterJoinWorkflowOp, OpResult<EncounterJoinOutcome>>(
                 new CommitEncounterJoinWorkflowHandler()
             );
+            builder.RegisterHandler<
+                CommitTurnStartAdapterProgressWorkflowOp,
+                OpResult<TurnStartAdapterProgress>
+            >(new CommitTurnStartAdapterProgressWorkflowHandler());
             if (includeEffectWorkflow)
                 builder.RegisterHandler<CreateEffectWorkflowOp, ActiveEffectCreationOutcome>(
                     new CreateEffectWorkflowHandler()
@@ -1951,6 +3044,55 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
+        private sealed class DamageAndContributionTurnStartAdapter : IEncounterTurnStartAdapter
+        {
+            private readonly CreatureId actor;
+            private readonly int damage;
+            private readonly int actions;
+
+            public DamageAndContributionTurnStartAdapter(CreatureId actor, int damage, int actions)
+            {
+                this.actor = actor;
+                this.damage = damage;
+                this.actions = actions;
+            }
+
+            public int Calls { get; private set; }
+
+            public async ValueTask<TurnStartContribution> Apply(
+                EncounterTurnStartContext context,
+                TurnStartContribution current
+            )
+            {
+                if (context.Actor != actor)
+                    return current;
+                Calls++;
+                await context.ApplyFinalDamage(
+                    actor,
+                    damage,
+                    new HealthChangeOriginId("turn-start-progress-damage"),
+                    Source
+                );
+                return new TurnStartContribution(actions);
+            }
+        }
+
+        private sealed class ThrowOnceTurnStartAdapter : IEncounterTurnStartAdapter
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask<TurnStartContribution> Apply(
+                EncounterTurnStartContext context,
+                TurnStartContribution current
+            )
+            {
+                Calls++;
+                if (Calls == 1)
+                    throw new InvalidOperationException("Injected turn-start adapter failure.");
+                return new ValueTask<TurnStartContribution>(current);
+            }
+        }
+
         private sealed class CountingFactObserver<TFact> : IFactObserver<TFact>
             where TFact : RuleFact
         {
@@ -1959,6 +3101,24 @@ namespace Game.Rules.Runtime.Tests
             public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
             {
                 Calls++;
+                return default;
+            }
+        }
+
+        private sealed class ThrowOnceFactObserver<TFact> : IFactObserver<TFact>
+            where TFact : RuleFact
+        {
+            private bool thrown;
+
+            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            {
+                if (!thrown)
+                {
+                    thrown = true;
+                    throw new InvalidOperationException(
+                        "Injected post-commit Fact observer failure."
+                    );
+                }
                 return default;
             }
         }
@@ -2125,6 +3285,29 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class TestEffectState : IEffectState { }
 
+        private sealed class ClaimIncomingEffectOnJoinListener
+            : IRuleFactListener<EncounterJoinedFact>
+        {
+            private readonly ActiveEffectRegistration claim;
+
+            internal ClaimIncomingEffectOnJoinListener(ActiveEffectRegistration claim) =>
+                this.claim = claim;
+
+            internal int Calls { get; private set; }
+            internal OpResult<ActiveEffectAdoptionOutcome> Result { get; private set; }
+
+            public async ValueTask OnFactCommitted(EncounterJoinedFact fact, FactContext context)
+            {
+                Calls++;
+                Result = await context.Dispatch(
+                    new AdoptActiveEffectRegistrationsOp(
+                        new[] { claim },
+                        RuleSource.FromSlug("join-listener-claim")
+                    )
+                );
+            }
+        }
+
         private sealed class CommitEncounterStartWorkflowOp
             : IRuleOp<OpResult<EncounterStartOutcome>>
         {
@@ -2158,6 +3341,28 @@ namespace Game.Rules.Runtime.Tests
                 OpFrame<CommitEncounterJoinWorkflowOp> frame,
                 OpHandlerContext context
             ) => await context.Dispatch(frame.Op.Commit);
+        }
+
+        private sealed class CommitTurnStartAdapterProgressWorkflowOp
+            : IRuleOp<OpResult<TurnStartAdapterProgress>>
+        {
+            public CommitTurnStartAdapterProgressWorkflowOp(
+                CommitTurnStartAdapterProgressOp commit
+            ) => Commit = commit;
+
+            public CommitTurnStartAdapterProgressOp Commit { get; }
+        }
+
+        private sealed class CommitTurnStartAdapterProgressWorkflowHandler
+            : IOpHandler<
+                CommitTurnStartAdapterProgressWorkflowOp,
+                OpResult<TurnStartAdapterProgress>
+            >
+        {
+            public ValueTask<OpResult<TurnStartAdapterProgress>> Handle(
+                OpFrame<CommitTurnStartAdapterProgressWorkflowOp> frame,
+                OpHandlerContext context
+            ) => context.Dispatch(frame.Op.Commit);
         }
 
         private sealed class CreateEffectWorkflowOp : IRuleOp<ActiveEffectCreationOutcome>

@@ -47,6 +47,7 @@ namespace Game.Rules.Runtime
     public readonly struct HealthState : IEquatable<HealthState>
     {
         private readonly RuleSource[] temporaryHitPointImmunities;
+        private readonly long temporaryHitPointRevision;
 
         /// <summary>Gets current Hit Points.</summary>
         public int Current { get; }
@@ -73,6 +74,16 @@ namespace Game.Rules.Runtime
             Array.AsReadOnly(temporaryHitPointImmunities ?? Array.Empty<RuleSource>());
 
         /// <summary>
+        /// Gets the internal write-boundary stamp for the current temporary-Hit-Point pool.
+        /// </summary>
+        /// <remarks>
+        /// This is deliberately not public state: it distinguishes identical-looking pools across
+        /// reducer transactions so exact compensation cannot overwrite an intervening mutation.
+        /// Public equality, hashing, Facts, operation outcomes, and persistence ignore the stamp.
+        /// </remarks>
+        internal long TemporaryHitPointRevision => temporaryHitPointRevision;
+
+        /// <summary>
         /// Initializes one creature's complete authoritative health state.
         /// </summary>
         /// <param name="current">The current Hit Points, from zero through <paramref name="maximum"/>.</param>
@@ -88,8 +99,15 @@ namespace Game.Rules.Runtime
             int temporary = 0,
             RuleSource temporarySource = default
         )
-            : this(current, maximum, temporary, temporarySource, Array.Empty<RuleSource>(), false)
-        { }
+            : this(
+                current,
+                maximum,
+                temporary,
+                temporarySource,
+                Array.Empty<RuleSource>(),
+                false,
+                0
+            ) { }
 
         /// <summary>
         /// Initializes authoritative health with source-specific temporary-HP immunities.
@@ -106,8 +124,15 @@ namespace Game.Rules.Runtime
             RuleSource temporarySource,
             IEnumerable<RuleSource> temporaryHitPointImmunities
         )
-            : this(current, maximum, temporary, temporarySource, temporaryHitPointImmunities, false)
-        { }
+            : this(
+                current,
+                maximum,
+                temporary,
+                temporarySource,
+                temporaryHitPointImmunities,
+                false,
+                0
+            ) { }
 
         private HealthState(
             int current,
@@ -115,7 +140,8 @@ namespace Game.Rules.Runtime
             int temporary,
             RuleSource temporarySource,
             IEnumerable<RuleSource> temporaryHitPointImmunities,
-            bool isCommittedDefeated
+            bool isCommittedDefeated,
+            long temporaryHitPointRevision
         )
         {
             if (maximum < 0)
@@ -124,6 +150,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(current));
             if (temporary < 0)
                 throw new ArgumentOutOfRangeException(nameof(temporary));
+            if (temporaryHitPointRevision < 0)
+                throw new ArgumentOutOfRangeException(nameof(temporaryHitPointRevision));
             if (temporary == 0 && !temporarySource.IsEmpty)
                 throw new ArgumentException(
                     "Health without temporary Hit Points cannot retain a temporary-HP source.",
@@ -149,6 +177,7 @@ namespace Game.Rules.Runtime
             Temporary = temporary;
             TemporarySource = temporarySource;
             IsCommittedDefeated = isCommittedDefeated;
+            this.temporaryHitPointRevision = temporaryHitPointRevision;
             this.temporaryHitPointImmunities = copiedImmunities;
         }
 
@@ -159,7 +188,8 @@ namespace Game.Rules.Runtime
                 temporary,
                 temporarySource,
                 TemporaryHitPointImmunities,
-                IsCommittedDefeated
+                IsCommittedDefeated,
+                TemporaryHitPointRevision
             );
 
         internal HealthState WithTemporaryHitPointImmunities(IEnumerable<RuleSource> immunities) =>
@@ -169,7 +199,19 @@ namespace Game.Rules.Runtime
                 Temporary,
                 TemporarySource,
                 immunities,
-                IsCommittedDefeated
+                IsCommittedDefeated,
+                TemporaryHitPointRevision
+            );
+
+        internal HealthState WithTemporaryHitPointRevision(long revision) =>
+            new HealthState(
+                Current,
+                Maximum,
+                Temporary,
+                TemporarySource,
+                TemporaryHitPointImmunities,
+                IsCommittedDefeated,
+                revision
             );
 
         internal HealthState CommitDefeat()
@@ -184,7 +226,8 @@ namespace Game.Rules.Runtime
                 Temporary,
                 TemporarySource,
                 TemporaryHitPointImmunities,
-                true
+                true,
+                TemporaryHitPointRevision
             );
         }
 

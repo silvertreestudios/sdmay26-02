@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Text;
 using System.Threading.Tasks;
+using Game.Combat.Encounters;
 using Game.Creature;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Composition;
 using GridPrivate;
@@ -12,6 +15,120 @@ using UnityEngine;
 
 namespace Game.Rules.Unity
 {
+    /// <summary>Resolves durable condition provenance to either a live or reserved rules identity.</summary>
+    internal readonly struct DurableActorSourceResolution
+    {
+        internal DurableActorSourceResolution(CreatureId sourceCreature, bool isPresent)
+        {
+            if (sourceCreature.IsEmpty)
+                throw new ArgumentException(
+                    "Durable source resolution requires a rules identity.",
+                    nameof(sourceCreature)
+                );
+            SourceCreature = sourceCreature;
+            IsPresent = isPresent;
+        }
+
+        internal CreatureId SourceCreature { get; }
+        internal bool IsPresent { get; }
+    }
+
+    /// <summary>
+    /// Provides an exact reversible encoding for historical dungeon actor provenance.
+    /// </summary>
+    internal static class DurableActorSourceIdentity
+    {
+        private const string ReservedPrefix = "condition-source-reserved-v1-";
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
+        internal static string RequireCanonical(string durableId, string parameterName)
+        {
+            if (
+                string.IsNullOrWhiteSpace(durableId)
+                || !string.Equals(durableId, durableId.Trim(), StringComparison.Ordinal)
+            )
+                throw new ArgumentException(
+                    "A durable actor identity must be nonempty and canonical.",
+                    parameterName
+                );
+            try
+            {
+                StrictUtf8.GetByteCount(durableId);
+            }
+            catch (EncoderFallbackException exception)
+            {
+                throw new ArgumentException(
+                    "A durable actor identity must contain valid Unicode.",
+                    parameterName,
+                    exception
+                );
+            }
+            return durableId;
+        }
+
+        internal static bool IsCanonical(string durableId)
+        {
+            try
+            {
+                RequireCanonical(durableId, nameof(durableId));
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        internal static CreatureId Reserve(string durableId)
+        {
+            string canonical = RequireCanonical(durableId, nameof(durableId));
+            string payload = Convert
+                .ToBase64String(StrictUtf8.GetBytes(canonical))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+            return new CreatureId(ReservedPrefix + payload);
+        }
+
+        internal static bool TryDecode(CreatureId creature, out string durableId)
+        {
+            durableId = string.Empty;
+            string value = creature.Value ?? string.Empty;
+            if (!value.StartsWith(ReservedPrefix, StringComparison.Ordinal))
+                return false;
+            string payload = value.Substring(ReservedPrefix.Length);
+            if (
+                payload.Length == 0
+                || payload.Any(character =>
+                    !(character >= 'A' && character <= 'Z')
+                    && !(character >= 'a' && character <= 'z')
+                    && !(character >= '0' && character <= '9')
+                    && character != '-'
+                    && character != '_'
+                )
+                || payload.Length % 4 == 1
+            )
+                return false;
+            try
+            {
+                string padded = payload
+                    .Replace('-', '+')
+                    .Replace('_', '/')
+                    .PadRight(payload.Length + ((4 - payload.Length % 4) % 4), '=');
+                string decoded = StrictUtf8.GetString(Convert.FromBase64String(padded));
+                if (!IsCanonical(decoded) || Reserve(decoded) != creature)
+                    return false;
+                durableId = decoded;
+                return true;
+            }
+            catch (Exception exception)
+                when (exception is FormatException || exception is DecoderFallbackException)
+            {
+                return false;
+            }
+        }
+    }
+
     /// <summary>
     /// Owns the authoritative rules store and Unity projections for one combat encounter.
     /// </summary>
@@ -25,6 +142,10 @@ namespace Game.Rules.Unity
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
         private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
         private readonly Dictionary<CreatureId, ActionController> controllers = new();
+        private readonly Dictionary<string, CreatureId> durableActorIds = new(
+            StringComparer.Ordinal
+        );
+        private readonly Dictionary<CreatureId, string> durableIdsByCreature = new();
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
@@ -88,6 +209,7 @@ namespace Game.Rules.Unity
             enrollmentPipeline = new UnityCombatantEnrollmentPipeline(
                 this,
                 composition,
+                modules.Registry,
                 attachControllers
             );
             UnityCombatantEnrollmentPlan enrollment = enrollmentPipeline.Prepare(
@@ -108,7 +230,7 @@ namespace Game.Rules.Unity
                     .UseActiveEffectRules(modules.Registry)
                     .UseStatelessRuleBindingRules(modules.Registry)
                     .UsePreparedContributions()
-                    .UseEncounterRules(composition.CreateTurnStartAdapters())
+                    .UseEncounterRules(composition.CreateTurnStartAdapters(), modules.Registry)
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)
                     .UseStrideRules(strideDefinition);
@@ -268,6 +390,37 @@ namespace Game.Rules.Unity
             return creatureIds.TryGetValue(creature, out id);
         }
 
+        /// <summary>
+        /// Gets the configured dungeon-persistence identity for an encounter creature, reverses a
+        /// reserved historical identity, or returns an empty string when neither form is available.
+        /// </summary>
+        internal string GetDurableActorId(CreatureId creature)
+        {
+            if (durableIdsByCreature.TryGetValue(creature, out string durableId))
+                return durableId;
+            return DurableActorSourceIdentity.TryDecode(creature, out durableId)
+                ? durableId
+                : string.Empty;
+        }
+
+        /// <summary>
+        /// Resolves a canonical durable dungeon actor identity to its current encounter identity,
+        /// or to a reversible reserved non-roster identity when the actor is absent.
+        /// </summary>
+        internal DurableActorSourceResolution ResolveDurableActorId(string durableId)
+        {
+            string canonical = DurableActorSourceIdentity.RequireCanonical(
+                durableId,
+                nameof(durableId)
+            );
+            return durableActorIds.TryGetValue(canonical, out CreatureId source)
+                ? new DurableActorSourceResolution(source, true)
+                : new DurableActorSourceResolution(
+                    DurableActorSourceIdentity.Reserve(canonical),
+                    false
+                );
+        }
+
         /// <summary>Gets the stable rules ID assigned to a registered controller.</summary>
         /// <param name="controller">The registered Unity action controller.</param>
         /// <returns>The encounter-stable rules identifier.</returns>
@@ -396,7 +549,30 @@ namespace Game.Rules.Unity
                 || encounter.CurrentTurn.Value.Actor != creature
             )
                 throw new InvalidOperationException("The creature does not own the active turn.");
-            DispatchNow(new EndTurnOp(encounter.CurrentTurn.Value));
+            TurnIdentity ending = encounter.CurrentTurn.Value;
+            try
+            {
+                DispatchNow(new EndTurnOp(ending));
+            }
+            catch (Exception failure)
+            {
+                EncounterState latest = GetEncounter();
+                if (latest.Phase != EncounterPhase.Active || latest.CurrentTurn.HasValue)
+                    ExceptionDispatchInfo.Capture(failure).Throw();
+                try
+                {
+                    DispatchNow(new AdvanceEncounterOp(ending.Encounter));
+                }
+                catch (Exception recoveryFailure)
+                {
+                    throw new AggregateException(
+                        "Turn end and authoritative encounter recovery both failed.",
+                        failure,
+                        recoveryFailure
+                    );
+                }
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            }
         }
 
         /// <summary>Spends authoritative actions for a Unity-hosted encounter action.</summary>
@@ -1002,10 +1178,24 @@ namespace Game.Rules.Unity
             CreatureId id
         )
         {
+            string durableId = GetConfiguredDurableActorId(controller);
+            if (
+                durableId.Length > 0
+                && durableActorIds.TryGetValue(durableId, out CreatureId existing)
+                && existing != id
+            )
+                throw new InvalidOperationException(
+                    $"Dungeon actor identity '{durableId}' is already registered in this encounter."
+                );
             controllerIds.Add(controller, id);
             controllers.Add(id, controller);
             creatureIds.Add(creature, id);
             creatures.Add(id, creature);
+            if (durableId.Length > 0)
+            {
+                durableActorIds.Add(durableId, id);
+                durableIdsByCreature.Add(id, durableId);
+            }
         }
 
         internal void RemoveRegistrationMaps(
@@ -1018,6 +1208,89 @@ namespace Game.Rules.Unity
             controllers.Remove(id);
             creatureIds.Remove(creature);
             creatures.Remove(id);
+            if (durableIdsByCreature.TryGetValue(id, out string durableId))
+            {
+                durableIdsByCreature.Remove(id);
+                if (durableActorIds.TryGetValue(durableId, out CreatureId mapped) && mapped == id)
+                    durableActorIds.Remove(durableId);
+            }
+        }
+
+        private static string GetConfiguredDurableActorId(ActionController controller)
+        {
+            DungeonPartyMemberIdentity party =
+                controller.GetComponent<DungeonPartyMemberIdentity>();
+            DungeonEncounterMember encounter = controller.GetComponent<DungeonEncounterMember>();
+            if (party != null && encounter != null)
+                throw new InvalidOperationException(
+                    $"Actor '{controller.name}' has both {nameof(DungeonPartyMemberIdentity)} and {nameof(DungeonEncounterMember)} components. Durable actor identity components are mutually exclusive, even when either component is unconfigured."
+                );
+            if (party != null)
+            {
+                if (!party.IsConfigured)
+                    throw new InvalidOperationException(
+                        $"Actor '{controller.name}' has an unconfigured {nameof(DungeonPartyMemberIdentity)} component. A present durable actor identity component must be completely configured."
+                    );
+                string durableId = RequireCanonicalComponentIdentity(
+                    controller,
+                    party.RosterSlotId,
+                    $"{nameof(DungeonPartyMemberIdentity)}.{nameof(DungeonPartyMemberIdentity.RosterSlotId)}"
+                );
+                if (DungeonEnemyDurableActorIdentity.IsReserved(durableId))
+                    throw new InvalidOperationException(
+                        $"Actor '{controller.name}' uses the enemy-only durable actor namespace in {nameof(DungeonPartyMemberIdentity)}.{nameof(DungeonPartyMemberIdentity.RosterSlotId)}."
+                    );
+                return durableId;
+            }
+            if (encounter != null)
+            {
+                if (!encounter.IsConfigured)
+                    throw new InvalidOperationException(
+                        $"Actor '{controller.name}' has an unconfigured {nameof(DungeonEncounterMember)} component. A present durable actor identity component must be completely configured."
+                    );
+                string instanceId = RequireCanonicalComponentIdentity(
+                    controller,
+                    encounter.InstanceId,
+                    $"{nameof(DungeonEncounterMember)}.{nameof(DungeonEncounterMember.InstanceId)}"
+                );
+                string durableId = RequireCanonicalComponentIdentity(
+                    controller,
+                    encounter.DurableActorId,
+                    $"{nameof(DungeonEncounterMember)}.{nameof(DungeonEncounterMember.DurableActorId)}"
+                );
+                string expected = DungeonEnemyDurableActorIdentity.Create(
+                    encounter.FloorDepth,
+                    instanceId
+                );
+                if (!string.Equals(durableId, expected, StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        $"Actor '{controller.name}' has inconsistent configured dungeon encounter identity."
+                    );
+                return durableId;
+            }
+            return string.Empty;
+        }
+
+        private static string RequireCanonicalComponentIdentity(
+            ActionController controller,
+            string serializedIdentity,
+            string serializedField
+        )
+        {
+            try
+            {
+                return DurableActorSourceIdentity.RequireCanonical(
+                    serializedIdentity,
+                    serializedField
+                );
+            }
+            catch (ArgumentException exception)
+            {
+                throw new InvalidOperationException(
+                    $"Actor '{controller.name}' has a noncanonical durable actor identity in {serializedField}. Serialized identity values must already be canonical and are never normalized during enrollment.",
+                    exception
+                );
+            }
         }
 
         internal static void Seed(RulesStateSeed seed, CombatantRulesState state)
@@ -1033,7 +1306,14 @@ namespace Game.Rules.Unity
             foreach (SpellSlotState slot in state.SpellSlots)
                 seed.SeedSpellSlot(slot);
             foreach (ActiveRuleBinding binding in state.RuleBindings)
-                seed.SeedRuleBinding(binding);
+                seed.AddUniqueRuleBinding(binding);
+            foreach (ActiveEffectRegistration registration in state.ActiveEffects)
+            {
+                seed.AddUniqueActiveEffect(registration.Effect)
+                    .AddUniqueRuleBinding(registration.Binding);
+                if (registration.Timing != null)
+                    seed.AddUniqueActiveEffectTiming(registration.Timing);
+            }
         }
 
         internal static void ValidateControllers(

@@ -4,6 +4,40 @@ using System.Linq;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>
+    /// Identifies immutable feature-owned intent attached to one temporary Hit Point offer.
+    /// </summary>
+    /// <remarks>
+    /// The health runtime does not interpret feature intent. The handler runs after inner middleware
+    /// invokes it and asks the immutable intent for the exact reducer operation to dispatch. Outer
+    /// middleware then continues unwinding and may still replace the public structural result. This
+    /// lets a feature extend the atomic health transaction without short-circuiting Prevention or
+    /// creating a second public operation boundary.
+    /// </remarks>
+    internal interface ITemporaryHitPointsGrantIntent
+    {
+        IRuleOp<TemporaryHitPointsGrantOutcome> CreateCommitOperation(
+            GrantTemporaryHitPointsOp grant
+        );
+    }
+
+    internal sealed class OrdinaryTemporaryHitPointsGrantIntent : ITemporaryHitPointsGrantIntent
+    {
+        internal static OrdinaryTemporaryHitPointsGrantIntent Instance { get; } = new();
+
+        private OrdinaryTemporaryHitPointsGrantIntent() { }
+
+        public IRuleOp<TemporaryHitPointsGrantOutcome> CreateCommitOperation(
+            GrantTemporaryHitPointsOp grant
+        ) =>
+            new CommitTemporaryHitPointsGrantOp(
+                grant.Target,
+                grant.Amount,
+                grant.Origin,
+                grant.Source
+            );
+    }
+
     internal static class HealthOperationValidation
     {
         // Every stable-ID string constructor rejects blank input. These guards still protect the
@@ -297,6 +331,8 @@ namespace Game.Rules.Runtime
         public HealthChangeOriginId Origin { get; }
         public RuleSource Source { get; }
 
+        internal ITemporaryHitPointsGrantIntent Intent { get; }
+
         /// <summary>Initializes one externally dispatchable temporary-HP offer.</summary>
         /// <param name="target">The creature receiving the offer.</param>
         /// <param name="amount">The non-negative pool offered.</param>
@@ -308,11 +344,22 @@ namespace Game.Rules.Runtime
             HealthChangeOriginId origin,
             RuleSource source
         )
+            : this(target, amount, origin, source, OrdinaryTemporaryHitPointsGrantIntent.Instance)
+        { }
+
+        internal GrantTemporaryHitPointsOp(
+            CreatureId target,
+            int amount,
+            HealthChangeOriginId origin,
+            RuleSource source,
+            ITemporaryHitPointsGrantIntent intent
+        )
         {
             Target = HealthOperationValidation.RequireCreature(target);
             Amount = HealthOperationValidation.RequireAmount(amount, nameof(amount));
             Origin = HealthOperationValidation.RequireOrigin(origin);
             Source = HealthOperationValidation.RequireSource(source);
+            Intent = intent ?? throw new ArgumentNullException(nameof(intent));
         }
     }
 

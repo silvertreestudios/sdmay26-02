@@ -17866,6 +17866,15 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 6684917429326229752, guid: ed8163a4cfdd35d47bfc755d63dcf9ad, type: 3}
       insertIndex: -1
       addedObject: {fileID: 30520630}
+    - targetCorrespondingSourceObject: {fileID: 6684917429326229752, guid: ed8163a4cfdd35d47bfc755d63dcf9ad, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1912194691}
+    - targetCorrespondingSourceObject: {fileID: 6684917429326229752, guid: ed8163a4cfdd35d47bfc755d63dcf9ad, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 803472530}
+    - targetCorrespondingSourceObject: {fileID: 6684917429326229752, guid: ed8163a4cfdd35d47bfc755d63dcf9ad, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 2105897908}
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: ed8163a4cfdd35d47bfc755d63dcf9ad, type: 3}
 --- !u!4 &392660354 stripped
@@ -34678,6 +34687,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 501c7e0c8b61c0a4893b1b3c6b3a308b, type: 3}
+--- !u!4 &803472530 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 5274667431578973114, guid: 501c7e0c8b61c0a4893b1b3c6b3a308b, type: 3}
+  m_PrefabInstance: {fileID: 803472529}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &803940509
 GameObject:
   m_ObjectHideFlags: 0
@@ -35193,6 +35207,10 @@ PrefabInstance:
     - target: {fileID: 2803026985045697598, guid: eb5ad8e5ebb45fb458c446b20f9936d5, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3035103502472745969, guid: eb5ad8e5ebb45fb458c446b20f9936d5, type: 3}
+      propertyPath: rosterSlotId
+      value: unit-testing-torgrim-1
       objectReference: {fileID: 0}
     - target: {fileID: 4276686147321559490, guid: eb5ad8e5ebb45fb458c446b20f9936d5, type: 3}
       propertyPath: m_Mesh
@@ -39262,6 +39280,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 3035103502472745969, guid: eb5ad8e5ebb45fb458c446b20f9936d5, type: 3}
+      propertyPath: rosterSlotId
+      value: unit-testing-torgrim-2
+      objectReference: {fileID: 0}
     - target: {fileID: 4276686147321559490, guid: eb5ad8e5ebb45fb458c446b20f9936d5, type: 3}
       propertyPath: m_Mesh
       value: 
@@ -40478,6 +40500,10 @@ PrefabInstance:
     - target: {fileID: 2803026985045697598, guid: eb5ad8e5ebb45fb458c446b20f9936d5, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3035103502472745969, guid: eb5ad8e5ebb45fb458c446b20f9936d5, type: 3}
+      propertyPath: rosterSlotId
+      value: unit-testing-torgrim-3
       objectReference: {fileID: 0}
     - target: {fileID: 4276686147321559490, guid: eb5ad8e5ebb45fb458c446b20f9936d5, type: 3}
       propertyPath: m_Mesh
@@ -77040,6 +77066,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 501c7e0c8b61c0a4893b1b3c6b3a308b, type: 3}
+--- !u!4 &1912194691 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 5274667431578973114, guid: 501c7e0c8b61c0a4893b1b3c6b3a308b, type: 3}
+  m_PrefabInstance: {fileID: 1912194690}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &1912809264
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -83260,6 +83291,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 501c7e0c8b61c0a4893b1b3c6b3a308b, type: 3}
+--- !u!4 &2105897908 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 5274667431578973114, guid: 501c7e0c8b61c0a4893b1b3c6b3a308b, type: 3}
+  m_PrefabInstance: {fileID: 2105897907}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &2111004920
 GameObject:
   m_ObjectHideFlags: 0
@@ -85103,7 +85139,4 @@ SceneRoots:
   - {fileID: 392660353}
   - {fileID: 389218596}
   - {fileID: 963270537}
-  - {fileID: 1912194690}
-  - {fileID: 2105897907}
-  - {fileID: 803472529}
   - {fileID: 1972771501}

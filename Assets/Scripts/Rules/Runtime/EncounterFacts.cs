@@ -67,6 +67,32 @@ namespace Game.Rules.Runtime
         }
     }
 
+    // This internal audit Fact satisfies the store's committed-state notification invariant without
+    // exposing adapter progress as a gameplay timing signal.
+    internal sealed class TurnStartAdapterProgressCommittedFact : RuleFact
+    {
+        public EncounterId Encounter { get; }
+        public RoundNumber Round { get; }
+        public int Slot { get; }
+        public CreatureId Actor { get; }
+        public TurnStartAdapterProgress Progress { get; }
+
+        public TurnStartAdapterProgressCommittedFact(
+            EncounterId encounter,
+            RoundNumber round,
+            int slot,
+            CreatureId actor,
+            TurnStartAdapterProgress progress
+        )
+        {
+            Encounter = encounter;
+            Round = round;
+            Slot = slot;
+            Actor = actor;
+            Progress = progress ?? throw new System.ArgumentNullException(nameof(progress));
+        }
+    }
+
     /// <summary>Reports a source-initiative timing boundary, including zero-HP slots.</summary>
     public sealed class InitiativeBoundaryReachedFact : RuleFact
     {
@@ -104,6 +130,43 @@ namespace Game.Rules.Runtime
         /// <summary>Creates a fact for the exact turn.</summary>
         /// <param name="turn">The exact turn granted final resources.</param>
         public TurnBeganFact(TurnIdentity turn) => Turn = turn;
+    }
+
+    /// <summary>
+    /// Records that the exact published initiative slot completed turn-start processing without
+    /// beginning a turn because its actor was no longer living.
+    /// </summary>
+    public sealed class InitiativeTurnStartSkippedFact : RuleFact
+    {
+        /// <summary>Gets the encounter whose published slot was resolved.</summary>
+        public EncounterId Encounter { get; }
+
+        /// <summary>Gets the exact published round.</summary>
+        public RoundNumber Round { get; }
+
+        /// <summary>Gets the exact published roster slot.</summary>
+        public int Slot { get; }
+
+        /// <summary>Gets the actor that could not begin the turn.</summary>
+        public CreatureId Actor { get; }
+
+        /// <summary>Creates an exact skipped-turn-start record.</summary>
+        /// <param name="encounter">The encounter whose published slot was resolved.</param>
+        /// <param name="round">The exact published round.</param>
+        /// <param name="slot">The exact published roster slot.</param>
+        /// <param name="actor">The actor that could not begin the turn.</param>
+        public InitiativeTurnStartSkippedFact(
+            EncounterId encounter,
+            RoundNumber round,
+            int slot,
+            CreatureId actor
+        )
+        {
+            Encounter = encounter;
+            Round = round;
+            Slot = slot;
+            Actor = actor;
+        }
     }
 
     /// <summary>Reports that an exact turn completed and its scoped resources were cleared.</summary>

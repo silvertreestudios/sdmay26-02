@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using NUnit.Framework;
 
 namespace Game.Rules.Runtime.Tests
@@ -8,6 +9,11 @@ namespace Game.Rules.Runtime.Tests
     {
         private static readonly CreatureId Owner = new CreatureId("condition-owner");
         private static readonly CreatureId SourceCreature = new CreatureId("condition-source");
+        private static readonly CreatureId HistoricalSourceCreature = new CreatureId(
+            "historical-condition-source"
+        );
+        private static readonly CreatureId OrphanOwner = new CreatureId("orphan-condition-owner");
+        private static readonly PlayerId SourcePlayer = new PlayerId("condition-source-player");
         private static readonly RuleSource Source = RuleSource.FromSlug("condition-test-source");
 
         [Test]
@@ -19,7 +25,7 @@ namespace Game.Rules.Runtime.Tests
                 new SlowedConditionState(1)
             );
             ActiveRuleBinding binding = Binding("slowed-binding", effect, Owner, 4);
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
 
             ReductionResult<ConditionCreationOutcome> result = store.Reduce(
                 Context(new CreateConditionOp(effect, binding)),
@@ -43,6 +49,118 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void CreateRejectsUnregisteredSourceWithoutPartialCommitOrFacts()
+        {
+            ActiveEffectInstance effect = EffectFrom(
+                "unregistered-source-effect",
+                ConditionRuleDefinitions.Fatigued,
+                ConditionMarkerState.Instance,
+                HistoricalSourceCreature
+            );
+            ActiveRuleBinding binding = Binding("unregistered-source-binding", effect, Owner, 4);
+            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
+
+            ReductionResult<ConditionCreationOutcome> result = store.Reduce(
+                Context(new CreateConditionOp(effect, binding)),
+                new CreateConditionReducer(Registry())
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(
+                result.RejectionReason,
+                Is.EqualTo("The condition source is not a registered creature.")
+            );
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(result.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(result.Snapshot.Version, Is.Zero);
+        }
+
+        [Test]
+        public void CreateRejectsUnregisteredOwnerWithoutPartialCommitOrFacts()
+        {
+            ActiveEffectInstance effect = Effect(
+                "orphan-owner-effect",
+                ConditionRuleDefinitions.Fatigued,
+                ConditionMarkerState.Instance
+            );
+            ActiveRuleBinding binding = Binding("orphan-owner-binding", effect, OrphanOwner, 4);
+            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
+
+            ReductionResult<ConditionCreationOutcome> result = store.Reduce(
+                Context(new CreateConditionOp(effect, binding)),
+                new CreateConditionReducer(Registry())
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(
+                result.RejectionReason,
+                Is.EqualTo("The condition owner is not a registered creature.")
+            );
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(result.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(result.Snapshot.Version, Is.Zero);
+        }
+
+        [Test]
+        public void AdoptionRejectsAnyUnregisteredOwnerAtomicallyWhileAllowingAbsentSources()
+        {
+            ActiveEffectInstance validEffect = EffectFrom(
+                "valid-historical-effect",
+                ConditionRuleDefinitions.Fatigued,
+                ConditionMarkerState.Instance,
+                HistoricalSourceCreature
+            );
+            ActiveRuleBinding validBinding = Binding(
+                "valid-historical-binding",
+                validEffect,
+                Owner,
+                4
+            );
+            ActiveEffectInstance orphanEffect = EffectFrom(
+                "orphan-historical-effect",
+                ConditionRuleDefinitions.Deafened,
+                ConditionMarkerState.Instance,
+                HistoricalSourceCreature
+            );
+            ActiveRuleBinding orphanBinding = Binding(
+                "orphan-historical-binding",
+                orphanEffect,
+                OrphanOwner,
+                5
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
+
+            ReductionResult<ConditionAdoptionOutcome> result = store.Reduce(
+                Context(
+                    new AdoptConditionRegistrationsOp(
+                        new[]
+                        {
+                            new ConditionRegistration(validEffect, validBinding),
+                            new ConditionRegistration(orphanEffect, orphanBinding),
+                        }
+                    )
+                ),
+                new AdoptConditionRegistrationsReducer(Registry())
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(
+                result.RejectionReason,
+                Is.EqualTo("An active-effect binding owner is not a registered creature.")
+            );
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(result.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(result.Snapshot.ActiveEffectTimings, Is.Empty);
+            Assert.That(result.Snapshot.Version, Is.Zero);
+        }
+
+        [Test]
         public void CreateRejectsWrongDefinitionStateWithoutPartialCommitOrFacts()
         {
             ActiveEffectInstance invalid = Effect(
@@ -51,7 +169,7 @@ namespace Game.Rules.Runtime.Tests
                 new SlowedConditionState(1)
             );
             ActiveRuleBinding binding = Binding("invalid-binding", invalid, Owner, 0);
-            InMemoryRulesStore store = new InMemoryRulesStore();
+            InMemoryRulesStore store = new InMemoryRulesStore(RegisteredSourceSeed());
 
             ReductionResult<ConditionCreationOutcome> result = store.Reduce(
                 Context(new CreateConditionOp(invalid, binding)),
@@ -409,13 +527,154 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public void RegistrationAddsAllConditionWrapperReducers()
         {
-            RuleRegistry registry = Registry();
+            RuleRegistry registry = MarkerRegistry();
 
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore())
                 .UseConditionRules(registry)
                 .Build();
 
             Assert.That(dispatcher, Is.Not.Null);
+        }
+
+        [Test]
+        public async Task RuntimeAdoptionAdvancesLaterConditionIdentityPastCreationOrder()
+        {
+            RuleRegistry registry = MarkerRegistry();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(RegisteredSourceSeed())
+            )
+                .UseActiveEffectRules(registry)
+                .UseConditionRules(registry)
+                .Build();
+            ActiveEffectInstance adoptedEffect = EffectFrom(
+                "reinforcement-effect",
+                ConditionRuleDefinitions.Fatigued,
+                ConditionMarkerState.Instance,
+                HistoricalSourceCreature
+            );
+            ActiveRuleBinding adoptedBinding = Binding(
+                "reinforcement-binding",
+                adoptedEffect,
+                Owner,
+                40
+            );
+
+            Assert.That(
+                await dispatcher.Dispatch(
+                    new AdoptConditionRegistrationsOp(
+                        new[] { new ConditionRegistration(adoptedEffect, adoptedBinding) }
+                    )
+                ),
+                Is.TypeOf<ResolvedOpResult<ConditionAdoptionOutcome>>()
+            );
+            Assert.That(dispatcher.Snapshot.Creatures.Contains(HistoricalSourceCreature), Is.False);
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[adoptedEffect.Id].SourceCreature,
+                Is.EqualTo(HistoricalSourceCreature)
+            );
+            ResolvedOpResult<ConditionCreationOutcome> created = RequireResolved(
+                await dispatcher.Dispatch(NewMarkerCondition())
+            );
+
+            Assert.That(created.Value.EffectId.Value, Is.EqualTo("condition-effect-41"));
+            Assert.That(created.Value.BindingId.Value, Is.EqualTo("condition-binding-41"));
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings[created.Value.BindingId].CreationOrder,
+                Is.EqualTo(41)
+            );
+        }
+
+        [Test]
+        public async Task PersistedSuffixCollisionProbesBothConditionIds()
+        {
+            ActiveEffectInstance collidingEffect = new ActiveEffectInstance(
+                new ActiveEffectId("condition-effect-41"),
+                ConditionRuleDefinitions.Fatigued,
+                SourceCreature,
+                Source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            );
+            ActiveRuleBinding collidingBinding = new ActiveRuleBinding(
+                new BindingId("persisted-binding-with-arbitrary-suffix"),
+                collidingEffect.DefinitionId,
+                Owner,
+                collidingEffect.Id,
+                Source,
+                40
+            );
+            RuleRegistry registry = MarkerRegistry();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(
+                    new RulesStateSeed()
+                        .SeedCreature(new CreatureState(SourceCreature, SourcePlayer))
+                        .SeedCreature(
+                            new CreatureState(Owner, new PlayerId("condition-owner-player"))
+                        )
+                        .SeedActiveEffect(collidingEffect)
+                        .SeedRuleBinding(collidingBinding)
+                )
+            )
+                .UseActiveEffectRules(registry)
+                .UseConditionRules(registry)
+                .Build();
+
+            ResolvedOpResult<ConditionCreationOutcome> created = RequireResolved(
+                await dispatcher.Dispatch(NewMarkerCondition())
+            );
+
+            Assert.That(created.Value.EffectId.Value, Is.EqualTo("condition-effect-42"));
+            Assert.That(created.Value.BindingId.Value, Is.EqualTo("condition-binding-42"));
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings[created.Value.BindingId].CreationOrder,
+                Is.EqualTo(42)
+            );
+        }
+
+        [Test]
+        public async Task RuntimeAdoptionAtMaximumCreationOrderFailsConditionAllocationClosed()
+        {
+            RuleRegistry registry = MarkerRegistry();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(RegisteredSourceSeed()),
+                new SequentialOpIdProvider(1)
+            )
+                .UseActiveEffectRules(registry)
+                .UseConditionRules(registry)
+                .Build();
+            ActiveEffectInstance adoptedEffect = EffectFrom(
+                "maximum-runtime-effect",
+                ConditionRuleDefinitions.Fatigued,
+                ConditionMarkerState.Instance,
+                HistoricalSourceCreature
+            );
+            ActiveRuleBinding adoptedBinding = Binding(
+                "maximum-runtime-binding",
+                adoptedEffect,
+                Owner,
+                long.MaxValue
+            );
+            RequireResolved(
+                await dispatcher.Dispatch(
+                    new AdoptConditionRegistrationsOp(
+                        new[] { new ConditionRegistration(adoptedEffect, adoptedBinding) }
+                    )
+                )
+            );
+            long version = dispatcher.Snapshot.Version;
+            int effects = dispatcher.Snapshot.ActiveEffects.Count;
+
+            InvalidOperationException failure = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(NewMarkerCondition())
+            );
+
+            Assert.That(
+                failure.Message,
+                Is.EqualTo("The condition identity sequence is exhausted.")
+            );
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(version));
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Count, Is.EqualTo(effects));
         }
 
         private static RuleRegistry Registry()
@@ -425,16 +684,32 @@ namespace Game.Rules.Runtime.Tests
             return builder.Build();
         }
 
+        private static RuleRegistry MarkerRegistry()
+        {
+            RuleRegistryBuilder builder = new RuleRegistryBuilder();
+            builder.Define(ConditionRuleDefinitions.Fatigued);
+            builder.Define(ConditionRuleDefinitions.Deafened);
+            return builder.Build();
+        }
+
         private static ActiveEffectInstance Effect(
             string id,
             RuleDefinitionId definition,
             IEffectState state,
             ActiveEffectStatus status = ActiveEffectStatus.Active
+        ) => EffectFrom(id, definition, state, SourceCreature, status);
+
+        private static ActiveEffectInstance EffectFrom(
+            string id,
+            RuleDefinitionId definition,
+            IEffectState state,
+            CreatureId sourceCreature,
+            ActiveEffectStatus status = ActiveEffectStatus.Active
         ) =>
             new ActiveEffectInstance(
                 new ActiveEffectId(id),
                 definition,
-                SourceCreature,
+                sourceCreature,
                 Source,
                 EffectDuration.Indefinite,
                 state,
@@ -465,8 +740,13 @@ namespace Game.Rules.Runtime.Tests
             ActiveRuleBinding binding
         ) =>
             new InMemoryRulesStore(
-                new RulesStateSeed().SeedActiveEffect(effect).SeedRuleBinding(binding)
+                RegisteredSourceSeed().SeedActiveEffect(effect).SeedRuleBinding(binding)
             );
+
+        private static RulesStateSeed RegisteredSourceSeed() =>
+            new RulesStateSeed()
+                .SeedCreature(new CreatureState(SourceCreature, SourcePlayer))
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")));
 
         private static void Add(
             RulesStateSeed seed,
@@ -495,5 +775,21 @@ namespace Game.Rules.Runtime.Tests
 
         private static ReductionContext<TOp> Context<TOp>(TOp op) =>
             new ReductionContext<TOp>(op, new OpId(2), new OpId(1), Source);
+
+        private static ApplyConditionOp NewMarkerCondition() =>
+            new ApplyConditionOp(
+                "deafened",
+                Owner,
+                SourceCreature,
+                Source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            );
+
+        private static ResolvedOpResult<TResult> RequireResolved<TResult>(
+            OpResult<TResult> result
+        ) =>
+            result as ResolvedOpResult<TResult>
+            ?? throw new AssertionException($"Expected Resolved but received {result.Status}.");
     }
 }

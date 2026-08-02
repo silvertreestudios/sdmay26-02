@@ -80,6 +80,14 @@ namespace Game.Rules.Runtime
                 return ReductionResult<ConditionCreationOutcome>.Reject(
                     ConditionReduction.InvalidContract(effect)
                 );
+            if (!state.Creatures.Contains(effect.SourceCreature))
+                return ReductionResult<ConditionCreationOutcome>.Reject(
+                    "The condition source is not a registered creature."
+                );
+            if (!state.Creatures.Contains(context.Op.Binding.Owner))
+                return ReductionResult<ConditionCreationOutcome>.Reject(
+                    "The condition owner is not a registered creature."
+                );
 
             CreateActiveEffectOp translated = new CreateActiveEffectOp(effect, context.Op.Binding);
             ReductionResult<ActiveEffectCreationOutcome> result = activeEffectReducer.Reduce(

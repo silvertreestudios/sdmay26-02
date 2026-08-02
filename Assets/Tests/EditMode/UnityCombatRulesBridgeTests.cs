@@ -340,6 +340,397 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void EndTurnRecoversPublishedBoundaryFromANewRootAndPreservesOriginalFailure()
+    {
+        GameObject heroObject = new GameObject("end-turn-recovery-hero");
+        GameObject enemyObject = new GameObject("end-turn-recovery-enemy");
+        try
+        {
+            BridgeTestActionController hero = ConfigureCombatant(
+                heroObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController enemy = ConfigureCombatant(
+                enemyObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            TurnStartFailureModule failureModule = new TurnStartFailureModule();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { hero, enemy },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                new IUnityEncounterModule[] { failureModule }
+            );
+            EncounterState heroTurn = bridge.StartEncounter("Players");
+            TurnIdentity expected = new TurnIdentity(
+                heroTurn.Id,
+                new TurnId(2),
+                bridge.GetCreatureId(enemy),
+                RoundNumber.First,
+                1
+            );
+            InvalidOperationException original = new InvalidOperationException(
+                "Injected turn-start failure before turn begin."
+            );
+            failureModule.EnqueueAdapterFailures(original);
+
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                bridge.EndTurn(heroTurn.CurrentTurn.Value.Actor)
+            );
+
+            Assert.That(failure, Is.SameAs(original));
+            Assert.That(bridge.GetEncounter().CurrentTurn.Value, Is.EqualTo(expected));
+            Assert.That(bridge.GetEncounter().IsTurnStartPending, Is.False);
+            Assert.That(failureModule.AdapterCalls, Is.EqualTo(3));
+            Assert.That(
+                failureModule.TurnBeganFacts.Count(fact => fact.Turn == expected),
+                Is.EqualTo(1)
+            );
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(heroObject);
+            Object.DestroyImmediate(enemyObject);
+        }
+    }
+
+    [Test]
+    public async Task LethalRottingAuraBatchCommitsOnlyReachedDamageAndBeginsTurnOnce()
+    {
+        GameObject targetObject = new GameObject("rotting-aura-lethal-target");
+        GameObject allyObject = new GameObject("rotting-aura-lethal-ally");
+        GameObject firstSourceObject = new GameObject("rotting-aura-lethal-source-one");
+        GameObject secondSourceObject = new GameObject("rotting-aura-lethal-source-two");
+        UnityEngine.Random.State randomState = UnityEngine.Random.state;
+        try
+        {
+            BridgeTestActionController target = ConfigureCombatant(
+                targetObject,
+                "Players",
+                Vector3Int.right
+            );
+            CreatureComponent targetCreature = targetObject.GetComponent<CreatureComponent>();
+            targetCreature.InitializeHealthBeforeEncounter(1, 2);
+            targetCreature.traits = new List<string>();
+            targetCreature.weaknesses = new List<DamageValue>();
+            targetCreature.resistances = new List<DamageValue>();
+            BridgeTestActionController ally = ConfigureCombatant(
+                allyObject,
+                "Players",
+                new Vector3Int(3, 0, 0)
+            );
+            BridgeTestActionController firstSource = ConfigureCombatant(
+                firstSourceObject,
+                "Enemies",
+                Vector3Int.zero
+            );
+            BridgeTestActionController secondSource = ConfigureCombatant(
+                secondSourceObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            firstSourceObject.GetComponent<CreatureComponent>().auras = new List<CreatureAura>
+            {
+                new CreatureAura { slug = RottingAuraRule.RuleSlug, radiusFeet = 10 },
+            };
+            secondSourceObject.GetComponent<CreatureComponent>().auras = new List<CreatureAura>
+            {
+                new CreatureAura { slug = RottingAuraRule.RuleSlug, radiusFeet = 10 },
+            };
+            GridPrivate.Tile[,] tiles = CreateTiles(4);
+            tiles[0, 0].Occupants.Add(firstSourceObject);
+            tiles[1, 0].Occupants.Add(targetObject);
+            tiles[2, 0].Occupants.Add(secondSourceObject);
+            tiles[3, 0].Occupants.Add(allyObject);
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { target, ally, firstSource, secondSource },
+                tiles,
+                new ScriptedRollService(20, 15, 10, 5)
+            );
+            RuleDispatcher dispatcher = GetDispatcher(bridge);
+            List<DamageAppliedFact> damageFacts = new List<DamageAppliedFact>();
+            TaskCompletionSource<TurnBeganFact> turnBegan = new TaskCompletionSource<TurnBeganFact>(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            int turnBeganFacts = 0;
+            using IDisposable damageRegistration =
+                dispatcher.RegisterFactObserver<DamageAppliedFact>(
+                    new CapturingFactObserver<DamageAppliedFact>(damageFacts.Add)
+                );
+            using IDisposable turnRegistration = dispatcher.RegisterFactObserver<TurnBeganFact>(
+                new CapturingFactObserver<TurnBeganFact>(fact =>
+                {
+                    turnBeganFacts++;
+                    turnBegan.TrySetResult(fact);
+                })
+            );
+
+            bridge.StartEncounter("Players");
+
+            Assert.That(damageFacts, Has.Count.EqualTo(1));
+            Assert.That(damageFacts[0].Requested, Is.GreaterThanOrEqualTo(1));
+            Assert.That(damageFacts[0].AppliedToTemporary, Is.Zero);
+            Assert.That(damageFacts[0].AppliedToCurrent, Is.EqualTo(1));
+            Assert.That(
+                damageFacts[0].Source,
+                Is.EqualTo(RuleSource.FromSlug(RottingAuraRule.RuleSlug))
+            );
+            Assert.That(bridge.GetHealth(bridge.GetCreatureId(target)).Current, Is.Zero);
+            Task completed = await Task.WhenAny(
+                turnBegan.Task,
+                Task.Delay(TimeSpan.FromSeconds(5))
+            );
+            Assert.That(completed, Is.SameAs(turnBegan.Task), "The next living turn never began.");
+            TurnBeganFact began = await turnBegan.Task;
+            EncounterState current = bridge.GetEncounter();
+            Assert.That(turnBeganFacts, Is.EqualTo(1));
+            Assert.That(began.Turn.Actor, Is.EqualTo(bridge.GetCreatureId(ally)));
+            Assert.That(began.Turn.Turn, Is.EqualTo(new TurnId(1)));
+            Assert.That(current.CurrentTurn.Value, Is.EqualTo(began.Turn));
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            UnityEngine.Random.state = randomState;
+            Object.DestroyImmediate(targetObject);
+            Object.DestroyImmediate(allyObject);
+            Object.DestroyImmediate(firstSourceObject);
+            Object.DestroyImmediate(secondSourceObject);
+        }
+    }
+
+    [Test]
+    public void RottingAuraDamageBatchSurvivesLaterFactObserverFailureWithoutReplay()
+    {
+        GameObject targetObject = new GameObject("rotting-aura-recovery-target");
+        GameObject firstSourceObject = new GameObject("rotting-aura-recovery-source-one");
+        GameObject secondSourceObject = new GameObject("rotting-aura-recovery-source-two");
+        UnityEngine.Random.State randomState = UnityEngine.Random.state;
+        try
+        {
+            BridgeTestActionController target = ConfigureCombatant(
+                targetObject,
+                "Players",
+                Vector3Int.right
+            );
+            CreatureComponent targetCreature = targetObject.GetComponent<CreatureComponent>();
+            targetCreature.InitializeHealthBeforeEncounter(100, 200);
+            targetCreature.traits = new List<string>();
+            targetCreature.weaknesses = new List<DamageValue>();
+            targetCreature.resistances = new List<DamageValue>();
+            BridgeTestActionController firstSource = ConfigureCombatant(
+                firstSourceObject,
+                "Enemies",
+                Vector3Int.zero
+            );
+            BridgeTestActionController secondSource = ConfigureCombatant(
+                secondSourceObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            firstSourceObject.GetComponent<CreatureComponent>().auras = new List<CreatureAura>
+            {
+                new CreatureAura { slug = RottingAuraRule.RuleSlug, radiusFeet = 10 },
+            };
+            secondSourceObject.GetComponent<CreatureComponent>().auras = new List<CreatureAura>
+            {
+                new CreatureAura { slug = RottingAuraRule.RuleSlug, radiusFeet = 10 },
+            };
+            GridPrivate.Tile[,] tiles = CreateTiles(3);
+            tiles[0, 0].Occupants.Add(firstSourceObject);
+            tiles[1, 0].Occupants.Add(targetObject);
+            tiles[2, 0].Occupants.Add(secondSourceObject);
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { target, firstSource, secondSource },
+                tiles,
+                new ScriptedRollService(20, 10, 5)
+            );
+            RuleDispatcher dispatcher = GetDispatcher(bridge);
+            InvalidOperationException expected = new InvalidOperationException(
+                "Injected failure after the later aura damage Fact committed."
+            );
+            ThrowOnNthFactObserver<DamageAppliedFact> damageObserver = new(2, expected);
+            List<TurnBeganFact> turns = new List<TurnBeganFact>();
+            using IDisposable damageRegistration = dispatcher.RegisterFactObserver(damageObserver);
+            using IDisposable turnRegistration = dispatcher.RegisterFactObserver<TurnBeganFact>(
+                new CapturingFactObserver<TurnBeganFact>(turns.Add)
+            );
+
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                bridge.StartEncounter("Players")
+            );
+
+            Assert.That(failure, Is.SameAs(expected));
+            Assert.That(damageObserver.Facts, Has.Count.EqualTo(2));
+            Assert.That(
+                damageObserver.Facts.Select(fact => fact.Origin).Distinct().Count(),
+                Is.EqualTo(2)
+            );
+            Assert.That(
+                damageObserver.Facts.All(fact =>
+                    fact.Source == RuleSource.FromSlug(RottingAuraRule.RuleSlug)
+                ),
+                Is.True
+            );
+            int committedDamage = damageObserver.Facts.Sum(fact => fact.Applied);
+            Assert.That(
+                bridge.GetHealth(bridge.GetCreatureId(target)).Current,
+                Is.EqualTo(100 - committedDamage)
+            );
+            EncounterState checkpoint = bridge.GetEncounter();
+            Assert.That(checkpoint.IsTurnStartPending, Is.True);
+            Assert.That(checkpoint.TurnStartAdapterProgress.NextAdapterIndex, Is.EqualTo(1));
+            Assert.That(turns, Is.Empty);
+
+            OpResult<EncounterAdvanceOutcome> recovery = bridge.Dispatch(
+                new AdvanceEncounterOp(checkpoint.Id)
+            );
+
+            Assert.That(recovery, Is.TypeOf<ResolvedOpResult<EncounterAdvanceOutcome>>());
+            Assert.That(damageObserver.Facts, Has.Count.EqualTo(2));
+            Assert.That(
+                bridge.GetHealth(bridge.GetCreatureId(target)).Current,
+                Is.EqualTo(100 - committedDamage)
+            );
+            Assert.That(turns, Has.Count.EqualTo(1));
+            Assert.That(turns[0].Turn.Actor, Is.EqualTo(bridge.GetCreatureId(target)));
+            Assert.That(bridge.GetEncounter().CurrentTurn.Value, Is.EqualTo(turns[0].Turn));
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            UnityEngine.Random.state = randomState;
+            Object.DestroyImmediate(targetObject);
+            Object.DestroyImmediate(firstSourceObject);
+            Object.DestroyImmediate(secondSourceObject);
+        }
+    }
+
+    [Test]
+    public void EndTurnRecoveryFailureAggregatesAndLaterGenericResumeUsesExactCheckpoint()
+    {
+        GameObject heroObject = new GameObject("end-turn-aggregate-hero");
+        GameObject enemyObject = new GameObject("end-turn-aggregate-enemy");
+        try
+        {
+            BridgeTestActionController hero = ConfigureCombatant(
+                heroObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController enemy = ConfigureCombatant(
+                enemyObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            TurnStartFailureModule failureModule = new TurnStartFailureModule();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { hero, enemy },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                new IUnityEncounterModule[] { failureModule }
+            );
+            EncounterState heroTurn = bridge.StartEncounter("Players");
+            InvalidOperationException original = new InvalidOperationException(
+                "Injected original turn-start failure."
+            );
+            NotSupportedException recovery = new NotSupportedException(
+                "Injected recovery turn-start failure."
+            );
+            failureModule.EnqueueAdapterFailures(original, recovery);
+
+            AggregateException failure = Assert.Throws<AggregateException>(() =>
+                bridge.EndTurn(heroTurn.CurrentTurn.Value.Actor)
+            );
+            EncounterState checkpoint = bridge.GetEncounter();
+
+            Assert.That(
+                failure.InnerExceptions,
+                Is.EqualTo(new Exception[] { original, recovery })
+            );
+            Assert.That(checkpoint.IsTurnStartPending, Is.True);
+            Assert.That(checkpoint.CurrentTurn, Is.Null);
+            CreatureId expectedActor = checkpoint.Roster[checkpoint.Cursor].Creature;
+            RoundNumber expectedRound = checkpoint.Round;
+            int expectedSlot = checkpoint.Cursor;
+
+            OpResult<EncounterAdvanceOutcome> resumed = bridge.Dispatch(
+                new AdvanceEncounterOp(checkpoint.Id)
+            );
+
+            Assert.That(resumed, Is.TypeOf<ResolvedOpResult<EncounterAdvanceOutcome>>());
+            TurnIdentity turn = bridge.GetEncounter().CurrentTurn.Value;
+            Assert.That(turn.Actor, Is.EqualTo(expectedActor));
+            Assert.That(turn.Round, Is.EqualTo(expectedRound));
+            Assert.That(turn.RosterIndex, Is.EqualTo(expectedSlot));
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(heroObject);
+            Object.DestroyImmediate(enemyObject);
+        }
+    }
+
+    [Test]
+    public void FailureAfterTurnBeganPropagatesWithoutReplayingTurnAdapterOrFact()
+    {
+        GameObject heroObject = new GameObject("turn-began-failure-hero");
+        GameObject enemyObject = new GameObject("turn-began-failure-enemy");
+        try
+        {
+            BridgeTestActionController hero = ConfigureCombatant(
+                heroObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController enemy = ConfigureCombatant(
+                enemyObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            TurnStartFailureModule failureModule = new TurnStartFailureModule();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { hero, enemy },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                new IUnityEncounterModule[] { failureModule }
+            );
+            EncounterState heroTurn = bridge.StartEncounter("Players");
+            InvalidOperationException expected = new InvalidOperationException(
+                "Injected TurnBegan Fact failure."
+            );
+            failureModule.FailNextTurnBeganFact(expected);
+
+            InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+                bridge.EndTurn(heroTurn.CurrentTurn.Value.Actor)
+            );
+
+            Assert.That(failure, Is.SameAs(expected));
+            Assert.That(
+                bridge.GetEncounter().CurrentTurn.Value.Actor,
+                Is.EqualTo(bridge.GetCreatureId(enemy))
+            );
+            Assert.That(bridge.GetEncounter().IsTurnStartPending, Is.False);
+            Assert.That(failureModule.AdapterCalls, Is.EqualTo(2));
+            Assert.That(failureModule.TurnBeganFacts, Has.Count.EqualTo(2));
+            Assert.That(
+                failureModule.TurnBeganFacts.Select(fact => fact.Turn.Turn).Distinct().Count(),
+                Is.EqualTo(2)
+            );
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(heroObject);
+            Object.DestroyImmediate(enemyObject);
+        }
+    }
+
+    [Test]
     public void ReleaseAttemptsCleanupAndEveryCallbackThenReportsFailuresInStableOrder()
     {
         GameObject combatantObject = new GameObject("release-failures");
@@ -1438,7 +1829,10 @@ public sealed class UnityCombatRulesBridgeTests
                 "Enemies",
                 new Vector3Int(2, 0, 0)
             );
-            if (checkpoint == ReinforcementFailureCheckpoint.RestoredSpellEffect)
+            if (
+                checkpoint == ReinforcementFailureCheckpoint.Join
+                || checkpoint == ReinforcementFailureCheckpoint.RestoredSpellEffect
+            )
             {
                 BlessSpellEffect restored = new BlessSpellEffect(hostObject)
                 {
@@ -1521,14 +1915,18 @@ public sealed class UnityCombatRulesBridgeTests
                         .Count(item => item.Holder == bridge.GetCreatureId(reinforcement)),
                     Is.EqualTo(1)
                 );
-                if (
+                // Join/effect failures precede the Strike contribution, while a Strike failure
+                // surfaces after that contribution committed and therefore replays as a no-op.
+                long expectedRetryVersion =
                     checkpoint == ReinforcementFailureCheckpoint.Strike
+                        ? failedVersion
+                        : failedVersion + 1;
+                Assert.That(bridge.Snapshot.Version, Is.EqualTo(expectedRetryVersion));
+                if (
+                    checkpoint == ReinforcementFailureCheckpoint.Join
                     || checkpoint == ReinforcementFailureCheckpoint.RestoredSpellEffect
                 )
-                    Assert.That(bridge.Snapshot.Version, Is.EqualTo(failedVersion));
-                else
-                    Assert.That(bridge.Snapshot.Version, Is.EqualTo(failedVersion + 1));
-                if (checkpoint == ReinforcementFailureCheckpoint.RestoredSpellEffect)
+                {
                     Assert.That(
                         bridge.Snapshot.ActiveEffects.Count(pair =>
                             pair.Value.DefinitionId
@@ -1536,6 +1934,18 @@ public sealed class UnityCombatRulesBridgeTests
                         ),
                         Is.EqualTo(1)
                     );
+                    ActiveEffectInstance effect = bridge
+                        .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                        .Single(value =>
+                            value.DefinitionId
+                            == UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
+                        );
+                    Assert.That(
+                        bridge.Snapshot.RuleBindings.Any(pair => pair.Value.EffectId == effect.Id),
+                        Is.True
+                    );
+                    Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(effect.Id));
+                }
             }
             bridge.ReleaseOwnership();
         }
@@ -1629,6 +2039,277 @@ public sealed class UnityCombatRulesBridgeTests
             Object.DestroyImmediate(hostObject);
             Object.DestroyImmediate(anchorObject);
             Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void InitialUnknownActiveEffectDefinitionRollsBackAndAllowsCorrectedRetry()
+    {
+        GameObject actorObject = new GameObject("initial-unknown-effect-actor");
+        GameObject opponentObject = new GameObject("initial-unknown-effect-opponent");
+        try
+        {
+            BridgeTestActionController actor = ConfigureCombatant(
+                actorObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController opponent = ConfigureCombatant(
+                opponentObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            InitialActiveEffectValidationModule module = new() { TargetName = actorObject.name };
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                UnityCombatRulesBridge.CreateForTests(
+                    new ActionController[] { actor, opponent },
+                    CreateTiles(2),
+                    new RandomRollService(),
+                    new IUnityEncounterModule[] { module }
+                )
+            );
+
+            Assert.That(error.Message, Does.Contain("unknown"));
+            Assert.That(module.ResourceDisposals, Is.EqualTo(1));
+            Assert.That(module.Installations, Is.Zero);
+            Assert.That(module.FinalizationValidations, Is.Zero);
+            Assert.That(module.Finalizations, Is.Zero);
+            Assert.That(actor.ActionPoints, Is.Zero);
+            Assert.That(actor.HasTurnAuthority, Is.False);
+            Assert.That(opponent.ActionPoints, Is.Zero);
+            Assert.That(opponent.HasTurnAuthority, Is.False);
+
+            module.UseKnownDefinition = true;
+            UnityCombatRulesBridge retry = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { actor, opponent },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { module }
+            );
+
+            Assert.That(retry.GetCreatureId(actor).Value, Is.EqualTo("combat-creature-1"));
+            Assert.That(retry.GetCreatureId(opponent).Value, Is.EqualTo("combat-creature-2"));
+            Assert.That(
+                retry.Snapshot.ActiveEffects.Select(pair => pair.Value).Single().DefinitionId,
+                Is.EqualTo(UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId)
+            );
+            Assert.That(module.Installations, Is.EqualTo(1));
+            Assert.That(module.FinalizationValidations, Is.EqualTo(1));
+            Assert.That(module.Finalizations, Is.EqualTo(1));
+
+            retry.ReleaseOwnership();
+            Assert.That(module.ResourceDisposals, Is.EqualTo(2));
+        }
+        finally
+        {
+            Object.DestroyImmediate(actorObject);
+            Object.DestroyImmediate(opponentObject);
+        }
+    }
+
+    [Test]
+    public void InitialFiniteActiveEffectWithAbsentSourceRollsBackAndAllowsCorrectedRetry()
+    {
+        GameObject actorObject = new GameObject("initial-absent-effect-source-actor");
+        GameObject opponentObject = new GameObject("initial-absent-effect-source-opponent");
+        try
+        {
+            BridgeTestActionController actor = ConfigureCombatant(
+                actorObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController opponent = ConfigureCombatant(
+                opponentObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            InitialActiveEffectValidationModule module = new()
+            {
+                TargetName = actorObject.name,
+                UseKnownDefinition = true,
+                Duration = EffectDuration.Rounds(2),
+                SourceCreature = new CreatureId("absent-initial-effect-source"),
+            };
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                UnityCombatRulesBridge.CreateForTests(
+                    new ActionController[] { actor, opponent },
+                    CreateTiles(2),
+                    new RandomRollService(),
+                    new IUnityEncounterModule[] { module }
+                )
+            );
+
+            Assert.That(error.Message, Does.Contain("source"));
+            Assert.That(error.Message, Does.Contain("absent-initial-effect-source"));
+            Assert.That(module.ResourceDisposals, Is.EqualTo(1));
+            Assert.That(module.Installations, Is.Zero);
+            Assert.That(module.FinalizationValidations, Is.Zero);
+            Assert.That(module.Finalizations, Is.Zero);
+            Assert.That(actor.ActionPoints, Is.Zero);
+            Assert.That(actor.HasTurnAuthority, Is.False);
+            Assert.That(actor.TryGetCombatRules(out _, out _), Is.False);
+            Assert.That(opponent.ActionPoints, Is.Zero);
+            Assert.That(opponent.HasTurnAuthority, Is.False);
+            Assert.That(opponent.TryGetCombatRules(out _, out _), Is.False);
+
+            module.SourceCreature = default;
+            UnityCombatRulesBridge retry = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { actor, opponent },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { module }
+            );
+
+            Assert.That(retry.GetCreatureId(actor).Value, Is.EqualTo("combat-creature-1"));
+            Assert.That(retry.GetCreatureId(opponent).Value, Is.EqualTo("combat-creature-2"));
+            Assert.That(
+                retry.Snapshot.ActiveEffects.Select(pair => pair.Value).Single().SourceCreature,
+                Is.EqualTo(retry.GetCreatureId(actor))
+            );
+            Assert.That(module.Installations, Is.EqualTo(1));
+            Assert.That(module.FinalizationValidations, Is.EqualTo(1));
+            Assert.That(module.Finalizations, Is.EqualTo(1));
+
+            retry.ReleaseOwnership();
+            Assert.That(module.ResourceDisposals, Is.EqualTo(2));
+        }
+        finally
+        {
+            Object.DestroyImmediate(actorObject);
+            Object.DestroyImmediate(opponentObject);
+        }
+    }
+
+    [Test]
+    public void InitialFiniteActiveEffectWithForeignTimingRollsBackAndAllowsCorrectedRetry()
+    {
+        GameObject actorObject = new GameObject("initial-foreign-effect-timing-actor");
+        GameObject opponentObject = new GameObject("initial-foreign-effect-timing-opponent");
+        try
+        {
+            BridgeTestActionController actor = ConfigureCombatant(
+                actorObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController opponent = ConfigureCombatant(
+                opponentObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            InitialActiveEffectValidationModule module = new()
+            {
+                TargetName = actorObject.name,
+                UseKnownDefinition = true,
+                Duration = EffectDuration.Rounds(2),
+                SuppliedTimingEncounter = new EncounterId("other-initial-encounter"),
+            };
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                UnityCombatRulesBridge.CreateForTests(
+                    new ActionController[] { actor, opponent },
+                    CreateTiles(2),
+                    new RandomRollService(),
+                    new IUnityEncounterModule[] { module }
+                )
+            );
+
+            Assert.That(error.Message, Does.Contain("timing"));
+            Assert.That(error.Message, Does.Contain("other-initial-encounter"));
+            Assert.That(module.ResourceDisposals, Is.EqualTo(1));
+            Assert.That(module.Installations, Is.Zero);
+            Assert.That(module.FinalizationValidations, Is.Zero);
+            Assert.That(module.Finalizations, Is.Zero);
+            Assert.That(actor.ActionPoints, Is.Zero);
+            Assert.That(actor.HasTurnAuthority, Is.False);
+            Assert.That(actor.TryGetCombatRules(out _, out _), Is.False);
+            Assert.That(opponent.ActionPoints, Is.Zero);
+            Assert.That(opponent.HasTurnAuthority, Is.False);
+            Assert.That(opponent.TryGetCombatRules(out _, out _), Is.False);
+
+            module.SuppliedTimingEncounter = new EncounterId("unity-encounter-1");
+            UnityCombatRulesBridge retry = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { actor, opponent },
+                CreateTiles(2),
+                new RandomRollService(),
+                new IUnityEncounterModule[] { module }
+            );
+
+            ActiveEffectInstance retryEffect = retry
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single();
+            Assert.That(retry.GetCreatureId(actor).Value, Is.EqualTo("combat-creature-1"));
+            Assert.That(retry.GetCreatureId(opponent).Value, Is.EqualTo("combat-creature-2"));
+            Assert.That(
+                retry.Snapshot.ActiveEffectTimings[retryEffect.Id].Encounter,
+                Is.EqualTo(retry.EncounterId)
+            );
+            Assert.That(module.Installations, Is.EqualTo(1));
+            Assert.That(module.FinalizationValidations, Is.EqualTo(1));
+            Assert.That(module.Finalizations, Is.EqualTo(1));
+
+            retry.ReleaseOwnership();
+            Assert.That(module.ResourceDisposals, Is.EqualTo(2));
+        }
+        finally
+        {
+            Object.DestroyImmediate(actorObject);
+            Object.DestroyImmediate(opponentObject);
+        }
+    }
+
+    [Test]
+    public void InitialFiniteActiveEffectCanUseSourcePreparedLaterInBatch()
+    {
+        GameObject targetObject = new GameObject("initial-later-source-target");
+        GameObject sourceObject = new GameObject("initial-later-source-source");
+        try
+        {
+            BridgeTestActionController target = ConfigureCombatant(
+                targetObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController source = ConfigureCombatant(
+                sourceObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            InitialActiveEffectValidationModule module = new()
+            {
+                TargetName = targetObject.name,
+                UseKnownDefinition = true,
+                Duration = EffectDuration.Rounds(2),
+                SourceCreature = new CreatureId("combat-creature-2"),
+            };
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { target, source },
+                CreateTiles(2),
+                new ScriptedRollService(20, 1),
+                new IUnityEncounterModule[] { module }
+            );
+
+            ActiveEffectInstance effect = bridge
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single();
+            Assert.That(effect.SourceCreature, Is.EqualTo(bridge.GetCreatureId(source)));
+            Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(effect.Id), Is.False);
+
+            bridge.StartEncounter("Players");
+
+            ActiveEffectTimingState timing = bridge.Snapshot.ActiveEffectTimings[effect.Id];
+            Assert.That(timing.Encounter, Is.EqualTo(bridge.EncounterId));
+            Assert.That(timing.SourceCreature, Is.EqualTo(bridge.GetCreatureId(source)));
+            Assert.That(timing.RemainingBoundaries, Is.EqualTo(2));
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(targetObject);
+            Object.DestroyImmediate(sourceObject);
         }
     }
 
@@ -2279,6 +2960,31 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
+    private sealed class ThrowOnNthFactObserver<TFact> : IFactObserver<TFact>
+        where TFact : RuleFact
+    {
+        private readonly int failureIndex;
+        private readonly Exception failure;
+
+        internal ThrowOnNthFactObserver(int failureIndex, Exception failure)
+        {
+            if (failureIndex <= 0)
+                throw new ArgumentOutOfRangeException(nameof(failureIndex));
+            this.failureIndex = failureIndex;
+            this.failure = failure ?? throw new ArgumentNullException(nameof(failure));
+        }
+
+        internal List<TFact> Facts { get; } = new List<TFact>();
+
+        public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
+        {
+            Facts.Add(fact);
+            if (Facts.Count == failureIndex)
+                throw failure;
+            return default;
+        }
+    }
+
     private sealed class CallbackFactObserver<TFact> : IFactObserver<TFact>
         where TFact : RuleFact
     {
@@ -2312,6 +3018,100 @@ public sealed class UnityCombatRulesBridgeTests
         internal int Count { get; private set; }
 
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) => Count++;
+    }
+
+    private sealed class InitialActiveEffectValidationModule : IUnityCombatantEnrollmentModule
+    {
+        private static readonly RuleDefinitionId UnknownDefinition = new RuleDefinitionId(
+            "unknown-initial-active-effect"
+        );
+        private static readonly RuleSource Source = RuleSource.FromSlug(
+            "initial-active-effect-validation"
+        );
+
+        internal string TargetName { get; set; } = string.Empty;
+        internal bool UseKnownDefinition { get; set; }
+        internal CreatureId SourceCreature { get; set; }
+        internal EffectDuration Duration { get; set; } = EffectDuration.Indefinite;
+        internal EncounterId SuppliedTimingEncounter { get; set; }
+        internal int ResourceDisposals { get; private set; }
+        internal int Installations { get; private set; }
+        internal int FinalizationValidations { get; private set; }
+        internal int Finalizations { get; private set; }
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
+        {
+            if (builder.Controller.gameObject.name != TargetName)
+                return;
+            builder.Own(new RegistrationToken(() => ResourceDisposals++));
+            RuleDefinitionId definition = UseKnownDefinition
+                ? UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
+                : UnknownDefinition;
+            CreatureId sourceCreature = SourceCreature.IsEmpty
+                ? builder.CreatureId
+                : SourceCreature;
+            ActiveEffectInstance effect = new(
+                new ActiveEffectId($"{builder.CreatureId.Value}:initial-validation-effect"),
+                definition,
+                sourceCreature,
+                Source,
+                Duration,
+                new InitialValidationEffectState()
+            );
+            ActiveRuleBinding binding = new(
+                new BindingId($"{builder.CreatureId.Value}:initial-validation-binding"),
+                definition,
+                builder.CreatureId,
+                effect.Id,
+                Source,
+                500
+            );
+            ActiveEffectRegistration registration;
+            if (SuppliedTimingEncounter.IsEmpty)
+            {
+                registration = new ActiveEffectRegistration(effect, binding);
+            }
+            else
+            {
+                ActiveEffectTimingState timing = new ActiveEffectTimingState(
+                    effect.Id,
+                    SuppliedTimingEncounter,
+                    binding.Id,
+                    effect.SourceCreature,
+                    Duration.Kind == EffectDurationKind.Rounds ? Duration.Amount : 0,
+                    Duration.Kind == EffectDurationKind.Encounter,
+                    binding.CreationOrder
+                );
+                registration = new ActiveEffectRegistration(effect, binding, timing);
+            }
+            builder.AddActiveEffects(new[] { registration });
+            builder.AddInstallation(new CountingInstallation(this));
+            builder.AddFinalization(new CountingFinalization(this));
+        }
+
+        private sealed class InitialValidationEffectState : IEffectState { }
+
+        private sealed class CountingInstallation : IUnityCombatantInstallationContribution
+        {
+            private readonly InitialActiveEffectValidationModule owner;
+
+            internal CountingInstallation(InitialActiveEffectValidationModule owner) =>
+                this.owner = owner;
+
+            public void Reconcile() => owner.Installations++;
+        }
+
+        private sealed class CountingFinalization : IUnityCombatantBatchFinalizationContribution
+        {
+            private readonly InitialActiveEffectValidationModule owner;
+
+            internal CountingFinalization(InitialActiveEffectValidationModule owner) =>
+                this.owner = owner;
+
+            public void Validate() => owner.FinalizationValidations++;
+
+            public void Apply() => owner.Finalizations++;
+        }
     }
 
     private sealed class RetryActionInstallationModule : IUnityCombatantEnrollmentModule
@@ -2392,6 +3192,55 @@ public sealed class UnityCombatRulesBridgeTests
             : base(0) { }
 
         public override string ActionName => "Retry Marker";
+    }
+
+    private sealed class TurnStartFailureModule
+        : IUnityEncounterTurnStartModule,
+            IUnityEncounterRuntimeModule,
+            IEncounterTurnStartAdapter,
+            IFactObserver<TurnBeganFact>
+    {
+        private readonly Queue<Exception> adapterFailures = new Queue<Exception>();
+        private Exception turnBeganFailure;
+
+        internal int AdapterCalls { get; private set; }
+        internal List<TurnBeganFact> TurnBeganFacts { get; } = new List<TurnBeganFact>();
+
+        public IEncounterTurnStartAdapter CreateTurnStartAdapter() => this;
+
+        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime) =>
+            lifetime.Add(dispatcher.RegisterFactObserver<TurnBeganFact>(this));
+
+        internal void EnqueueAdapterFailures(params Exception[] failures)
+        {
+            foreach (Exception failure in failures)
+                adapterFailures.Enqueue(failure);
+        }
+
+        internal void FailNextTurnBeganFact(Exception failure) => turnBeganFailure = failure;
+
+        public ValueTask<TurnStartContribution> Apply(
+            EncounterTurnStartContext context,
+            TurnStartContribution current
+        )
+        {
+            AdapterCalls++;
+            if (adapterFailures.Count > 0)
+                throw adapterFailures.Dequeue();
+            return new ValueTask<TurnStartContribution>(current);
+        }
+
+        public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot currentSnapshot)
+        {
+            TurnBeganFacts.Add(fact);
+            if (turnBeganFailure != null)
+            {
+                Exception failure = turnBeganFailure;
+                turnBeganFailure = null;
+                throw failure;
+            }
+            return default;
+        }
     }
 
     private sealed class RecordingEncounterModule
