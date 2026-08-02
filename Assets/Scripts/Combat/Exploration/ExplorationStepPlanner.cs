@@ -55,9 +55,6 @@ namespace Game.Combat.Exploration
         /// <summary>The leader destination is not exactly one adjacent cell away.</summary>
         LeaderStepIsNotAdjacent,
 
-        /// <summary>The leader destination is currently occupied by another party member.</summary>
-        LeaderDestinationOccupied,
-
         /// <summary>The terrain or an external reservation prevents leader entry.</summary>
         LeaderDestinationUnavailable,
     }
@@ -118,14 +115,22 @@ namespace Game.Combat.Exploration
         }
 
         /// <summary>
-        /// Gets moved members in execution order: leader first, then followers in trail order.
-        /// Adjacent followers consume their predecessor's prior cell; a separated follower takes
-        /// one adjacent catch-up step toward that trail, with stable roster order breaking ties.
+        /// Gets moved members in logical order: leader first, then either the ally swapping into
+        /// the leader's prior cell or followers in trail order. Adjacent followers consume their
+        /// predecessor's prior cell; a separated follower takes one adjacent catch-up step toward
+        /// that trail, with stable roster order breaking ties.
         /// </summary>
         public IReadOnlyList<ExplorationMemberMove> Moves => moves;
 
         /// <summary>Gets every member's immutable state after the planned moves.</summary>
         public ExplorationPartyState ResultingParty { get; }
+
+        /// <summary>
+        /// Gets whether the leader and exactly one ally exchange their starting cells. Unity must
+        /// project these logical moves atomically because neither destination starts empty.
+        /// </summary>
+        internal bool IsLeaderSwap =>
+            moves.Count == 2 && moves[0].From == moves[1].To && moves[0].To == moves[1].From;
     }
 
     /// <summary>Reports an explicit reason why the selected leader cannot take the proposed step.</summary>
@@ -168,12 +173,6 @@ namespace Game.Combat.Exploration
                     ExplorationStepRejectionReason.LeaderStepIsNotAdjacent
                 );
             }
-            if (party.Members.Any(member => member.Id != leader.Id && member.Cell == destination))
-            {
-                return new RejectedExplorationStepPlan(
-                    ExplorationStepRejectionReason.LeaderDestinationOccupied
-                );
-            }
             if (!request.Availability.CanOccupy(destination))
             {
                 return new RejectedExplorationStepPlan(
@@ -182,6 +181,31 @@ namespace Game.Combat.Exploration
             }
 
             ExplorationPartyMember[] resultingMembers = party.Members.ToArray();
+            ExplorationPartyMember destinationOccupant = party.Members.FirstOrDefault(member =>
+                member.Id != leader.Id && member.Cell == destination
+            );
+            if (!destinationOccupant.Id.IsEmpty)
+            {
+                resultingMembers[IndexOf(resultingMembers, leader.Id)] = new ExplorationPartyMember(
+                    leader.Id,
+                    destination
+                );
+                resultingMembers[IndexOf(resultingMembers, destinationOccupant.Id)] =
+                    new ExplorationPartyMember(destinationOccupant.Id, leader.Cell);
+                return new AcceptedExplorationStepPlan(
+                    new[]
+                    {
+                        new ExplorationMemberMove(leader.Id, leader.Cell, destination),
+                        new ExplorationMemberMove(
+                            destinationOccupant.Id,
+                            destinationOccupant.Cell,
+                            leader.Cell
+                        ),
+                    },
+                    new ExplorationPartyState(resultingMembers, party.SelectedLeaderId)
+                );
+            }
+
             List<ExplorationMemberMove> moves = new() { new(leader.Id, leader.Cell, destination) };
             int leaderIndex = IndexOf(resultingMembers, leader.Id);
             resultingMembers[leaderIndex] = new ExplorationPartyMember(leader.Id, destination);

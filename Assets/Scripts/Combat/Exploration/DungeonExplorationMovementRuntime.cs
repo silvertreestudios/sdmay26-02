@@ -58,6 +58,15 @@ namespace Game.Combat.Exploration
         }
 
         /// <inheritdoc/>
+        public bool IsPartyMember(GameObject character) =>
+            character != null
+            && party.Any(controller =>
+                controller != null
+                && controller.gameObject == character
+                && canParticipate(controller)
+            );
+
+        /// <inheritdoc/>
         public bool TryCancelActiveTravel() => false;
 
         /// <inheritdoc/>
@@ -126,23 +135,48 @@ namespace Game.Combat.Exploration
                 yield break;
 
             bool leaderProjected = false;
-            foreach (ExplorationMemberMove plannedMove in accepted.Moves)
+            if (accepted.IsLeaderSwap)
             {
-                ActionController controller = controllersById[plannedMove.MemberId];
-                bool isLeader = plannedMove.MemberId == leaderId;
-                Ref<bool> moved = new(false);
-                yield return MoveMember(controller, plannedMove, tiles, movement, isLeader, moved);
-                if (!moved.Value)
+                Ref<bool> swapped = new(false);
+                yield return SwapMembers(accepted, controllersById, tiles, movement, swapped);
+                if (!swapped.Value)
                 {
-                    pathInterrupted.Value = leaderProjected;
                     yield break;
                 }
-                if (isLeader)
-                    leaderProjected = true;
+                leaderProjected = true;
                 if (processEncounterBoundary())
                 {
                     pathInterrupted.Value = true;
                     yield break;
+                }
+            }
+            else
+            {
+                foreach (ExplorationMemberMove plannedMove in accepted.Moves)
+                {
+                    ActionController controller = controllersById[plannedMove.MemberId];
+                    bool isLeader = plannedMove.MemberId == leaderId;
+                    Ref<bool> moved = new(false);
+                    yield return MoveMember(
+                        controller,
+                        plannedMove,
+                        tiles,
+                        movement,
+                        isLeader,
+                        moved
+                    );
+                    if (!moved.Value)
+                    {
+                        pathInterrupted.Value = leaderProjected;
+                        yield break;
+                    }
+                    if (isLeader)
+                        leaderProjected = true;
+                    if (processEncounterBoundary())
+                    {
+                        pathInterrupted.Value = true;
+                        yield break;
+                    }
                 }
             }
 
@@ -154,6 +188,65 @@ namespace Game.Combat.Exploration
             }
             continuePath.Value =
                 !isCombatActive() && currentLeader != null && currentLeader.IsInDungeonExploration;
+        }
+
+        private static IEnumerator SwapMembers(
+            AcceptedExplorationStepPlan plan,
+            IReadOnlyDictionary<ExplorationMemberId, ActionController> controllersById,
+            Tile[,] tiles,
+            TokenMovement movement,
+            Ref<bool> swapped
+        )
+        {
+            swapped.Value = false;
+            ExplorationMemberMove leaderMove = plan.Moves[0];
+            ExplorationMemberMove allyMove = plan.Moves[1];
+            ActionController leader = controllersById[leaderMove.MemberId];
+            ActionController ally = controllersById[allyMove.MemberId];
+            Vector3Int leaderPosition = Vector3Int.RoundToInt(leader.transform.position);
+            Vector3Int allyPosition = Vector3Int.RoundToInt(ally.transform.position);
+            Vector3Int leaderSourcePosition = new(
+                leaderMove.From.X,
+                leaderPosition.y,
+                leaderMove.From.Z
+            );
+            Vector3Int allySourcePosition = new(allyMove.From.X, allyPosition.y, allyMove.From.Z);
+            if (
+                leaderPosition != leaderSourcePosition
+                || allyPosition != allySourcePosition
+                || !IsInBounds(tiles, leaderSourcePosition)
+                || !IsInBounds(tiles, allySourcePosition)
+            )
+            {
+                yield break;
+            }
+
+            Tile leaderSource = tiles[leaderSourcePosition.x, leaderSourcePosition.z];
+            Tile allySource = tiles[allySourcePosition.x, allySourcePosition.z];
+            if (
+                leaderSource == null
+                || allySource == null
+                || !leaderSource.Occupants.Contains(leader.gameObject)
+                || leaderSource.Occupants.Any(occupant => occupant != leader.gameObject)
+                || !allySource.Occupants.Contains(ally.gameObject)
+                || allySource.Occupants.Any(occupant => occupant != ally.gameObject)
+            )
+            {
+                yield break;
+            }
+
+            Ref<bool> prevented = new(false);
+            yield return allySource.RemoveToken(ally.gameObject, prevented);
+            if (prevented.Value)
+                yield break;
+            if (!leaderSource.ProjectCommittedDeparture(leader.gameObject))
+                yield break;
+            allySource.ProjectCommittedArrival(leader.gameObject);
+
+            yield return AnimateMember(leader, allySourcePosition, movement, false);
+            yield return AnimateMember(ally, leaderSourcePosition, movement, true);
+            yield return leaderSource.PlaceToken(ally.gameObject);
+            swapped.Value = true;
         }
 
         private static IEnumerator MoveMember(
@@ -204,9 +297,22 @@ namespace Game.Combat.Exploration
                     yield break;
             }
 
+            yield return AnimateMember(controller, destination, movement, !isLeader);
+            if (!isLeader)
+                yield return target.PlaceToken(controller.gameObject);
+            moved.Value = true;
+        }
+
+        private static IEnumerator AnimateMember(
+            ActionController controller,
+            Vector3Int destination,
+            TokenMovement movement,
+            bool managePresentation
+        )
+        {
             CreaturePresentation presentation = controller.GetComponent<CreaturePresentation>();
             float movementSpeed = controller.GetComponent<CreatureComponent>()?.speed ?? 25.0f;
-            if (!isLeader)
+            if (managePresentation)
                 presentation?.SetMoving(true, movementSpeed);
             try
             {
@@ -214,13 +320,10 @@ namespace Game.Combat.Exploration
                     yield return movement.Walk(controller.transform, destination);
                 else
                     yield return movement.Hop(controller.transform, destination);
-                if (!isLeader)
-                    yield return target.PlaceToken(controller.gameObject);
-                moved.Value = true;
             }
             finally
             {
-                if (!isLeader)
+                if (managePresentation)
                     presentation?.SetMoving(false, 0.0f);
             }
         }

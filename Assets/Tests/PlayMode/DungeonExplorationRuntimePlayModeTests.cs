@@ -415,10 +415,10 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
-    /// Verifies exploration selection rejects a follower-occupied square before rules commit it.
+    /// Verifies exploration selection and projection swap the leader with an adjacent ally.
     /// </summary>
     [UnityTest]
-    public IEnumerator RulesBackedExplorationStrideRejectsFollowerOccupiedDestination()
+    public IEnumerator RulesBackedExplorationStrideSwapsWithFollowerAtDestination()
     {
         RuntimeFixture fixture = CreateRuntimeFixture(
             new[] { new Vector3Int(2, 0, 2), new Vector3Int(2, 0, 1) }
@@ -431,10 +431,6 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Vector3Int from = Vector3Int.RoundToInt(leader.transform.position);
         Vector3Int destination = Vector3Int.RoundToInt(
             fixture.Party[1].GameObject.transform.position
-        );
-        LogAssert.Expect(
-            LogType.Warning,
-            "Stride selection failed: A selection resolver returned a value outside the request."
         );
 
         leader.TakeAction(
@@ -450,13 +446,51 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         while (leader.IsTakingAction && remainingFrames-- > 0)
             yield return null;
 
-        Assert.That(
-            leader.IsTakingAction,
-            Is.False,
-            "The rejected exploration Stride did not finish."
-        );
+        Assert.That(leader.IsTakingAction, Is.False, "The exploration swap did not finish.");
         Assert.That(manager.IsCombatActive, Is.False);
-        AssertPartyCells(fixture, new DungeonCell(2, 2), new DungeonCell(2, 1));
+        AssertPartyCells(fixture, new DungeonCell(2, 1), new DungeonCell(2, 2));
+    }
+
+    /// <summary>Verifies destination travel crosses an ally in a one-cell-wide hallway.</summary>
+    [UnityTest]
+    public IEnumerator DestinationTravelCrossesAllyInNarrowHallway()
+    {
+        const int width = 12;
+        const int height = 5;
+        const int hallwayZ = 2;
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, hallwayZ), new Vector3Int(2, 0, hallwayZ) },
+            width,
+            height,
+            customGridData: CorridorGrid(width, height, hallwayZ),
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Ally Hallway Travel Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        MethodInfo click = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "OnGridCellClicked",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(click, Is.Not.Null);
+
+        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(10, 0, hallwayZ) });
+
+        int remainingFrames = 900;
+        while (
+            remainingFrames-- > 0
+            && (
+                CellOf(fixture.Party[0].GameObject) != new DungeonCell(10, hallwayZ)
+                || fixture.Party[0].Controller.IsTakingAction
+            )
+        )
+        {
+            yield return null;
+        }
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Hallway destination travel timed out.");
+        Assert.That(manager.IsCombatActive, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(10, hallwayZ), new DungeonCell(9, hallwayZ));
     }
 
     [UnityTest]
@@ -1746,6 +1780,17 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         {
             for (int z = 0; z < height; z++)
                 data[x, z] = TileType.Ground;
+        }
+        return data;
+    }
+
+    private static TileType[,] CorridorGrid(int width, int height, int corridorZ)
+    {
+        TileType[,] data = new TileType[width, height];
+        for (int x = 0; x < width; x++)
+        {
+            for (int z = 0; z < height; z++)
+                data[x, z] = z == corridorZ ? TileType.Ground : TileType.Wall;
         }
         return data;
     }

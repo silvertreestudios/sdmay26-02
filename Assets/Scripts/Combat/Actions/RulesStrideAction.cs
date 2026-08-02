@@ -79,7 +79,11 @@ public sealed class RulesStrideAction : EntityAction, ISelectionDrivenEntityActi
         CreatureId creature;
         if (startedInExploration)
         {
-            bridge = UnityCombatRulesBridge.CreateExplorationStride(controller, grid.GetTiles());
+            bridge = UnityCombatRulesBridge.CreateExplorationStride(
+                controller,
+                grid.GetTiles(),
+                grid.ExplorationStrideCoordinator
+            );
             creature = bridge.GetCreatureId(controller);
         }
         else if (!controller.TryGetCombatRules(out bridge, out creature))

@@ -1083,6 +1083,9 @@ namespace Game.Combat.Encounters
         bool IExplorationStrideCoordinator.Handles(GameObject character) =>
             IsInitialized && explorationMovement.Handles(character);
 
+        bool IExplorationStrideCoordinator.IsPartyMember(GameObject character) =>
+            IsInitialized && explorationMovement.IsPartyMember(character);
+
         IEnumerator IExplorationStrideCoordinator.ProjectCommittedStep(
             GameObject leader,
             Vector3Int from,

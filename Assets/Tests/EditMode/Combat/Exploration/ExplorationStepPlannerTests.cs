@@ -195,27 +195,34 @@ namespace Game.Tests.Combat.Exploration
             Assert.That(Cells(party), Is.EqualTo(new[] { 0, 0, -1, 0 }));
         }
 
-        /// <summary>Verifies an occupied leader destination cannot produce an overlapping plan.</summary>
+        /// <summary>Verifies entering an ally's cell swaps only those two party members.</summary>
         [Test]
-        public void Plan_OccupiedLeaderDestinationIsRejected()
+        public void Plan_OccupiedLeaderDestinationSwapsMembers()
         {
             ExplorationPartyState party = Party(
                 "a",
                 Member("a", 0, 0),
                 Member("b", 1, 0),
-                Member("c", 2, 0)
+                Member("c", 3, 0)
             );
 
-            RejectedExplorationStepPlan rejected = Rejected(
+            AcceptedExplorationStepPlan plan = Accepted(
                 ExplorationStepPlanner.Plan(
                     new ExplorationStepRequest(party, Cell(1, 0), OpenCells())
                 )
             );
 
             Assert.That(
-                rejected.Reason,
-                Is.EqualTo(ExplorationStepRejectionReason.LeaderDestinationOccupied)
+                plan.Moves.Select(move => move.MemberId.Value),
+                Is.EqualTo(new[] { "a", "b" })
             );
+            Assert.That(
+                plan.Moves.SelectMany(move => new[] { move.From.X, move.To.X }),
+                Is.EqualTo(new[] { 0, 1, 1, 0 })
+            );
+            Assert.That(plan.IsLeaderSwap, Is.True);
+            Assert.That(Cells(plan.ResultingParty), Is.EqualTo(new[] { 1, 0, 0, 0, 3, 0 }));
+            Assert.That(Cells(party), Is.EqualTo(new[] { 0, 0, 1, 0, 3, 0 }));
         }
 
         /// <summary>Verifies a non-adjacent leader step is rejected instead of teleporting.</summary>

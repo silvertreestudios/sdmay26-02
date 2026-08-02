@@ -9,6 +9,7 @@ using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
+using GridPrivate;
 using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -958,7 +959,8 @@ public sealed class UnityCombatRulesBridgeTests
                 creatureObject.AddComponent<BridgeTestActionController>();
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
                 controller,
-                CreateTiles(3)
+                CreateTiles(3),
+                NoExplorationStrideCoordinator.Instance
             );
             CreatureId id = bridge.GetCreatureId(controller);
             RecordingMovementObserver observer = new RecordingMovementObserver();
@@ -1005,7 +1007,8 @@ public sealed class UnityCombatRulesBridgeTests
                 creatureObject.AddComponent<BridgeTestActionController>();
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
                 controller,
-                CreateTiles(2)
+                CreateTiles(2),
+                NoExplorationStrideCoordinator.Instance
             );
             CreatureId id = bridge.GetCreatureId(controller);
             BlockingMovementObserver observer = new BlockingMovementObserver();
@@ -1047,7 +1050,8 @@ public sealed class UnityCombatRulesBridgeTests
                 creatureObject.AddComponent<BridgeTestActionController>();
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
                 controller,
-                CreateTiles(2)
+                CreateTiles(2),
+                NoExplorationStrideCoordinator.Instance
             );
             CreatureId id = bridge.GetCreatureId(controller);
             InvalidOperationException expected = new("unrelated projection failure");
@@ -1145,6 +1149,20 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(forward, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>(), forwardFailure);
             Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(2, 0, 0)));
             Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(2));
+
+            bridge.BeginTurn(moverId, 3);
+            OpResult<MovePathOutcome> occupiedDestination = await bridge.DispatchStride(
+                moverId,
+                new MovementPath(new GridPosition(2, 0, 0), new[] { new GridPosition(1, 0, 0) })
+            );
+
+            Assert.That(
+                occupiedDestination,
+                Is.TypeOf<InvalidOpResult<MovePathOutcome>>(),
+                "Tactics must permit crossing an ally without permitting destination swaps."
+            );
+            Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(2, 0, 0)));
+            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(3));
 
             bridge.BeginTurn(occupantId, 3);
             OpResult<MovePathOutcome> reverse = await bridge.DispatchStride(

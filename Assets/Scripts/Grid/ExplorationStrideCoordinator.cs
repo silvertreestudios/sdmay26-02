@@ -14,6 +14,11 @@ namespace GridPrivate
         /// <returns><see langword="true"/> only for the current exploration leader.</returns>
         bool Handles(GameObject character);
 
+        /// <summary>Gets whether the supplied character occupies a cell as a party member.</summary>
+        /// <param name="character">The candidate occupant.</param>
+        /// <returns><see langword="true"/> for a living member of the exploration party.</returns>
+        bool IsPartyMember(GameObject character);
+
         /// <summary>Cancels active destination travel at its next committed boundary.</summary>
         /// <returns><see langword="true"/> when active travel accepted cancellation.</returns>
         bool TryCancelActiveTravel();
@@ -55,6 +60,8 @@ namespace GridPrivate
         private NoExplorationStrideCoordinator() { }
 
         public bool Handles(GameObject character) => false;
+
+        public bool IsPartyMember(GameObject character) => false;
 
         public bool TryCancelActiveTravel() => false;
 
