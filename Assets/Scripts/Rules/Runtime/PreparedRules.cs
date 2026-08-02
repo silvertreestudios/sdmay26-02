@@ -266,7 +266,9 @@ namespace Game.Rules.Runtime
         /// <summary>Gets immutable options gated by their exact active definition binding.</summary>
         public IReadOnlyList<PreparedBoundOption> BoundOptions { get; }
 
-        /// <summary>Gets immutable numeric values referenced by compiled rule behavior.</summary>
+        /// <summary>
+        /// Gets immutable numeric facts compiled from class/build math and rule behavior.
+        /// </summary>
         public IReadOnlyDictionary<string, int> RuleValues => ruleValues;
 
         private static IReadOnlyList<T> Freeze<T>(IEnumerable<T> values, string parameter)

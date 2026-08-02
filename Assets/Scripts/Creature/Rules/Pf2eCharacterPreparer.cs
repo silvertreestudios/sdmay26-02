@@ -29,6 +29,11 @@ namespace Game.Creature.Rules
         /// <summary>
         /// Builds only quarantined spellcasting state after compiling migrated rules data.
         /// </summary>
+        /// <remarks>
+        /// This explicit non-enrollment entry point also projects implemented build defaults and
+        /// class proficiency math for legacy Unity consumers. Encounter enrollment calls
+        /// <see cref="Compile"/> and therefore performs no such mutation.
+        /// </remarks>
         /// <param name="creature">The Unity creature receiving prepared math and derived options.</param>
         /// <param name="build">The saved choices that select class, subclass, feats, and rule selections.</param>
         /// <param name="catalog">Optional catalog override for tests; production uses the Resources-backed singleton.</param>
@@ -39,43 +44,75 @@ namespace Game.Creature.Rules
             Pf2eItemCatalog catalog = null
         )
         {
-            PreparedRulePackage compiled = Compile(creature, build, catalog);
+            PreparedRulePackage compiled = CompileCore(
+                creature,
+                build,
+                catalog,
+                out CharacterBuild normalizedBuild
+            );
+            ProjectLegacyPreparation(creature, build, normalizedBuild, compiled.Inputs);
             PreparedCharacter prepared = new();
             PrepareImplementedSpellcasting(creature, prepared, compiled);
             return prepared;
         }
 
-        /// <summary>Deterministically compiles all migrated character facts and rule bindings.</summary>
+        /// <summary>
+        /// Deterministically compiles all migrated character facts and rule bindings without
+        /// mutating the supplied Unity creature or saved build.
+        /// </summary>
+        /// <param name="creature">The Unity creature whose current inputs are copied.</param>
+        /// <param name="build">The saved build choices copied for compiler-owned normalization.</param>
+        /// <param name="catalog">Optional immutable catalog override used by tests.</param>
+        /// <returns>A fully immutable prepared-rules package.</returns>
         public static PreparedRulePackage Compile(
             CreatureComponent creature,
             CharacterBuild build,
             Pf2eItemCatalog catalog = null
         )
         {
+            return CompileCore(creature, build, catalog, out _);
+        }
+
+        private static PreparedRulePackage CompileCore(
+            CreatureComponent creature,
+            CharacterBuild build,
+            Pf2eItemCatalog catalog,
+            out CharacterBuild normalizedBuild
+        )
+        {
             catalog ??= Pf2eItemCatalog.Instance;
-            PreparedRulesBuilder prepared = new(creature, build);
+            normalizedBuild = CopyBuild(build);
+            PreparedRulesBuilder prepared = new(creature, normalizedBuild);
             if (creature == null)
                 return prepared.Freeze();
 
-            build = prepared.Build;
-
-            ApplyImplementedBuildDefaults(build);
+            ApplyImplementedBuildDefaults(normalizedBuild);
             prepared.RollOptions.Add($"self:level:{creature.level}");
             AddArmorRollOptions(creature, prepared);
             AddSavedSkillRanks(prepared);
             AddEquipmentOwnership(creature, prepared, catalog);
 
-            if (catalog.TryResolveByNameOrSlug(build.ClassName, out Pf2eItem classItem))
+            if (catalog.TryResolveByNameOrSlug(normalizedBuild.ClassName, out Pf2eItem classItem))
             {
                 prepared.AddOwnedItem(classItem);
-                ApplyClassBaseMath(creature, classItem, prepared);
+                CompileClassBaseMath(classItem, prepared);
                 GrantClassItems(creature.level, classItem, catalog, prepared);
             }
 
-            if (catalog.TryResolveByNameOrSlug(build.SubclassName, out Pf2eItem subclassItem))
+            if (
+                catalog.TryResolveByNameOrSlug(
+                    normalizedBuild.SubclassName,
+                    out Pf2eItem subclassItem
+                )
+            )
                 prepared.AddOwnedItem(subclassItem);
 
-            if (catalog.TryResolveByNameOrSlug(build.ClassFeatName, out Pf2eItem classFeatItem))
+            if (
+                catalog.TryResolveByNameOrSlug(
+                    normalizedBuild.ClassFeatName,
+                    out Pf2eItem classFeatItem
+                )
+            )
                 prepared.AddOwnedItem(classFeatItem);
 
             for (int i = 0; i < 4; i++)
@@ -83,6 +120,22 @@ namespace Game.Creature.Rules
 
             CollectRuleSynthetics(prepared, catalog);
             return prepared.Freeze();
+        }
+
+        private static CharacterBuild CopyBuild(CharacterBuild source)
+        {
+            CharacterBuild copy = new()
+            {
+                ClassName = source?.ClassName,
+                SubclassName = source?.SubclassName,
+                ClassFeatName = source?.ClassFeatName,
+            };
+            if (source == null)
+                return copy;
+            foreach (KeyValuePair<string, string> selection in source.RuleSelections)
+                copy.RuleSelections.Add(selection.Key, selection.Value);
+            copy.TrainedSkills.AddRange(source.TrainedSkills);
+            return copy;
         }
 
         /// <summary>Enumerates every catalog-backed definition before immutable registry construction.</summary>
@@ -343,54 +396,58 @@ namespace Game.Creature.Rules
 
         private static SpellReference Reference(string slug) => new(new SpellId(slug), 1);
 
-        private static void ApplyClassBaseMath(
-            CreatureComponent creature,
-            Pf2eItem classItem,
-            PreparedRulesBuilder prepared
-        )
+        private static void CompileClassBaseMath(Pf2eItem classItem, PreparedRulesBuilder prepared)
         {
             JObject system = classItem.System;
             if (system == null)
                 return;
 
-            ApplyWeaponBonus(
-                creature,
+            StoreClassProficiency(
+                prepared,
+                "weapon",
                 "unarmed",
                 system.SelectToken("attacks.unarmed")?.Value<int>() ?? 0
             );
-            ApplyWeaponBonus(
-                creature,
+            StoreClassProficiency(
+                prepared,
+                "weapon",
                 "simple",
                 system.SelectToken("attacks.simple")?.Value<int>() ?? 0
             );
-            ApplyWeaponBonus(
-                creature,
+            StoreClassProficiency(
+                prepared,
+                "weapon",
                 "martial",
                 system.SelectToken("attacks.martial")?.Value<int>() ?? 0
             );
-            ApplyWeaponBonus(
-                creature,
+            StoreClassProficiency(
+                prepared,
+                "weapon",
                 "advanced",
                 system.SelectToken("attacks.advanced")?.Value<int>() ?? 0
             );
 
-            ApplyArmorBonus(
-                creature,
+            StoreClassProficiency(
+                prepared,
+                "armor",
                 "unarmored",
                 system.SelectToken("defenses.unarmored")?.Value<int>() ?? 0
             );
-            ApplyArmorBonus(
-                creature,
+            StoreClassProficiency(
+                prepared,
+                "armor",
                 "light",
                 system.SelectToken("defenses.light")?.Value<int>() ?? 0
             );
-            ApplyArmorBonus(
-                creature,
+            StoreClassProficiency(
+                prepared,
+                "armor",
                 "medium",
                 system.SelectToken("defenses.medium")?.Value<int>() ?? 0
             );
-            ApplyArmorBonus(
-                creature,
+            StoreClassProficiency(
+                prepared,
+                "armor",
                 "heavy",
                 system.SelectToken("defenses.heavy")?.Value<int>() ?? 0
             );
@@ -401,31 +458,87 @@ namespace Game.Creature.Rules
                 UpgradeSkillRank(prepared, skill.Value<string>(), 1);
         }
 
-        private static void ApplyWeaponBonus(CreatureComponent creature, string category, int rank)
+        private static void StoreClassProficiency(
+            PreparedRulesBuilder prepared,
+            string domain,
+            string category,
+            int rank
+        ) => prepared.RuleValues[ClassProficiencyPath(domain, category)] = rank * 2;
+
+        private static string ClassProficiencyPath(string domain, string category) =>
+            $"class.proficiency.{domain}.{category}";
+
+        private static void ProjectLegacyPreparation(
+            CreatureComponent creature,
+            CharacterBuild destinationBuild,
+            CharacterBuild normalizedBuild,
+            PreparedCreatureInputs inputs
+        )
         {
-            int index = creature.weaponBonuses.FindIndex(b => b.category == category);
+            if (destinationBuild != null)
+            {
+                destinationBuild.ClassName = normalizedBuild.ClassName;
+                destinationBuild.SubclassName = normalizedBuild.SubclassName;
+                destinationBuild.ClassFeatName = normalizedBuild.ClassFeatName;
+                destinationBuild.RuleSelections.Clear();
+                foreach (KeyValuePair<string, string> selection in normalizedBuild.RuleSelections)
+                    destinationBuild.RuleSelections.Add(selection.Key, selection.Value);
+                destinationBuild.TrainedSkills.Clear();
+                destinationBuild.TrainedSkills.AddRange(normalizedBuild.TrainedSkills);
+            }
+            if (creature == null)
+                return;
+            foreach (string category in new[] { "unarmed", "simple", "martial", "advanced" })
+                ProjectWeaponBonus(creature, inputs, category);
+            foreach (string category in new[] { "unarmored", "light", "medium", "heavy" })
+                ProjectArmorBonus(creature, inputs, category);
+        }
+
+        private static void ProjectWeaponBonus(
+            CreatureComponent creature,
+            PreparedCreatureInputs inputs,
+            string category
+        )
+        {
+            if (
+                !inputs.RuleValues.TryGetValue(
+                    ClassProficiencyPath("weapon", category),
+                    out int bonus
+                )
+            )
+                return;
+            int index = creature.weaponBonuses.FindIndex(value => value.category == category);
             if (index < 0)
-                creature.weaponBonuses.Add(
-                    new WeaponBonus { category = category, bonus = rank * 2 }
-                );
+                creature.weaponBonuses.Add(new WeaponBonus { category = category, bonus = bonus });
             else
                 creature.weaponBonuses[index] = new WeaponBonus
                 {
                     category = category,
-                    bonus = rank * 2,
+                    bonus = bonus,
                 };
         }
 
-        private static void ApplyArmorBonus(CreatureComponent creature, string category, int rank)
+        private static void ProjectArmorBonus(
+            CreatureComponent creature,
+            PreparedCreatureInputs inputs,
+            string category
+        )
         {
-            int index = creature.armorBonuses.FindIndex(b => b.category == category);
+            if (
+                !inputs.RuleValues.TryGetValue(
+                    ClassProficiencyPath("armor", category),
+                    out int bonus
+                )
+            )
+                return;
+            int index = creature.armorBonuses.FindIndex(value => value.category == category);
             if (index < 0)
-                creature.armorBonuses.Add(new ArmorBonus { category = category, bonus = rank * 2 });
+                creature.armorBonuses.Add(new ArmorBonus { category = category, bonus = bonus });
             else
                 creature.armorBonuses[index] = new ArmorBonus
                 {
                     category = category,
-                    bonus = rank * 2,
+                    bonus = bonus,
                 };
         }
 

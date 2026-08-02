@@ -526,6 +526,135 @@ public class Pf2eRulesTests
     }
 
     [Test]
+    public void CompileCopiesMutableInputsAndOwnsImplementedDefaultsAndClassMath()
+    {
+        GameObject gameObject = new("Pure Prepared Cleric");
+        created.Add(gameObject);
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.level = 1;
+        creature.attackBonus = 7;
+        creature.damageBonus = 4;
+        creature.ac = 15;
+        creature.weaponBonuses = new List<WeaponBonus>
+        {
+            new WeaponBonus { category = "simple", bonus = 91 },
+        };
+        creature.weaponActionBonuses = new List<WeaponActionBonus>
+        {
+            new WeaponActionBonus { weaponName = "mace", bonus = 92 },
+        };
+        creature.armorBonuses = new List<ArmorBonus>
+        {
+            new ArmorBonus { category = "unarmored", bonus = 93 },
+        };
+        CharacterBuild build = new() { ClassName = "Cleric" };
+        build.RuleSelections.Add("existing", "kept");
+        build.TrainedSkills.Add("arcana");
+        creature.Build = build;
+        PreparedCharacter cached = new();
+        creature.Prepared = cached;
+        List<WeaponBonus> originalWeaponBonuses = creature.weaponBonuses;
+        List<WeaponActionBonus> originalWeaponActionBonuses = creature.weaponActionBonuses;
+        List<ArmorBonus> originalArmorBonuses = creature.armorBonuses;
+
+        PreparedRulePackage package = Pf2eCharacterPreparer.Compile(creature, build);
+        string fingerprint = PackageFingerprint(package);
+
+        Assert.That(creature.Build, Is.SameAs(build));
+        Assert.That(build.SubclassName, Is.Null);
+        Assert.That(build.ClassFeatName, Is.Null);
+        Assert.That(
+            build.RuleSelections,
+            Is.EqualTo(new Dictionary<string, string> { ["existing"] = "kept" })
+        );
+        Assert.That(build.TrainedSkills, Is.EqualTo(new[] { "arcana" }));
+        Assert.That(creature.weaponBonuses, Is.SameAs(originalWeaponBonuses));
+        Assert.That(
+            creature.weaponBonuses,
+            Is.EqualTo(
+                new[]
+                {
+                    new WeaponBonus { category = "simple", bonus = 91 },
+                }
+            )
+        );
+        Assert.That(creature.weaponActionBonuses, Is.SameAs(originalWeaponActionBonuses));
+        Assert.That(
+            creature.weaponActionBonuses,
+            Is.EqualTo(
+                new[]
+                {
+                    new WeaponActionBonus { weaponName = "mace", bonus = 92 },
+                }
+            )
+        );
+        Assert.That(creature.armorBonuses, Is.SameAs(originalArmorBonuses));
+        Assert.That(
+            creature.armorBonuses,
+            Is.EqualTo(
+                new[]
+                {
+                    new ArmorBonus { category = "unarmored", bonus = 93 },
+                }
+            )
+        );
+        Assert.That(creature.attackBonus, Is.EqualTo(7));
+        Assert.That(creature.damageBonus, Is.EqualTo(4));
+        Assert.That(creature.ac, Is.EqualTo(15));
+        Assert.That(creature.Prepared, Is.SameAs(cached));
+        Assert.That(HasOwned(package, "cloistered-cleric"), Is.True);
+        Assert.That(HasOwned(package, "domain-initiate"), Is.True);
+        Assert.That(package.Inputs.SkillRanks["arcana"], Is.EqualTo(1));
+        Assert.That(package.Inputs.SkillRanks["religion"], Is.EqualTo(1));
+        Assert.That(package.Inputs.RuleValues["class.proficiency.weapon.simple"], Is.EqualTo(2));
+        Assert.That(package.Inputs.RuleValues["class.proficiency.weapon.martial"], Is.Zero);
+        Assert.That(package.Inputs.RuleValues["class.proficiency.armor.unarmored"], Is.EqualTo(2));
+        Assert.That(package.Inputs.RuleValues["class.proficiency.armor.light"], Is.Zero);
+
+        build.RuleSelections["late"] = "mutation";
+        build.TrainedSkills.Add("athletics");
+        creature.weaponBonuses[0] = new WeaponBonus { category = "simple", bonus = 1 };
+        Assert.That(PackageFingerprint(package), Is.EqualTo(fingerprint));
+    }
+
+    [Test]
+    public void ExplicitPrepareProjectsImplementedDefaultsAndClassMathForLegacyConsumers()
+    {
+        GameObject gameObject = new("Explicit Prepared Cleric");
+        created.Add(gameObject);
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.level = 1;
+        creature.weaponBonuses.Add(new WeaponBonus { category = "simple", bonus = 99 });
+        creature.armorBonuses.Add(new ArmorBonus { category = "unarmored", bonus = 99 });
+        CharacterBuild build = new() { ClassName = "Cleric" };
+        creature.Build = build;
+
+        PreparedCharacter prepared = Pf2eCharacterPreparer.Prepare(creature, build);
+
+        Assert.That(prepared.SpellBook.CastableSpells, Is.Not.Empty);
+        Assert.That(build.SubclassName, Is.EqualTo("Cloistered Cleric"));
+        Assert.That(build.ClassFeatName, Is.EqualTo("Domain Initiate"));
+        Assert.That(build.RuleSelections["divineFont"], Is.EqualTo("heal"));
+        Assert.That(build.RuleSelections["sanctification"], Is.EqualTo("none"));
+        Assert.That(
+            creature.weaponBonuses.Single(value => value.category == "simple").bonus,
+            Is.EqualTo(2)
+        );
+        Assert.That(
+            creature.weaponBonuses.Single(value => value.category == "martial").bonus,
+            Is.Zero
+        );
+        Assert.That(
+            creature.armorBonuses.Single(value => value.category == "unarmored").bonus,
+            Is.EqualTo(2)
+        );
+        Assert.That(
+            creature.armorBonuses.Single(value => value.category == "light").bonus,
+            Is.Zero
+        );
+    }
+
+    [Test]
     public void ThiefUsesDexterityForFinesseMeleeDamage()
     {
         CreatureComponent creature = CreatePreparedRogue();
