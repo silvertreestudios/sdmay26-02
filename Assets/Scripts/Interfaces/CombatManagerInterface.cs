@@ -13,7 +13,10 @@ public abstract class CombatManagerInterface : SingletonMonoBehaviour<CombatMana
     /// <summary>Starts legacy scene combat with every living registered controller.</summary>
     public abstract void StartCombat();
 
-    /// <summary>Starts player-selected Tactics using all living registered player controllers.</summary>
+    /// <summary>
+    /// Starts player-selected Tactics using all living registered player controllers, or leaves
+    /// Exploration unchanged when no eligible controller is registered.
+    /// </summary>
     public abstract void EnterTactics();
 
     /// <summary>Attempts to return to Exploration when no living enrolled opposition or work blocks exit.</summary>

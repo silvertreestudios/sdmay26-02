@@ -79,11 +79,11 @@ namespace Game.Rules.Runtime
             );
             if (!protagonistLives)
                 return EncounterOutcome.PlayerDefeat;
+            if (encounter.ConclusionPolicy == EncounterConclusionPolicy.ProtagonistDefeatOnly)
+                return null;
             bool oppositionLives = encounter.Roster.Any(entry =>
                 entry.Team != encounter.ProtagonistTeam && isLiving(entry.Creature)
             );
-            if (encounter.ConclusionPolicy == EncounterConclusionPolicy.ProtagonistDefeatOnly)
-                return null;
             return oppositionLives ? (EncounterOutcome?)null : EncounterOutcome.PlayerVictory;
         }
 

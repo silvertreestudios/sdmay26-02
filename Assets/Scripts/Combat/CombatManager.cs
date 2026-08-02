@@ -104,6 +104,8 @@ public class CombatManager : CombatManagerInterface
                 )
             )
             .ToArray();
+        if (participants.Length == 0)
+            return;
         BeginCombat(
             participants,
             false,

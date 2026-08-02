@@ -672,6 +672,15 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(movementCalls, Is.EqualTo(2));
     }
 
+    /// <summary>Verifies a player toggle cannot start an encounter with an empty roster.</summary>
+    [Test]
+    public void ManualTactics_WithoutEligiblePlayers_DoesNothing()
+    {
+        Assert.DoesNotThrow(manager.EnterTactics);
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(manager.WhosTurn(), Is.Null);
+    }
+
     [Test]
     public void ManualTactics_EnrollsOnlyLivingPlayersAndAllowsIdleExit()
     {
