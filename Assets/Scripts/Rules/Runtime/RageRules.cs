@@ -271,6 +271,26 @@ namespace Game.Rules.Runtime
         public bool StartedRage { get; }
     }
 
+    /// <summary>
+    /// Carries preserved child failures only after every Rage start step has definitively settled.
+    /// </summary>
+    /// <remarks>
+    /// This private workflow signal lets the Quick-Tempered parent consume its one-shot before
+    /// rethrowing the original failure. Other exceptions never authorize consumption.
+    /// </remarks>
+    internal sealed class QuickTemperedRageStartSettledException : Exception
+    {
+        internal QuickTemperedRageStartSettledException(Exception workflowFailure)
+            : base(
+                "Quick-Tempered Rage settled before a child workflow failure was preserved.",
+                workflowFailure
+            ) =>
+            WorkflowFailure =
+                workflowFailure ?? throw new ArgumentNullException(nameof(workflowFailure));
+
+        internal Exception WorkflowFailure { get; }
+    }
+
     internal sealed class ConsumeQuickTemperedTriggerOp
         : IRuleOp<QuickTemperedTriggerConsumedOutcome>
     {
@@ -476,6 +496,10 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(state));
             if (!snapshot.Creatures.Contains(actor))
                 return ActionValidationResult.Invalid("The actor is not registered.");
+            if (!snapshot.Health.TryGet(actor, out HealthState health))
+                return ActionValidationResult.Invalid("The actor has no authoritative health.");
+            if (health.IsCommittedDefeated)
+                return ActionValidationResult.Invalid("A defeated actor cannot Rage.");
             if (!state.OwnsRage)
                 return ActionValidationResult.Invalid("The actor does not own Rage.");
             if (IsRaging(snapshot, actor))
@@ -588,7 +612,7 @@ namespace Game.Rules.Runtime
                     new QuickTemperedRageActionHandler(definition)
                 )
                 .RegisterHandler<ResolveQuickTemperedTriggerOp, QuickTemperedTriggerOutcome>(
-                    new ResolveQuickTemperedTriggerHandler(definition)
+                    new ResolveQuickTemperedTriggerHandler()
                 )
                 .RegisterHandler<EndRageOp, RageEndOutcome>(new EndRageHandler())
                 .RegisterReducer<
@@ -661,11 +685,6 @@ namespace Game.Rules.Runtime
     internal sealed class ResolveQuickTemperedTriggerHandler
         : IOpHandler<ResolveQuickTemperedTriggerOp, QuickTemperedTriggerOutcome>
     {
-        private readonly RageActionDefinition definition;
-
-        internal ResolveQuickTemperedTriggerHandler(RageActionDefinition definition) =>
-            this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
-
         public async ValueTask<QuickTemperedTriggerOutcome> Handle(
             OpFrame<ResolveQuickTemperedTriggerOp> frame,
             OpHandlerContext context
@@ -686,11 +705,11 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            // Child dispatch may commit and then surface a Fact observer failure. Continue only
-            // from exact feature-owned state, consume the one-shot, and preserve every failure for
-            // the caller after the complete workflow has converged.
+            // Child dispatch may fail after a commit. Only Start's private fully-settled signal,
+            // never a broad snapshot match, permits one-shot consumption before the failure is
+            // preserved for the caller.
             ObserverFailureState recoveredFailures = ObserverFailureState.CreateEmpty(
-                "Multiple Quick-Tempered workflow observers failed after their state committed."
+                "Multiple Quick-Tempered workflow failures were preserved."
             );
             bool startedRage;
             try
@@ -700,24 +719,20 @@ namespace Game.Rules.Runtime
                 );
                 startedRage = rage is ResolvedOpResult<RageStartOutcome>;
             }
-            catch (Exception failure)
+            catch (QuickTemperedRageStartSettledException settled)
             {
-                if (
-                    !RageHandlerSupport.IsCompletedStart(
-                        context.Snapshot,
-                        frame.Op.Actor,
-                        frame.RootId,
-                        true,
-                        definition
-                    )
-                )
-                {
-                    recoveredFailures.Add(failure).ThrowIfAny();
-                    throw;
-                }
-                recoveredFailures = recoveredFailures.Add(failure);
+                recoveredFailures = recoveredFailures.Add(settled.WorkflowFailure);
                 startedRage = true;
             }
+
+            if (
+                !startedRage
+                && (
+                    !context.Snapshot.Health.TryGet(frame.Op.Actor, out HealthState health)
+                    || health.IsCommittedDefeated
+                )
+            )
+                return new QuickTemperedTriggerOutcome(false);
 
             try
             {
@@ -946,7 +961,7 @@ namespace Game.Rules.Runtime
             // Effect and health reducers commit independently. Their exact authoritative state is
             // the retry checkpoint when Fact delivery throws after either commit.
             ObserverFailureState recoveredFailures = ObserverFailureState.CreateEmpty(
-                "Multiple Rage workflow observers failed after their state committed."
+                "Multiple Rage workflow failures were preserved."
             );
             try
             {
@@ -967,36 +982,61 @@ namespace Game.Rules.Runtime
                 actorState.Level + actorState.ConstitutionModifier
             );
             HealthState healthBefore = context.Snapshot.Health[actor];
-            TemporaryHitPointsGrantOutcome grant;
-            try
+            TemporaryHitPointsGrantOutcome grant = default;
+            bool grantSettled = false;
+            // Always resolve two identical offers. The second is a no-op confirmation after an
+            // ordinary success and the same-root retry after an uncertain first attempt. Keeping
+            // the operation sequence fixed preserves later Fact causation across either path.
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                grant = await RequireResolved(
-                    context.Dispatch(
-                        new GrantTemporaryHitPointsOp(
+                try
+                {
+                    TemporaryHitPointsGrantOutcome attemptOutcome = await RequireResolved(
+                        context.Dispatch(
+                            new GrantTemporaryHitPointsOp(
+                                actor,
+                                offeredTemporaryHitPoints,
+                                CreateHealthOrigin(rootId),
+                                RageRules.Source
+                            )
+                        )
+                    );
+                    if (!grantSettled)
+                    {
+                        grant = attemptOutcome;
+                        grantSettled = true;
+                    }
+                }
+                catch (Exception failure)
+                {
+                    if (
+                        TryResolveExactTemporaryHitPointGrant(
+                            context.Snapshot,
                             actor,
                             offeredTemporaryHitPoints,
-                            CreateHealthOrigin(rootId),
-                            RageRules.Source
+                            healthBefore,
+                            out grant
                         )
                     )
-                );
-            }
-            catch (Exception failure)
-            {
-                if (
-                    !TryResolveExactTemporaryHitPointGrant(
-                        context.Snapshot,
-                        actor,
-                        offeredTemporaryHitPoints,
-                        healthBefore,
-                        out grant
-                    )
-                )
-                {
-                    recoveredFailures.Add(failure).ThrowIfAny();
+                    {
+                        grantSettled = true;
+                        recoveredFailures = recoveredFailures.Add(failure);
+                        continue;
+                    }
+
+                    recoveredFailures = recoveredFailures.Add(failure);
+                    if (grantSettled || attempt == 0)
+                        continue;
+                    recoveredFailures.ThrowIfAny();
                     throw;
                 }
-                recoveredFailures = recoveredFailures.Add(failure);
+            }
+            if (!grantSettled)
+            {
+                recoveredFailures.ThrowIfAny();
+                throw new InvalidOperationException(
+                    "Rage temporary Hit Point confirmation did not settle."
+                );
             }
             RageStartOutcome outcome = new RageStartOutcome(
                 effect.Id,
@@ -1004,33 +1044,12 @@ namespace Game.Rules.Runtime
                 grant.CurrentAmount,
                 startedByQuickTempered
             );
+            if (startedByQuickTempered && recoveredFailures.HasFailure)
+            {
+                throw new QuickTemperedRageStartSettledException(recoveredFailures.GetFailure());
+            }
             recoveredFailures.ThrowIfAny();
             return outcome;
-        }
-
-        internal static bool IsCompletedStart(
-            RulesSnapshot snapshot,
-            CreatureId actor,
-            OpId rootId,
-            bool startedByQuickTempered,
-            RageActionDefinition definition
-        )
-        {
-            ActiveEffectInstance effect = CreateEffect(actor, rootId, startedByQuickTempered);
-            ActiveRuleBinding binding = CreateBinding(actor, rootId, effect.Id);
-            if (!IsExactEffectCheckpoint(snapshot, effect, binding))
-                return false;
-            RageActorState actorState = definition.GetActorState(snapshot, actor);
-            int offeredTemporaryHitPoints = Math.Max(
-                0,
-                actorState.Level + actorState.ConstitutionModifier
-            );
-            return snapshot.Health.TryGet(actor, out HealthState health)
-                && !health.IsCommittedDefeated
-                && (
-                    health.HasTemporaryHitPointImmunity(RageRules.Source)
-                    || health.Temporary >= offeredTemporaryHitPoints
-                );
         }
 
         private static ActiveEffectInstance CreateEffect(

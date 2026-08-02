@@ -16,7 +16,9 @@ namespace Game.Rules.Runtime
         public static ObserverFailureState CreateEmpty(string aggregateMessage) =>
             new EmptyFailureState(aggregateMessage);
 
+        public abstract bool HasFailure { get; }
         public abstract ObserverFailureState Add(Exception exception);
+        public abstract Exception GetFailure();
         public abstract void ThrowIfAny();
 
         private sealed class EmptyFailureState : ObserverFailureState
@@ -29,8 +31,13 @@ namespace Game.Rules.Runtime
                     aggregateMessage ?? throw new ArgumentNullException(nameof(aggregateMessage));
             }
 
+            public override bool HasFailure => false;
+
             public override ObserverFailureState Add(Exception exception) =>
                 new SingleFailureState(aggregateMessage, exception);
+
+            public override Exception GetFailure() =>
+                throw new InvalidOperationException("No observer failure was recorded.");
 
             public override void ThrowIfAny() { }
         }
@@ -46,8 +53,12 @@ namespace Game.Rules.Runtime
                 this.failure = failure;
             }
 
+            public override bool HasFailure => true;
+
             public override ObserverFailureState Add(Exception exception) =>
                 new MultipleFailureState(aggregateMessage, failure, exception);
+
+            public override Exception GetFailure() => failure;
 
             public override void ThrowIfAny() => ExceptionDispatchInfo.Capture(failure).Throw();
         }
@@ -63,15 +74,20 @@ namespace Game.Rules.Runtime
                 failures = new List<Exception> { first, second };
             }
 
+            public override bool HasFailure => true;
+
             public override ObserverFailureState Add(Exception exception)
             {
                 failures.Add(exception);
                 return this;
             }
 
+            public override Exception GetFailure() =>
+                new AggregateException(aggregateMessage, failures);
+
             public override void ThrowIfAny()
             {
-                throw new AggregateException(aggregateMessage, failures);
+                throw GetFailure();
             }
         }
     }

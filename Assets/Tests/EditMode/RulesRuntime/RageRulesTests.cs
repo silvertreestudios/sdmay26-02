@@ -15,6 +15,28 @@ namespace Game.Tests.EditMode.RulesRuntime
         private static readonly PlayerId Party = new PlayerId("party");
         private static readonly PlayerId Opposition = new PlayerId("opposition");
         private static readonly EncounterId Encounter = new EncounterId("encounter");
+        private static readonly RuleDefinitionId GrantFailureDefinition = new RuleDefinitionId(
+            "test-rage-grant-failure"
+        );
+        private static readonly RuleSource OtherTemporaryHitPointSource = RuleSource.FromSlug(
+            "test-other-temporary-hit-points"
+        );
+
+        /// <summary>Identifies a no-op Rage grant whose health alone cannot prove resolution.</summary>
+        public enum NoOpRageGrantCase
+        {
+            /// <summary>The actor already has exactly the offered amount from another source.</summary>
+            EqualForeignPool,
+
+            /// <summary>The actor already has more than the offered amount from another source.</summary>
+            HigherForeignPool,
+
+            /// <summary>The actor is immune to Rage temporary Hit Points.</summary>
+            RageImmunity,
+
+            /// <summary>Rage offers zero temporary Hit Points.</summary>
+            ZeroOffer,
+        }
 
         /// <summary>Identifies the post-commit boundary interrupted by a retry regression.</summary>
         public enum JoinRetryFailurePoint
@@ -225,6 +247,100 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(retried.ActiveEffects, Is.EqualTo(expected.ActiveEffects));
             Assert.That(retried.RuleBindings, Is.EqualTo(expected.RuleBindings));
             Assert.That(retried.Facts, Is.EqualTo(expected.Facts));
+        }
+
+        [TestCase(NoOpRageGrantCase.EqualForeignPool)]
+        [TestCase(NoOpRageGrantCase.HigherForeignPool)]
+        [TestCase(NoOpRageGrantCase.RageImmunity)]
+        [TestCase(NoOpRageGrantCase.ZeroOffer)]
+        public async Task InterruptedNoOpGrantRequiresResolvedConfirmationBeforeConsume(
+            NoOpRageGrantCase grantCase
+        )
+        {
+            JoinRetrySignature expected = await RunNoOpGrantRetryScenario(grantCase, false);
+            JoinRetrySignature retried = await RunNoOpGrantRetryScenario(grantCase, true);
+
+            Assert.That(retried.Version, Is.EqualTo(expected.Version));
+            Assert.That(retried.Encounter, Is.EqualTo(expected.Encounter));
+            Assert.That(retried.Health, Is.EqualTo(expected.Health));
+            Assert.That(retried.ActionEconomy, Is.EqualTo(expected.ActionEconomy));
+            Assert.That(retried.AttackPenalty, Is.EqualTo(expected.AttackPenalty));
+            Assert.That(retried.ActiveEffects, Is.EqualTo(expected.ActiveEffects));
+            Assert.That(retried.RuleBindings, Is.EqualTo(expected.RuleBindings));
+            Assert.That(retried.Facts, Is.EqualTo(expected.Facts));
+        }
+
+        [Test]
+        public async Task DefeatedActorCannotSpendOrMutateManualRage()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState()),
+                new ScriptedRollService(10, 10),
+                actorInitiativeModifier: 10,
+                enemyInitiativeModifier: 0,
+                actorHealth: new HealthState(0, 10).CommitDefeat()
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            OpResult<RageStartOutcome> result = await dispatcher.Dispatch(new RageActionOp(Actor));
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<RageStartOutcome>>());
+            Assert.That(dispatcher.Snapshot, Is.SameAs(before));
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
+        }
+
+        [Test]
+        public async Task DefeatedQuickTemperedReinforcementDoesNotMutateOrConsumeTrigger()
+        {
+            RageActorState inactive = CreateActorState(ownsRage: false);
+            RageActorState quickTempered = CreateActorState(ownsQuickTempered: true);
+            DictionaryRageActorStateProvider provider = new DictionaryRageActorStateProvider(
+                new Dictionary<CreatureId, RageActorState>
+                {
+                    [Actor] = inactive,
+                    [Reinforcement] = quickTempered,
+                }
+            );
+            RuleDispatcher dispatcher = CreateJoinRetryDispatcher(
+                provider,
+                new ScriptedRollService(20, 10, 5)
+            );
+            ActiveRuleBinding[] initialBindings = RageRules
+                .CreateInitialBindings(Reinforcement, quickTempered)
+                .ToArray();
+            CombatantRulesState registration = new CombatantRulesState(
+                new CreatureState(Reinforcement, Opposition),
+                new HealthState(0, 10).CommitDefeat(),
+                new GridPosition(2, 0, 0),
+                new GridDistance(25),
+                Array.Empty<SpellSlotState>(),
+                initialBindings
+            );
+            FactStampRecorder recorder = new FactStampRecorder();
+            using IDisposable recording = dispatcher.RegisterFactObserver<RuleFact>(recorder);
+
+            RequireResolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Opposition, 0),
+                                registration
+                            ),
+                        }
+                    )
+                )
+            );
+
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Reinforcement), Is.False);
+            Assert.That(dispatcher.Snapshot.Health[Reinforcement], Is.EqualTo(registration.Health));
+            foreach (ActiveRuleBinding expected in initialBindings)
+                Assert.That(dispatcher.Snapshot.RuleBindings[expected.Id], Is.EqualTo(expected));
+            Assert.That(recorder.Count<ActiveEffectCreatedFact>(), Is.Zero);
+            Assert.That(recorder.Count<TemporaryHitPointsGrantedFact>(), Is.Zero);
+            Assert.That(recorder.Count<QuickTemperedTriggerConsumedFact>(), Is.Zero);
         }
 
         [Test]
@@ -546,7 +662,8 @@ namespace Game.Tests.EditMode.RulesRuntime
             int enemyInitiativeModifier,
             IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null,
             bool isFatigued = false,
-            bool isEncumbered = false
+            bool isEncumbered = false,
+            HealthState? actorHealth = null
         )
         {
             RageActionDefinition definition = new RageActionDefinition(provider);
@@ -557,7 +674,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Actor, Party))
                 .SeedCreature(new CreatureState(Enemy, Opposition))
-                .SeedHealth(Actor, new HealthState(10, 10))
+                .SeedHealth(Actor, actorHealth ?? new HealthState(10, 10))
                 .SeedHealth(Enemy, new HealthState(10, 10))
                 .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
             SeedPreparedActor(seed, registryBuilder, provider.State);
@@ -673,16 +790,177 @@ namespace Game.Tests.EditMode.RulesRuntime
             bool ownsRage = true,
             bool ownsQuickTempered = false,
             bool wearsHeavyArmor = false,
-            bool hasInvulnerableRager = false
+            bool hasInvulnerableRager = false,
+            int level = 1,
+            int constitutionModifier = 2
         ) =>
             new RageActorState(
                 ownsRage,
                 ownsQuickTempered,
                 wearsHeavyArmor,
                 hasInvulnerableRager,
-                1,
+                level,
+                constitutionModifier
+            );
+
+        private static async Task<JoinRetrySignature> RunNoOpGrantRetryScenario(
+            NoOpRageGrantCase grantCase,
+            bool injectFailures
+        )
+        {
+            RageActorState inactive = CreateActorState(ownsRage: false);
+            RageActorState quickTempered = CreateActorState(
+                ownsQuickTempered: true,
+                level: grantCase == NoOpRageGrantCase.ZeroOffer ? 0 : 1,
+                constitutionModifier: grantCase == NoOpRageGrantCase.ZeroOffer ? 0 : 2
+            );
+            HealthState initialHealth = grantCase switch
+            {
+                NoOpRageGrantCase.EqualForeignPool => new HealthState(
+                    10,
+                    10,
+                    3,
+                    OtherTemporaryHitPointSource
+                ),
+                NoOpRageGrantCase.HigherForeignPool => new HealthState(
+                    10,
+                    10,
+                    5,
+                    OtherTemporaryHitPointSource
+                ),
+                NoOpRageGrantCase.RageImmunity => new HealthState(
+                    10,
+                    10,
+                    0,
+                    default,
+                    new[] { RageRules.Source }
+                ),
+                NoOpRageGrantCase.ZeroOffer => new HealthState(10, 10),
+                _ => throw new ArgumentOutOfRangeException(nameof(grantCase)),
+            };
+            DictionaryRageActorStateProvider provider = new DictionaryRageActorStateProvider(
+                new Dictionary<CreatureId, RageActorState>
+                {
+                    [Actor] = inactive,
+                    [Reinforcement] = quickTempered,
+                }
+            );
+            InvalidOperationException grantFailure = new InvalidOperationException(
+                "Injected pre-commit Rage grant failure."
+            );
+            ThrowFirstGrantMiddleware grantMiddleware = new ThrowFirstGrantMiddleware(
+                Reinforcement,
+                injectFailures,
+                grantFailure
+            );
+            ScriptedRollService rolls = new ScriptedRollService(20, 10, 5);
+            RuleDispatcher dispatcher = CreateJoinRetryDispatcher(provider, rolls, grantMiddleware);
+            ActiveRuleBinding grantFailureBinding = new ActiveRuleBinding(
+                new BindingId($"test-rage-grant-failure-{Reinforcement.Value}"),
+                GrantFailureDefinition,
+                Reinforcement,
+                default,
+                RuleSource.FromSlug("test-rage-grant-failure"),
                 2
             );
+            CombatantRulesState registration = new CombatantRulesState(
+                new CreatureState(Reinforcement, Opposition),
+                initialHealth,
+                new GridPosition(2, 0, 0),
+                new GridDistance(25),
+                Array.Empty<SpellSlotState>(),
+                RageRules
+                    .CreateInitialBindings(Reinforcement, quickTempered)
+                    .Append(grantFailureBinding)
+                    .ToArray()
+            );
+            JoinEncounterOp join = new JoinEncounterOp(
+                Encounter,
+                new[]
+                {
+                    new EncounterJoinParticipant(
+                        new EncounterParticipant(Reinforcement, Opposition, 0),
+                        registration
+                    ),
+                }
+            );
+            FactStampRecorder recorder = new FactStampRecorder();
+            using IDisposable recording = dispatcher.RegisterFactObserver<RuleFact>(recorder);
+            InvalidOperationException effectFailure = new InvalidOperationException(
+                "Injected Rage effect observer failure."
+            );
+            IDisposable effectFailureRegistration = injectFailures
+                ? dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(
+                    new ThrowOnceFactObserver<ActiveEffectCreatedFact>(effectFailure)
+                )
+                : null;
+
+            if (injectFailures)
+            {
+                AggregateException failure = Assert.ThrowsAsync<AggregateException>(async () =>
+                    await dispatcher.Dispatch(join)
+                );
+                Assert.That(
+                    failure
+                        .Flatten()
+                        .InnerExceptions.Any(value => ReferenceEquals(value, effectFailure)),
+                    Is.True
+                );
+                Assert.That(
+                    failure
+                        .Flatten()
+                        .InnerExceptions.Any(value => ReferenceEquals(value, grantFailure)),
+                    Is.True
+                );
+                Assert.That(grantMiddleware.SawCommittedEffectBeforeFailure, Is.True);
+                Assert.That(grantMiddleware.SawEnabledTriggerBeforeFailure, Is.True);
+                long version = dispatcher.Snapshot.Version;
+                int factCount = recorder.Facts.Count;
+                ResolvedOpResult<EncounterJoinOutcome> retry = RequireResolved(
+                    await dispatcher.Dispatch(join)
+                );
+                Assert.That(retry.Facts, Is.Empty);
+                Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(version));
+                Assert.That(recorder.Facts, Has.Count.EqualTo(factCount));
+                effectFailureRegistration.Dispose();
+            }
+            else
+            {
+                RequireResolved(await dispatcher.Dispatch(join));
+            }
+
+            Assert.That(grantMiddleware.Attempts, Is.EqualTo(2));
+            Assert.That(dispatcher.Snapshot.Health[Reinforcement], Is.EqualTo(initialHealth));
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Reinforcement), Is.True);
+            Assert.That(
+                dispatcher
+                    .Snapshot
+                    .RuleBindings[new BindingId($"quick-tempered-{Reinforcement.Value}")]
+                    .IsEnabled,
+                Is.False
+            );
+            Assert.That(recorder.Count<TemporaryHitPointsGrantedFact>(), Is.Zero);
+            Assert.That(recorder.Count<QuickTemperedTriggerConsumedFact>(), Is.EqualTo(1));
+            Assert.That(rolls.Remaining, Is.Zero);
+
+            RulesSnapshot snapshot = dispatcher.Snapshot;
+            return new JoinRetrySignature(
+                snapshot.Version,
+                snapshot.Encounters[Encounter],
+                snapshot.Health[Reinforcement],
+                snapshot.ActionEconomy[Reinforcement],
+                snapshot.MultipleAttackPenalty[Reinforcement],
+                snapshot
+                    .ActiveEffects.Select(pair => pair.Value)
+                    .OrderBy(effect => effect.Id.Value, StringComparer.Ordinal)
+                    .ToArray(),
+                snapshot
+                    .RuleBindings.Select(pair => pair.Value)
+                    .OrderBy(binding => binding.Id.Value, StringComparer.Ordinal)
+                    .ToArray(),
+                recorder.Facts.ToArray()
+            );
+        }
 
         private static async Task<JoinRetrySignature> RunQuickTemperedJoinScenario(
             JoinRetryFailurePoint? failurePoint
@@ -840,7 +1118,8 @@ namespace Game.Tests.EditMode.RulesRuntime
 
         private static RuleDispatcher CreateJoinRetryDispatcher(
             IRageActorStateProvider provider,
-            ScriptedRollService rolls
+            ScriptedRollService rolls,
+            ThrowFirstGrantMiddleware grantMiddleware = null
         )
         {
             RageActionDefinition definition = new RageActionDefinition(provider);
@@ -848,6 +1127,15 @@ namespace Game.Tests.EditMode.RulesRuntime
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.Define(ConditionRuleDefinitions.Fatigued);
             registryBuilder.Define(ConditionRuleDefinitions.Encumbered);
+            if (grantMiddleware != null)
+            {
+                registryBuilder
+                    .Define(GrantFailureDefinition)
+                    .Middleware<CommitTemporaryHitPointsGrantOp, TemporaryHitPointsGrantOutcome>(
+                        RuleLifecyclePhase.Prevention,
+                        grantMiddleware
+                    );
+            }
             registryBuilder.AddOutcomeRule();
             RuleRegistry registry = registryBuilder.Build();
             RulesStateSeed seed = new RulesStateSeed()
@@ -993,6 +1281,50 @@ namespace Game.Tests.EditMode.RulesRuntime
                     throw failure;
                 }
                 return default;
+            }
+        }
+
+        private sealed class ThrowFirstGrantMiddleware
+            : IOpMiddleware<CommitTemporaryHitPointsGrantOp, TemporaryHitPointsGrantOutcome>
+        {
+            private readonly CreatureId actor;
+            private readonly bool failFirst;
+            private readonly Exception failure;
+            private bool thrown;
+
+            internal ThrowFirstGrantMiddleware(CreatureId actor, bool failFirst, Exception failure)
+            {
+                this.actor = actor;
+                this.failFirst = failFirst;
+                this.failure = failure;
+            }
+
+            internal int Attempts { get; private set; }
+            internal bool SawCommittedEffectBeforeFailure { get; private set; }
+            internal bool SawEnabledTriggerBeforeFailure { get; private set; }
+
+            public async ValueTask<OpResult<TemporaryHitPointsGrantOutcome>> Invoke(
+                OpFrame<CommitTemporaryHitPointsGrantOp> frame,
+                OpMiddlewareContext context,
+                OpNext<TemporaryHitPointsGrantOutcome> next
+            )
+            {
+                if (frame.Op.Target != actor)
+                    return await next();
+                Attempts++;
+                if (failFirst && !thrown)
+                {
+                    thrown = true;
+                    SawCommittedEffectBeforeFailure = RageRules.IsRaging(context.Snapshot, actor);
+                    BindingId triggerId = new BindingId($"quick-tempered-{actor.Value}");
+                    SawEnabledTriggerBeforeFailure =
+                        context.Snapshot.RuleBindings.TryGet(
+                            triggerId,
+                            out ActiveRuleBinding trigger
+                        ) && trigger.IsEnabled;
+                    throw failure;
+                }
+                return await next();
             }
         }
 

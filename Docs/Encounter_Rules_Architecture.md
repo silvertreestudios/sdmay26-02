@@ -219,13 +219,17 @@ state legitimately changed by an assignment listener does not make the original 
 conflicting. A post-commit roster observer failure is preserved for the caller only after the
 assignment checkpoint is attempted, so retry cannot alter causation, Facts, or version.
 
-Assignment-triggered feature workflows must close their own uncertain commit boundaries before an
-observer failure escapes. Quick-Tempered uses its exact Rage effect/binding, settled Rage temporary
-Hit Point offer, and disabled one-shot binding as authoritative checkpoints: after a child commit
-throws, the feature validates the checkpoint, finishes the remaining steps, then rethrows the
-observer failure. It does not add a cache or encounter-lifetime receipt, so there is no parallel
-progress state to clean up. Once the published assignment receipt exists, Join retry remains a true
-no-op and cannot replay the feature's Facts or versions.
+Assignment-triggered feature workflows must close their own uncertain commit boundaries before a
+child failure escapes. Quick-Tempered never infers completion from the actor's current temporary
+Hit Points or immunity. Rage resolves a fixed two-offer sequence: the second identical offer is an
+idempotent confirmation after ordinary success and a same-root retry when the first attempt fails
+before settlement. Only a returned grant result or the exact first-attempt reducer transition can
+produce the private fully-settled signal that authorizes one-shot consumption. The operation
+sequence is fixed so recovery does not change later Fact causation, and every captured observer or
+middleware failure is rethrown after convergence. No cache or encounter-lifetime receipt is added.
+Once the published assignment receipt exists, Join retry remains a true no-op and cannot replay the
+feature's Facts or versions. Rage action validation also requires registered, non-defeated
+authoritative health before either manual or Quick-Tempered action costs and effect creation.
 
 After either state path, call `AttachAndInstall`, `FinalizeBatch`, then
 `TransferTo(encounterLifetime)`. Finalization first validates every contribution; successful
