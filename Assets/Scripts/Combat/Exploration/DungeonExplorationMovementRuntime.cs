@@ -179,10 +179,15 @@ namespace Game.Combat.Exploration
                 }
 
                 List<PendingFollowerPresentation> followers = new();
-                bool settleEncounterBoundary = false;
+                int preparedMoveCount = 1;
+                bool reachedEncounterBoundary = false;
                 for (int moveIndex = 1; moveIndex < accepted.Moves.Count; moveIndex++)
                 {
                     ExplorationMemberMove plannedMove = accepted.Moves[moveIndex];
+                    bool reachesEncounterBoundary = requiresEncounterBoundarySettlement(
+                        plannedMove.From,
+                        plannedMove.To
+                    );
                     ActionController controller = activePresentation.ControllersById[
                         plannedMove.MemberId
                     ];
@@ -196,18 +201,23 @@ namespace Game.Combat.Exploration
                         yield break;
                     }
                     followers.Add(pending);
-                    settleEncounterBoundary |= requiresEncounterBoundarySettlement(
-                        plannedMove.From,
-                        plannedMove.To
-                    );
+                    preparedMoveCount++;
+                    if (!reachesEncounterBoundary)
+                        continue;
+
+                    reachedEncounterBoundary = true;
+                    break;
                 }
                 activePresentation.PendingFollowers = followers;
-                activePresentation.Party = accepted.ResultingParty;
-                if (settleEncounterBoundary)
+                activePresentation.Party =
+                    preparedMoveCount == accepted.Moves.Count
+                        ? accepted.ResultingParty
+                        : ApplyMoves(activePresentation.Party, accepted.Moves, preparedMoveCount);
+                if (reachedEncounterBoundary)
                 {
-                    // Only a follower batch that can activate an encounter blocks this root. Its
-                    // committed moves must settle before encounter construction samples Unity,
-                    // while ordinary batches remain pipelined with the next leader segment.
+                    // Stop at the first triggering follower so encounter construction cannot
+                    // consume later room observations that it cannot activate in the same handoff.
+                    // Ordinary batches still remain pipelined with the next leader segment.
                     yield return DrainPendingFollowers(activePresentation);
                     if (processEncounterBoundary())
                     {
@@ -445,8 +455,12 @@ namespace Game.Combat.Exploration
             return presentation;
         }
 
-        private static void EndFollowerPresentation(CreaturePresentation presentation) =>
-            presentation?.SetMoving(false, 0.0f);
+        private static void EndFollowerPresentation(CreaturePresentation presentation)
+        {
+            if (presentation == null)
+                return;
+            presentation.SetMoving(false, 0.0f);
+        }
 
         private static IEnumerator DrainPendingFollowers(ExplorationPresentationState state)
         {
@@ -474,6 +488,28 @@ namespace Game.Combat.Exploration
                 }
                 yield return pending.Target.PlaceToken(pending.Controller.gameObject);
             }
+        }
+
+        private static ExplorationPartyState ApplyMoves(
+            ExplorationPartyState party,
+            IReadOnlyList<ExplorationMemberMove> moves,
+            int moveCount
+        )
+        {
+            ExplorationPartyMember[] members = party.Members.ToArray();
+            for (int moveIndex = 0; moveIndex < moveCount; moveIndex++)
+            {
+                ExplorationMemberMove move = moves[moveIndex];
+                int memberIndex = Array.FindIndex(members, member => member.Id == move.MemberId);
+                if (memberIndex < 0 || members[memberIndex].Cell != move.From)
+                {
+                    throw new InvalidOperationException(
+                        "A prepared exploration move did not match the current logical party state."
+                    );
+                }
+                members[memberIndex] = new ExplorationPartyMember(move.MemberId, move.To);
+            }
+            return new ExplorationPartyState(members, party.SelectedLeaderId);
         }
 
         private static bool IsInBounds(Tile[,] tiles, Vector3Int cell) =>

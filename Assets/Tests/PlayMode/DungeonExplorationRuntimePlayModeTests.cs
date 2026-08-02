@@ -299,6 +299,59 @@ public sealed class DungeonExplorationRuntimePlayModeTests
     }
 
     /// <summary>
+    /// Verifies destroying only a queued follower's presentation component does not fault or leave
+    /// its exploration action waiting after token movement completes.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator DestroyedQueuedFollowerPresentationDoesNotThrowOrHang()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 2), new Vector3Int(1, 0, 2) },
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        movement.ConfigureForTimedTests(0.15f);
+        Track(new GameObject("Destroyed Follower Presentation Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        TestActionController leader = fixture.Party[0].Controller;
+        GameObject follower = fixture.Party[1].GameObject;
+        CreaturePresentation presentation = follower.AddComponent<CreaturePresentation>();
+        RulesStrideAction stride = leader.GetActions().OfType<RulesStrideAction>().Single();
+        Vector3Int origin = Vector3Int.RoundToInt(leader.transform.position);
+        Vector3Int destination = new(3, 0, 2);
+
+        leader.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(origin.x, origin.y, origin.z),
+                    new[] { new GridPosition(destination.x, destination.y, destination.z) }
+                )
+            )
+        );
+
+        yield return null;
+        movement.AdvanceTimedPresentation(0.15f);
+        int remainingFrames = 10;
+        Tile followerSource = fixture.Grid.GetTiles()[1, 2];
+        while (remainingFrames-- > 0 && followerSource.Occupants.Contains(follower))
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "The follower was never queued.");
+        Assert.That(leader.IsTakingAction, Is.True);
+        Object.DestroyImmediate(presentation);
+        movement.AdvanceTimedPresentation(0.15f);
+        remainingFrames = 10;
+        while (remainingFrames-- > 0 && leader.IsTakingAction)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "Presentation cleanup timed out.");
+        Assert.That(leader.IsTakingAction, Is.False);
+        AssertPartyCells(fixture, new DungeonCell(3, 2), new DungeonCell(2, 2));
+        LogAssert.NoUnexpectedReceived();
+    }
+
+    /// <summary>
     /// Verifies the UI-provided selection callback changes authority without moving or stacking
     /// members, and the newly selected leader moves by only one cardinal cell.
     /// </summary>
@@ -571,6 +624,96 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 manager.GetCombatants().Select(combatant => combatant.transform.position)
             ),
             "Encounter construction must preserve every actually committed Unity cell."
+        );
+    }
+
+    /// <summary>
+    /// Verifies one follower batch stops after its first dormant-room crossing so a later follower
+    /// crossing remains observable after the first encounter interrupts exploration.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator MultipleFollowerEncounterBoundariesStopAtFirstCrossing()
+    {
+        DungeonRoom firstRoom = new(1, 6, 2, 7, 3);
+        DungeonRoom secondRoom = new(2, 3, 2, 4, 3);
+        DungeonEncounterPlan firstEncounter = new(
+            "first-follower-boundary",
+            firstRoom.Id,
+            DungeonEncounterThreat.Trivial,
+            40,
+            new[] { new DungeonCell(6, 3) },
+            new[] { "goblin-warrior" }
+        );
+        DungeonEncounterPlan secondEncounter = new(
+            "second-follower-boundary",
+            secondRoom.Id,
+            DungeonEncounterThreat.Trivial,
+            40,
+            new[] { new DungeonCell(3, 3) },
+            new[] { "goblin-warrior" }
+        );
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(8, 0, 2), new Vector3Int(5, 0, 2), new Vector3Int(2, 0, 2) },
+            width: 11,
+            rooms: new[] { firstRoom, secondRoom },
+            encounterPlans: new[] { firstEncounter, secondEncounter },
+            configurePartyBeforeInitialization: controllers =>
+            {
+                controllers[0].AddAction(new RulesStrideAction());
+                controllers[0].GetComponent<CreatureComponent>().initiative = 1000;
+            }
+        );
+        Track(new GameObject("Multiple Follower Boundaries Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        Combatant leader = fixture.Party[0];
+        RulesStrideAction stride = leader
+            .Controller.GetActions()
+            .OfType<RulesStrideAction>()
+            .Single();
+        Vector3Int from = Vector3Int.RoundToInt(leader.GameObject.transform.position);
+
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetEncounter("first-follower-boundary").State,
+            Is.EqualTo(DungeonEncounterGroupState.Dormant)
+        );
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetEncounter("second-follower-boundary").State,
+            Is.EqualTo(DungeonEncounterGroupState.Dormant)
+        );
+
+        leader.Controller.TakeAction(
+            stride,
+            new FixedMovementPathResolver(
+                new MovementPath(
+                    new GridPosition(from.x, from.y, from.z),
+                    new[] { new GridPosition(9, 0, 2) }
+                )
+            )
+        );
+        int remainingFrames = 240;
+        while (leader.Controller.IsTakingAction && remainingFrames-- > 0)
+            yield return null;
+
+        Assert.That(remainingFrames, Is.GreaterThan(0), "The follower boundary Stride timed out.");
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetEncounter("first-follower-boundary").State,
+            Is.EqualTo(DungeonEncounterGroupState.Active)
+        );
+        Assert.That(
+            fixture.Runtime.Lifecycle.GetEncounter("second-follower-boundary").State,
+            Is.EqualTo(DungeonEncounterGroupState.Dormant)
+        );
+        AssertPartyCells(
+            fixture,
+            new DungeonCell(9, 2),
+            new DungeonCell(6, 2),
+            new DungeonCell(2, 2)
+        );
+        Assert.That(
+            fixture.Grid.GetTiles()[3, 2].Occupants,
+            Is.Empty,
+            "The later follower crossing must remain uncommitted for a future boundary."
         );
     }
 
