@@ -62,7 +62,8 @@ namespace Game.Combat.Encounters
     [DisallowMultipleComponent]
     public sealed class DungeonEncounterRuntimeController
         : MonoBehaviour,
-            IExplorationStrideCoordinator
+            IExplorationStrideCoordinator,
+            IExplorationPresentationDrain
     {
         private static readonly Action DestinationReachedNoOp = delegate { };
         private DungeonRoom[] rooms = Array.Empty<DungeonRoom>();
@@ -1104,6 +1105,16 @@ namespace Game.Combat.Encounters
                 continuePath,
                 pathInterrupted
             );
+
+        IEnumerator IExplorationPresentationDrain.DrainPresentation(GameObject leader) =>
+            explorationMovement is IExplorationPresentationDrain drain
+                ? drain.DrainPresentation(leader)
+                : EmptyCoroutine();
+
+        private static IEnumerator EmptyCoroutine()
+        {
+            yield break;
+        }
 
         private bool ProcessImmediateExplorationBoundary()
         {
