@@ -526,8 +526,12 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(activeTravel.GetValue(fixture.Runtime), Is.False);
     }
 
+    /// <summary>
+    /// Verifies active destination travel rejects a leader change between Strides, keeps route
+    /// ownership stable, and restores leader selection after the full formation arrives.
+    /// </summary>
     [UnityTest]
-    public IEnumerator DestinationTravelAutomaticallyExecutesMultipleStridesWithFollowers()
+    public IEnumerator DestinationTravelRejectsLeaderChangeBetweenStridesAndPreservesFormation()
     {
         RuntimeFixture fixture = CreateRuntimeFixture(
             new[] { new Vector3Int(1, 0, 2), new Vector3Int(0, 0, 2) },
@@ -541,25 +545,69 @@ public sealed class DungeonExplorationRuntimePlayModeTests
             "OnGridCellClicked",
             BindingFlags.Instance | BindingFlags.NonPublic
         );
+        PropertyInfo activeTravel = typeof(DungeonEncounterRuntimeController).GetProperty(
+            "HasActiveDestinationTravel",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
         Assert.That(click, Is.Not.Null);
+        Assert.That(activeTravel, Is.Not.Null);
+        TestActionController initiatingLeader = fixture.Party[0].Controller;
+        TestActionController follower = fixture.Party[1].Controller;
+        bool selectionAttempted = false;
+        bool routeWasActiveDuringSelection = false;
+        bool leaderWasTakingActionDuringSelection = true;
+        bool selectionAccepted = true;
 
-        click.Invoke(fixture.Runtime, new object[] { new Vector3Int(8, 0, 2) });
+        void AttemptLeaderChangeBetweenStrides()
+        {
+            if (selectionAttempted)
+                return;
 
+            selectionAttempted = true;
+            routeWasActiveDuringSelection = (bool)activeTravel.GetValue(fixture.Runtime);
+            leaderWasTakingActionDuringSelection = initiatingLeader.IsTakingAction;
+            selectionAccepted = fixture.Presentation.TrySelect(follower);
+        }
+
+        OnActionComplete.AddListener(AttemptLeaderChangeBetweenStrides);
         int remainingFrames = 600;
-        while (
-            remainingFrames-- > 0
-            && (
-                Vector3Int.RoundToInt(fixture.Party[0].GameObject.transform.position)
-                    != new Vector3Int(8, 0, 2)
-                || fixture.Party[0].Controller.IsTakingAction
-            )
-        )
-            yield return null;
+        try
+        {
+            click.Invoke(fixture.Runtime, new object[] { new Vector3Int(8, 0, 2) });
+
+            while (remainingFrames-- > 0 && (bool)activeTravel.GetValue(fixture.Runtime))
+                yield return null;
+        }
+        finally
+        {
+            OnActionComplete.RemoveListener(AttemptLeaderChangeBetweenStrides);
+        }
 
         Assert.That(remainingFrames, Is.GreaterThan(0), "Destination travel timed out.");
+        Assert.That(selectionAttempted, Is.True);
+        Assert.That(routeWasActiveDuringSelection, Is.True);
+        Assert.That(leaderWasTakingActionDuringSelection, Is.False);
+        Assert.That(selectionAccepted, Is.False);
         AssertPartyCells(fixture, new DungeonCell(8, 2), new DungeonCell(7, 2));
-        Assert.That(fixture.Party[0].Controller.IsTakingAction, Is.False);
+        Assert.That(initiatingLeader.IsTakingAction, Is.False);
+        Assert.That(initiatingLeader.IsInDungeonExploration, Is.True);
+        Assert.That(follower.IsInDungeonExploration, Is.False);
+        Assert.That(
+            combatLog.Messages.Count(message =>
+                message == $"- {fixture.Party[0].GameObject.name} used Stride"
+            ),
+            Is.GreaterThan(1),
+            "The initiating leader must execute the route as multiple Strides."
+        );
+        Assert.That(
+            combatLog.Messages,
+            Has.None.EqualTo($"- {fixture.Party[1].GameObject.name} used Stride")
+        );
         Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(fixture.Presentation.TrySelect(follower), Is.True);
+        Assert.That(initiatingLeader.IsInDungeonExploration, Is.False);
+        Assert.That(follower.IsInDungeonExploration, Is.True);
+        AssertPartyCells(fixture, new DungeonCell(8, 2), new DungeonCell(7, 2));
     }
 
     [UnityTest]

@@ -365,14 +365,15 @@ namespace Game.Combat.Encounters
         /// <param name="candidate">The party controller requested by the player.</param>
         /// <returns>
         /// <see langword="true"/> when the candidate is now the leader; otherwise
-        /// <see langword="false"/> while combat, another party action, or an invalid candidate
-        /// prevents the change.
+        /// <see langword="false"/> while combat, another party action, active destination travel,
+        /// or an invalid candidate prevents the change.
         /// </returns>
         public bool TrySelectExplorationLeader(ActionController candidate)
         {
             if (
                 !IsInitialized
                 || combatManager.IsCombatActive
+                || HasActiveDestinationTravel
                 || !party.Contains(candidate)
                 || !CanObserve(candidate)
                 || party.Any(member => member != null && member.IsTakingAction)
@@ -774,9 +775,10 @@ namespace Game.Combat.Encounters
             if (!IsExplorationActive || HasActionInProgress || HasActiveDestinationTravel)
                 return;
 
-            Vector3Int origin = Vector3Int.RoundToInt(selectedLeader.transform.position);
+            ActionController travelLeader = selectedLeader;
+            Vector3Int origin = Vector3Int.RoundToInt(travelLeader.transform.position);
             List<PathNode> path = grid.GetPathfinder()
-                .Pathfind(selectedLeader.gameObject, origin, cell);
+                .Pathfind(travelLeader.gameObject, origin, cell);
             if (path == null || path.Count < 2)
                 return;
 
@@ -790,13 +792,14 @@ namespace Game.Combat.Encounters
             DestinationTravelOwner travelOwner = new();
             destinationTravelOwner = travelOwner;
             Coroutine runningCoroutine = StartCoroutine(
-                TravelToDestination(travelOwner, plan, origin.y)
+                TravelToDestination(travelOwner, travelLeader, plan, origin.y)
             );
             travelOwner.TryAttach(runningCoroutine);
         }
 
         private IEnumerator TravelToDestination(
             DestinationTravelOwner travelOwner,
+            ActionController travelLeader,
             ExplorationTravelPlan plan,
             int elevation
         )
@@ -805,7 +808,7 @@ namespace Game.Combat.Encounters
             OnCancel.AddListener(CancelDestinationTravel);
             try
             {
-                RulesStrideAction stride = selectedLeader
+                RulesStrideAction stride = travelLeader
                     .GetActions()
                     .OfType<RulesStrideAction>()
                     .FirstOrDefault();
@@ -814,7 +817,7 @@ namespace Game.Combat.Encounters
 
                 while (!travelCancelled && IsExplorationActive)
                 {
-                    Vector3Int current = Vector3Int.RoundToInt(selectedLeader.transform.position);
+                    Vector3Int current = Vector3Int.RoundToInt(travelLeader.transform.position);
                     int currentIndex = -1;
                     for (int index = 0; index < plan.Cells.Count; index++)
                     {
@@ -833,14 +836,14 @@ namespace Game.Combat.Encounters
                         .Select(cell => new Vector3Int(cell.X, elevation, cell.Z))
                         .ToArray();
                     PlannedStrideSelectionResolver resolver = new(remaining);
-                    selectedLeader.TakeAction(stride, resolver);
-                    if (!selectedLeader.IsTakingAction)
+                    travelLeader.TakeAction(stride, resolver);
+                    if (!travelLeader.IsTakingAction)
                         yield break;
-                    while (selectedLeader.IsTakingAction && IsExplorationActive)
+                    while (travelLeader.IsTakingAction && IsExplorationActive)
                         yield return null;
                     if (!resolver.MayContinueRoute)
                         yield break;
-                    if (Vector3Int.RoundToInt(selectedLeader.transform.position) == current)
+                    if (Vector3Int.RoundToInt(travelLeader.transform.position) == current)
                         yield break;
                 }
             }
