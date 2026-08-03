@@ -99,6 +99,36 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void EnableStatelessRuleBindingOpReportsBindingParameterName()
+        {
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new EnableStatelessRuleBindingOp(default, 0, Source)
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("binding"));
+        }
+
+        [Test]
+        public void EnableStatelessRuleBindingOpReportsExpectedCreationOrderParameterName()
+        {
+            ArgumentOutOfRangeException error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+                new EnableStatelessRuleBindingOp(new BindingId("binding"), -1, Source)
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("expectedCreationOrder"));
+        }
+
+        [Test]
+        public void EnableStatelessRuleBindingOpReportsSourceParameterName()
+        {
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new EnableStatelessRuleBindingOp(new BindingId("binding"), 0, default)
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("source"));
+        }
+
+        [Test]
         public void StatelessLifecycleIsOptimisticImmutableAndRejectsEffectBindings()
         {
             RuleRegistryBuilder registryBuilder = new();
