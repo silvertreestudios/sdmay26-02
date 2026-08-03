@@ -209,10 +209,15 @@ namespace Game.Rules.Runtime
         /// <summary>Registers generic prepared modifier, damage-dice, and alteration resolvers.</summary>
         /// <param name="builder">The encounter dispatcher composition root.</param>
         /// <returns>The same builder for fluent composition.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="builder"/> is null.</exception>
         public static RuleDispatcherBuilder UsePreparedContributions(
             this RuleDispatcherBuilder builder
-        ) =>
-            builder
+        )
+        {
+            if (builder == null)
+                throw new ArgumentNullException(nameof(builder));
+
+            return builder
                 .RegisterHandler<CollectPreparedModifiersOp, IReadOnlyList<PreparedModifierValue>>(
                     new PreparedModifierHandler()
                 )
@@ -228,6 +233,7 @@ namespace Game.Rules.Runtime
                     CollectPreparedItemAlterationsOp,
                     IReadOnlyList<PreparedItemAlterationSpec>
                 >(new EmptyPreparedItemAlterationHandler());
+        }
 
         internal static void Configure(
             RuleDefinitionBuilder builder,
