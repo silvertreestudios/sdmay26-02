@@ -113,7 +113,7 @@ public sealed class SpellcastingPresentationPlayModeTests
             new ActionController[] { initialController, noncasterController },
             tiles
         );
-        bridge.StartEncounter("players");
+        bridge.StartEncounter("players", EncounterConclusionPolicy.VictoryOrDefeat);
 
         Assert.That(LightActions(initialController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(initialController, "divine-lance"), Has.Count.EqualTo(1));
@@ -185,7 +185,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
         RulesCastSpellAction retriedAction = LightActions(casterController).Single();
         Assert.That(retriedAction, Is.Not.SameAs(failedAction));
-        retry.StartEncounter("players");
+        retry.StartEncounter("players", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureId retryActor = retry.GetCreatureId(casterController);
         Assert.That(retryActor.Value, Is.EqualTo("combat-creature-1"));
         retry.BeginTurn(retryActor, 3);
@@ -208,7 +208,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
         RulesCastSpellAction reboundAction = LightActions(casterController).Single();
         Assert.That(reboundAction, Is.Not.SameAs(retriedAction));
-        reordered.StartEncounter("players");
+        reordered.StartEncounter("players", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureId reorderedActor = reordered.GetCreatureId(casterController);
         Assert.That(reorderedActor.Value, Is.EqualTo("combat-creature-2"));
         reordered.BeginTurn(reorderedActor, 3);
@@ -628,6 +628,7 @@ public sealed class SpellcastingPresentationPlayModeTests
             new EncounterId("light-presentation-encounter"),
             EncounterPhase.Active,
             team,
+            EncounterConclusionPolicy.VictoryOrDefeat,
             RoundNumber.First,
             new[] { new InitiativeEntry(ownerId, team, 10, 0, 0, RoundNumber.First) },
             -1,

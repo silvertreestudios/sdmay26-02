@@ -633,6 +633,7 @@ namespace Game.Rules.Runtime.Tests
                             new EncounterId("action-encounter"),
                             EncounterPhase.Active,
                             new PlayerId("players"),
+                            EncounterConclusionPolicy.VictoryOrDefeat,
                             new RoundNumber(4),
                             new[]
                             {

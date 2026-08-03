@@ -60,7 +60,8 @@ namespace Game.Rules.Runtime.Tests
                 new StartEncounterOp(
                     Encounter,
                     Players,
-                    new[] { new EncounterParticipant(Enemy, Enemies, 0) }
+                    new[] { new EncounterParticipant(Enemy, Enemies, 0) },
+                    EncounterConclusionPolicy.VictoryOrDefeat
                 )
             );
 
@@ -74,14 +75,16 @@ namespace Game.Rules.Runtime.Tests
                     {
                         new EncounterParticipant(Hero, Players, 0),
                         new EncounterParticipant(Enemy, Enemies, 0),
-                    }
+                    },
+                    EncounterConclusionPolicy.VictoryOrDefeat
                 )
             );
             Assert.DoesNotThrow(() =>
                 new StartEncounterOp(
                     Encounter,
                     Players,
-                    new[] { new EncounterParticipant(Hero, Players, 0) }
+                    new[] { new EncounterParticipant(Hero, Players, 0) },
+                    EncounterConclusionPolicy.VictoryOrDefeat
                 )
             );
         }
@@ -94,6 +97,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 roster,
                 0,
@@ -106,6 +110,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 roster,
                 0,
@@ -118,6 +123,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 roster,
                 0,
@@ -129,6 +135,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 roster,
                 0,
@@ -157,6 +164,7 @@ namespace Game.Rules.Runtime.Tests
                     Encounter,
                     EncounterPhase.Active,
                     Players,
+                    EncounterConclusionPolicy.VictoryOrDefeat,
                     RoundNumber.First,
                     roster,
                     -1,
@@ -171,6 +179,7 @@ namespace Game.Rules.Runtime.Tests
                     Encounter,
                     EncounterPhase.Active,
                     Players,
+                    EncounterConclusionPolicy.VictoryOrDefeat,
                     RoundNumber.First,
                     roster,
                     0,
@@ -186,6 +195,7 @@ namespace Game.Rules.Runtime.Tests
                     Encounter,
                     EncounterPhase.Suspended,
                     Players,
+                    EncounterConclusionPolicy.VictoryOrDefeat,
                     RoundNumber.First,
                     roster,
                     0,
@@ -205,6 +215,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 new RoundNumber(3),
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 1,
@@ -240,6 +251,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -297,6 +309,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -349,6 +362,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -388,7 +402,12 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
                 new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+                    new CommitEncounterStartOp(
+                        Encounter,
+                        Players,
+                        EncounterConclusionPolicy.VictoryOrDefeat,
+                        Array.AsReadOnly(roster)
+                    )
                 )
             );
             OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
@@ -412,7 +431,12 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
                 new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+                    new CommitEncounterStartOp(
+                        Encounter,
+                        Players,
+                        EncounterConclusionPolicy.VictoryOrDefeat,
+                        Array.AsReadOnly(roster)
+                    )
                 )
             );
             OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
@@ -443,7 +467,12 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
                 new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+                    new CommitEncounterStartOp(
+                        Encounter,
+                        Players,
+                        EncounterConclusionPolicy.VictoryOrDefeat,
+                        Array.AsReadOnly(roster)
+                    )
                 )
             );
             OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
@@ -1141,6 +1170,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { hero },
                 0,
@@ -2221,6 +2251,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -2545,6 +2576,152 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(endFacts.Order, Is.EqualTo(new[] { "expired", "ended" }));
         }
 
+        [Test]
+        public async Task ProtagonistDefeatOnlyPolicyIgnoresOppositionDefeat()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
+            Resolved(
+                await dispatcher.Dispatch(
+                    new StartEncounterOp(
+                        Encounter,
+                        Players,
+                        new[]
+                        {
+                            new EncounterParticipant(Hero, Players, 0),
+                            new EncounterParticipant(Enemy, Enemies, 0),
+                        },
+                        EncounterConclusionPolicy.ProtagonistDefeatOnly
+                    )
+                )
+            );
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Enemy,
+                        10,
+                        new HealthChangeOriginId("manual-tactics-enemy-defeat"),
+                        Source
+                    )
+                )
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Active)
+            );
+            Assert.That(dispatcher.Snapshot.Encounters[Encounter].Outcome, Is.Null);
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Hero,
+                        10,
+                        new HealthChangeOriginId("manual-tactics-player-defeat"),
+                        Source
+                    )
+                )
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Ended)
+            );
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerDefeat)
+            );
+        }
+
+        [Test]
+        public async Task ProtagonistDefeatOnlyPolicySurvivesJoinAndTurnStartCheckpoint()
+        {
+            RecordingTurnStartAdapter adapter = new RecordingTurnStartAdapter("checkpoint");
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(10, 20, 5),
+                JoinSeed(),
+                turnStartAdapters: new[] { adapter }
+            );
+            EncounterState enemyTurn = Resolved(
+                await dispatcher.Dispatch(
+                    new StartEncounterOp(
+                        Encounter,
+                        Players,
+                        new[]
+                        {
+                            new EncounterParticipant(Hero, Players, 0),
+                            new EncounterParticipant(Enemy, Enemies, 0),
+                        },
+                        EncounterConclusionPolicy.ProtagonistDefeatOnly
+                    )
+                )
+            ).Value.State;
+            EncounterState joined = Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                new HealthState(10, 10)
+                            ),
+                        }
+                    )
+                )
+            ).Value.State;
+
+            Assert.That(joined.HasReinforcementRegistration(Reinforcement), Is.True);
+            Assert.That(
+                joined.ConclusionPolicy,
+                Is.EqualTo(EncounterConclusionPolicy.ProtagonistDefeatOnly)
+            );
+
+            EncounterState heroTurn = Resolved(
+                await dispatcher.Dispatch(new EndTurnOp(enemyTurn.CurrentTurn.Value))
+            ).Value.State;
+
+            Assert.That(heroTurn.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+            Assert.That(heroTurn.IsTurnStartPending, Is.False);
+            Assert.That(heroTurn.TurnStartAdapterProgress, Is.Null);
+            Assert.That(adapter.Actors, Is.EqualTo(new[] { Enemy, Hero }));
+            Assert.That(
+                heroTurn.ConclusionPolicy,
+                Is.EqualTo(EncounterConclusionPolicy.ProtagonistDefeatOnly)
+            );
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Enemy,
+                        10,
+                        new HealthChangeOriginId("checkpoint-enemy-defeat"),
+                        Source
+                    )
+                )
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Reinforcement,
+                        10,
+                        new HealthChangeOriginId("checkpoint-reinforcement-defeat"),
+                        Source
+                    )
+                )
+            );
+
+            EncounterState active = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(dispatcher.Snapshot.Health[Enemy].IsCommittedDefeated, Is.True);
+            Assert.That(dispatcher.Snapshot.Health[Reinforcement].IsCommittedDefeated, Is.True);
+            Assert.That(
+                active.ConclusionPolicy,
+                Is.EqualTo(EncounterConclusionPolicy.ProtagonistDefeatOnly)
+            );
+            Assert.That(active.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(active.Outcome, Is.Null);
+        }
+
         [TestCase(EffectDurationKind.Rounds, 2, false)]
         [TestCase(EffectDurationKind.Minutes, 10, false)]
         [TestCase(EffectDurationKind.Encounter, 0, true)]
@@ -2687,6 +2864,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 -1,
@@ -2879,7 +3057,8 @@ namespace Game.Rules.Runtime.Tests
                             {
                                 new EncounterParticipant(Hero, Players, 0),
                                 new EncounterParticipant(Enemy, Enemies, 0),
-                            }
+                            },
+                            EncounterConclusionPolicy.VictoryOrDefeat
                         )
                     )
                 );
@@ -2916,13 +3095,19 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private static StartEncounterOp Start(params EncounterParticipant[] participants) =>
-            new StartEncounterOp(Encounter, Players, participants);
+            new StartEncounterOp(
+                Encounter,
+                Players,
+                participants,
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
 
         private static EncounterState ActiveTurnEncounter() =>
             new EncounterState(
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,

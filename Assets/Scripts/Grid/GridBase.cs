@@ -77,12 +77,16 @@ namespace GridPrivate
         {
             explorationStrideCoordinator =
                 coordinator ?? throw new System.ArgumentNullException(nameof(coordinator));
+            Fsm.BindIdleCancellation(coordinator.TryCancelActiveTravel);
         }
 
         internal void UnbindExplorationStrideCoordinator(IExplorationStrideCoordinator coordinator)
         {
-            if (ReferenceEquals(explorationStrideCoordinator, coordinator))
-                explorationStrideCoordinator = NoExplorationStrideCoordinator.Instance;
+            if (!ReferenceEquals(explorationStrideCoordinator, coordinator))
+                return;
+
+            explorationStrideCoordinator = NoExplorationStrideCoordinator.Instance;
+            Fsm.BindIdleCancellation(explorationStrideCoordinator.TryCancelActiveTravel);
         }
 
         internal IExplorationStrideCoordinator ExplorationStrideCoordinator =>

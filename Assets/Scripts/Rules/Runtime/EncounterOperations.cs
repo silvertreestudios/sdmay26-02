@@ -36,6 +36,9 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the team whose survival determines player-relative outcomes.</summary>
         public PlayerId ProtagonistTeam { get; }
 
+        /// <summary>Gets the policy controlling automatic encounter conclusion.</summary>
+        public EncounterConclusionPolicy ConclusionPolicy { get; }
+
         /// <summary>Gets the immutable registrations rolled in their supplied order.</summary>
         public IReadOnlyList<EncounterParticipant> Participants { get; }
 
@@ -43,6 +46,7 @@ namespace Game.Rules.Runtime
         /// <param name="encounter">The new encounter identity.</param>
         /// <param name="protagonistTeam">The player/protagonist team.</param>
         /// <param name="participants">Unique creatures in deterministic registration order.</param>
+        /// <param name="conclusionPolicy">The health outcomes that automatically end the encounter.</param>
         /// <exception cref="ArgumentException">
         /// An identity is empty, the participant roster is invalid, or no participant belongs to
         /// <paramref name="protagonistTeam"/>.
@@ -50,11 +54,14 @@ namespace Game.Rules.Runtime
         public StartEncounterOp(
             EncounterId encounter,
             PlayerId protagonistTeam,
-            IEnumerable<EncounterParticipant> participants
+            IEnumerable<EncounterParticipant> participants,
+            EncounterConclusionPolicy conclusionPolicy
         )
         {
             if (encounter.IsEmpty || protagonistTeam.IsEmpty)
                 throw new ArgumentException("Encounter and protagonist team IDs are required.");
+            if (!Enum.IsDefined(typeof(EncounterConclusionPolicy), conclusionPolicy))
+                throw new ArgumentOutOfRangeException(nameof(conclusionPolicy));
             IReadOnlyList<EncounterParticipant> copied = EncounterOperationValues.CopyParticipants(
                 participants
             );
@@ -65,6 +72,7 @@ namespace Game.Rules.Runtime
                 );
             Encounter = encounter;
             ProtagonistTeam = protagonistTeam;
+            ConclusionPolicy = conclusionPolicy;
             Participants = copied;
         }
     }
@@ -420,16 +428,19 @@ namespace Game.Rules.Runtime
     {
         public EncounterId Encounter { get; }
         public PlayerId ProtagonistTeam { get; }
+        public EncounterConclusionPolicy ConclusionPolicy { get; }
         public IReadOnlyList<InitiativeEntry> Roster { get; }
 
         public CommitEncounterStartOp(
             EncounterId encounter,
             PlayerId protagonistTeam,
+            EncounterConclusionPolicy conclusionPolicy,
             IReadOnlyList<InitiativeEntry> roster
         )
         {
             Encounter = encounter;
             ProtagonistTeam = protagonistTeam;
+            ConclusionPolicy = conclusionPolicy;
             Roster = roster;
         }
     }

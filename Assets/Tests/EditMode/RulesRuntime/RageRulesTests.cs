@@ -684,7 +684,8 @@ namespace Game.Tests.EditMode.RulesRuntime
                     new EncounterParticipant(Actor, Party, 0),
                     new EncounterParticipant(Reinforcement, Party, 0),
                     new EncounterParticipant(Enemy, Opposition, 0),
-                }
+                },
+                EncounterConclusionPolicy.VictoryOrDefeat
             );
 
             InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
@@ -732,7 +733,8 @@ namespace Game.Tests.EditMode.RulesRuntime
                         {
                             new EncounterParticipant(Actor, Party, 0),
                             new EncounterParticipant(Enemy, Opposition, 0),
-                        }
+                        },
+                        EncounterConclusionPolicy.VictoryOrDefeat
                     )
                 )
             );
@@ -1630,7 +1632,8 @@ namespace Game.Tests.EditMode.RulesRuntime
                         {
                             new EncounterParticipant(Actor, Party, 10),
                             new EncounterParticipant(Enemy, Opposition, 0),
-                        }
+                        },
+                        EncounterConclusionPolicy.VictoryOrDefeat
                     )
                 )
             );
@@ -2257,7 +2260,8 @@ namespace Game.Tests.EditMode.RulesRuntime
                                     Opposition,
                                     enemyInitiativeModifier
                                 ),
-                            }
+                            },
+                            EncounterConclusionPolicy.VictoryOrDefeat
                         )
                     )
                     .AsTask()
@@ -3205,7 +3209,8 @@ namespace Game.Tests.EditMode.RulesRuntime
                             {
                                 new EncounterParticipant(Actor, Party, 0),
                                 new EncounterParticipant(Enemy, Opposition, 0),
-                            }
+                            },
+                            EncounterConclusionPolicy.VictoryOrDefeat
                         )
                     )
                     .AsTask()

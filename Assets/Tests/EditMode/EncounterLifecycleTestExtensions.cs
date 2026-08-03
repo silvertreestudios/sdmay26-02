@@ -29,7 +29,10 @@ internal static class EncounterLifecycleTestExtensions
             out _
         );
         if (startedNow)
-            bridge.StartEncounter(bridge.Snapshot.Creatures[actor].Player);
+            bridge.StartEncounter(
+                bridge.Snapshot.Creatures[actor].Player,
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
 
         int remaining = bridge.Snapshot.Creatures.Count + 1;
         EncounterState encounter = bridge.GetEncounter();

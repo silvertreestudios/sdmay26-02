@@ -33,7 +33,7 @@ namespace TestsState
             {
                 if (controlledCombatStarted && manager.IsCombatActive)
                 {
-                    manager.SuspendDungeonCombat();
+                    manager.ReleaseTacticsForTeardown();
                     float deadline = Time.realtimeSinceStartup + 5f;
                     while (manager.IsCombatActive && Time.realtimeSinceStartup < deadline)
                         yield return null;

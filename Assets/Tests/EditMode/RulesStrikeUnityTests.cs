@@ -278,7 +278,7 @@ public sealed class RulesStrikeUnityTests
             new ScriptedRollService(20, 10, 5, 10, 3)
         );
         CreatureId actor = bridge.GetCreatureId(attacker);
-        bridge.StartEncounter("heroes");
+        bridge.StartEncounter("heroes", EncounterConclusionPolicy.VictoryOrDefeat);
 
         CreatureComponent reinforcement = CreateCreature("Reinforcement", "enemies", 20, 10);
         reinforcement.weaknesses.Add(new DamageValue("bludgeoning", 1));

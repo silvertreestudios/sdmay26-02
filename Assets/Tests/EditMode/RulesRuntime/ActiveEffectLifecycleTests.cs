@@ -666,6 +666,7 @@ namespace Game.Rules.Runtime.Tests
                         encounter,
                         EncounterPhase.Active,
                         party,
+                        EncounterConclusionPolicy.VictoryOrDefeat,
                         RoundNumber.First,
                         new[] { participant },
                         -1,

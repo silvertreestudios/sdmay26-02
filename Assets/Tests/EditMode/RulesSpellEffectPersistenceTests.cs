@@ -76,7 +76,8 @@ public sealed class RulesSpellEffectPersistenceTests
         );
         UnityCombatRulesBridge exploration = UnityCombatRulesBridge.CreateExplorationStride(
             caster,
-            tiles
+            tiles,
+            NoExplorationStrideCoordinator.Instance
         );
         Assert.That(exploration.Snapshot.ActiveEffects, Is.Empty);
         exploration.ReleaseOwnership();
@@ -142,7 +143,7 @@ public sealed class RulesSpellEffectPersistenceTests
             new ActionController[] { host, anchor },
             CreateTiles(3)
         );
-        encounter.StartEncounter("Players");
+        encounter.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
         InvalidOperationException expectedFailure = new("injected adopted-fact failure");
         ThrowOnceAdoptedObserver observer = new(expectedFailure);
         using IDisposable registration = GetDispatcher(encounter)

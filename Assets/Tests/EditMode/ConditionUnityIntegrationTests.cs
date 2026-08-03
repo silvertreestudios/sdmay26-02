@@ -1503,7 +1503,7 @@ public sealed class ConditionUnityIntegrationTests
             new ActionController[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture zombie = CreateCreatureFromJson(path, "Enemies", 0);
 
         bridge.RegisterCombatants(new[] { zombie.Controller });
@@ -1605,7 +1605,7 @@ public sealed class ConditionUnityIntegrationTests
             new ActionController[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         long version = bridge.Snapshot.Version;
         int rosterCount = bridge.GetEncounter().Roster.Count;
 
@@ -1665,7 +1665,7 @@ public sealed class ConditionUnityIntegrationTests
             new ActionController[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureId initialId = bridge.GetCreatureId(initial.Creature);
 
         CreatureFixture reinforcement = CreateCreature("Reinforcement", "Enemies", -1);
@@ -1751,7 +1751,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Immune Join", "Enemies", -1);
         reinforcement.Creature.immunities.Add("Flat-Footed");
         reinforcement.Conditions.RestoreApplications(
@@ -1828,7 +1828,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { source.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Atomic Reinforcement", "Enemies", -1);
         ActiveEffectId conditionId = new ActiveEffectId("atomic-condition-effect");
         reinforcement.Conditions.RestoreApplications(
@@ -1993,7 +1993,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Collision Reinforcement", "Enemies", -1);
         ActiveEffectId incomingEffect =
             collision == "effect" || timed
@@ -2047,7 +2047,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture first = CreateCreature("Batch Collision One", "Enemies", -1);
         CreatureFixture second = CreateCreature("Batch Collision Two", "Enemies", -2);
         ActiveEffectId sharedEffect = new ActiveEffectId("incoming-batch-shared-effect");
@@ -2180,7 +2180,7 @@ public sealed class ConditionUnityIntegrationTests
             new RandomRollService(),
             new IUnityEncounterModule[] { installer }
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Retry Reinforcement", "Enemies", -1);
         reinforcement.Conditions.RestoreApplications(
             new[]
@@ -2259,7 +2259,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { source.Controller, target.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Rebase Reinforcement", "Enemies", -1);
         RuleSource restoredSource = RuleSource.FromSlug("restored-rebase-source");
         const long adoptedCreationOrder = 1000;
@@ -2405,7 +2405,7 @@ public sealed class ConditionUnityIntegrationTests
         CreatureId reservedSource = absent.Snapshot.ActiveEffects[durable.EffectId].SourceCreature;
         Assert.That(reservedSource, Is.Not.EqualTo(absentOwner));
         Assert.That(absent.Snapshot.Creatures.Contains(reservedSource), Is.False);
-        absent.StartEncounter("Heroes");
+        absent.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         Assert.That(
             absent.GetEncounter().Roster.Any(entry => entry.Creature == reservedSource),
             Is.False
@@ -2596,7 +2596,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { anchor.Controller, opponent.Controller },
             CreateTiles()
         );
-        second.StartEncounter("Enemies");
+        second.StartEncounter("Enemies", EncounterConclusionPolicy.VictoryOrDefeat);
         second.RegisterCombatants(new[] { actor.Controller });
         CreatureId reinforcementId = second.GetCreatureId(actor.Creature);
         ConditionSelection<IEffectState> reenrolled = ConditionSelectors
@@ -2766,7 +2766,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture valid = CreateCreature("Rollback Valid", "Enemies", -1);
         CreatureFixture invalid = CreateCreatureWithoutDurableIdentity(
             "Rollback Invalid",
@@ -2807,7 +2807,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture valid = CreateCreature("Reserved Prefix Valid", "Enemies", -1);
         CreatureFixture invalid = CreateCreatureWithoutDurableIdentity(
             "Reserved Prefix Invalid",
@@ -2960,7 +2960,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Finite Reinforcement", "Enemies", -1);
         ActiveEffectId effectId = new ActiveEffectId("finite-absent-effect");
         BindingId bindingId = new BindingId("finite-absent-binding");
@@ -3032,7 +3032,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { target.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureId targetId = bridge.GetCreatureId(target.Creature);
         CreatureId reservedSource = DurableActorSourceIdentity.Reserve(
             $"historical-new-{identity}-condition-source"
@@ -3303,7 +3303,7 @@ public sealed class ConditionUnityIntegrationTests
             CreateTiles(),
             rolls
         );
-        laterEncounter.StartEncounter("Heroes");
+        laterEncounter.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
 
         Assert.DoesNotThrow(() =>
             laterEncounter.RegisterCombatants(new[] { secondActor.Controller })
@@ -3364,7 +3364,7 @@ public sealed class ConditionUnityIntegrationTests
             CreateTiles(),
             rolls
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature(
             "Adoption Retry Reinforcement",
             "Enemies",
@@ -3497,7 +3497,8 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(actor.Conditions.CaptureApplications(), Is.Empty);
         UnityCombatRulesBridge exploration = UnityCombatRulesBridge.CreateExplorationStride(
             actor.Controller,
-            CreateTiles()
+            CreateTiles(),
+            NoExplorationStrideCoordinator.Instance
         );
         exploration.ReleaseOwnership();
         Assert.That(actor.Conditions.HasPendingRestore, Is.True);
@@ -3535,7 +3536,8 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(actor.Conditions.HasPendingRestore, Is.True);
         UnityCombatRulesBridge exploration = UnityCombatRulesBridge.CreateExplorationStride(
             actor.Controller,
-            CreateTiles()
+            CreateTiles(),
+            NoExplorationStrideCoordinator.Instance
         );
         CreatureId explorationId = exploration.GetCreatureId(actor.Creature);
         Assert.That(

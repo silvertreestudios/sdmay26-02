@@ -214,6 +214,11 @@
     margin-right: 4px;
 }
 
+.btn-tactics-mode {
+    width: 220px;
+    font-size: 18px;
+}
+
 .btn-speed--active {
     background-color: rgb(180, 80, 20);
     border-color: rgb(255, 220, 100);

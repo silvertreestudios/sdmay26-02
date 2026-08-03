@@ -16,7 +16,7 @@ public abstract class ActionController : MonoBehaviour
     private CreatureId rulesCreatureId;
     public bool IsTakingAction { get; set; } = false;
 
-    /// <summary>Gets whether this controller currently has movement-only exploration authority.</summary>
+    /// <summary>Gets whether this controller is the leader for destination travel in Exploration.</summary>
     public bool IsInDungeonExploration { get; private set; }
 
     /// <summary>Gets whether combat initiative currently grants this controller turn authority.</summary>
@@ -138,10 +138,10 @@ public abstract class ActionController : MonoBehaviour
         return TryGetAttachedCombatRules(out bridge, out creatureId);
     }
 
-    /// <summary>Enables or disables movement-only authority between dungeon encounters.</summary>
+    /// <summary>Enables or disables destination-travel authority between Tactics sessions.</summary>
     /// <param name="enabled">
-    /// Whether the controller may repeatedly invoke its movement actions without initiative or
-    /// action-point expenditure.
+    /// Whether the controller may execute repeated rules-backed Strides toward one selected
+    /// destination without initiative or action-point expenditure.
     /// </param>
     /// <remarks>
     /// Encounter composition disables this mode before initiative grants normal turn authority.
