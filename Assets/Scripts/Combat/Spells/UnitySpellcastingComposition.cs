@@ -95,8 +95,9 @@ namespace Game.Combat.Spells
             List<string> desiredCreatureActionNames = new();
             foreach (
                 var key in desired
-                    .OrderBy(value => value.Spell.ToString(), StringComparer.Ordinal)
-                    .ThenBy(value => value.Variant.Actions)
+                    .OrderBy(key => key.Spell.Spell.Value, StringComparer.Ordinal)
+                    .ThenBy(key => key.Spell.Rank)
+                    .ThenBy(key => key.Variant.Actions)
             )
             {
                 RulesCastSpellAction action = retained.TryGetValue(
