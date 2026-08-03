@@ -123,19 +123,30 @@ namespace TestsUI
 
             VisualElement card = cardHolder.ElementAt(playerCardIndex);
             List<VisualElement> medallions = null;
+            List<VisualElement> standardMedallions = null;
+            VisualElement quickenedMedallion = null;
             yield return WaitUntilWithTimeout(
                 timeout,
                 () =>
                 {
                     medallions = card.Query<VisualElement>(className: "action-medallion").ToList();
-                    return medallions.Count == 3;
+                    standardMedallions = card.Query<VisualElement>(
+                            className: "action-medallion--standard"
+                        )
+                        .ToList();
+                    quickenedMedallion = card.Q<VisualElement>(
+                        className: "action-medallion--quickened"
+                    );
+                    return medallions.Count == 4
+                        && standardMedallions.Count == 3
+                        && quickenedMedallion != null;
                 }
             );
 
             Assert.AreEqual(
-                3,
+                4,
                 medallions.Count,
-                "Player card should show exactly three action medallions."
+                "Player card should show three standard medallions and one Quickened medallion."
             );
             Assert.IsNull(
                 card.Q<Label>("DESC"),
@@ -166,24 +177,39 @@ namespace TestsUI
                     timeout,
                     () =>
                     {
-                        medallions = card.Query<VisualElement>(className: "action-medallion")
+                        standardMedallions = card.Query<VisualElement>(
+                                className: "action-medallion--standard"
+                            )
                             .ToList();
-                        return CountMedallionsWithClass(medallions, "action-medallion--filled")
-                            == (int)actionPoints;
+                        return CountMedallionsWithClass(
+                                standardMedallions,
+                                "action-medallion--filled"
+                            ) == (int)actionPoints
+                            && quickenedMedallion.ClassListContains("action-medallion--empty");
                     }
                 );
 
-                int filledCount = CountMedallionsWithClass(medallions, "action-medallion--filled");
-                int emptyCount = CountMedallionsWithClass(medallions, "action-medallion--empty");
+                int filledCount = CountMedallionsWithClass(
+                    standardMedallions,
+                    "action-medallion--filled"
+                );
+                int emptyCount = CountMedallionsWithClass(
+                    standardMedallions,
+                    "action-medallion--empty"
+                );
                 Assert.AreEqual(
                     (int)actionPoints,
                     filledCount,
                     $"Expected {actionPoints} filled action medallions."
                 );
                 Assert.AreEqual(
-                    3 - (int)actionPoints,
+                    ActionMedallionPresenter.StandardMedallionCount - (int)actionPoints,
                     emptyCount,
-                    $"Expected {3 - (int)actionPoints} empty action medallions."
+                    $"Expected {ActionMedallionPresenter.StandardMedallionCount - (int)actionPoints} empty standard action medallions."
+                );
+                Assert.IsFalse(
+                    quickenedMedallion.ClassListContains("action-medallion--filled"),
+                    "The integration placeholder must not fill the Quickened medallion."
                 );
                 Assert.AreEqual(
                     containerWidth,
@@ -435,7 +461,7 @@ namespace TestsUI
             {
                 List<VisualElement> medallions = cardHolder
                     .ElementAt(i)
-                    .Query<VisualElement>(className: "action-medallion")
+                    .Query<VisualElement>(className: "action-medallion--standard")
                     .ToList();
                 if (
                     medallions.Count == 3
