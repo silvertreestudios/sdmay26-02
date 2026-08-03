@@ -86,10 +86,13 @@ The shared registry instance keeps Unity enrollment and encounter join reducers 
 definition authority. The catalog's composed capabilities are stable, but
 combatant-specific data remains encounter-live:
 `UnityStrikeContext.Register` adds item definitions during reinforcement preparation, and
-`UnitySpellBookProvider` reads the live creature map. Do not snapshot combatant-specific catalog
-data during static composition. This is an allowed named composition-root responsibility: the root
-may mention Rage and spell definitions to wire feature-owned catalogs and IDs, but it does not
-implement their conditions or workflow and does not permit static discovery or self-registration.
+`UnitySpellBookProvider` reads the live creature map. Cast a Spell first uses the dispatcher's
+captured start `RulesSnapshot` to decide whether an actor is registered; only a registered actor may
+perform the strict live spellbook lookup needed to bind actor-owned profile costs. Do not snapshot
+combatant-specific catalog data during static composition. This is an allowed named
+composition-root responsibility: the root may mention Rage and spell definitions to wire
+feature-owned catalogs and IDs, but it does not implement their conditions or workflow and does not
+permit static discovery or self-registration.
 
 Prepared definitions are compiled from the complete PF2e item catalog before registry construction,
 so a reinforcement cannot introduce an unknown definition. Per-creature compilation then seeds
@@ -457,15 +460,23 @@ encounter handlers and engine reducers. Its current division of responsibility i
   boundary, current turn, actions, reactions, MAP, movement reset state, phase, and outcome while
   emitting committed Facts.
 
-`ActionOp<TResult>` uses the engine-owned lifecycle implemented by `RuleDispatcher`: freeze the
-effective profile, validate, commit all costs atomically, dispatch `ActionBegunOp`, stop on
+`ActionOp<TResult>` uses the engine-owned lifecycle implemented by `RuleDispatcher`: capture the
+operation's start `RulesSnapshot`, build and resolve the effective profile through that same
+snapshot, freeze it, validate, commit all costs atomically, dispatch `ActionBegunOp`, stop on
 disruption, and only then invoke feature middleware and the handler. For an
 `IReceiptedActionOp`, the cost reducer atomically stores the exact intent and frozen profile in a
-`CostsCommitted` checkpoint. An exact pending retry resumes at `ActionBegunOp` without resolving
-the profile, validating, or committing costs again; a conflicting intent rejects. Disruption
-advances that checkpoint to `Interrupted`, and a feature's final atomic reducer advances it to
+`CostsCommitted` checkpoint. An exact pending retry resumes at `ActionBegunOp` without rebuilding
+or resolving the profile, validating, or committing costs again; a conflicting intent rejects.
+Disruption advances that checkpoint to `Interrupted`, and a feature's final atomic reducer advances it to
 `Resolved` with the outcome. Feature code must not spend the same costs or publish a parallel
 action-begun event.
+
+Cast a Spell uses snapshot membership as the boundary for actor-owned metadata. An actor absent
+from the captured snapshot receives the selected definition and variant profile without a
+spellbook lookup or additional actor-owned resource cost, allowing the common validator to return
+`The caster is not registered.` before costs. A snapshot-registered actor still requires the
+catalog's strict spellbook mapping and freezes its exact cantrip or ranked-slot binding; a missing
+mapping remains an invariant failure rather than an empty-book fallback.
 
 Supported Cast a Spell definitions carry an explicit rules-native readiness marker and exactly one
 resolution category (effect, attack, or save); mixed categories and superficially parsed but
@@ -584,13 +595,15 @@ framework.
    definition until dispatcher configuration.
 
    Also compose every action-profile dependency before dispatcher construction.
-   `ActionOp<TResult>.GetBaseProfile(IActionCatalog)` defaults to
+   `ActionOp<TResult>.GetBaseProfile(IActionCatalog, RulesSnapshot)` defaults to
    `catalog.GetBaseProfile(DefinitionId)`, and the dispatcher freezes that profile before
-   validation. A feature using that default must implement `IActionCatalog` and pass its catalog to
-   the production `CombatActionCatalog`; `RageActionDefinition` and the `rageDefinition` constructor
+   validation using the same captured start snapshot later supplied to the resolver and validators.
+   A feature using that default must implement `IActionCatalog` and pass its catalog to the
+   production `CombatActionCatalog`; `RageActionDefinition` and the `rageDefinition` constructor
    argument are the current example. An override that needs a typed catalog must have that
    capability composed too, as `CombatActionCatalog` does for `IStrikeActionCatalog` and
-   `ISpellActionCatalog`.
+   `ISpellActionCatalog`. Snapshot-aware overrides must not re-read rules state through another
+   authority.
 
    Finally, add the feature module to the explicit module array. Its array position is its position
    in every applicable composition pass. These named root references are wiring, not feature

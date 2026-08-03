@@ -136,13 +136,18 @@ namespace Game.Rules.Runtime
             && Selection.Equals(cast.Selection);
 
         /// <inheritdoc/>
-        public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+        public override ActionProfile GetBaseProfile(IActionCatalog catalog, RulesSnapshot snapshot)
         {
             if (catalog is not ISpellActionCatalog spells)
                 throw new InvalidOperationException(
                     "Cast a Spell requires a catalog with spell definitions and spellbooks."
                 );
-            return new CastSpellActionDefinition(spells).CreateProfile(Actor, Spell, Variant);
+            return new CastSpellActionDefinition(spells).CreateProfile(
+                snapshot,
+                Actor,
+                Spell,
+                Variant
+            );
         }
     }
 
@@ -229,26 +234,39 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Builds the immutable profile and definition-derived cantrip or slot cost.
         /// </summary>
+        /// <param name="snapshot">The authoritative snapshot captured when the cast began.</param>
         /// <param name="actor">The creature whose preparation binds the resource.</param>
         /// <param name="spell">The exact spell and rank being profiled.</param>
         /// <param name="variant">The definition-owned action-cost variant.</param>
         /// <returns>The frozen base profile consumed by the action lifecycle.</returns>
+        /// <remarks>
+        /// A stale actor still receives definition and variant metadata so ordinary validation can
+        /// reject it before costs. Only an actor present in <paramref name="snapshot"/> may resolve
+        /// its required spellbook binding, which remains a strict catalog invariant.
+        /// </remarks>
         public ActionProfile CreateProfile(
+            RulesSnapshot snapshot,
             CreatureId actor,
             SpellReference spell,
             SpellActionVariant variant
         )
         {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
             if (!catalog.TryGetSpell(spell, out SpellDefinition definition))
                 return ActionProfile.Create(
                     ActionCost.FromActions(variant.Actions),
                     Array.Empty<Trait>()
                 );
-            SpellCastAuthorization binding = catalog.GetSpellBook(actor).BindResource(actor, spell);
-            RuleCost[] costs =
-                binding.Kind == SpellCastResourceKind.SpellSlot
-                    ? new[] { RuleCost.SpellSlot(binding.Pool) }
-                    : Array.Empty<RuleCost>();
+            RuleCost[] costs = Array.Empty<RuleCost>();
+            if (snapshot.Creatures.Contains(actor))
+            {
+                SpellCastAuthorization binding = catalog
+                    .GetSpellBook(actor)
+                    .BindResource(actor, spell);
+                if (binding.Kind == SpellCastResourceKind.SpellSlot)
+                    costs = new[] { RuleCost.SpellSlot(binding.Pool) };
+            }
             return new ActionProfile(
                 ActionCost.FromActions(variant.Actions),
                 costs,
@@ -526,13 +544,13 @@ namespace Game.Rules.Runtime
             RulesSnapshot snapshot
         )
         {
+            ActionValidationResult common = definition.Validate(snapshot, frame.Op);
+            if (common is not ActionValidationResult.ValidActionValidationResult)
+                return common;
             if (!snapshot.Statistics.Contains(frame.Op.Actor))
                 return ActionValidationResult.Invalid(
                     "The caster has no authoritative statistics state."
                 );
-            ActionValidationResult common = definition.Validate(snapshot, frame.Op);
-            if (common is not ActionValidationResult.ValidActionValidationResult)
-                return common;
             if (!catalog.TryGetSpell(frame.Op.Spell, out SpellDefinition spell))
                 return ActionValidationResult.Invalid("The spell reference is unknown.");
             foreach (RuleDefinitionId effect in spell.Effects.Select(value => value.DefinitionId))

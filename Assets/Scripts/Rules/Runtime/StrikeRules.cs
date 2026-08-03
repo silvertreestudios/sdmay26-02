@@ -484,8 +484,10 @@ namespace Game.Rules.Runtime
         public CreatureId Target { get; }
 
         /// <inheritdoc/>
-        public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+        public override ActionProfile GetBaseProfile(IActionCatalog catalog, RulesSnapshot snapshot)
         {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
             if (catalog is not IStrikeActionCatalog strikeCatalog)
                 throw new InvalidOperationException(
                     "Strike requires an action catalog that exposes Strike definitions."
@@ -787,8 +789,10 @@ namespace Game.Rules.Runtime
         public ItemId Item { get; }
 
         /// <inheritdoc/>
-        public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+        public override ActionProfile GetBaseProfile(IActionCatalog catalog, RulesSnapshot snapshot)
         {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
             if (catalog is not IStrikeActionCatalog strikeCatalog)
                 throw new InvalidOperationException(
                     "Reload requires a catalog that exposes Strike definitions."

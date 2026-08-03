@@ -138,7 +138,9 @@ public abstract record ActionOp<TResult>(
     CreatureId Actor,
     ActionDefinitionId DefinitionId) : IRuleOp<TResult>
 {
-    public abstract ActionProfile GetBaseProfile(IActionCatalog catalog);
+    public abstract ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot);
 }
 ```
 
@@ -153,7 +155,9 @@ public sealed record StrikeActionOp(
     CreatureId Target)
     : ActionOp<StrikeResolution>(Actor, ActionIds.Strike)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot)
     {
         var weapon = catalog.GetWeaponDefinition(Weapon);
 
@@ -164,7 +168,7 @@ public sealed record StrikeActionOp(
 }
 ```
 
-`GetBaseProfile` does not read live combat state. It reads stable definition data captured by IDs in the Op. Live state is handled by the profile resolver described below.
+`GetBaseProfile` reads stable operation and catalog data plus the dispatcher-captured start snapshot. It must not query another rules-state authority. Most actions use only definition data; an actor-owned metadata adapter may use snapshot membership to decide whether a strict external binding is applicable. Further profile changes based on live rules state are handled by the profile resolver described below.
 
 ### 3.3 ActionProfile
 
@@ -186,7 +190,9 @@ The fields have different jobs:
 Traits do not determine reaction eligibility by themselves. A Step still has `Trait.Move`, but its profile sets `CanTriggerReactions` to `false`. Lifecycle Ops still occur for consistency and so non-reaction rules can observe what happened. Each reaction must inspect the originating action's frozen profile and return without prompting when `CanTriggerReactions` is `false`; it then matches its own trigger wording against the originating Op, its traits, and any needed geometry.
 
 ```csharp
-public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+public override ActionProfile GetBaseProfile(
+    IActionCatalog catalog,
+    RulesSnapshot snapshot) =>
     ActionProfile.OneAction(
         traits: [Trait.Move],
         canTriggerReactions: false); // Step triggers no reactions.
@@ -625,13 +631,14 @@ private async ValueTask<OpResult<TResult>> DispatchAction<TResult>(
     DispatchRequest request)
 {
     var frame = CreateActionFrame(action, request);
+    var snapshot = store.Snapshot;
     var profile = profileResolver.Resolve(
         ActionOpInfo.From(frame),
-        action.GetBaseProfile(actionCatalog),
-        store.Snapshot);
+        action.GetBaseProfile(actionCatalog, snapshot),
+        snapshot);
     frame = frame with { ActionProfile = profile };
 
-    var validation = validators.Validate(frame, store.Snapshot);
+    var validation = validators.Validate(frame, snapshot);
     if (!validation.IsValid)
         return OpResult<TResult>.Invalid(validation.Reason);
 
@@ -1055,7 +1062,9 @@ public sealed record StrikeActionOp(
     CreatureId Target)
     : ActionOp<StrikeResolution>(Actor, ActionIds.Strike)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot)
     {
         var weapon = catalog.GetWeaponDefinition(Weapon);
 
@@ -1273,7 +1282,9 @@ public sealed record ReactiveStrikeActionOp(
     BindingId AuthorizedBinding)
     : ActionOp<ReactiveStrikeOutcome>(Actor, ActionIds.ReactiveStrike)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot) =>
         ActionProfile.Reaction(
             traits: [Trait.Attack],
             canTriggerReactions: true);
@@ -1482,7 +1493,9 @@ public sealed record CastSpellActionOp(
     ISpellTargetSelection Targets)
     : ActionOp<CastSpellOutcome>(Actor, ActionIds.CastSpell)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot)
     {
         var variant = catalog.GetSpellVariant(Spell, Variant);
         return new ActionProfile(
@@ -1503,7 +1516,9 @@ public sealed record SustainBlessActionOp(
     ActiveEffectId BlessEffect)
     : ActionOp<SustainBlessOutcome>(Actor, ActionIds.SustainSpell)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot) =>
         ActionProfile.OneAction(
             traits: [Trait.Concentrate],
             canTriggerReactions: true);
@@ -1693,7 +1708,9 @@ public sealed record TumbleThroughActionOp(
     MovementMode Mode)
     : ActionOp<TumbleThroughOutcome>(Actor, ActionIds.TumbleThrough)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot) =>
         ActionProfile.OneAction(
             traits: [Trait.Move],
             canTriggerReactions: true);
@@ -1906,7 +1923,9 @@ public sealed record CranialDetonationActionOp(
         Actor,
         ActionIds.CranialDetonation)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot) =>
         new(
             ActionCost.FreeAction,
             [RuleCost.OncePerRound(AuthorizedBinding)],

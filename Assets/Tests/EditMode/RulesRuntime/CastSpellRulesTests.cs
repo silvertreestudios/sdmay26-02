@@ -9,6 +9,7 @@ namespace Game.Rules.Runtime.Tests
     public sealed class CastSpellRulesTests
     {
         private static readonly CreatureId Actor = new("spell-actor");
+        private static readonly CreatureId StaleActor = new("stale-spell-actor");
         private static readonly PlayerId Player = new("spell-player");
         private static readonly SpellReference Light = new(new SpellId("light"), 1);
         private static readonly SpellActionVariant TwoActions = new(2);
@@ -33,7 +34,10 @@ namespace Game.Rules.Runtime.Tests
                 SpellCastSelection.Empty
             );
 
-            ActionProfile profile = operation.GetBaseProfile(new TestCatalog(new TestBook(true)));
+            ActionProfile profile = operation.GetBaseProfile(
+                new TestCatalog(new TestBook(true)),
+                CreateStore(3).Snapshot
+            );
 
             Assert.That(operation.Selection.Creatures, Is.Empty);
             Assert.That(profile.Cost, Is.EqualTo(ActionCost.Two));
@@ -42,6 +46,129 @@ namespace Game.Rules.Runtime.Tests
                 profile.Traits.Select(trait => trait.Slug),
                 Is.EqualTo(new[] { "cantrip", "concentrate", "light", "manipulate" })
             );
+        }
+
+        [Test]
+        public async Task UnregisteredCasterRejectsBeforeStrictSpellBookLookupOrMutation()
+        {
+            InMemoryRulesStore store = CreateStore(3, slotUses: 1);
+            TestCatalog catalog = new(
+                new Dictionary<CreatureId, ISpellBook> { [Actor] = new SlotTestBook() }
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(store, catalog);
+            long initialVersion = store.Snapshot.Version;
+            CastSpellActionOp operation = new(
+                new ActionInvocationId("stale-light"),
+                StaleActor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
+
+            OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(operation);
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<CastSpellOutcome>)result).Reason,
+                Is.EqualTo("The caster is not registered.")
+            );
+            Assert.That(catalog.SpellBookLookups, Is.Zero);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(initialVersion));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.EqualTo(1));
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.ActionReceipts, Is.Empty);
+            Assert.That(result.Facts, Is.Empty);
+            ActionProfile profile = dispatcher
+                .Trace.OrderedFrames.Single(frame => frame.OpType == typeof(CastSpellActionOp))
+                .ActionProfile;
+            Assert.That(profile.Cost, Is.EqualTo(ActionCost.Two));
+            Assert.That(profile.AdditionalCosts, Is.Empty);
+            Assert.That(
+                profile.Traits.Select(trait => trait.Slug),
+                Is.EqualTo(new[] { "cantrip", "concentrate", "light", "manipulate" })
+            );
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task RegisteredCasterUsesStrictFrozenCantripOrSlotProfile(bool ranked)
+        {
+            InMemoryRulesStore store = CreateStore(3, slotUses: ranked ? 1 : null);
+            ISpellBook book = ranked ? new SlotTestBook() : new TestBook(true);
+            TestCatalog catalog = new(new Dictionary<CreatureId, ISpellBook> { [Actor] = book });
+            RuleDispatcher dispatcher = CreateDispatcher(store, catalog);
+            ActionInvocationId invocation = new(ranked ? "ranked-profile" : "cantrip-profile");
+            CastSpellActionOp operation = new(
+                invocation,
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
+
+            OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(operation);
+
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
+            Assert.That(catalog.SpellBookLookups, Is.EqualTo(2));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            ActionProfile firstProfile = dispatcher
+                .Trace.OrderedFrames.Single(frame => frame.OpType == typeof(CastSpellActionOp))
+                .ActionProfile;
+            Assert.That(firstProfile.Cost, Is.EqualTo(ActionCost.Two));
+            if (ranked)
+            {
+                Assert.That(
+                    firstProfile.AdditionalCosts,
+                    Is.EqualTo(new[] { RuleCost.SpellSlot(RankedPool) })
+                );
+                Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
+                Assert.That(result.Facts.OfType<SpellSlotSpentFact>().Count(), Is.EqualTo(1));
+            }
+            else
+            {
+                Assert.That(firstProfile.AdditionalCosts, Is.Empty);
+                Assert.That(store.Snapshot.SpellSlots, Is.Empty);
+                Assert.That(result.Facts.OfType<SpellSlotSpentFact>(), Is.Empty);
+            }
+
+            long resolvedVersion = store.Snapshot.Version;
+            OpResult<CastSpellOutcome> retry = await dispatcher.Dispatch(operation);
+
+            Assert.That(retry, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
+            Assert.That(retry.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(resolvedVersion));
+            Assert.That(catalog.SpellBookLookups, Is.EqualTo(2));
+            ActionProfile[] frozenProfiles = dispatcher
+                .Trace.OrderedFrames.Where(frame => frame.OpType == typeof(CastSpellActionOp))
+                .Select(frame => frame.ActionProfile)
+                .ToArray();
+            Assert.That(frozenProfiles, Has.Length.EqualTo(2));
+            Assert.That(frozenProfiles[1], Is.SameAs(frozenProfiles[0]));
+        }
+
+        [Test]
+        public void RegisteredCasterWithoutStrictSpellBookMappingStillThrows()
+        {
+            InMemoryRulesStore store = CreateStore(3);
+            TestCatalog catalog = new(new Dictionary<CreatureId, ISpellBook>());
+            RuleDispatcher dispatcher = CreateDispatcher(store, catalog);
+            long initialVersion = store.Snapshot.Version;
+
+            InvalidOperationException exception = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(Cast())
+            );
+
+            Assert.That(
+                exception.Message,
+                Is.EqualTo("Encounter creature 'spell-actor' has no strict test spellbook mapping.")
+            );
+            Assert.That(catalog.SpellBookLookups, Is.EqualTo(1));
+            Assert.That(store.Snapshot.Version, Is.EqualTo(initialVersion));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(store.Snapshot.ActionReceipts, Is.Empty);
         }
 
         [Test]
@@ -517,8 +644,16 @@ namespace Game.Rules.Runtime.Tests
             RuleRegistry registry = null
         )
         {
+            return CreateDispatcher(store, new TestCatalog(book), registry);
+        }
+
+        private static RuleDispatcher CreateDispatcher(
+            InMemoryRulesStore store,
+            ISpellActionCatalog catalog,
+            RuleRegistry registry = null
+        )
+        {
             RuleRegistry effectiveRegistry = registry ?? CreateRegistryBuilder().Build();
-            TestCatalog catalog = new(book);
             return new RuleDispatcherBuilder(store)
                 .UseActiveEffectRules(effectiveRegistry)
                 .UseActionLifecycle(catalog)
@@ -580,7 +715,7 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class TestCatalog : ISpellActionCatalog
         {
-            private readonly ISpellBook book;
+            private readonly IReadOnlyDictionary<CreatureId, ISpellBook> books;
             private readonly SpellDefinition definition = new(
                 new SpellId("light"),
                 "Light",
@@ -601,7 +736,18 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<SpellSaveDefinition>()
             );
 
-            public TestCatalog(ISpellBook book) => this.book = book;
+            public TestCatalog(ISpellBook book)
+                : this(
+                    new Dictionary<CreatureId, ISpellBook>
+                    {
+                        [Actor] = book ?? throw new ArgumentNullException(nameof(book)),
+                    }
+                ) { }
+
+            public TestCatalog(IReadOnlyDictionary<CreatureId, ISpellBook> books) =>
+                this.books = books ?? throw new ArgumentNullException(nameof(books));
+
+            public int SpellBookLookups { get; private set; }
 
             public ActionProfile GetBaseProfile(ActionDefinitionId definitionId) =>
                 throw new KeyNotFoundException();
@@ -617,7 +763,15 @@ namespace Game.Rules.Runtime.Tests
                 return false;
             }
 
-            public ISpellBook GetSpellBook(CreatureId creature) => book;
+            public ISpellBook GetSpellBook(CreatureId creature)
+            {
+                SpellBookLookups++;
+                if (!books.TryGetValue(creature, out ISpellBook book))
+                    throw new InvalidOperationException(
+                        $"Encounter creature '{creature.Value}' has no strict test spellbook mapping."
+                    );
+                return book;
+            }
         }
 
         private sealed class TestBook : ISpellBook

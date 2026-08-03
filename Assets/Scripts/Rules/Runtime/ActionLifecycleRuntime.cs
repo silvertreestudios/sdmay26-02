@@ -208,7 +208,7 @@ namespace Game.Rules.Runtime
                     action
                 );
                 ActionProfile baseProfile =
-                    action.GetBaseProfile(catalog)
+                    action.GetBaseProfile(catalog, snapshot)
                     ?? throw new InvalidOperationException(
                         $"Action {op.GetType().Name} returned a null base profile."
                     );

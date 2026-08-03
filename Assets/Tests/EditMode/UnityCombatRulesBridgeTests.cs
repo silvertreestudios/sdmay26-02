@@ -1334,6 +1334,72 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void ProductionBridgeRejectsFabricatedStaleCasterWithoutMutation()
+    {
+        GameObject casterObject = new("stale-cast-registered-caster");
+        GameObject opponentObject = new("stale-cast-opponent");
+        try
+        {
+            BridgeTestActionController caster = ConfigureCombatant(
+                casterObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController opponent = ConfigureCombatant(
+                opponentObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { caster, opponent },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10)
+            );
+            try
+            {
+                bridge.StartEncounter("Players");
+                CreatureId casterId = bridge.GetCreatureId(
+                    casterObject.GetComponent<CreatureComponent>()
+                );
+                CreatureId staleId = new("fabricated-stale-caster");
+                long initialVersion = bridge.Snapshot.Version;
+                ActionEconomyState initialEconomy = bridge.Snapshot.ActionEconomy[casterId];
+                int initialEffects = bridge.Snapshot.ActiveEffects.Count;
+
+                OpResult<CastSpellOutcome> result = bridge.Dispatch(
+                    new CastSpellActionOp(
+                        new ActionInvocationId("fabricated-stale-cast"),
+                        staleId,
+                        new SpellReference(new SpellId("light"), 1),
+                        new SpellActionVariant(2),
+                        SpellCastSelection.Empty
+                    )
+                );
+
+                Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
+                Assert.That(
+                    ((InvalidOpResult<CastSpellOutcome>)result).Reason,
+                    Is.EqualTo("The caster is not registered.")
+                );
+                Assert.That(result.Facts, Is.Empty);
+                Assert.That(bridge.Snapshot.Version, Is.EqualTo(initialVersion));
+                Assert.That(bridge.Snapshot.ActionEconomy[casterId], Is.EqualTo(initialEconomy));
+                Assert.That(bridge.Snapshot.ActiveEffects, Has.Count.EqualTo(initialEffects));
+                Assert.That(bridge.Snapshot.Creatures.Contains(staleId), Is.False);
+            }
+            finally
+            {
+                bridge.ReleaseOwnership();
+            }
+        }
+        finally
+        {
+            Object.DestroyImmediate(casterObject);
+            Object.DestroyImmediate(opponentObject);
+        }
+    }
+
+    [Test]
     public void BridgeProjectsSourceTemporaryHitPointStateAndImmunity()
     {
         GameObject creatureObject = new GameObject("creature");

@@ -242,9 +242,10 @@ namespace Game.Rules.Runtime
     /// Freezes all shared rules metadata used by one action invocation.
     /// </summary>
     /// <remarks>
-    /// The dispatcher resolves exactly one effective profile before validation. Validators,
-    /// cost commitment, lifecycle middleware, and the feature handler all observe this same
-    /// instance even when nested rules commit later state changes.
+    /// The dispatcher builds and resolves exactly one effective profile from the action's captured
+    /// start snapshot before validation. Validators, cost commitment, lifecycle middleware, and
+    /// the feature handler all observe this same instance even when nested rules commit later
+    /// state changes.
     /// </remarks>
     public sealed class ActionProfile : IEquatable<ActionProfile>
     {
@@ -427,7 +428,7 @@ namespace Game.Rules.Runtime
     {
         CreatureId Actor { get; }
         ActionDefinitionId DefinitionId { get; }
-        ActionProfile GetBaseProfile(IActionCatalog catalog);
+        ActionProfile GetBaseProfile(IActionCatalog catalog, RulesSnapshot snapshot);
     }
 
     /// <summary>
@@ -437,9 +438,11 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// The dispatcher recognizes this base type and owns profile resolution, pure validation,
     /// atomic cost commitment, and the action-begun timing window. Derived feature handlers run
-    /// only after those shared steps complete. Receipted actions additionally checkpoint their
+    /// only after those shared steps complete. The base profile receives the same captured start
+    /// snapshot as the resolver and validators. Receipted actions additionally checkpoint their
     /// exact intent and frozen profile with costs, so an in-process retry spends costs at most once
-    /// and resumes after that checkpoint. Work before a final receipt is not taped and may reroll.
+    /// and resumes after that checkpoint without rebuilding the profile. Work before a final
+    /// receipt is not taped and may reroll.
     /// </remarks>
     public abstract class ActionOp<TResult> : IRuleOp<TResult>, IActionOpMetadata
     {
@@ -472,19 +475,26 @@ namespace Game.Rules.Runtime
         public ActionDefinitionId DefinitionId { get; }
 
         /// <summary>
-        /// Builds the state-independent profile for this concrete invocation.
+        /// Builds the base profile for this concrete invocation from its captured start state.
         /// </summary>
-        /// <param name="catalog">The immutable action-definition catalog.</param>
+        /// <param name="catalog">The composed action-definition catalog.</param>
+        /// <param name="snapshot">
+        /// The authoritative snapshot captured when the dispatcher began this operation.
+        /// </param>
         /// <returns>The base profile that will be resolved against one authoritative snapshot.</returns>
         /// <remarks>
         /// The default implementation looks up <see cref="DefinitionId"/>. Override only when the
         /// operation contains immutable selected data, such as a weapon or spell variant, that must
-        /// refine definition data without reading current rules state.
+        /// refine definition data. Snapshot-aware overrides must use only <paramref name="snapshot"/>
+        /// for rules-state decisions; receipted retries restore their previously frozen profile
+        /// without invoking this method again.
         /// </remarks>
-        public virtual ActionProfile GetBaseProfile(IActionCatalog catalog)
+        public virtual ActionProfile GetBaseProfile(IActionCatalog catalog, RulesSnapshot snapshot)
         {
             if (catalog == null)
                 throw new ArgumentNullException(nameof(catalog));
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
             return catalog.GetBaseProfile(DefinitionId);
         }
     }
