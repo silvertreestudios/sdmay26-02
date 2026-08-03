@@ -79,6 +79,8 @@ namespace Game.Rules.Runtime
             );
             if (!protagonistLives)
                 return EncounterOutcome.PlayerDefeat;
+            if (encounter.ConclusionPolicy == EncounterConclusionPolicy.ProtagonistDefeatOnly)
+                return null;
             bool oppositionLives = encounter.Roster.Any(entry =>
                 entry.Team != encounter.ProtagonistTeam && isLiving(entry.Creature)
             );
@@ -201,6 +203,7 @@ namespace Game.Rules.Runtime
                 context.Op.Encounter,
                 EncounterPhase.Active,
                 context.Op.ProtagonistTeam,
+                context.Op.ConclusionPolicy,
                 RoundNumber.First,
                 context.Op.Roster,
                 -1,

@@ -265,6 +265,7 @@ namespace Game.Rules.Runtime
                     new CommitEncounterStartOp(
                         frame.Op.Encounter,
                         frame.Op.ProtagonistTeam,
+                        frame.Op.ConclusionPolicy,
                         Array.AsReadOnly(roster)
                     )
                 ),

@@ -6,16 +6,18 @@ using Game.Combat.Exploration;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
+using UniversalEvents;
 
 namespace Game.Combat.Encounters
 {
-    /// <summary>Displays movement-only controls while a party explores between encounters.</summary>
+    /// <summary>Displays destination guidance while a party explores between Tactics sessions.</summary>
     public interface IDungeonExplorationPresentation
     {
-        /// <summary>Shows movement controls for one selected living party member.</summary>
+        /// <summary>Shows click-to-travel guidance for one selected living party member.</summary>
         /// <param name="party">All living party controllers available for selection.</param>
         /// <param name="selected">The party controller whose movement controls are shown.</param>
         /// <param name="trySelectLeader">
@@ -31,6 +33,23 @@ namespace Game.Combat.Encounters
         void HideExploration();
     }
 
+    /// <summary>Displays and binds the persistent Exploration/Tactics mode control.</summary>
+    public interface IDungeonTacticsPresentation
+    {
+        /// <summary>Configures mode requests for the active generated floor.</summary>
+        /// <param name="enterTactics">Requests manual entry into Tactics.</param>
+        /// <param name="returnToExploration">Attempts to leave Tactics through its gameplay gate.</param>
+        void ConfigureTacticsControl(Action enterTactics, Func<bool> returnToExploration);
+
+        /// <summary>Updates the persistent control for active Tactics.</summary>
+        void ShowTactics();
+
+        /// <summary>
+        /// Hides and disables mode switching, then releases callbacks owned by the prior floor.
+        /// </summary>
+        void ShowTacticsUnavailable();
+    }
+
     /// <summary>
     /// Observes party room transitions and owns one generated floor's encounter director.
     /// </summary>
@@ -43,8 +62,10 @@ namespace Game.Combat.Encounters
     [DisallowMultipleComponent]
     public sealed class DungeonEncounterRuntimeController
         : MonoBehaviour,
-            IExplorationStrideCoordinator
+            IExplorationStrideCoordinator,
+            IExplorationPresentationDrain
     {
+        private static readonly Action DestinationReachedNoOp = delegate { };
         private DungeonRoom[] rooms = Array.Empty<DungeonRoom>();
         private ActionController[] party = Array.Empty<ActionController>();
         private HashSet<int> encounterRoomIds = new();
@@ -58,6 +79,7 @@ namespace Game.Combat.Encounters
         private readonly Dictionary<ActionController, int> currentRoomByParty = new();
         private readonly List<Vector3> livingPartyPositions = new();
         private readonly Dictionary<DungeonCell, DungeonDoorController> doorsByCell = new();
+        private readonly HashSet<DungeonCell> documentedStairEndpointCells = new();
         private readonly SortedSet<string> openDoorIds = new(StringComparer.Ordinal);
         private DungeonEncounterDirector director;
         private CombatManagerInterface combatManager;
@@ -68,6 +90,13 @@ namespace Game.Combat.Encounters
         private GridBase grid;
         private IExplorationStrideCoordinator explorationMovement =
             NoExplorationStrideCoordinator.Instance;
+        private DestinationTravelOwner destinationTravelOwner;
+        private bool travelCancelled;
+        private PendingExplorationInteraction? pendingInteraction;
+        private Vector3Int? pendingDestinationCell;
+
+        private bool HasActiveDestinationTravel =>
+            destinationTravelOwner != null && destinationTravelOwner.IsActive;
 
         /// <summary>Gets whether this component owns a fully constructed floor lifecycle.</summary>
         public bool IsInitialized { get; private set; }
@@ -103,7 +132,7 @@ namespace Game.Combat.Encounters
         /// <param name="catalog">The validated runtime creature catalog.</param>
         /// <param name="combatManager">The explicit combat scheduler for the scene.</param>
         /// <param name="party">The floor's distinct player action controllers.</param>
-        /// <param name="explorationPresentation">The required movement-only HUD boundary.</param>
+        /// <param name="explorationPresentation">The required Exploration presentation boundary.</param>
         public void InitializePristine(
             DungeonLevelDocument document,
             DungeonEncounterCreatureCatalog catalog,
@@ -130,7 +159,7 @@ namespace Game.Combat.Encounters
         /// <param name="catalog">The validated runtime creature catalog.</param>
         /// <param name="combatManager">The explicit inactive combat scheduler for the scene.</param>
         /// <param name="party">The floor's distinct player action controllers.</param>
-        /// <param name="explorationPresentation">The required movement-only HUD boundary.</param>
+        /// <param name="explorationPresentation">The required Exploration presentation boundary.</param>
         /// <param name="snapshot">The complete lifecycle snapshot captured for this document.</param>
         public void InitializeRestored(
             DungeonLevelDocument document,
@@ -159,7 +188,7 @@ namespace Game.Combat.Encounters
         /// <param name="catalog">The validated runtime creature catalog.</param>
         /// <param name="combatManager">The explicit inactive combat scheduler for the scene.</param>
         /// <param name="party">The floor's distinct player action controllers.</param>
-        /// <param name="explorationPresentation">The required movement-only HUD boundary.</param>
+        /// <param name="explorationPresentation">The required Exploration presentation boundary.</param>
         /// <exception cref="ArgumentException">The document does not contain runtime state.</exception>
         public void InitializePersisted(
             DungeonLevelDocument document,
@@ -262,12 +291,57 @@ namespace Game.Combat.Encounters
         /// </remarks>
         public bool TryOpenDoor(DungeonCell doorCell)
         {
+            if (!TryPrepareDoorInteraction(doorCell, out PreparedDoorInteraction interaction))
+                return false;
+
+            return ApplyDoorInteraction(interaction);
+        }
+
+        /// <summary>
+        /// Travels the selected exploration leader to the closest reachable cardinal neighbor of
+        /// an interaction cell, then invokes the interaction after movement fully settles.
+        /// </summary>
+        /// <param name="interactionCell">The door, stair, or other occupied interaction cell.</param>
+        /// <param name="onReached">The original interaction to retry from the reached neighbor.</param>
+        /// <returns>
+        /// <see langword="true"/> when the interaction ran immediately, travel started, or it was
+        /// queued behind the currently committing Stride; otherwise <see langword="false"/>.
+        /// </returns>
+        /// <remarks>
+        /// Only currently walkable topology participates in the route. In particular, this method
+        /// never opens an intermediate closed door while trying to reach a later interaction.
+        /// </remarks>
+        internal bool TryTravelToInteraction(DungeonCell interactionCell, Action onReached)
+        {
+            if (onReached == null)
+                throw new ArgumentNullException(nameof(onReached));
+            if (!IsExplorationActive)
+                return false;
+
+            PendingExplorationInteraction interaction = new(interactionCell, onReached);
+            if (HasActiveDestinationTravel)
+            {
+                travelCancelled = true;
+                pendingInteraction = interaction;
+                pendingDestinationCell = null;
+                return true;
+            }
+            if (HasActionInProgress)
+                return false;
+
+            return TryStartInteractionTravel(interaction);
+        }
+
+        private bool TryPrepareDoorInteraction(
+            DungeonCell doorCell,
+            out PreparedDoorInteraction interaction
+        )
+        {
+            interaction = default;
             if (
                 !IsInitialized || !doorsByCell.TryGetValue(doorCell, out DungeonDoorController door)
             )
-            {
                 return false;
-            }
 
             DungeonDoorInteractionMode mode = combatManager.IsCombatActive
                 ? DungeonDoorInteractionMode.Combat
@@ -290,9 +364,7 @@ namespace Game.Combat.Encounters
                 || actor.IsTakingAction
                 || mode == DungeonDoorInteractionMode.Combat && !actor.HasTurnAuthority
             )
-            {
                 return false;
-            }
 
             Vector3Int actorPosition = Vector3Int.RoundToInt(actor.transform.position);
             DungeonDoorInteractionDecision decision = DungeonDoorInteractionPolicy.Evaluate(
@@ -306,14 +378,23 @@ namespace Game.Combat.Encounters
                     actor.ActionPoints
                 )
             );
-            if (!decision.IsAllowed || !door.TryOpen())
+            if (!decision.IsAllowed)
                 return false;
 
-            actor.SpendActions(decision.ActionCost);
+            interaction = new PreparedDoorInteraction(actor, door, decision);
+            return true;
+        }
+
+        private bool ApplyDoorInteraction(PreparedDoorInteraction interaction)
+        {
+            if (!interaction.Door.TryOpen())
+                return false;
+
+            interaction.Actor.SpendActions(interaction.Decision.ActionCost);
             combatManager.RefreshRulesTopology();
-            openDoorIds.Add(door.StableId);
+            openDoorIds.Add(interaction.Door.StableId);
             EnterReachableEncounterRooms();
-            DoorOpened(door.StableId);
+            DoorOpened(interaction.Door.StableId);
             PersistentStateChanged();
             return true;
         }
@@ -322,14 +403,15 @@ namespace Game.Combat.Encounters
         /// <param name="candidate">The party controller requested by the player.</param>
         /// <returns>
         /// <see langword="true"/> when the candidate is now the leader; otherwise
-        /// <see langword="false"/> while combat, another party action, or an invalid candidate
-        /// prevents the change.
+        /// <see langword="false"/> while combat, another party action, active destination travel,
+        /// or an invalid candidate prevents the change.
         /// </returns>
         public bool TrySelectExplorationLeader(ActionController candidate)
         {
             if (
                 !IsInitialized
                 || combatManager.IsCombatActive
+                || HasActiveDestinationTravel
                 || !party.Contains(candidate)
                 || !CanObserve(candidate)
                 || party.Any(member => member != null && member.IsTakingAction)
@@ -408,8 +490,13 @@ namespace Game.Combat.Encounters
             director = createdDirector;
             director.EncounterLifecycleChanged += OnEncounterLifecycleChanged;
             director.CreatureDefeated += OnCreatureDefeated;
+            documentedStairEndpointCells.UnionWith(document.Stairs.Select(stair => stair.Cell));
             BindGeneratedDoors(document);
             combatManager.CombatActivityChanged += OnCombatActivityChanged;
+            if (explorationPresentation is IDungeonTacticsPresentation tacticsPresentation)
+            {
+                tacticsPresentation.ConfigureTacticsControl(EnterTactics, TryReturnToExploration);
+            }
             IsInitialized = true;
             OnCombatActivityChanged(combatManager.IsCombatActive);
         }
@@ -522,6 +609,30 @@ namespace Game.Combat.Encounters
 
         private void ResetRuntime(bool destroyEncounterActors)
         {
+            IDungeonExplorationPresentation presentation = explorationPresentation;
+            if (IsPresentationAlive(presentation))
+            {
+                presentation.HideExploration();
+                if (presentation is IDungeonTacticsPresentation tacticsPresentation)
+                    tacticsPresentation.ShowTacticsUnavailable();
+            }
+
+            DestinationTravelOwner travelOwner = destinationTravelOwner;
+            if (
+                travelOwner != null
+                && ReferenceEquals(destinationTravelOwner, travelOwner)
+                && travelOwner.TryRelease(out Coroutine runningCoroutine)
+            )
+            {
+                destinationTravelOwner = null;
+                travelCancelled = true;
+                if (runningCoroutine != null)
+                    StopCoroutine(runningCoroutine);
+                OnCancel.RemoveListener(CancelDestinationTravel);
+                OnPreviewPath.Invoke(new List<Vector3Int>());
+            }
+            pendingInteraction = null;
+            pendingDestinationCell = null;
             if (combatManager != null)
                 combatManager.CombatActivityChanged -= OnCombatActivityChanged;
             if (gridInput != null)
@@ -582,6 +693,7 @@ namespace Game.Combat.Encounters
             currentRoomByParty.Clear();
             livingPartyPositions.Clear();
             doorsByCell.Clear();
+            documentedStairEndpointCells.Clear();
             openDoorIds.Clear();
             presentedExplorationParty = Array.Empty<ActionController>();
             selectedLeader = null;
@@ -593,6 +705,19 @@ namespace Game.Combat.Encounters
             explorationMovement = NoExplorationStrideCoordinator.Instance;
             IsInitialized = false;
         }
+
+        /// <summary>Checks whether a presentation reference is safe to call during teardown.</summary>
+        /// <remarks>
+        /// Plain managed presentations, including test fakes, remain callable. Unity-backed
+        /// presentations use Unity's overloaded null comparison so destroyed objects are skipped
+        /// even while an interface reference still retains their managed wrapper.
+        /// </remarks>
+        private static bool IsPresentationAlive(IDungeonExplorationPresentation presentation) =>
+            presentation != null
+            && (
+                presentation is not UnityEngine.Object unityPresentation
+                || unityPresentation != null
+            );
 
         private void BindGeneratedDoors(DungeonLevelDocument document)
         {
@@ -658,18 +783,311 @@ namespace Game.Combat.Encounters
                 () => selectedLeader,
                 () => combatManager.IsCombatActive,
                 CanObserve,
-                ProcessImmediateExplorationBoundary
+                ProcessImmediateExplorationBoundary,
+                RequiresEncounterBoundarySettlement,
+                () => HasActiveDestinationTravel && travelCancelled
             );
             grid.BindExplorationStrideCoordinator(this);
         }
 
         private void OnGridCellClicked(Vector3Int cell)
         {
-            TryOpenDoor(new DungeonCell(cell.x, cell.z));
+            DungeonCell clickedCell = new(cell.x, cell.z);
+            // Stair endpoints belong to DungeonRunController. Claiming them from the initialized
+            // document before pathfinding keeps traversal independent of GridInput listener order.
+            if (documentedStairEndpointCells.Contains(clickedCell))
+                return;
+
+            if (TryOpenDoor(clickedCell))
+            {
+                travelCancelled = true;
+                pendingInteraction = null;
+                pendingDestinationCell = null;
+                return;
+            }
+            if (
+                doorsByCell.TryGetValue(clickedCell, out DungeonDoorController clickedDoor)
+                && !clickedDoor.IsOpen
+            )
+            {
+                _ = TryTravelToInteraction(clickedCell, () => TryOpenDoor(clickedCell));
+                return;
+            }
+            if (!IsExplorationActive)
+                return;
+
+            if (HasActiveDestinationTravel)
+            {
+                travelCancelled = true;
+                pendingInteraction = null;
+                pendingDestinationCell = cell;
+                return;
+            }
+            if (HasActionInProgress)
+                return;
+
+            _ = TryStartDestinationTravel(cell);
+        }
+
+        private bool TryStartDestinationTravel(Vector3Int cell)
+        {
+            ActionController travelLeader = selectedLeader;
+            Vector3Int origin = Vector3Int.RoundToInt(travelLeader.transform.position);
+            List<PathNode> path = grid.GetPathfinder()
+                .Pathfind(travelLeader.gameObject, origin, cell);
+            return TryStartDestinationTravel(travelLeader, path, origin.y, DestinationReachedNoOp);
+        }
+
+        private bool TryStartInteractionTravel(PendingExplorationInteraction interaction)
+        {
+            ActionController travelLeader = selectedLeader;
+            Vector3Int origin = Vector3Int.RoundToInt(travelLeader.transform.position);
+            IPathfinder pathfinder = grid.GetPathfinder();
+            pathfinder.Search(travelLeader.gameObject, origin);
+            List<PathNode> bestPath = new();
+            float bestDistance = float.PositiveInfinity;
+            foreach (DungeonCell neighbor in CardinalNeighbors(interaction.Cell))
+            {
+                Vector3Int destination = new(neighbor.X, origin.y, neighbor.Z);
+                List<PathNode> candidatePath = pathfinder.Find(destination);
+                if (candidatePath == null || candidatePath.Count == 0)
+                    continue;
+
+                float candidateDistance = candidatePath[candidatePath.Count - 1].Dist;
+                if (candidateDistance >= bestDistance)
+                    continue;
+
+                bestPath = candidatePath;
+                bestDistance = candidateDistance;
+            }
+
+            if (bestPath.Count == 0)
+                return false;
+            if (bestPath.Count == 1)
+            {
+                interaction.Invoke();
+                return true;
+            }
+
+            return TryStartDestinationTravel(travelLeader, bestPath, origin.y, interaction.Invoke);
+        }
+
+        private bool TryStartDestinationTravel(
+            ActionController travelLeader,
+            IReadOnlyList<PathNode> path,
+            int elevation,
+            Action onDestinationReached
+        )
+        {
+            if (path == null || path.Count < 2)
+                return false;
+
+            ExplorationTravelPlan plan = ExplorationTravelPlanner.Plan(
+                path.Select(node => new DungeonCell(node.Location.x, node.Location.z))
+            );
+            OnPreviewPath.Invoke(
+                plan.Cells.Select(routeCell => new Vector3Int(routeCell.X, elevation, routeCell.Z))
+                    .ToList()
+            );
+            DestinationTravelOwner travelOwner = new(onDestinationReached);
+            destinationTravelOwner = travelOwner;
+            Coroutine runningCoroutine = StartCoroutine(
+                TravelToDestination(travelOwner, travelLeader, plan, elevation)
+            );
+            travelOwner.TryAttach(runningCoroutine);
+            return true;
+        }
+
+        private IEnumerator TravelToDestination(
+            DestinationTravelOwner travelOwner,
+            ActionController travelLeader,
+            ExplorationTravelPlan plan,
+            int elevation
+        )
+        {
+            travelCancelled = false;
+            OnCancel.AddListener(CancelDestinationTravel);
+            bool reachedDestination = false;
+            try
+            {
+                RulesStrideAction stride = travelLeader
+                    .GetActions()
+                    .OfType<RulesStrideAction>()
+                    .FirstOrDefault();
+                if (stride == null)
+                    yield break;
+
+                Dictionary<DungeonCell, int> routeIndexByCell = new(plan.Cells.Count);
+                for (int index = 0; index < plan.Cells.Count; index++)
+                {
+                    DungeonCell routeCell = plan.Cells[index];
+                    if (!routeIndexByCell.ContainsKey(routeCell))
+                        routeIndexByCell.Add(routeCell, index);
+                }
+
+                while (!travelCancelled && IsExplorationActive)
+                {
+                    Vector3Int current = Vector3Int.RoundToInt(travelLeader.transform.position);
+                    DungeonCell currentCell = new(current.x, current.z);
+                    if (!routeIndexByCell.TryGetValue(currentCell, out int currentIndex))
+                    {
+                        yield break;
+                    }
+                    if (currentIndex == plan.Cells.Count - 1)
+                    {
+                        reachedDestination = true;
+                        yield break;
+                    }
+
+                    Vector3Int[] remaining = plan
+                        .Cells.Skip(currentIndex)
+                        .Select(cell => new Vector3Int(cell.X, elevation, cell.Z))
+                        .ToArray();
+                    PlannedStrideSelectionResolver resolver = new(remaining);
+                    travelLeader.TakeAction(stride, resolver);
+                    if (!travelLeader.IsTakingAction)
+                        yield break;
+                    while (travelLeader.IsTakingAction && IsExplorationActive)
+                        yield return null;
+                    if (!resolver.MayContinueRoute)
+                        yield break;
+                    if (Vector3Int.RoundToInt(travelLeader.transform.position) == current)
+                        yield break;
+                }
+            }
+            finally
+            {
+                CompleteDestinationTravel(travelOwner, reachedDestination);
+            }
+        }
+
+        private void CompleteDestinationTravel(
+            DestinationTravelOwner travelOwner,
+            bool reachedDestination
+        )
+        {
+            if (
+                !ReferenceEquals(destinationTravelOwner, travelOwner)
+                || !travelOwner.TryRelease(out _)
+            )
+            {
+                return;
+            }
+
+            destinationTravelOwner = null;
+            OnCancel.RemoveListener(CancelDestinationTravel);
+            OnPreviewPath.Invoke(new List<Vector3Int>());
+            PendingExplorationInteraction? queuedInteraction = pendingInteraction;
+            pendingInteraction = null;
+            Vector3Int? queuedDestinationCell = pendingDestinationCell;
+            pendingDestinationCell = null;
+            if (reachedDestination && IsExplorationActive)
+                travelOwner.InvokeDestinationReached();
+            if (queuedInteraction.HasValue && IsExplorationActive)
+                TryStartInteractionTravel(queuedInteraction.Value);
+            else if (queuedDestinationCell.HasValue && IsExplorationActive)
+                _ = TryStartDestinationTravel(queuedDestinationCell.Value);
+        }
+
+        bool IExplorationStrideCoordinator.TryCancelActiveTravel() => TryCancelDestinationTravel();
+
+        private void CancelDestinationTravel() => TryCancelDestinationTravel();
+
+        private bool TryCancelDestinationTravel()
+        {
+            if (!HasActiveDestinationTravel)
+                return false;
+
+            travelCancelled = true;
+            return true;
+        }
+
+        /// <summary>
+        /// Tracks logical destination-travel ownership independently from Unity's late coroutine
+        /// handle, which may be returned only after a synchronous iterator has already completed.
+        /// </summary>
+        private sealed class DestinationTravelOwner
+        {
+            private Coroutine runningCoroutine;
+            private Action onDestinationReached;
+
+            internal DestinationTravelOwner(Action onDestinationReached)
+            {
+                this.onDestinationReached =
+                    onDestinationReached
+                    ?? throw new ArgumentNullException(nameof(onDestinationReached));
+            }
+
+            internal bool IsActive { get; private set; } = true;
+
+            internal void InvokeDestinationReached()
+            {
+                Action interaction = onDestinationReached;
+                onDestinationReached = DestinationReachedNoOp;
+                interaction();
+            }
+
+            internal bool TryAttach(Coroutine coroutine)
+            {
+                if (!IsActive)
+                    return false;
+
+                runningCoroutine = coroutine;
+                return true;
+            }
+
+            internal bool TryRelease(out Coroutine coroutine)
+            {
+                coroutine = runningCoroutine;
+                if (!IsActive)
+                    return false;
+
+                IsActive = false;
+                runningCoroutine = null;
+                return true;
+            }
+        }
+
+        private readonly struct PendingExplorationInteraction
+        {
+            internal PendingExplorationInteraction(DungeonCell cell, Action onReached)
+            {
+                Cell = cell;
+                OnReached = onReached ?? throw new ArgumentNullException(nameof(onReached));
+            }
+
+            internal DungeonCell Cell { get; }
+
+            private Action OnReached { get; }
+
+            internal void Invoke() => OnReached();
+        }
+
+        private readonly struct PreparedDoorInteraction
+        {
+            internal PreparedDoorInteraction(
+                ActionController actor,
+                DungeonDoorController door,
+                DungeonDoorInteractionDecision decision
+            )
+            {
+                Actor = actor;
+                Door = door;
+                Decision = decision;
+            }
+
+            internal ActionController Actor { get; }
+
+            internal DungeonDoorController Door { get; }
+
+            internal DungeonDoorInteractionDecision Decision { get; }
         }
 
         bool IExplorationStrideCoordinator.Handles(GameObject character) =>
             IsInitialized && explorationMovement.Handles(character);
+
+        bool IExplorationStrideCoordinator.IsPartyMember(GameObject character) =>
+            IsInitialized && explorationMovement.IsPartyMember(character);
 
         IEnumerator IExplorationStrideCoordinator.ProjectCommittedStep(
             GameObject leader,
@@ -677,7 +1095,8 @@ namespace Game.Combat.Encounters
             Vector3Int destination,
             Tile[,] tiles,
             TokenMovement movement,
-            Ref<bool> continuePath
+            Ref<bool> continuePath,
+            Ref<bool> pathInterrupted
         ) =>
             explorationMovement.ProjectCommittedStep(
                 leader,
@@ -685,8 +1104,19 @@ namespace Game.Combat.Encounters
                 destination,
                 tiles,
                 movement,
-                continuePath
+                continuePath,
+                pathInterrupted
             );
+
+        IEnumerator IExplorationPresentationDrain.DrainPresentation(GameObject leader) =>
+            explorationMovement is IExplorationPresentationDrain drain
+                ? drain.DrainPresentation(leader)
+                : EmptyCoroutine();
+
+        private static IEnumerator EmptyCoroutine()
+        {
+            yield break;
+        }
 
         private bool ProcessImmediateExplorationBoundary()
         {
@@ -743,11 +1173,35 @@ namespace Game.Combat.Encounters
                 }
                 presentedExplorationParty = Array.Empty<ActionController>();
                 explorationPresentation.HideExploration();
+                if (explorationPresentation is IDungeonTacticsPresentation tactics)
+                {
+                    if (isActive)
+                        tactics.ShowTactics();
+                    else
+                        tactics.ShowTacticsUnavailable();
+                }
                 return;
             }
 
             PresentExploration(livingParty);
         }
+
+        private void EnterTactics()
+        {
+            if (
+                !IsInitialized
+                || combatManager.IsCombatActive
+                || HasActionInProgress
+                || HasActiveDestinationTravel
+            )
+                return;
+            foreach (ActionController partyMember in party.Where(CanObserve))
+                combatManager.AddCombatant(partyMember);
+            combatManager.EnterTactics();
+        }
+
+        private bool TryReturnToExploration() =>
+            IsInitialized && combatManager.TryReturnToExploration();
 
         private void PresentExploration(ActionController[] livingParty)
         {
@@ -810,6 +1264,32 @@ namespace Game.Combat.Encounters
                 }
             }
             return 0;
+        }
+
+        private bool RequiresEncounterBoundarySettlement(DungeonCell from, DungeonCell destination)
+        {
+            Vector3 destinationPosition = new(destination.X, 0.0f, destination.Z);
+            if (director.IsSuspendedEncounterReached(destinationPosition))
+                return true;
+
+            int destinationRoomId = FindRoomId(destinationPosition);
+            if (
+                destinationRoomId <= 0
+                || destinationRoomId == FindRoomId(new Vector3(from.X, 0.0f, from.Z))
+                || !encounterRoomIds.Contains(destinationRoomId)
+            )
+            {
+                return false;
+            }
+
+            DungeonEncounterGroupView encounter = director.Lifecycle.GetRoomEncounter(
+                destinationRoomId
+            );
+            return encounter.LivingCreatures.Count > 0
+                && (
+                    encounter.State == DungeonEncounterGroupState.Dormant
+                    || encounter.State == DungeonEncounterGroupState.Suspended
+                );
         }
 
         private static bool IsCardinallyAdjacent(ActionController controller, DungeonCell target)
@@ -890,9 +1370,8 @@ namespace Game.Combat.Encounters
                 DungeonRoomEntryResult result = director.EnterRoom(room.Id);
                 if (result.StartsCombat)
                 {
-                    // The normal room-occupancy suspension rule must not undo a door-triggered
-                    // engagement before either side can act. Once a PC enters the revealed room,
-                    // ordinary encounter-region suspension owns the fight again.
+                    // Retain the room as occupied until a PC enters it so visibility bookkeeping
+                    // does not repeatedly treat the same door reveal as a new engagement.
                     doorRevealedEncounterRooms.Add(room.Id);
                 }
             }

@@ -2643,6 +2643,152 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(endFacts.Order, Is.EqualTo(new[] { "expired", "ended" }));
         }
 
+        [Test]
+        public async Task ProtagonistDefeatOnlyPolicyIgnoresOppositionDefeat()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
+            Resolved(
+                await dispatcher.Dispatch(
+                    new StartEncounterOp(
+                        Encounter,
+                        Players,
+                        new[]
+                        {
+                            new EncounterParticipant(Hero, Players, 0),
+                            new EncounterParticipant(Enemy, Enemies, 0),
+                        },
+                        EncounterConclusionPolicy.ProtagonistDefeatOnly
+                    )
+                )
+            );
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Enemy,
+                        10,
+                        new HealthChangeOriginId("manual-tactics-enemy-defeat"),
+                        Source
+                    )
+                )
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Active)
+            );
+            Assert.That(dispatcher.Snapshot.Encounters[Encounter].Outcome, Is.Null);
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Hero,
+                        10,
+                        new HealthChangeOriginId("manual-tactics-player-defeat"),
+                        Source
+                    )
+                )
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Ended)
+            );
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerDefeat)
+            );
+        }
+
+        [Test]
+        public async Task ProtagonistDefeatOnlyPolicySurvivesJoinAndTurnStartCheckpoint()
+        {
+            RecordingTurnStartAdapter adapter = new RecordingTurnStartAdapter("checkpoint");
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(10, 20, 5),
+                JoinSeed(),
+                turnStartAdapters: new[] { adapter }
+            );
+            EncounterState enemyTurn = Resolved(
+                await dispatcher.Dispatch(
+                    new StartEncounterOp(
+                        Encounter,
+                        Players,
+                        new[]
+                        {
+                            new EncounterParticipant(Hero, Players, 0),
+                            new EncounterParticipant(Enemy, Enemies, 0),
+                        },
+                        EncounterConclusionPolicy.ProtagonistDefeatOnly
+                    )
+                )
+            ).Value.State;
+            EncounterState joined = Resolved(
+                await dispatcher.Dispatch(
+                    new JoinEncounterOp(
+                        Encounter,
+                        new[]
+                        {
+                            new EncounterJoinParticipant(
+                                new EncounterParticipant(Reinforcement, Enemies, 0),
+                                new HealthState(10, 10)
+                            ),
+                        }
+                    )
+                )
+            ).Value.State;
+
+            Assert.That(joined.HasReinforcementRegistration(Reinforcement), Is.True);
+            Assert.That(
+                joined.ConclusionPolicy,
+                Is.EqualTo(EncounterConclusionPolicy.ProtagonistDefeatOnly)
+            );
+
+            EncounterState heroTurn = Resolved(
+                await dispatcher.Dispatch(new EndTurnOp(enemyTurn.CurrentTurn.Value))
+            ).Value.State;
+
+            Assert.That(heroTurn.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+            Assert.That(heroTurn.IsTurnStartPending, Is.False);
+            Assert.That(heroTurn.TurnStartAdapterProgress, Is.Null);
+            Assert.That(adapter.Actors, Is.EqualTo(new[] { Enemy, Hero }));
+            Assert.That(
+                heroTurn.ConclusionPolicy,
+                Is.EqualTo(EncounterConclusionPolicy.ProtagonistDefeatOnly)
+            );
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Enemy,
+                        10,
+                        new HealthChangeOriginId("checkpoint-enemy-defeat"),
+                        Source
+                    )
+                )
+            );
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Reinforcement,
+                        10,
+                        new HealthChangeOriginId("checkpoint-reinforcement-defeat"),
+                        Source
+                    )
+                )
+            );
+
+            EncounterState active = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(dispatcher.Snapshot.Health[Enemy].IsCommittedDefeated, Is.True);
+            Assert.That(dispatcher.Snapshot.Health[Reinforcement].IsCommittedDefeated, Is.True);
+            Assert.That(
+                active.ConclusionPolicy,
+                Is.EqualTo(EncounterConclusionPolicy.ProtagonistDefeatOnly)
+            );
+            Assert.That(active.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(active.Outcome, Is.Null);
+        }
+
         [TestCase(EffectDurationKind.Rounds, 2, false)]
         [TestCase(EffectDurationKind.Minutes, 10, false)]
         [TestCase(EffectDurationKind.Encounter, 0, true)]

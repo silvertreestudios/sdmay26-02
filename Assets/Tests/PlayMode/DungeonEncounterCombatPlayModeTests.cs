@@ -320,9 +320,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
     }
 
-    /// <summary>Verifies suspension resets turn economy without changing durable creature state.</summary>
+    /// <summary>Verifies gameplay exit is gated while teardown can still release test ownership.</summary>
     [Test]
-    public void SuspendDungeonCombat_ClearsTurnStateAndPreservesCreatureState()
+    public void LivingOppositionBlocksExitBeforeTeardownReleasesOwnership()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
@@ -337,7 +337,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Controller.IsTakingAction = true;
         enemy.Controller.IsTakingAction = true;
 
-        manager.SuspendDungeonCombat();
+        Assert.That(manager.TryReturnToExploration(), Is.False);
+        manager.ReleaseTacticsForTeardown();
 
         Assert.That(manager.IsCombatActive, Is.False);
         Assert.That(manager.WhosTurn(), Is.Null);
@@ -377,11 +378,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
     }
 
     /// <summary>
-    /// Verifies suspension releases health ownership for removed combatants without losing any
+    /// Verifies teardown releases health ownership for removed combatants without losing any
     /// authoritative health fields.
     /// </summary>
     [Test]
-    public void SuspendDungeonCombat_ReleasesRemovedCombatantCompleteHealthState()
+    public void TeardownReleasesRemovedCombatantCompleteHealthState()
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
@@ -395,7 +396,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         HealthState expectedHealth = player.Creature.Health;
         manager.Remove(player.Controller);
 
-        manager.SuspendDungeonCombat();
+        manager.ReleaseTacticsForTeardown();
 
         Assert.That(player.Creature.Health, Is.EqualTo(expectedHealth));
         Assert.DoesNotThrow(() => player.Creature.InitializeHealthBeforeEncounter(expectedHealth));
@@ -711,6 +712,62 @@ public sealed class DungeonEncounterCombatPlayModeTests
         player.Controller.SetDungeonExploration(false);
         player.Controller.TakeAction(movement);
         Assert.That(movementCalls, Is.EqualTo(2));
+    }
+
+    /// <summary>Verifies a player toggle cannot start an encounter with an empty roster.</summary>
+    [Test]
+    public void ManualTactics_WithoutEligiblePlayers_DoesNothing()
+    {
+        Assert.DoesNotThrow(manager.EnterTactics);
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(manager.WhosTurn(), Is.Null);
+    }
+
+    [Test]
+    public void ManualTactics_EnrollsOnlyLivingPlayersAndAllowsIdleExit()
+    {
+        CombatantFixture first = CreateCombatant("First Player", "Players", 100);
+        CombatantFixture second = CreateCombatant("Second Player", "Players", 50);
+        CombatantFixture dormantEnemy = CreateCombatant("Dormant Enemy", "Enemies", 1000);
+
+        manager.EnterTactics();
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        Assert.That(
+            bridge.GetEncounter().ConclusionPolicy,
+            Is.EqualTo(EncounterConclusionPolicy.ProtagonistDefeatOnly)
+        );
+        Assert.That(
+            manager.GetCombatants(),
+            Is.EquivalentTo(new[] { first.GameObject, second.GameObject })
+        );
+        Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
+
+        first.Controller.IsTakingAction = true;
+        Assert.That(manager.TryReturnToExploration(), Is.False);
+        first.Controller.IsTakingAction = false;
+        Assert.That(manager.TryReturnToExploration(), Is.True);
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
+    [Test]
+    public void ManualTactics_ReinforcementDefeatRequiresExplicitExit()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        manager.EnterTactics();
+
+        manager.AddDungeonReinforcements(new[] { enemy.Controller });
+        Assert.That(manager.TryReturnToExploration(), Is.False);
+
+        enemy.Creature.ApplyFinalDamage(
+            enemy.Creature.hp,
+            RuleSource.FromSlug("manual-tactics-test")
+        );
+
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(manager.TryReturnToExploration(), Is.True);
+        Assert.That(player.Controller.HasTurnAuthority, Is.False);
     }
 
     /// <summary>Verifies legacy combat still activates every registered controller.</summary>

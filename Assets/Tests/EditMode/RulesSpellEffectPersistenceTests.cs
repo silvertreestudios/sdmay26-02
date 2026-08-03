@@ -76,7 +76,8 @@ public sealed class RulesSpellEffectPersistenceTests
         );
         UnityCombatRulesBridge exploration = UnityCombatRulesBridge.CreateExplorationStride(
             caster,
-            tiles
+            tiles,
+            NoExplorationStrideCoordinator.Instance
         );
         Assert.That(exploration.Snapshot.ActiveEffects, Is.Empty);
         exploration.ReleaseOwnership();

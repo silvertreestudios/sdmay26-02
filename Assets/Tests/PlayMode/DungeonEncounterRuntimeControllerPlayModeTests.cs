@@ -48,10 +48,10 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
     }
 
     /// <summary>
-    /// Verifies room transitions are retained and suspension waits for party and enemy actions.
+    /// Verifies room transitions activate Tactics and living opposition prevents withdrawal.
     /// </summary>
     [UnityTest]
-    public IEnumerator PartyRoomTransitionsActivateAndSuspendEncounter()
+    public IEnumerator PartyRoomTransitionsKeepTacticsActiveWithLivingOpposition()
     {
         Track(new GameObject("Test Combat Log")).AddComponent<RuntimeTestCombatLog>();
         Track(new GameObject("Team Rules")).AddComponent<TeamRules>();
@@ -96,12 +96,12 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         player.IsTakingAction = false;
         yield return null;
 
-        Assert.That(manager.IsCombatActive, Is.False);
-        Assert.That(player.IsInDungeonExploration, Is.True);
+        Assert.That(manager.IsCombatActive, Is.True);
+        Assert.That(player.IsInDungeonExploration, Is.False);
         Assert.That(presentation.HideCount, Is.EqualTo(1));
         Assert.That(
             runtime.Lifecycle.GetRoomEncounter(1).State,
-            Is.EqualTo(DungeonEncounterGroupState.Suspended)
+            Is.EqualTo(DungeonEncounterGroupState.Active)
         );
         Assert.That(
             runtime.GetComponentsInChildren<DungeonEncounterMember>(),
@@ -112,56 +112,24 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
             .GetComponentsInChildren<DungeonEncounterMember>()
             .Single()
             .GetComponent<RuntimeTestActionController>();
-        enemy.transform.position = new Vector3(2f, 0f, 2f);
-        player.transform.position = new Vector3(1f, 0f, 2f);
-        int hideCountAfterRetreat = presentation.HideCount;
-        int showCountAfterRetreat = presentation.ShowCount;
-        yield return null;
-        yield return null;
-
-        Assert.That(manager.IsCombatActive, Is.False);
-        Assert.That(player.IsInDungeonExploration, Is.True);
-        Assert.That(presentation.HideCount, Is.EqualTo(hideCountAfterRetreat));
-        Assert.That(presentation.ShowCount, Is.EqualTo(showCountAfterRetreat));
-        Assert.That(
-            runtime.Lifecycle.GetRoomEncounter(1).State,
-            Is.EqualTo(DungeonEncounterGroupState.Suspended),
-            "An in-room survivor must not resume combat with a party member outside the room."
-        );
-
-        player.transform.position = new Vector3(2f, 0f, 2f);
+        player.transform.position = Vector3.zero;
         yield return null;
 
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(player.IsInDungeonExploration, Is.False);
-        Assert.That(presentation.HideCount, Is.EqualTo(2));
+        Assert.That(presentation.ShowCount, Is.EqualTo(1));
+        Assert.That(manager.GetCombatants(), Does.Contain(enemy.gameObject));
         Assert.That(
             runtime.Lifecycle.GetRoomEncounter(1).State,
             Is.EqualTo(DungeonEncounterGroupState.Active)
         );
-
-        enemy.IsTakingAction = true;
-        player.transform.position = Vector3.zero;
-        yield return null;
-        Assert.That(manager.IsCombatActive, Is.True);
-        Assert.That(enemy.IsTakingAction, Is.True);
-
-        enemy.IsTakingAction = false;
-        yield return null;
-        Assert.That(manager.IsCombatActive, Is.False);
-        Assert.That(player.IsInDungeonExploration, Is.True);
-        Assert.That(presentation.ShowCount, Is.EqualTo(3));
-        Assert.That(
-            runtime.Lifecycle.GetRoomEncounter(1).State,
-            Is.EqualTo(DungeonEncounterGroupState.Suspended)
-        );
     }
 
     /// <summary>
-    /// Verifies a floor reset detaches suspended survivors before the destination grid rebinds.
+    /// Verifies a floor reset detaches stopped encounter survivors before the destination grid rebinds.
     /// </summary>
     [UnityTest]
-    public IEnumerator FloorResetDetachesSuspendedSurvivorsFromGridAndCombatManager()
+    public IEnumerator FloorResetDetachesStoppedSurvivorsFromGridAndCombatManager()
     {
         MinimalCombatGrid minimalGrid = Object.FindFirstObjectByType<MinimalCombatGrid>();
         Assert.That(minimalGrid, Is.Not.Null);
@@ -215,13 +183,8 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
             )
             .AddComponent<DungeonEncounterRuntimeController>();
         runtime.transform.SetParent(map.transform, false);
-        runtime.InitializePristine(
-            Document(),
-            catalog,
-            manager,
-            new[] { player },
-            new RecordingExplorationPresentation()
-        );
+        RecordingExplorationPresentation presentation = new();
+        runtime.InitializePristine(Document(), catalog, manager, new[] { player }, presentation);
 
         player.transform.position = new Vector3(2f, 0f, 2f);
         yield return null;
@@ -237,8 +200,9 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         yield return null;
         Assert.That(
             runtime.Lifecycle.GetRoomEncounter(1).State,
-            Is.EqualTo(DungeonEncounterGroupState.Suspended)
+            Is.EqualTo(DungeonEncounterGroupState.Active)
         );
+        manager.ReleaseTacticsForTeardown();
 
         MethodInfo reset = typeof(DungeonEncounterRuntimeController).GetMethod(
             "ResetForFloorTransition",
@@ -247,6 +211,7 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         Assert.That(reset, Is.Not.Null);
         reset.Invoke(runtime, null);
 
+        Assert.That(presentation.TacticsUnavailableCount, Is.EqualTo(1));
         Assert.That(survivorToken.IsRegistered, Is.False);
         Assert.That(manager.RegisteredCombatants, Has.No.Member(survivorController));
         Assert.That(manager.RegisteredCombatants, Does.Contain(player));
@@ -264,6 +229,45 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
 
         yield return null;
         Assert.That(survivor == null, Is.True);
+    }
+
+    /// <summary>Verifies floor teardown skips a destroyed Unity-backed presentation.</summary>
+    [UnityTest]
+    public IEnumerator FloorResetSkipsDestroyedUnityPresentation()
+    {
+        Track(new GameObject("Test Combat Log")).AddComponent<RuntimeTestCombatLog>();
+        CombatManager manager = Track(new GameObject("Combat Manager"))
+            .AddComponent<CombatManager>();
+        RuntimeTestActionController player = CreatePlayer(manager);
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        DestroyedUnityPresentation presentation = Track(
+                new GameObject("Destroyed Exploration Presentation")
+            )
+            .AddComponent<DestroyedUnityPresentation>();
+        DungeonEncounterRuntimeController runtime = Track(
+                new GameObject("Dungeon Encounter Runtime")
+            )
+            .AddComponent<DungeonEncounterRuntimeController>();
+        runtime.InitializePristine(
+            EmptyDocument(),
+            catalog,
+            manager,
+            new[] { player },
+            presentation
+        );
+        yield return null;
+
+        Object.DestroyImmediate(presentation.gameObject);
+        MethodInfo reset = typeof(DungeonEncounterRuntimeController).GetMethod(
+            "ResetForFloorTransition",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(reset, Is.Not.Null);
+
+        Assert.That(() => reset.Invoke(runtime, null), Throws.Nothing);
+        Assert.That(runtime.IsInitialized, Is.False);
     }
 
     /// <summary>Verifies an encounter-free generated floor still grants exploration authority.</summary>
@@ -430,6 +434,48 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         Assert.That(player.HasTurnAuthority, Is.False);
     }
 
+    /// <summary>Verifies final-party defeat makes the floor's mode control unavailable.</summary>
+    [UnityTest]
+    public IEnumerator FinalPartyDefeatRequestsUnavailableTacticsPresentation()
+    {
+        Track(new GameObject("Test Combat Log")).AddComponent<RuntimeTestCombatLog>();
+        Track(new GameObject("Team Rules")).AddComponent<TeamRules>();
+        CombatManager manager = Track(new GameObject("Combat Manager"))
+            .AddComponent<CombatManager>();
+        RuntimeTestActionController player = CreatePlayer(manager);
+        DungeonEncounterCreatureCatalog catalog = Track(
+            ScriptableObject.CreateInstance<DungeonEncounterCreatureCatalog>()
+        );
+        RecordingExplorationPresentation presentation = new();
+        DungeonEncounterRuntimeController runtime = Track(
+                new GameObject("Dungeon Encounter Runtime")
+            )
+            .AddComponent<DungeonEncounterRuntimeController>();
+        runtime.InitializePristine(
+            EmptyDocument(),
+            catalog,
+            manager,
+            new[] { player },
+            presentation
+        );
+
+        Assert.That(presentation.ConfigureTacticsCount, Is.EqualTo(1));
+        Assert.That(presentation.TacticsUnavailableCount, Is.Zero);
+        manager.EnterTactics();
+        Assert.That(presentation.ShowTacticsCount, Is.EqualTo(1));
+
+        CreatureComponent creature = player.GetComponent<CreatureComponent>();
+        creature.ApplyFinalDamage(
+            creature.hp,
+            RuleSource.FromSlug("test-final-party-defeat-presentation")
+        );
+        yield return null;
+
+        Assert.That(manager.IsCombatActive, Is.False);
+        Assert.That(creature.IsDefeated, Is.True);
+        Assert.That(presentation.TacticsUnavailableCount, Is.EqualTo(1));
+    }
+
     private RuntimeTestActionController CreatePlayer(CombatManager manager)
     {
         GameObject owner = Track(new GameObject("Player"));
@@ -588,10 +634,15 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
         internal IReadOnlyList<ActionController> RegisteredCombatants => Combatants;
     }
 
-    private sealed class RecordingExplorationPresentation : IDungeonExplorationPresentation
+    private sealed class RecordingExplorationPresentation
+        : IDungeonExplorationPresentation,
+            IDungeonTacticsPresentation
     {
         public int ShowCount { get; private set; }
         public int HideCount { get; private set; }
+        public int ConfigureTacticsCount { get; private set; }
+        public int ShowTacticsCount { get; private set; }
+        public int TacticsUnavailableCount { get; private set; }
 
         /// <inheritdoc/>
         public void ShowExploration(
@@ -602,6 +653,41 @@ public sealed class DungeonEncounterRuntimeControllerPlayModeTests
 
         /// <inheritdoc/>
         public void HideExploration() => HideCount++;
+
+        /// <inheritdoc/>
+        public void ConfigureTacticsControl(Action enterTactics, Func<bool> returnToExploration) =>
+            ConfigureTacticsCount++;
+
+        /// <inheritdoc/>
+        public void ShowTactics() => ShowTacticsCount++;
+
+        /// <inheritdoc/>
+        public void ShowTacticsUnavailable() => TacticsUnavailableCount++;
+    }
+
+    private sealed class DestroyedUnityPresentation
+        : MonoBehaviour,
+            IDungeonExplorationPresentation,
+            IDungeonTacticsPresentation
+    {
+        /// <inheritdoc/>
+        public void ShowExploration(
+            IReadOnlyList<ActionController> party,
+            ActionController selected,
+            Func<ActionController, bool> trySelectLeader
+        ) { }
+
+        /// <inheritdoc/>
+        public void HideExploration() => _ = gameObject;
+
+        /// <inheritdoc/>
+        public void ConfigureTacticsControl(Action enterTactics, Func<bool> returnToExploration) { }
+
+        /// <inheritdoc/>
+        public void ShowTactics() { }
+
+        /// <inheritdoc/>
+        public void ShowTacticsUnavailable() => _ = gameObject;
     }
 
     private sealed class RuntimeTestCombatLog : CombatLogInterface

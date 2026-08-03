@@ -3002,7 +3002,8 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(actor.Conditions.CaptureApplications(), Is.Empty);
         UnityCombatRulesBridge exploration = UnityCombatRulesBridge.CreateExplorationStride(
             actor.Controller,
-            CreateTiles()
+            CreateTiles(),
+            NoExplorationStrideCoordinator.Instance
         );
         exploration.ReleaseOwnership();
         Assert.That(actor.Conditions.HasPendingRestore, Is.True);
@@ -3040,7 +3041,8 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(actor.Conditions.HasPendingRestore, Is.True);
         UnityCombatRulesBridge exploration = UnityCombatRulesBridge.CreateExplorationStride(
             actor.Controller,
-            CreateTiles()
+            CreateTiles(),
+            NoExplorationStrideCoordinator.Instance
         );
         CreatureId explorationId = exploration.GetCreatureId(actor.Creature);
         Assert.That(

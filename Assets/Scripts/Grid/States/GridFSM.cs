@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -12,17 +13,30 @@ namespace GridPrivate
         private float TimeSinceLastClick = 0f;
         private float LastClickTime = 0f;
         private GridFSMState QueuedState = null;
+        private Func<bool> tryCancelIdleOperation = () => false;
 
         public GridFSM()
         {
             CurrentState = IdleState;
+            IdleState.Enter(this);
             OnCancel.AddListener(() =>
             {
+                if (CurrentState is StateIdle)
+                    return;
+
                 Debug.Log("Action Cancel");
-                if (ChangeState(new StateIdle()))
+                if (ChangeState(IdleState))
                     OnActionCancel.Invoke();
             });
         }
+
+        /// <summary>Sets the owner-specific cancellation boundary used by idle right-click.</summary>
+        internal void BindIdleCancellation(Func<bool> tryCancel) =>
+            tryCancelIdleOperation =
+                tryCancel ?? throw new ArgumentNullException(nameof(tryCancel));
+
+        /// <summary>Attempts to cancel work that intentionally remains in the idle grid state.</summary>
+        internal bool TryCancelIdleOperation() => tryCancelIdleOperation();
 
         public override bool ChangeState(GridFSMState newState)
         {

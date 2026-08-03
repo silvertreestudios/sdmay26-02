@@ -9,6 +9,7 @@ using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
+using GridPrivate;
 using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -1675,7 +1676,8 @@ public sealed class UnityCombatRulesBridgeTests
                 creatureObject.AddComponent<BridgeTestActionController>();
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
                 controller,
-                CreateTiles(3)
+                CreateTiles(3),
+                NoExplorationStrideCoordinator.Instance
             );
             CreatureId id = bridge.GetCreatureId(controller);
             RecordingMovementObserver observer = new RecordingMovementObserver();
@@ -1702,6 +1704,88 @@ public sealed class UnityCombatRulesBridgeTests
                 Is.Zero,
                 "A detached exploration controller must project neutral combat AP."
             );
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
+    public async Task ProjectedStrideReportsResolutionUntilAsyncProjectionCompletes()
+    {
+        GameObject creatureObject = new GameObject("async-projection-stride-creature");
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            creature.speed = 25;
+            BridgeTestActionController controller =
+                creatureObject.AddComponent<BridgeTestActionController>();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
+                controller,
+                CreateTiles(2),
+                NoExplorationStrideCoordinator.Instance
+            );
+            CreatureId id = bridge.GetCreatureId(controller);
+            BlockingMovementObserver observer = new BlockingMovementObserver();
+
+            ValueTask<bool> pending = bridge.DispatchProjectedStride(
+                id,
+                new MovementPath(new GridPosition(0, 0, 0), new[] { new GridPosition(1, 0, 0) }),
+                observer
+            );
+            await observer.Started;
+
+            Assert.That(bridge.IsResolutionActive, Is.True);
+            bool ownershipReleased = false;
+            bridge.ReleaseOwnership(() => ownershipReleased = true);
+            Assert.That(ownershipReleased, Is.False);
+
+            observer.Complete();
+
+            Assert.That(await pending, Is.True);
+            Assert.That(bridge.IsResolutionActive, Is.False);
+            Assert.That(ownershipReleased, Is.True);
+        }
+        finally
+        {
+            Object.DestroyImmediate(creatureObject);
+        }
+    }
+
+    [Test]
+    public void ProjectedStridePropagatesUnrelatedProjectionFailure()
+    {
+        GameObject creatureObject = new GameObject("failed-exploration-stride-creature");
+        try
+        {
+            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
+            creature.InitializeHealthBeforeEncounter(10, 10);
+            creature.speed = 25;
+            BridgeTestActionController controller =
+                creatureObject.AddComponent<BridgeTestActionController>();
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
+                controller,
+                CreateTiles(2),
+                NoExplorationStrideCoordinator.Instance
+            );
+            CreatureId id = bridge.GetCreatureId(controller);
+            InvalidOperationException expected = new("unrelated projection failure");
+
+            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await bridge.DispatchProjectedStride(
+                        id,
+                        new MovementPath(
+                            new GridPosition(0, 0, 0),
+                            new[] { new GridPosition(1, 0, 0) }
+                        ),
+                        new FailingMovementObserver(expected)
+                    )
+            );
+
+            Assert.That(actual, Is.SameAs(expected));
         }
         finally
         {
@@ -1782,6 +1866,20 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(forward, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>(), forwardFailure);
             Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(2, 0, 0)));
             Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(2));
+
+            bridge.BeginTurn(moverId, 3);
+            OpResult<MovePathOutcome> occupiedDestination = await bridge.DispatchStride(
+                moverId,
+                new MovementPath(new GridPosition(2, 0, 0), new[] { new GridPosition(1, 0, 0) })
+            );
+
+            Assert.That(
+                occupiedDestination,
+                Is.TypeOf<InvalidOpResult<MovePathOutcome>>(),
+                "Tactics must permit crossing an ally without permitting destination swaps."
+            );
+            Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(2, 0, 0)));
+            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(3));
 
             bridge.BeginTurn(occupantId, 3);
             OpResult<MovePathOutcome> reverse = await bridge.DispatchStride(
@@ -3461,6 +3559,36 @@ public sealed class UnityCombatRulesBridgeTests
             }
             return default;
         }
+    }
+
+    private sealed class BlockingMovementObserver : IFactObserver<TokenMovedFact>
+    {
+        private readonly TaskCompletionSource<bool> started = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly TaskCompletionSource<bool> completion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
+        public Task Started => started.Task;
+
+        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+        {
+            started.TrySetResult(true);
+            return new ValueTask(completion.Task);
+        }
+
+        public void Complete() => completion.TrySetResult(true);
+    }
+
+    private sealed class FailingMovementObserver : IFactObserver<TokenMovedFact>
+    {
+        private readonly Exception failure;
+
+        public FailingMovementObserver(Exception failure) => this.failure = failure;
+
+        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot) =>
+            new(Task.FromException(failure));
     }
 
     private sealed class RecordingEncounterModule

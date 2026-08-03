@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
@@ -82,7 +83,58 @@ public class CombatManager : CombatManagerInterface
     public override void StartCombat()
     {
         ActionController[] participants = Combatants.Where(CanTakeTurn).ToArray();
-        BeginCombat(participants, false, FindFirstRegisteredTeamName(participants));
+        BeginCombat(
+            participants,
+            false,
+            FindFirstRegisteredTeamName(participants),
+            EncounterConclusionPolicy.VictoryOrDefeat
+        );
+    }
+
+    /// <inheritdoc/>
+    public override void EnterTactics()
+    {
+        ActionController[] participants = Combatants
+            .Where(CanTakeTacticsTurn)
+            .Where(controller =>
+                string.Equals(
+                    controller.GetComponent<Team>()?.Name,
+                    DungeonProtagonistTeamName,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            .ToArray();
+        if (participants.Length == 0)
+            return;
+        BeginCombat(
+            participants,
+            false,
+            FindRegisteredTeamName(participants, DungeonProtagonistTeamName),
+            EncounterConclusionPolicy.ProtagonistDefeatOnly
+        );
+    }
+
+    /// <inheritdoc/>
+    public override bool TryReturnToExploration()
+    {
+        if (combatRules == null || combatRules.GetEncounter().Phase != EncounterPhase.Active)
+            return false;
+
+        EncounterState encounter = combatRules.GetEncounter();
+        bool livingOpposition = encounter.Roster.Any(entry =>
+            entry.Team != encounter.ProtagonistTeam
+            && combatRules.GetHealth(entry.Creature).IsLiving
+        );
+        if (
+            livingOpposition
+            || combatRules.IsResolutionActive
+            || activeCombatants.Any(controller => controller != null && controller.IsTakingAction)
+        )
+            return false;
+
+        combatRules.SuspendEncounter();
+        StopCombatState();
+        return true;
     }
 
     /// <inheritdoc/>
@@ -93,7 +145,8 @@ public class CombatManager : CombatManagerInterface
         BeginCombat(
             participants,
             true,
-            FindRegisteredTeamName(participants, DungeonProtagonistTeamName)
+            FindRegisteredTeamName(participants, DungeonProtagonistTeamName),
+            EncounterConclusionPolicy.VictoryOrDefeat
         );
     }
 
@@ -102,14 +155,8 @@ public class CombatManager : CombatManagerInterface
     {
         if (reinforcements == null)
             throw new ArgumentNullException(nameof(reinforcements));
-        if (
-            combatRules == null
-            || combatRules.GetEncounter().Phase != EncounterPhase.Active
-            || !dungeonDirectedCombat
-        )
-            throw new InvalidOperationException(
-                "Dungeon reinforcements require an active dungeon encounter."
-            );
+        if (combatRules == null || combatRules.GetEncounter().Phase != EncounterPhase.Active)
+            throw new InvalidOperationException("Dungeon reinforcements require active Tactics.");
 
         ActionController[] additions = reinforcements.Distinct().ToArray();
         if (
@@ -149,17 +196,14 @@ public class CombatManager : CombatManagerInterface
         }
     }
 
-    /// <inheritdoc/>
-    public override void SuspendDungeonCombat()
+    /// <summary>
+    /// Releases encounter ownership for test and floor teardown after gameplay has already stopped.
+    /// This is not a player-facing Tactics exit and must not be used by encounter flow.
+    /// </summary>
+    internal void ReleaseTacticsForTeardown()
     {
-        if (
-            combatRules == null
-            || combatRules.GetEncounter().Phase != EncounterPhase.Active
-            || !dungeonDirectedCombat
-        )
-            throw new InvalidOperationException(
-                "Only an active dungeon encounter can be suspended."
-            );
+        if (combatRules == null || combatRules.GetEncounter().Phase != EncounterPhase.Active)
+            return;
         combatRules.SuspendEncounter();
         StopCombatState();
     }
@@ -212,7 +256,8 @@ public class CombatManager : CombatManagerInterface
     private void BeginCombat(
         IReadOnlyList<ActionController> participants,
         bool dungeonDirected,
-        string protagonistTeamName
+        string protagonistTeamName,
+        EncounterConclusionPolicy conclusionPolicy
     )
     {
         if (participants == null)
@@ -252,7 +297,7 @@ public class CombatManager : CombatManagerInterface
             combatRules.EncounterStarted += PresentEncounterStarted;
             combatRules.TurnBegan += PresentTurnBegan;
             combatRules.EncounterEnded += PresentEncounterOutcome;
-            combatRules.StartEncounter(protagonistTeamName);
+            combatRules.StartEncounter(protagonistTeamName, conclusionPolicy);
         }
         catch
         {
@@ -401,6 +446,8 @@ public class CombatManager : CombatManagerInterface
             if (team != null && !string.IsNullOrWhiteSpace(team.Name))
                 return team.Name;
         }
+        if (encounter.ConclusionPolicy == EncounterConclusionPolicy.ProtagonistDefeatOnly)
+            return "Opposition";
         throw new InvalidOperationException(
             "Player defeat requires a mapped living opposition team."
         );
@@ -496,6 +543,14 @@ public class CombatManager : CombatManagerInterface
 
     private static bool CanTakeTurn(ActionController controller) =>
         controller != null && controller.gameObject.activeSelf && controller.isActiveAndEnabled;
+
+    private static bool CanTakeTacticsTurn(ActionController controller)
+    {
+        if (!CanTakeTurn(controller))
+            return false;
+        CreatureComponent creature = controller.GetComponent<CreatureComponent>();
+        return creature == null || !creature.IsDefeated && creature.hp > 0;
+    }
 
     // Camera projection for legacy callers.
     public Vector3[] getPoistions() =>

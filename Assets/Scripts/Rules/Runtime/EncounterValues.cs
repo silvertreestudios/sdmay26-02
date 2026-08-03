@@ -28,6 +28,16 @@ namespace Game.Rules.Runtime
         PlayerDefeat,
     }
 
+    /// <summary>Determines which health states automatically conclude an active encounter.</summary>
+    public enum EncounterConclusionPolicy
+    {
+        /// <summary>Concludes when the protagonists or all enrolled opposition are defeated.</summary>
+        VictoryOrDefeat,
+
+        /// <summary>Concludes only when every protagonist is defeated.</summary>
+        ProtagonistDefeatOnly,
+    }
+
     /// <summary>Stores a positive one-based encounter round.</summary>
     public readonly struct RoundNumber : IEquatable<RoundNumber>, IComparable<RoundNumber>
     {
@@ -326,6 +336,9 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the protagonist team used for player-relative outcomes.</summary>
         public PlayerId ProtagonistTeam { get; }
 
+        /// <summary>Gets the rules-owned automatic conclusion policy.</summary>
+        public EncounterConclusionPolicy ConclusionPolicy { get; }
+
         /// <summary>Gets the authoritative one-based round.</summary>
         public RoundNumber Round { get; }
 
@@ -405,6 +418,9 @@ namespace Game.Rules.Runtime
         /// Whether <paramref name="round"/> and <paramref name="cursor"/> identify an already
         /// published boundary whose exact actor turn has not begun.
         /// </param>
+        /// <param name="turnStartAdapterProgress">
+        /// The durable progress through ordered turn-start adapters for that published boundary.
+        /// </param>
         public EncounterState(
             EncounterId id,
             EncounterPhase phase,
@@ -423,6 +439,7 @@ namespace Game.Rules.Runtime
                 id,
                 phase,
                 protagonistTeam,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 round,
                 roster,
                 cursor,
@@ -436,10 +453,54 @@ namespace Game.Rules.Runtime
                 Array.Empty<CreatureId>()
             ) { }
 
+        /// <summary>Creates encounter state with an explicit automatic conclusion policy.</summary>
+        /// <param name="id">The stable encounter identity.</param>
+        /// <param name="phase">The committed lifecycle phase.</param>
+        /// <param name="protagonistTeam">The team used for player-relative outcomes.</param>
+        /// <param name="conclusionPolicy">The health outcomes that automatically end the encounter.</param>
+        /// <param name="round">The current positive round.</param>
+        /// <param name="roster">The immutable roster, including defeated entries.</param>
+        /// <param name="cursor">The reached roster index, or -1 before the first boundary.</param>
+        /// <param name="currentTurn">The exact open turn, when one exists.</param>
+        /// <param name="nextTurnSequence">The next positive turn sequence.</param>
+        /// <param name="outcome">The committed result for an ended encounter.</param>
+        /// <param name="isInitiativeBoundaryPending">Whether the reached boundary is awaiting effect expiration.</param>
+        public EncounterState(
+            EncounterId id,
+            EncounterPhase phase,
+            PlayerId protagonistTeam,
+            EncounterConclusionPolicy conclusionPolicy,
+            RoundNumber round,
+            IEnumerable<InitiativeEntry> roster,
+            int cursor,
+            TurnIdentity? currentTurn,
+            long nextTurnSequence,
+            EncounterOutcome? outcome,
+            bool isInitiativeBoundaryPending = false
+        )
+            : this(
+                id,
+                phase,
+                protagonistTeam,
+                conclusionPolicy,
+                round,
+                roster,
+                cursor,
+                currentTurn,
+                nextTurnSequence,
+                outcome,
+                isInitiativeBoundaryPending,
+                false,
+                null,
+                Array.Empty<KeyValuePair<CreatureId, CombatantRulesState>>(),
+                Array.Empty<CreatureId>()
+            ) { }
+
         private EncounterState(
             EncounterId id,
             EncounterPhase phase,
             PlayerId protagonistTeam,
+            EncounterConclusionPolicy conclusionPolicy,
             RoundNumber round,
             IEnumerable<InitiativeEntry> roster,
             int cursor,
@@ -459,6 +520,8 @@ namespace Game.Rules.Runtime
                 );
             if (!Enum.IsDefined(typeof(EncounterPhase), phase))
                 throw new ArgumentOutOfRangeException(nameof(phase));
+            if (!Enum.IsDefined(typeof(EncounterConclusionPolicy), conclusionPolicy))
+                throw new ArgumentOutOfRangeException(nameof(conclusionPolicy));
             InitiativeEntry[] copied =
                 roster?.ToArray() ?? throw new ArgumentNullException(nameof(roster));
             if (copied.Length == 0 || copied.Any(entry => entry == null))
@@ -531,6 +594,7 @@ namespace Game.Rules.Runtime
             Id = id;
             Phase = phase;
             ProtagonistTeam = protagonistTeam;
+            ConclusionPolicy = conclusionPolicy;
             Round = round;
             this.roster = Array.AsReadOnly(copied);
             Cursor = cursor;
@@ -574,6 +638,7 @@ namespace Game.Rules.Runtime
                 Id,
                 phase ?? Phase,
                 ProtagonistTeam,
+                ConclusionPolicy,
                 round ?? Round,
                 roster ?? this.roster,
                 cursor ?? Cursor,
@@ -594,6 +659,7 @@ namespace Game.Rules.Runtime
             && Id == other.Id
             && Phase == other.Phase
             && ProtagonistTeam == other.ProtagonistTeam
+            && ConclusionPolicy == other.ConclusionPolicy
             && Round == other.Round
             && Cursor == other.Cursor
             && CurrentTurn == other.CurrentTurn
@@ -620,6 +686,7 @@ namespace Game.Rules.Runtime
             hash.Add(Id);
             hash.Add(Phase);
             hash.Add(ProtagonistTeam);
+            hash.Add(ConclusionPolicy);
             hash.Add(Round);
             hash.Add(Cursor);
             hash.Add(CurrentTurn);

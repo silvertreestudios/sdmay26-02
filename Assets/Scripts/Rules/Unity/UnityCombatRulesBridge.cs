@@ -247,6 +247,9 @@ namespace Game.Rules.Unity
             }
         }
 
+        /// <summary>Gets whether an operation root or its Unity projection is still resolving.</summary>
+        public bool IsResolutionActive => dispatchDepth > 0;
+
         /// <summary>Creates the complete rules composition for one combat encounter.</summary>
         /// <param name="encounterControllers">The non-empty, unique participant sequence.</param>
         /// <param name="tiles">The initialized live grid used to take an immutable topology snapshot.</param>
@@ -296,6 +299,9 @@ namespace Game.Rules.Unity
         /// </summary>
         /// <param name="controller">The exploration leader selecting and committing the Stride.</param>
         /// <param name="tiles">The initialized live grid used for immutable topology.</param>
+        /// <param name="exploration">
+        /// The coordinator that identifies party occupancy owned by formation projection.
+        /// </param>
         /// <returns>A temporary rules composition that is not attached as combat authority.</returns>
         /// <remarks>
         /// Exploration has no combat action economy. The temporary action exists only so the same
@@ -304,20 +310,21 @@ namespace Game.Rules.Unity
         /// </remarks>
         public static UnityCombatRulesBridge CreateExplorationStride(
             ActionController controller,
-            Tile[,] tiles
+            Tile[,] tiles,
+            IExplorationStrideCoordinator exploration
         )
         {
             if (controller == null)
                 throw new ArgumentNullException(nameof(controller));
+            if (exploration == null)
+                throw new ArgumentNullException(nameof(exploration));
             ValidateTiles(tiles);
-            UnityCombatRulesBridge bridge = new UnityCombatRulesBridge(
-                FindExplorationControllers(controller, tiles),
+            return new UnityCombatRulesBridge(
+                FindExplorationControllers(controller, tiles, exploration),
                 tiles,
                 false,
                 new RandomRollService()
             );
-            bridge.strideFriendshipProvider.AllowFriendlyTraversal = false;
-            return bridge;
         }
 
         /// <summary>Gets the latest authoritative encounter snapshot.</summary>
@@ -498,8 +505,12 @@ namespace Game.Rules.Unity
 
         /// <summary>Starts initiative and advances to the first eligible turn.</summary>
         /// <param name="protagonistTeamName">The registered team used for player-relative outcome.</param>
+        /// <param name="conclusionPolicy">The rules-owned automatic conclusion policy.</param>
         /// <returns>The authoritative state after start-turn causal work settles.</returns>
-        public EncounterState StartEncounter(string protagonistTeamName)
+        public EncounterState StartEncounter(
+            string protagonistTeamName,
+            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
+        )
         {
             if (
                 string.IsNullOrWhiteSpace(protagonistTeamName)
@@ -509,13 +520,17 @@ namespace Game.Rules.Unity
                     "The protagonist team must be registered in this composition.",
                     nameof(protagonistTeamName)
                 );
-            return StartEncounter(protagonistTeam);
+            return StartEncounter(protagonistTeam, conclusionPolicy);
         }
 
         /// <summary>Starts initiative for a registered protagonist team identity.</summary>
         /// <param name="protagonistTeam">The registered player-relative protagonist team.</param>
+        /// <param name="conclusionPolicy">The rules-owned automatic conclusion policy.</param>
         /// <returns>The authoritative state after start-turn causal work settles.</returns>
-        public EncounterState StartEncounter(PlayerId protagonistTeam)
+        public EncounterState StartEncounter(
+            PlayerId protagonistTeam,
+            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
+        )
         {
             if (
                 protagonistTeam.IsEmpty
@@ -533,7 +548,7 @@ namespace Game.Rules.Unity
                 ))
                 .ToArray();
             EncounterStartOutcome outcome = DispatchNow(
-                new StartEncounterOp(encounterId, protagonistTeam, participants)
+                new StartEncounterOp(encounterId, protagonistTeam, participants, conclusionPolicy)
             );
             return outcome.State;
         }
@@ -822,8 +837,8 @@ namespace Game.Rules.Unity
         /// <param name="path">The exact completed selection.</param>
         /// <param name="projection">The projection observer retained for this root only.</param>
         /// <returns>
-        /// Whether the rules root resolved, including a boundary step whose obsolete exploration
-        /// suffix was intentionally abandoned after combat took authority.
+        /// Whether the rules root resolved, including a committed exploration step whose obsolete
+        /// temporary suffix was intentionally abandoned.
         /// </returns>
         public async ValueTask<bool> DispatchProjectedStride(
             CreatureId creature,
@@ -842,9 +857,9 @@ namespace Game.Rules.Unity
                 }
                 catch (ExplorationStrideProjectionInterruptedException)
                 {
-                    // The committed boundary step has already been projected. Encounter startup
-                    // creates the next authoritative composition from that Unity position, so the
-                    // temporary exploration root must not project its uncommitted path suffix.
+                    // The committed leader step has already projected. Cancellation, encounter
+                    // startup, or a known partial follower failure makes both the temporary Stride
+                    // suffix and the outer destination route obsolete.
                     return true;
                 }
             }
@@ -1097,10 +1112,16 @@ namespace Game.Rules.Unity
 
         private void EndDispatch()
         {
-            topologyProvider.EndResolution();
-            dispatchDepth--;
-            if (dispatchDepth == 0 && releaseRequested)
-                CompleteReleaseOwnership();
+            try
+            {
+                topologyProvider.EndResolution();
+            }
+            finally
+            {
+                dispatchDepth--;
+                if (dispatchDepth == 0 && releaseRequested)
+                    CompleteReleaseOwnership();
+            }
         }
 
         private void EnsureOperational()
@@ -1453,7 +1474,6 @@ namespace Game.Rules.Unity
 
         private sealed class UnityTeamStrideFriendshipProvider : IStrideFriendshipProvider
         {
-            internal bool AllowFriendlyTraversal { get; set; } = true;
             private readonly Dictionary<PlayerId, string> teamNames = new();
 
             public void Register(PlayerId player, string teamName) =>
@@ -1469,8 +1489,6 @@ namespace Game.Rules.Unity
             /// <inheritdoc/>
             public bool IsFriendly(PlayerId mover, PlayerId occupant)
             {
-                if (!AllowFriendlyTraversal)
-                    return false;
                 if (
                     teamNames.TryGetValue(mover, out string moverTeam)
                     && teamNames.TryGetValue(occupant, out string occupantTeam)
@@ -1521,7 +1539,8 @@ namespace Game.Rules.Unity
 
         private static ActionController[] FindExplorationControllers(
             ActionController leader,
-            Tile[,] tiles
+            Tile[,] tiles,
+            IExplorationStrideCoordinator exploration
         )
         {
             return tiles
@@ -1530,8 +1549,13 @@ namespace Game.Rules.Unity
                 .SelectMany(tile => tile.Occupants)
                 .Where(occupant => occupant != null)
                 .Select(occupant => occupant.GetComponent<ActionController>())
+                // Exploration formation projection owns party occupancy, including swaps. Keep
+                // other exploring PCs out of this temporary one-action snapshot so the shared
+                // combat validator can continue rejecting occupied destinations in Tactics.
                 .Where(controller =>
-                    controller != null && controller.GetComponent<CreatureComponent>() != null
+                    controller != null
+                    && !exploration.IsPartyMember(controller.gameObject)
+                    && controller.GetComponent<CreatureComponent>() != null
                 )
                 .Prepend(leader)
                 .Distinct()
