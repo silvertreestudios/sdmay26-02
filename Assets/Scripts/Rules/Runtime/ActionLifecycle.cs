@@ -233,10 +233,10 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Checks whether an authoritative snapshot proves that the exact action intent has paid
-        /// its frozen costs but has not yet reached a final lifecycle receipt.
+        /// Checks whether an authoritative snapshot contains a dispatcher-replayable lifecycle
+        /// receipt for the exact action intent.
         /// </summary>
-        internal static bool HasExactPendingCostReceipt(
+        internal static bool HasExactReplayableReceipt(
             RulesSnapshot snapshot,
             IReceiptedActionOp operation
         )
@@ -248,7 +248,7 @@ namespace Game.Rules.Runtime
             return snapshot.ActionReceipts.TryGet(
                     operation.InvocationId,
                     out ActionInvocationReceipt receipt
-                ) && TryMatchExactPending(receipt, operation, out _);
+                ) && IsExactReplayableReceipt(receipt, operation);
         }
 
         private static bool TryMatchExactPending(
@@ -259,7 +259,7 @@ namespace Game.Rules.Runtime
         {
             if (
                 receipt is CostsCommittedActionReceipt costsCommitted
-                && operation.HasSameIntent(costsCommitted.Operation)
+                && IsExactReplayableReceipt(receipt, operation)
             )
             {
                 pending = costsCommitted;
@@ -269,6 +269,16 @@ namespace Game.Rules.Runtime
             pending = null;
             return false;
         }
+
+        private static bool IsExactReplayableReceipt(
+            ActionInvocationReceipt receipt,
+            IReceiptedActionOp operation
+        ) =>
+            (
+                receipt is CostsCommittedActionReceipt
+                || receipt is ResolvedActionReceipt
+                || receipt is InterruptedActionReceipt
+            ) && operation.HasSameIntent(receipt.Operation);
     }
 
     /// <summary>

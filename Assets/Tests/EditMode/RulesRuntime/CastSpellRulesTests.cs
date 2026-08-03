@@ -310,6 +310,11 @@ namespace Game.Rules.Runtime.Tests
                 SpellCastSelection.Empty
             );
 
+            Assert.That(
+                ActionReceiptReduction.HasExactReplayableReceipt(store.Snapshot, operation),
+                Is.False
+            );
+
             Assert.ThrowsAsync<InvalidOperationException>(async () =>
                 await dispatcher.Dispatch(operation)
             );
@@ -324,7 +329,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(validator.Calls, Is.EqualTo(1));
             Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
             Assert.That(
-                ActionReceiptReduction.HasExactPendingCostReceipt(store.Snapshot, operation),
+                ActionReceiptReduction.HasExactReplayableReceipt(store.Snapshot, operation),
                 Is.True
             );
 
@@ -336,7 +341,7 @@ namespace Game.Rules.Runtime.Tests
                 new SpellCastSelection(new[] { Actor })
             );
             Assert.That(
-                ActionReceiptReduction.HasExactPendingCostReceipt(
+                ActionReceiptReduction.HasExactReplayableReceipt(
                     store.Snapshot,
                     conflictingOperation
                 ),
@@ -375,7 +380,14 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(failure.Calls, Is.EqualTo(1));
             Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
             Assert.That(
-                ActionReceiptReduction.HasExactPendingCostReceipt(store.Snapshot, operation),
+                ActionReceiptReduction.HasExactReplayableReceipt(store.Snapshot, operation),
+                Is.True
+            );
+            Assert.That(
+                ActionReceiptReduction.HasExactReplayableReceipt(
+                    store.Snapshot,
+                    conflictingOperation
+                ),
                 Is.False
             );
             Assert.That(
@@ -551,6 +563,10 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.ThrowsAsync<InvalidOperationException>(async () =>
                 await dispatcher.Dispatch(operation)
+            );
+            Assert.That(
+                ActionReceiptReduction.HasExactReplayableReceipt(store.Snapshot, operation),
+                Is.True
             );
             ResolvedOpResult<CastSpellOutcome> retry = RequireResolved(
                 dispatcher.Dispatch(operation).GetAwaiter().GetResult()
@@ -805,6 +821,23 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(
                 store.Snapshot.ActionReceipts[invocation],
                 Is.TypeOf<InterruptedActionReceipt>()
+            );
+            Assert.That(
+                ActionReceiptReduction.HasExactReplayableReceipt(store.Snapshot, operation),
+                Is.True
+            );
+            Assert.That(
+                ActionReceiptReduction.HasExactReplayableReceipt(
+                    store.Snapshot,
+                    new CastSpellActionOp(
+                        invocation,
+                        Actor,
+                        Light,
+                        TwoActions,
+                        new SpellCastSelection(new[] { Actor })
+                    )
+                ),
+                Is.False
             );
             long interruptedVersion = store.Snapshot.Version;
 

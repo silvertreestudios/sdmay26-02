@@ -98,7 +98,7 @@ namespace Game.Combat.Spells
             {
                 return pending.Actor == actor
                     && bridge.HasTurnAuthority(actor)
-                    && actionDefinition.HasExactPendingCostReceipt(bridge.Snapshot, pending);
+                    && actionDefinition.HasExactReplayableReceipt(bridge.Snapshot, pending);
             }
             return actionDefinition.GetAvailability(bridge.Snapshot, actor, spell, variant)
                 is AvailableActionAvailability;

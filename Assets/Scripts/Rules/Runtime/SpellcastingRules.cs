@@ -211,16 +211,16 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Checks whether authoritative state proves that one exact cast has already committed
-        /// its frozen costs and still awaits final resolution.
+        /// Checks whether authoritative state contains a dispatcher-replayable lifecycle receipt
+        /// for one exact retained cast intent.
         /// </summary>
         /// <param name="snapshot">The current authoritative encounter snapshot.</param>
         /// <param name="operation">The complete immutable cast intent retained for retry.</param>
-        /// <returns>Whether the exact cast owns a pending cost receipt.</returns>
-        public bool HasExactPendingCostReceipt(
+        /// <returns>Whether the dispatcher can replay the exact receipted cast.</returns>
+        public bool HasExactReplayableReceipt(
             RulesSnapshot snapshot,
             CastSpellActionOp operation
-        ) => ActionReceiptReduction.HasExactPendingCostReceipt(snapshot, operation);
+        ) => ActionReceiptReduction.HasExactReplayableReceipt(snapshot, operation);
 
         /// <summary>
         /// Validates one complete request through the same decisions used by availability.

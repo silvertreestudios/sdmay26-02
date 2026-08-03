@@ -460,6 +460,71 @@ public sealed class ConditionUnityIntegrationTests
     }
 
     [Test]
+    public void RulesCastSpellActionReplaysFinalReceiptAfterFactObserverFailure()
+    {
+        CreateActionExecutionHosts();
+        CreatureFixture caster = CreateCreature("Final Receipt Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Final Receipt Target", "Enemies", 0);
+        PrepareCantrip(caster, "Light", "light");
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            CreateTiles()
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        bridge.BeginTurn(casterId, 3);
+        RulesCastSpellAction action = caster
+            .Controller.GetActions()
+            .OfType<RulesCastSpellAction>()
+            .Single(value => value.Spell == new SpellReference(new SpellId("light"), 1));
+        InvalidOperationException expected = new("injected final receipt observer failure");
+        ThrowOnceFactObserver<ActionReceiptCommittedFact> receiptObserver = new(expected);
+        CapturingCastObserver presentationObserver = new();
+        RuleDispatcher dispatcher = GetDispatcher(bridge);
+        using IDisposable receiptRegistration =
+            dispatcher.RegisterFactObserver<ActionReceiptCommittedFact>(receiptObserver);
+        using IDisposable presentationRegistration = dispatcher.RegisterResolvedOpObserver<
+            CastSpellActionOp,
+            CastSpellOutcome
+        >(presentationObserver);
+
+        Assert.That(caster.Controller.CanTakeAction(action), Is.True);
+        bool loggingEnabled = Debug.unityLogger.logEnabled;
+        try
+        {
+            Debug.unityLogger.logEnabled = false;
+            caster.Controller.TakeAction(action);
+        }
+        finally
+        {
+            Debug.unityLogger.logEnabled = loggingEnabled;
+        }
+
+        Assert.That(caster.Controller.ActionPoints, Is.EqualTo(1));
+        Assert.That(action.TryGetPendingOperation(out CastSpellActionOp pending), Is.True);
+        Assert.That(pending.Actor, Is.EqualTo(casterId));
+        Assert.That(bridge.Snapshot.ActiveEffects, Has.Count.EqualTo(1));
+        ActiveEffectId committedEffect = bridge.Snapshot.ActiveEffects.Single().Key;
+        long committedVersion = bridge.Snapshot.Version;
+        Assert.That(receiptObserver.Count, Is.EqualTo(1));
+        Assert.That(presentationObserver.Outcomes, Is.Empty);
+        Assert.That(action.IsAvailable(caster.Controller), Is.True);
+        Assert.That(caster.Controller.CanTakeAction(action), Is.True);
+
+        caster.Controller.TakeAction(action);
+
+        Assert.That(caster.Controller.ActionPoints, Is.EqualTo(1));
+        Assert.That(action.TryGetPendingOperation(out _), Is.False);
+        Assert.That(bridge.Snapshot.Version, Is.EqualTo(committedVersion));
+        Assert.That(bridge.Snapshot.ActiveEffects, Has.Count.EqualTo(1));
+        Assert.That(bridge.Snapshot.ActiveEffects.Single().Key, Is.EqualTo(committedEffect));
+        Assert.That(receiptObserver.Count, Is.EqualTo(1));
+        Assert.That(presentationObserver.Outcomes, Has.Count.EqualTo(1));
+        Assert.That(presentationObserver.Outcomes.Single().CreatedEffects, Has.Count.EqualTo(1));
+        Assert.That(caster.Controller.CanTakeAction(action), Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
     public void RulesCastSpellActionPendingIntentFailsClosedWithoutAuthoritativeReceipt()
     {
         CreatureFixture caster = CreateCreature("Unreceipted Cast Caster", "Heroes", 100);
