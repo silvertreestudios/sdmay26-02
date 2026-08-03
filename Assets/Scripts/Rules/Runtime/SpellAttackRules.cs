@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
@@ -65,6 +66,15 @@ namespace Game.Rules.Runtime
                     "The spell does not contain one supported spell attack."
                 );
             SpellAttackDefinition attack = definition.Attacks[0];
+            if (
+                !context.Snapshot.PreparedInputs.TryGet(
+                    operation.Target,
+                    out PreparedCreatureInputs targetInputs
+                )
+            )
+                throw new InvalidOperationException(
+                    "The spell-attack target has no authoritative prepared inputs."
+                );
             SpellAttackResolutionData data = resolutionData.Capture(
                 context.Snapshot,
                 operation.Actor,
@@ -117,6 +127,9 @@ namespace Game.Rules.Runtime
                     Array.Empty<TypedFlatDamage>(),
                     Array.Empty<TypedDamageDice>(),
                     degree,
+                    targetInputs
+                        .Immunities.Where(value => value.Kind == PreparedImmunityKind.Damage)
+                        .Select(value => new TypedDamageImmunity(value.Type)),
                     data.Weaknesses,
                     data.Resistances,
                     context.Rolls

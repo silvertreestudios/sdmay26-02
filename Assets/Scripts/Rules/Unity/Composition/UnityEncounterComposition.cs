@@ -78,6 +78,7 @@ namespace Game.Rules.Unity.Composition
         private readonly HealthState health;
         private readonly GridPosition position;
         private readonly GridDistance landSpeed;
+        private PreparedCreatureInputs preparedInputs;
 
         internal UnityCombatantEnrollmentBuilder(
             ActionController controller,
@@ -103,6 +104,23 @@ namespace Game.Rules.Unity.Composition
         internal ActionController Controller { get; }
         internal CreatureComponent Creature { get; }
         internal CreatureId CreatureId => creatureState.Id;
+
+        /// <summary>Gets the compiled inputs after the prepared-rules module contributes them.</summary>
+        internal PreparedCreatureInputs PreparedInputs =>
+            preparedInputs
+            ?? throw new InvalidOperationException("Prepared inputs have not been compiled.");
+
+        /// <summary>Adds the one immutable prepared-rules compilation for this combatant.</summary>
+        internal void AddPreparedRules(
+            PreparedCreatureInputs inputs,
+            IEnumerable<ActiveRuleBinding> bindings
+        )
+        {
+            if (preparedInputs != null)
+                throw new InvalidOperationException("Prepared inputs were already contributed.");
+            preparedInputs = inputs ?? throw new ArgumentNullException(nameof(inputs));
+            AddRuleBindings(bindings);
+        }
 
         /// <summary>Retains reversible feature preparation until success or rollback.</summary>
         internal TResource Own<TResource>(TResource resource)
@@ -143,7 +161,15 @@ namespace Game.Rules.Unity.Composition
 
         /// <summary>Freezes the prepared base and feature contributions into one immutable state.</summary>
         internal CombatantRulesState BuildState() =>
-            new(creatureState, health, position, landSpeed, spellSlots, ruleBindings);
+            new(
+                creatureState,
+                health,
+                position,
+                landSpeed,
+                PreparedInputs,
+                spellSlots,
+                ruleBindings
+            );
     }
 
     /// <summary>Invokes explicitly supplied encounter modules without discovering features.</summary>

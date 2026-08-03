@@ -176,17 +176,13 @@ namespace Game.Rules.Unity.Strike
                     Math.Max(5, item.ReachFeet)
                 );
             Conditions conditions = defender.GetComponent<Conditions>();
-            if (conditions != null)
-            {
-                offGuard |= conditions
-                    .GetConditionNames()
-                    .Select(CreatureSlug.FromName)
-                    .Any(slug =>
-                        string.Equals(slug, "flat-footed", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(slug, "offguard", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(slug, "off-guard", StringComparison.OrdinalIgnoreCase)
-                    );
-            }
+            offGuard |=
+                conditions != null
+                && conditions.ActiveConditionNames.Any(condition =>
+                    string.Equals(condition, "flat-footed", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(condition, "offguard", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(condition, "off-guard", StringComparison.OrdinalIgnoreCase)
+                );
             return StrikeTargetingOutcome.Legal(
                 result.DistanceFeet,
                 result.RangePenalty,
@@ -226,20 +222,13 @@ namespace Game.Rules.Unity.Strike
                 attacker
             );
 
-            PreparedStrikeContributions prepared = UnityPreparedStrikeDataAdapter.Capture(
-                attacker,
-                defender,
-                item,
-                targeting,
-                snapshot,
-                actor
-            );
+            List<TypedDamageDice> extraDice = new();
             if (
                 attacker.TryGetComponent(out SpellEffectController spellEffects)
                 && spellEffects.HasEffect<InfuseVitalitySpellEffect>()
             )
             {
-                prepared.DamageDice.Add(
+                extraDice.Add(
                     new TypedDamageDice(new DiceExpression(1, 4), "vitality", "Infuse Vitality")
                 );
             }
@@ -250,10 +239,11 @@ namespace Game.Rules.Unity.Strike
                 // that late adapter change into a partially committed Strike.
                 Math.Max(1, ResolveArmorClass(defender, targeting)),
                 attackModifiers,
-                prepared.DamageDice,
-                prepared.FlatDamage,
-                UnityAttackDataAdapter.CaptureWeaknesses(defender),
-                UnityAttackDataAdapter.CaptureResistances(defender)
+                extraDice,
+                Array.Empty<TypedFlatDamage>(),
+                Array.Empty<TypedDamageImmunity>(),
+                Array.Empty<TypedDefenseAdjustment>(),
+                Array.Empty<TypedDefenseAdjustment>()
             );
         }
 
@@ -571,194 +561,5 @@ namespace Game.Rules.Unity.Strike
             public CreatureComponent Creature { get; }
             public string AmmoName { get; }
         }
-    }
-
-    internal sealed class PreparedStrikeContributions
-    {
-        public List<TypedDamageDice> DamageDice { get; } = new();
-        public List<TypedFlatDamage> FlatDamage { get; } = new();
-    }
-
-    internal static class UnityPreparedStrikeDataAdapter
-    {
-        public static PreparedStrikeContributions Capture(
-            CreatureComponent attacker,
-            CreatureComponent target,
-            StrikeItemDefinition item,
-            LegalStrikeTargetingOutcome targeting,
-            RulesSnapshot snapshot,
-            CreatureId actor
-        )
-        {
-            PreparedCharacter prepared = Pf2eCharacterPreparer.EnsurePrepared(attacker);
-            List<string> options = BuildOptions(prepared, target, item, targeting);
-            foreach (string option in RageRules.GetActiveRollOptions(snapshot, actor))
-                AddOption(options, option);
-            PreparedStrikeContributions result = new PreparedStrikeContributions();
-
-            List<RuleModifier> flatModifiers = prepared
-                .Modifiers.Where(modifier =>
-                    string.Equals(
-                        modifier.Selector,
-                        "strike-damage",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                )
-                .Where(modifier => Pf2ePredicate.Evaluate(modifier.Predicate, prepared, options))
-                .GroupBy(modifier => modifier.Slug, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.Last())
-                .ToList();
-            foreach (
-                RuleAdjustment adjustment in prepared
-                    .Adjustments.Where(adjustment =>
-                        string.Equals(
-                            adjustment.Selector,
-                            "strike-damage",
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                    .Where(adjustment =>
-                        Pf2ePredicate.Evaluate(adjustment.Predicate, prepared, options)
-                    )
-                    .OrderBy(adjustment => adjustment.Priority)
-            )
-            {
-                RuleModifier modifier = flatModifiers.LastOrDefault(candidate =>
-                    string.Equals(
-                        candidate.Slug,
-                        adjustment.Slug,
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                );
-                if (modifier == null)
-                    continue;
-                if (string.Equals(adjustment.Mode, "upgrade", StringComparison.OrdinalIgnoreCase))
-                    modifier.Value = Math.Max(modifier.Value, Mathf.RoundToInt(adjustment.Value));
-                else if (
-                    string.Equals(adjustment.Mode, "multiply", StringComparison.OrdinalIgnoreCase)
-                )
-                    modifier.Value = Mathf.FloorToInt(modifier.Value * adjustment.Value);
-            }
-
-            string primaryType = item.DamageDice[0].DamageType;
-            foreach (RuleModifier modifier in flatModifiers.Where(value => value.Value != 0))
-                result.FlatDamage.Add(
-                    new TypedFlatDamage(modifier.Value, primaryType, modifier.Slug)
-                );
-
-            if (!item.IsRanged)
-            {
-                RuleModifier ability = prepared.Modifiers.LastOrDefault(modifier =>
-                    string.Equals(
-                        modifier.Selector,
-                        "melee-strike-damage",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    && !string.IsNullOrWhiteSpace(modifier.Ability)
-                    && Pf2ePredicate.Evaluate(modifier.Predicate, prepared, options)
-                );
-                if (ability != null)
-                {
-                    int desired = GetAbilityModifier(attacker, ability.Ability);
-                    int existing = item.FlatDamage.Count == 0 ? 0 : item.FlatDamage[0].Amount;
-                    result.FlatDamage.Add(
-                        new TypedFlatDamage(desired - existing, primaryType, ability.Ability)
-                    );
-                }
-            }
-
-            foreach (
-                RuleDamageDice dice in prepared
-                    .DamageDice.Where(value =>
-                        string.Equals(
-                            value.Selector,
-                            "strike-damage",
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                    .Where(value => value.DiceNumber > 0 && value.DieSize > 0)
-                    .Where(value => Pf2ePredicate.Evaluate(value.Predicate, prepared, options))
-            )
-            {
-                result.DamageDice.Add(
-                    new TypedDamageDice(
-                        new DiceExpression(dice.DiceNumber, dice.DieSize),
-                        dice.Category ?? "precision",
-                        "Prepared damage dice"
-                    )
-                );
-            }
-            return result;
-        }
-
-        private static List<string> BuildOptions(
-            PreparedCharacter prepared,
-            CreatureComponent target,
-            StrikeItemDefinition item,
-            LegalStrikeTargetingOutcome targeting
-        )
-        {
-            List<string> options = new List<string>();
-            foreach (Trait trait in item.Traits)
-            {
-                AddOption(options, $"item:trait:{trait.Slug}");
-                if (trait.Slug == "ranged")
-                    AddOption(options, "item:ranged");
-                if (trait.Slug.StartsWith("thrown", StringComparison.Ordinal))
-                    AddOption(options, "item:thrown");
-            }
-            AddOption(options, $"item:slug:{item.Definition.Value}");
-            if (!string.IsNullOrWhiteSpace(item.Category))
-                AddOption(options, $"item:category:{item.Category}");
-            AddOption(options, $"item:damage:die:faces:{item.DamageDice[0].Dice.Sides}");
-            if (item.IsRanged)
-                AddOption(options, "item:ranged");
-            if (targeting.OffGuard)
-                AddOption(options, "target:condition:off-guard");
-
-            foreach (ItemAlterationRule alteration in prepared.ItemAlterations)
-            {
-                if (
-                    string.Equals(alteration.ItemType, "weapon", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(
-                        alteration.Property,
-                        "other-tags",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    && string.Equals(alteration.Mode, "add", StringComparison.OrdinalIgnoreCase)
-                    && Pf2ePredicate.Evaluate(alteration.Predicate, prepared, options)
-                )
-                    AddOption(options, $"item:tag:{alteration.Value}");
-            }
-            Conditions conditions = target.GetComponent<Conditions>();
-            if (conditions != null)
-            {
-                foreach (string condition in conditions.GetConditionNames())
-                {
-                    string slug = CreatureSlug.FromName(condition);
-                    if (!string.IsNullOrWhiteSpace(slug))
-                        AddOption(options, $"target:condition:{slug}");
-                }
-            }
-            return options;
-        }
-
-        private static void AddOption(ICollection<string> options, string option)
-        {
-            if (!options.Contains(option, StringComparer.OrdinalIgnoreCase))
-                options.Add(option);
-        }
-
-        private static int GetAbilityModifier(CreatureComponent creature, string ability) =>
-            ability?.ToLowerInvariant() switch
-            {
-                "str" => creature.strMod,
-                "dex" => creature.dexMod,
-                "con" => creature.conMod,
-                "int" => creature.intMod,
-                "wis" => creature.wisMod,
-                "cha" => creature.chaMod,
-                _ => 0,
-            };
     }
 }

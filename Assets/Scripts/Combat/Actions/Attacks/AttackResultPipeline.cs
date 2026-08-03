@@ -24,17 +24,6 @@ public abstract class StrikeAdjustmentBase : IStrikeAdjustment
     public abstract void Apply(StrikeResolutionContext context);
 }
 
-internal sealed class PreparedCharacterStrikeAdjustment : StrikeAdjustmentBase
-{
-    public PreparedCharacterStrikeAdjustment()
-        : base(StrikeAdjustmentPhase.PrepareProfile, 0, "Prepared character rules") { }
-
-    public override void Apply(StrikeResolutionContext context)
-    {
-        Pf2eRulesEngine.ApplyPreparedStrikeAdjustments(context);
-    }
-}
-
 internal sealed class MultipleAttackAndRangePenaltyAdjustment : StrikeAdjustmentBase
 {
     public MultipleAttackAndRangePenaltyAdjustment()

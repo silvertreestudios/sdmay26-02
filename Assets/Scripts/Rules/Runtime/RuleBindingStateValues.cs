@@ -354,8 +354,13 @@ namespace Game.Rules.Runtime
         public RuleSource Source { get; }
 
         /// <summary>
-        /// Gets the monotonic order assigned when the binding was created.
+        /// Gets the monotonic generation and ordering value assigned when the binding was created.
         /// </summary>
+        /// <remarks>
+        /// A stateless binding recreated under the same <see cref="Id"/> must use a value greater
+        /// than that ID's committed generation history. Effect-backed bindings remain governed by
+        /// active-effect lifecycle instead.
+        /// </remarks>
         public long CreationOrder { get; }
 
         /// <summary>
@@ -373,7 +378,9 @@ namespace Game.Rules.Runtime
         /// <param name="owner">The creature that owns or is authorized by the rule.</param>
         /// <param name="effectId">The associated active effect, when the rule has instance state.</param>
         /// <param name="source">The stable source stamped into later authorized work.</param>
-        /// <param name="creationOrder">A non-negative monotonic creation order.</param>
+        /// <param name="creationOrder">
+        /// A non-negative monotonic creation order that also identifies this binding generation.
+        /// </param>
         /// <param name="isEnabled">Whether the binding should currently participate.</param>
         public ActiveRuleBinding(
             BindingId id,

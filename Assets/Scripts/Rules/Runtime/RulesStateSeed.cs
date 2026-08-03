@@ -7,6 +7,8 @@ namespace Game.Rules.Runtime
     {
         internal Dictionary<CreatureId, CreatureState> Creatures { get; } =
             new Dictionary<CreatureId, CreatureState>();
+        internal Dictionary<CreatureId, PreparedCreatureInputs> PreparedInputs { get; } =
+            new Dictionary<CreatureId, PreparedCreatureInputs>();
         internal Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; } =
             new Dictionary<CreatureId, CreatureStatisticsState>();
         internal Dictionary<CreatureId, HealthState> Health { get; } =
@@ -35,6 +37,8 @@ namespace Game.Rules.Runtime
             new Dictionary<ActiveEffectId, ActiveEffectInstance>();
         internal Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; } =
             new Dictionary<BindingId, ActiveRuleBinding>();
+        internal Dictionary<BindingId, long> StatelessRuleBindingGenerations { get; } =
+            new Dictionary<BindingId, long>();
         internal Dictionary<BindingId, FrequencyState> Frequencies { get; } =
             new Dictionary<BindingId, FrequencyState>();
         internal Dictionary<EncounterId, EncounterState> Encounters { get; } =
@@ -69,6 +73,14 @@ namespace Game.Rules.Runtime
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
             Creatures[value.Id] = value;
+            return this;
+        }
+
+        /// <summary>Seeds immutable compiled inputs for one creature.</summary>
+        public RulesStateSeed SeedPreparedInputs(CreatureId creature, PreparedCreatureInputs value)
+        {
+            RequireCreatureId(creature, nameof(creature));
+            PreparedInputs[creature] = value ?? throw new ArgumentNullException(nameof(value));
             return this;
         }
 
@@ -225,7 +237,62 @@ namespace Game.Rules.Runtime
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
+            if (!value.EffectId.HasValue)
+            {
+                if (
+                    StatelessRuleBindingGenerations.TryGetValue(
+                        value.Id,
+                        out long existingGeneration
+                    )
+                    && value.CreationOrder < existingGeneration
+                )
+                {
+                    throw new ArgumentException(
+                        $"Stateless binding {value.Id.Value} generation {value.CreationOrder} is older than seeded generation {existingGeneration}.",
+                        nameof(value)
+                    );
+                }
+                StatelessRuleBindingGenerations[value.Id] = value.CreationOrder;
+            }
             RuleBindings[value.Id] = value;
+            return this;
+        }
+
+        /// <summary>
+        /// Seeds the latest committed generation for a stateless binding ID without making that
+        /// binding participate.
+        /// </summary>
+        /// <param name="binding">The stable stateless binding ID whose history is restored.</param>
+        /// <param name="generation">The non-negative highest committed creation order.</param>
+        /// <returns>This seed so deterministic state restoration can continue.</returns>
+        public RulesStateSeed SeedStatelessRuleBindingGeneration(BindingId binding, long generation)
+        {
+            if (binding.IsEmpty)
+                throw new ArgumentException("A binding ID is required.", nameof(binding));
+            if (generation < 0)
+                throw new ArgumentOutOfRangeException(nameof(generation));
+            if (
+                StatelessRuleBindingGenerations.TryGetValue(binding, out long existingGeneration)
+                && generation < existingGeneration
+            )
+            {
+                throw new ArgumentException(
+                    $"Stateless binding {binding.Value} generation history cannot move backward.",
+                    nameof(generation)
+                );
+            }
+            if (
+                RuleBindings.TryGetValue(binding, out ActiveRuleBinding active)
+                && !active.EffectId.HasValue
+                && generation != active.CreationOrder
+            )
+            {
+                throw new ArgumentException(
+                    $"Stateless binding {binding.Value} history must match its active generation.",
+                    nameof(generation)
+                );
+            }
+            StatelessRuleBindingGenerations[binding] = generation;
             return this;
         }
 

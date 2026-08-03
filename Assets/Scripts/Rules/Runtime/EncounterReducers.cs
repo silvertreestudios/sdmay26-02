@@ -211,6 +211,22 @@ namespace Game.Rules.Runtime
                 1,
                 null
             );
+            ActiveRuleBinding outcomeBinding = new ActiveRuleBinding(
+                outcomeBindingId,
+                EncounterRuleRuntime.OutcomeDefinitionId,
+                encounter.Roster[0].Creature,
+                null,
+                EncounterRuleRuntime.Source,
+                0
+            );
+            if (
+                !StatelessBindingReduction.CanCreate(
+                    state,
+                    outcomeBinding,
+                    out string generationRejection
+                )
+            )
+                return ReductionResult<EncounterStartOutcome>.Reject(generationRejection);
             List<ActiveEffectTimingState> adoptedTimings = new List<ActiveEffectTimingState>();
             HashSet<CreatureId> rosterCreatures = new HashSet<CreatureId>(
                 context.Op.Roster.Select(entry => entry.Creature)
@@ -251,17 +267,8 @@ namespace Game.Rules.Runtime
                 );
             }
             state.Encounters.Set(encounter.Id, encounter);
-            state.RuleBindings.Set(
-                outcomeBindingId,
-                new ActiveRuleBinding(
-                    outcomeBindingId,
-                    EncounterRuleRuntime.OutcomeDefinitionId,
-                    encounter.Roster[0].Creature,
-                    null,
-                    EncounterRuleRuntime.Source,
-                    0
-                )
-            );
+            state.RuleBindings.Set(outcomeBindingId, outcomeBinding);
+            StatelessBindingReduction.Record(state, outcomeBinding);
             foreach (ActiveEffectTimingState timing in adoptedTimings)
                 state.ActiveEffectTimings.Set(timing.Effect, timing);
             foreach (InitiativeEntry entry in encounter.Roster)
@@ -324,6 +331,7 @@ namespace Game.Rules.Runtime
                     );
                 if (
                     state.Creatures.Contains(entry.Creature)
+                    || state.PreparedInputs.Contains(entry.Creature)
                     || state.Health.Contains(entry.Creature)
                     || state.Positions.Contains(entry.Creature)
                     || state.LandSpeeds.Contains(entry.Creature)
@@ -346,18 +354,34 @@ namespace Game.Rules.Runtime
                         return ReductionResult<EncounterJoinOutcome>.Reject(
                             $"Rule binding {binding.Id.Value} is already registered."
                         );
+                    else if (
+                        !binding.EffectId.HasValue
+                        && !StatelessBindingReduction.CanCreate(
+                            state,
+                            binding,
+                            out string bindingGenerationRejection
+                        )
+                    )
+                        return ReductionResult<EncounterJoinOutcome>.Reject(
+                            bindingGenerationRejection
+                        );
             }
             foreach (InitiativeEntry entry in context.Op.Additions)
             {
                 CombatantRulesState registration = context.Op.Registrations[entry.Creature];
                 state.Creatures.Set(entry.Creature, registration.Creature);
+                state.PreparedInputs.Set(entry.Creature, registration.PreparedInputs);
                 state.Health.Set(entry.Creature, registration.Health);
                 state.Positions.Set(entry.Creature, registration.Position);
                 state.LandSpeeds.Set(entry.Creature, registration.LandSpeed);
                 foreach (SpellSlotState slot in registration.SpellSlots)
                     state.SpellSlots.Set(slot.Id, slot);
                 foreach (ActiveRuleBinding binding in registration.RuleBindings)
+                {
                     state.RuleBindings.Set(binding.Id, binding);
+                    if (!binding.EffectId.HasValue)
+                        StatelessBindingReduction.Record(state, binding);
+                }
             }
             InitiativeEntry[] roster = encounter
                 .Roster.Concat(context.Op.Additions)

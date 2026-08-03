@@ -12,6 +12,8 @@ namespace Game.Rules.Runtime
     {
         private readonly Dictionary<RuleDefinitionId, RuleDefinitionBuilder> definitions =
             new Dictionary<RuleDefinitionId, RuleDefinitionBuilder>();
+        private readonly Dictionary<RuleDefinitionId, PreparedRuleDefinitionSpec> preparedSpecs =
+            new Dictionary<RuleDefinitionId, PreparedRuleDefinitionSpec>();
 
         /// <summary>
         /// Starts one static rule definition.
@@ -32,6 +34,33 @@ namespace Game.Rules.Runtime
             RuleDefinitionBuilder definition = new RuleDefinitionBuilder(id);
             definitions.Add(id, definition);
             return definition;
+        }
+
+        /// <summary>
+        /// Defines or deduplicates one immutable prepared definition specification. The same ID may
+        /// be contributed by several creatures only when its complete provenance is identical.
+        /// </summary>
+        public RuleDefinitionBuilder Define(PreparedRuleDefinitionSpec specification)
+        {
+            if (specification == null)
+                throw new ArgumentNullException(nameof(specification));
+            if (definitions.TryGetValue(specification.Id, out RuleDefinitionBuilder existing))
+            {
+                if (
+                    preparedSpecs.TryGetValue(
+                        specification.Id,
+                        out PreparedRuleDefinitionSpec current
+                    ) && current.Equals(specification)
+                )
+                    return existing;
+                throw new InvalidOperationException(
+                    $"Rule definition {specification.Id.Value} has conflicting specifications."
+                );
+            }
+            RuleDefinitionBuilder created = Define(specification.Id);
+            preparedSpecs.Add(specification.Id, specification);
+            PreparedContributionRuntime.Configure(created, specification);
+            return created;
         }
 
         /// <summary>

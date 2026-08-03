@@ -272,6 +272,40 @@ namespace TestsUI
         }
 
         [UnityTest]
+        public IEnumerator MissingCombatManagerMakesHudCombatantPresentationInert()
+        {
+            CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
+            HUDController hud = HUDController.GetInstance();
+            VisualElement cardHolder = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    return cardHolder != null
+                        && cardHolder.childCount > 0
+                        && root.Query<VisualElement>(className: "btn-row").ToList().Count > 0;
+                }
+            );
+            Assert.That(cardHolder, Is.Not.Null);
+            Assert.That(cardHolder.childCount, Is.GreaterThan(0));
+            Assert.That(root.Query<VisualElement>(className: "btn-row").ToList(), Is.Not.Empty);
+
+            Object.Destroy(combatManager.gameObject);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => !CombatManagerInterface.TryGetInstance(out _)
+            );
+            Assert.That(CombatManagerInterface.TryGetInstance(out _), Is.False);
+
+            yield return null;
+
+            Assert.That(cardHolder.childCount, Is.Zero);
+            Assert.That(root.Query<VisualElement>(className: "btn-row").ToList(), Is.Empty);
+            Assert.That(hud.isActionRunning(), Is.False);
+        }
+
+        [UnityTest]
         public IEnumerator ExplorationGuidanceIsOwnedByExplorationMode()
         {
             player = CombatManagerInterface

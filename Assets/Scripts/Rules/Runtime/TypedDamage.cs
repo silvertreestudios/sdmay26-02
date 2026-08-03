@@ -86,6 +86,22 @@ namespace Game.Rules.Runtime
         public int Amount { get; }
     }
 
+    /// <summary>Describes one exact damage-type immunity.</summary>
+    public sealed class TypedDamageImmunity
+    {
+        /// <summary>Creates a normalized damage-type immunity.</summary>
+        /// <param name="damageType">The non-empty damage type slug.</param>
+        public TypedDamageImmunity(string damageType)
+        {
+            if (string.IsNullOrWhiteSpace(damageType))
+                throw new ArgumentException("A damage type is required.", nameof(damageType));
+            DamageType = damageType.Trim();
+        }
+
+        /// <summary>Gets the damage type matched case-insensitively.</summary>
+        public string DamageType { get; }
+    }
+
     /// <summary>Contains one final typed damage amount and its contributing sources.</summary>
     public sealed class TypedDamagePart
     {
@@ -118,6 +134,7 @@ namespace Game.Rules.Runtime
             IEnumerable<TypedFlatDamage> flatDamage,
             IEnumerable<TypedDamageDice> criticalOnlyDice,
             DegreeOfSuccess degree,
+            IEnumerable<TypedDamageImmunity> immunities,
             IEnumerable<TypedDefenseAdjustment> weaknesses,
             IEnumerable<TypedDefenseAdjustment> resistances,
             IRollService rolls
@@ -129,6 +146,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(flatDamage));
             if (criticalOnlyDice == null)
                 throw new ArgumentNullException(nameof(criticalOnlyDice));
+            if (immunities == null)
+                throw new ArgumentNullException(nameof(immunities));
             if (weaknesses == null)
                 throw new ArgumentNullException(nameof(weaknesses));
             if (resistances == null)
@@ -164,6 +183,19 @@ namespace Game.Rules.Runtime
 
             foreach (DamageGroup group in groups.Values)
             {
+                if (
+                    immunities.Any(value =>
+                        string.Equals(
+                            value.DamageType,
+                            group.DamageType,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                )
+                {
+                    group.Amount = 0;
+                    continue;
+                }
                 TypedDefenseAdjustment weakness = weaknesses.FirstOrDefault(value =>
                     string.Equals(
                         value.DamageType,

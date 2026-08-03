@@ -4,6 +4,9 @@ namespace Game.Rules.Runtime
     {
         public StateSliceDraft<CreatureId, CreatureState> Creatures { get; }
 
+        /// <summary>Gets write access to immutable prepared inputs during registration only.</summary>
+        public StateSliceDraft<CreatureId, PreparedCreatureInputs> PreparedInputs { get; }
+
         /// <summary>
         /// Gets transaction-scoped write access to creature statistics and modifier inputs.
         /// </summary>
@@ -50,6 +53,12 @@ namespace Game.Rules.Runtime
         /// Gets controlled write access to rule bindings for the current reducer transaction.
         /// </summary>
         public StateSliceDraft<BindingId, ActiveRuleBinding> RuleBindings { get; }
+
+        /// <summary>
+        /// Gets controlled write access to stateless binding generation high-water marks. These
+        /// entries authorize lifecycle identity checks but never participate as rule bindings.
+        /// </summary>
+        public StateSliceDraft<BindingId, long> StatelessRuleBindingGenerations { get; }
         public StateSliceDraft<BindingId, FrequencyState> Frequencies { get; }
 
         /// <summary>Gets transaction-scoped access to authoritative encounter clocks.</summary>
@@ -63,6 +72,10 @@ namespace Game.Rules.Runtime
             Creatures = new StateSliceDraft<CreatureId, CreatureState>(
                 data.Creatures,
                 (id, value) => !id.IsEmpty && value != null && id == value.Id
+            );
+            PreparedInputs = new StateSliceDraft<CreatureId, PreparedCreatureInputs>(
+                data.PreparedInputs,
+                (id, value) => !id.IsEmpty && value != null
             );
             Statistics = new StateSliceDraft<CreatureId, CreatureStatisticsState>(
                 data.Statistics,
@@ -120,6 +133,10 @@ namespace Game.Rules.Runtime
                 data.RuleBindings,
                 (id, value) => !id.IsEmpty && value != null && id == value.Id
             );
+            StatelessRuleBindingGenerations = new StateSliceDraft<BindingId, long>(
+                data.StatelessRuleBindingGenerations,
+                (id, value) => !id.IsEmpty && value >= 0
+            );
             Frequencies = new StateSliceDraft<BindingId, FrequencyState>(
                 data.Frequencies,
                 (id, value) => !id.IsEmpty
@@ -136,6 +153,7 @@ namespace Game.Rules.Runtime
 
         internal bool IsDirty =>
             Creatures.IsDirty
+            || PreparedInputs.IsDirty
             || Statistics.IsDirty
             || Health.IsDirty
             || Positions.IsDirty
@@ -150,6 +168,7 @@ namespace Game.Rules.Runtime
             || Equipment.IsDirty
             || ActiveEffects.IsDirty
             || RuleBindings.IsDirty
+            || StatelessRuleBindingGenerations.IsDirty
             || Frequencies.IsDirty
             || Encounters.IsDirty
             || ActiveEffectTimings.IsDirty;
@@ -159,6 +178,7 @@ namespace Game.Rules.Runtime
             return new RulesStateData(
                 version,
                 Creatures.BuildCommittedValues(),
+                PreparedInputs.BuildCommittedValues(),
                 Statistics.BuildCommittedValues(),
                 Health.BuildCommittedValues(),
                 Positions.BuildCommittedValues(),
@@ -173,6 +193,7 @@ namespace Game.Rules.Runtime
                 Equipment.BuildCommittedValues(),
                 ActiveEffects.BuildCommittedValues(),
                 RuleBindings.BuildCommittedValues(),
+                StatelessRuleBindingGenerations.BuildCommittedValues(),
                 Frequencies.BuildCommittedValues(),
                 Encounters.BuildCommittedValues(),
                 ActiveEffectTimings.BuildCommittedValues()

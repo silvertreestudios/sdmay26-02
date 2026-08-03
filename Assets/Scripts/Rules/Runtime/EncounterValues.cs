@@ -132,6 +132,7 @@ namespace Game.Rules.Runtime
                 initialHealth,
                 new GridPosition(0, 0, 0),
                 new GridDistance(0),
+                PreparedCreatureInputs.Empty,
                 Array.Empty<SpellSlotState>(),
                 Array.Empty<ActiveRuleBinding>()
             );

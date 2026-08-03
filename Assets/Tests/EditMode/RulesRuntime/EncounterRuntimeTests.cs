@@ -25,6 +25,9 @@ namespace Game.Rules.Runtime.Tests
             /// <summary>The creature identity slice.</summary>
             Creature,
 
+            /// <summary>The immutable prepared-input slice.</summary>
+            PreparedInputs,
+
             /// <summary>The health slice.</summary>
             Health,
 
@@ -737,6 +740,7 @@ namespace Game.Rules.Runtime.Tests
             InitiativeEntry reinforcement = joined.Roster.Single(entry =>
                 entry.Creature == Reinforcement
             );
+            Assert.That(dispatcher.Snapshot.PreparedInputs.Contains(Reinforcement), Is.True);
             EncounterState enemyTurn = Resolved(
                 await dispatcher.Dispatch(new EndTurnOp(heroTurn.CurrentTurn.Value))
             ).Value.State;
@@ -751,6 +755,7 @@ namespace Game.Rules.Runtime.Tests
 
         /// <summary>Verifies every join-owned state slice is preflighted before any write.</summary>
         [TestCase(JoinRegistrationCollision.Creature)]
+        [TestCase(JoinRegistrationCollision.PreparedInputs)]
         [TestCase(JoinRegistrationCollision.Health)]
         [TestCase(JoinRegistrationCollision.Position)]
         [TestCase(JoinRegistrationCollision.LandSpeed)]
@@ -779,6 +784,7 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(3, 0, 2),
                 new GridDistance(25),
+                PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slotId, Reinforcement, 1, 1) },
                 new[] { binding }
             );
@@ -787,6 +793,9 @@ namespace Game.Rules.Runtime.Tests
             {
                 case JoinRegistrationCollision.Creature:
                     seed.SeedCreature(new CreatureState(Reinforcement, Enemies));
+                    break;
+                case JoinRegistrationCollision.PreparedInputs:
+                    seed.SeedPreparedInputs(Reinforcement, PreparedCreatureInputs.Empty);
                     break;
                 case JoinRegistrationCollision.Health:
                     seed.SeedHealth(Reinforcement, new HealthState(7, 10));
@@ -961,6 +970,71 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Snapshot.Encounters[Encounter].Roster,
                 Is.EqualTo(before.Encounters[Encounter].Roster)
             );
+        }
+
+        [Test]
+        public void ReinforcementRegistrationAdvancesStatelessBindingGenerationHistory()
+        {
+            BindingId bindingId = new BindingId("reinforcement-generation-binding");
+            SpellSlotPoolId slotId = new SpellSlotPoolId("reinforcement-generation-slot");
+            InitiativeEntry hero = Entry(Hero, Players, 15, 0);
+            EncounterState active = new EncounterState(
+                Encounter,
+                EncounterPhase.Active,
+                Players,
+                RoundNumber.First,
+                new[] { hero },
+                0,
+                new TurnIdentity(Encounter, new TurnId(1), Hero, RoundNumber.First, 0),
+                2,
+                null
+            );
+            InitiativeEntry addition = new InitiativeEntry(
+                Reinforcement,
+                Enemies,
+                10,
+                0,
+                1,
+                RoundNumber.First
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed()
+                    .SeedEncounter(active)
+                    .SeedStatelessRuleBindingGeneration(bindingId, 3)
+            );
+
+            ReductionResult<EncounterJoinOutcome> stale = Commit(
+                CreateJoinRegistration(Reinforcement, slotId, bindingId, 3)
+            );
+            Assert.That(stale.IsRejected, Is.True);
+            Assert.That(stale.Facts, Is.Empty);
+            Assert.That(store.Snapshot.RuleBindings, Is.Empty);
+            Assert.That(store.Snapshot.StatelessRuleBindingGenerations[bindingId], Is.EqualTo(3));
+
+            ReductionResult<EncounterJoinOutcome> current = Commit(
+                CreateJoinRegistration(Reinforcement, slotId, bindingId, 4)
+            );
+            Assert.That(current.IsAccepted, Is.True);
+            Assert.That(current.Snapshot.RuleBindings[bindingId].CreationOrder, Is.EqualTo(4));
+            Assert.That(current.Snapshot.StatelessRuleBindingGenerations[bindingId], Is.EqualTo(4));
+
+            ReductionResult<EncounterJoinOutcome> Commit(CombatantRulesState registration) =>
+                store.Reduce(
+                    new ReductionContext<CommitEncounterJoinOp>(
+                        new CommitEncounterJoinOp(
+                            Encounter,
+                            Array.AsReadOnly(new[] { addition }),
+                            new Dictionary<CreatureId, CombatantRulesState>
+                            {
+                                [Reinforcement] = registration,
+                            }
+                        ),
+                        new OpId(2),
+                        new OpId(1),
+                        Source
+                    ),
+                    new CommitEncounterJoinReducer()
+                );
         }
 
         [Test]
@@ -1758,13 +1832,15 @@ namespace Game.Rules.Runtime.Tests
         private static CombatantRulesState CreateJoinRegistration(
             CreatureId creature,
             SpellSlotPoolId slot,
-            BindingId binding
+            BindingId binding,
+            long creationOrder = 0
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, Enemies),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
+                PreparedCreatureInputs.Empty,
                 new[] { new SpellSlotState(slot, creature, 1, 1) },
                 new[]
                 {
@@ -1774,7 +1850,7 @@ namespace Game.Rules.Runtime.Tests
                         creature,
                         null,
                         Source,
-                        0,
+                        creationOrder,
                         false
                     ),
                 }

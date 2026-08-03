@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
@@ -30,13 +31,71 @@ public sealed class RulesRageUnityTests
         CreatureComponent creature = CreateBarbarian();
         RageTestActionController controller =
             creature.gameObject.AddComponent<RageTestActionController>();
+        CreatureComponent opponent = CreateBarbarian();
+        RageTestActionController opponentController =
+            opponent.gameObject.AddComponent<RageTestActionController>();
 
-        creature.InitializeRuntimeActions();
-        creature.InitializeRuntimeActions();
+        UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
 
         Assert.That(
             controller.GetActions().FindAll(action => action is RulesRageAction),
             Has.Count.EqualTo(1)
+        );
+    }
+
+    [Test]
+    public void ReusedControllerReplacesOrRemovesEncounterOwnedRageAction()
+    {
+        CreatureComponent creature = CreateBarbarian();
+        RageTestActionController controller =
+            creature.gameObject.AddComponent<RageTestActionController>();
+        CreatureComponent opponent = CreateBarbarian();
+        RageTestActionController opponentController =
+            opponent.gameObject.AddComponent<RageTestActionController>();
+
+        UnityCombatRulesBridge first = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
+        CreatureId firstId = first.GetCreatureId(controller);
+        RulesRageAction firstAction = controller.GetActions().OfType<RulesRageAction>().Single();
+        first.ReleaseOwnership();
+
+        UnityCombatRulesBridge second = UnityCombatRulesBridge.Create(
+            new ActionController[] { opponentController, controller },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
+        CreatureId secondId = second.GetCreatureId(controller);
+        RulesRageAction secondAction = controller.GetActions().OfType<RulesRageAction>().Single();
+
+        Assert.That(secondId, Is.Not.EqualTo(firstId));
+        Assert.That(secondAction, Is.Not.SameAs(firstAction));
+        second.ReleaseOwnership();
+
+        creature.Build = new CharacterBuild
+        {
+            ClassName = "Rogue",
+            SubclassName = "Thief",
+            ClassFeatName = "Nimble Dodge",
+        };
+        UnityCombatRulesBridge third = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            CreateTiles(),
+            new ScriptedRollService(10)
+        );
+
+        Assert.That(controller.GetActions().OfType<RulesRageAction>(), Is.Empty);
+        Assert.That(
+            third
+                .Snapshot.PreparedInputs[third.GetCreatureId(controller)]
+                .BoundOptions.Any(option => option.Option == "item:owned:rage"),
+            Is.False
         );
     }
 
@@ -82,12 +141,11 @@ public sealed class RulesRageUnityTests
     }
 
     [Test]
-    public void LowercaseImportedConditionsBlockRageAndQuickTempered()
+    public void ConditionsAddedAfterEnrollmentBlockRageAndQuickTemperedWithoutStaticOptions()
     {
         CreatureComponent fatiguedCreature = CreateBarbarian();
         SetTeam(fatiguedCreature.gameObject, "players");
         Conditions fatiguedConditions = fatiguedCreature.gameObject.AddComponent<Conditions>();
-        fatiguedConditions.Add("fatigued", new ConditionSource());
         RageTestActionController fatiguedController =
             fatiguedCreature.gameObject.AddComponent<RageTestActionController>();
         CreatureComponent encumberedCreature = CreateBarbarian();
@@ -103,13 +161,37 @@ public sealed class RulesRageUnityTests
         );
         CreatureId fatiguedActor = bridge.GetCreatureId(fatiguedCreature);
         CreatureId encumberedActor = bridge.GetCreatureId(encumberedCreature);
+        ConditionSource fatiguedSource = new ConditionSource();
+        fatiguedConditions.Add("fatigued", fatiguedSource);
         bridge.StartEncounter("players");
 
+        Assert.That(
+            bridge
+                .Snapshot.PreparedInputs[fatiguedActor]
+                .StaticOptions.Any(option =>
+                    option.StartsWith("self:condition:", System.StringComparison.Ordinal)
+                ),
+            Is.False
+        );
+        Assert.That(
+            bridge
+                .Snapshot.PreparedInputs[encumberedActor]
+                .StaticOptions.Any(option =>
+                    option.StartsWith("self:condition:", System.StringComparison.Ordinal)
+                ),
+            Is.False
+        );
         Assert.That(
             bridge.Dispatch(new RageActionOp(fatiguedActor)),
             Is.TypeOf<InvalidOpResult<RageStartOutcome>>()
         );
         Assert.That(RageRules.IsRaging(bridge.Snapshot, encumberedActor), Is.False);
+
+        fatiguedConditions.Remove("fatigued", fatiguedSource);
+        Assert.That(
+            bridge.Dispatch(new RageActionOp(fatiguedActor)),
+            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+        );
     }
 
     private CreatureComponent CreateBarbarian()

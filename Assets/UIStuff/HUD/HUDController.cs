@@ -90,7 +90,7 @@ public class HUDController
     private bool canCancelAction = true;
 
     private static List<GameObject> Players;
-    private static bool IsActive = false;
+    private bool isActive;
 
     private CombatLogInterface combatLog;
 
@@ -296,7 +296,7 @@ public class HUDController
 
         if (TryGetInstance(out HUDController instance) && instance == this)
         {
-            IsActive = false;
+            isActive = false;
             Players = null;
             currentTurnAC = null;
             isDungeonExploration = false;
@@ -371,16 +371,23 @@ public class HUDController
         HUDController hud = GetInstance();
         hud.needToUpdateCards = true;
         hud.isDungeonExploration = false;
-        IsActive = true;
+        hud.isActive = true;
     }
 
     void Update()
     {
-        if (!IsActive)
+        if (!isActive)
             return;
+
+        if (!CombatManagerInterface.TryGetInstance(out CombatManagerInterface combatManager))
+        {
+            RevokeCombatManagerAuthority();
+            return;
+        }
+
         List<GameObject> currentCombatants = isDungeonExploration
             ? Players
-            : CombatManagerInterface.GetInstance().GetCombatants();
+            : combatManager.GetCombatants();
         if (Players == null)
         {
             Players = currentCombatants;
@@ -436,7 +443,32 @@ public class HUDController
 
         UpdatePlayerCardHealth();
         if (!isDungeonExploration)
-            updatePlayerQueueCards();
+            updatePlayerQueueCards(combatManager);
+    }
+
+    private void RevokeCombatManagerAuthority()
+    {
+        // The manager is the only combatant authority. Keep non-combat HUD surfaces alive, but
+        // require an explicit Setup or ShowExploration call before combatant UI can run again.
+        isActive = false;
+        Players = null;
+        currentTurnAC = null;
+        isDungeonExploration = false;
+        trySelectExplorationLeader = _ => false;
+        canCancelAction = true;
+
+        if (slideCoroutine != null)
+        {
+            StopCoroutine(slideCoroutine);
+            slideCoroutine = null;
+        }
+
+        SetSelectedButton(null);
+        ClearAllRows();
+        cardHolder?.Clear();
+        ShowTacticsUnavailable();
+        DismissStairTraversal();
+        UpdateHudButtonStates();
     }
 
     // Card Logic attempt by Ryan
@@ -960,7 +992,7 @@ public class HUDController
 
         EnableUi();
         isDungeonExploration = true;
-        IsActive = true;
+        isActive = true;
         Players = party.Select(controller => controller.gameObject).ToList();
         needToUpdateCards = true;
         currentTurnAC = selected;
@@ -979,7 +1011,7 @@ public class HUDController
     public void HideExploration()
     {
         isDungeonExploration = false;
-        IsActive = false;
+        isActive = false;
         needToUpdateCards = true;
         currentTurnAC = null;
         trySelectExplorationLeader = _ => false;
@@ -1219,17 +1251,11 @@ public class HUDController
         return currentTurnAC != null && currentTurnAC.IsTakingAction;
     }
 
-    private void updatePlayerQueueCards()
+    private void updatePlayerQueueCards(CombatManagerInterface combatManager)
     {
         if (cardHolder == null || Players == null)
             return;
-        CombatManagerInterface cm = CombatManager.GetInstance();
-        if (cm == null)
-        {
-            Debug.LogWarning("CombatManager is null");
-            return;
-        }
-        GameObject turnGO = cm.WhosTurn();
+        GameObject turnGO = combatManager.WhosTurn();
         if (turnGO == null)
         {
             Debug.LogWarning("WhosTurn returned null");

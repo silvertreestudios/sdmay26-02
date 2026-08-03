@@ -63,6 +63,7 @@ namespace Game.Creature
         public List<SkillValue> skills;
         public WeaknessDto[] weaknesses;
         public ResistanceDto[] resistances;
+        public ImmunityDto[] immunities;
     }
 
     [Serializable]
@@ -140,6 +141,12 @@ namespace Game.Creature
     {
         public string type;
         public int value;
+    }
+
+    [Serializable]
+    public class ImmunityDto
+    {
+        public string type;
     }
 
     // Action DTOs
@@ -405,6 +412,13 @@ namespace Game.Creature
             {
                 foreach (var r in resistanceEntries)
                     target.resistances.Add(new DamageValue(r.type, r.value));
+            }
+            target.immunities.Clear();
+            if (dto.system.immunities != null)
+            {
+                foreach (ImmunityDto immunity in dto.system.immunities)
+                    if (!string.IsNullOrWhiteSpace(immunity.type))
+                        target.immunities.Add(immunity.type);
             }
 
             // Actions - Standard (store action names)

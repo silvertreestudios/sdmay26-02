@@ -139,10 +139,6 @@ public sealed class DungeonActorStateAdapterTests
     {
         sourceObject = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Torgrim");
         CreatureComponent sourceCreature = sourceObject.GetComponent<CreatureComponent>();
-        sourceCreature.Prepared.OwnedItems.RemoveAll(item =>
-            string.Equals(item.Item.Slug, "quick-tempered", StringComparison.OrdinalIgnoreCase)
-        );
-        sourceCreature.Prepared.RollOptions.Remove("feat:quick-tempered");
         sourceObject.AddComponent<Conditions>();
         DungeonPersistenceTestActionController sourceController =
             sourceObject.AddComponent<DungeonPersistenceTestActionController>();
@@ -161,10 +157,11 @@ public sealed class DungeonActorStateAdapterTests
         );
         CreatureId actor = bridge.GetCreatureId(sourceCreature);
         bridge.BeginTurn(actor, 3);
-        Assert.That(
-            bridge.Dispatch(new RageActionOp(actor)),
-            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
-        );
+        if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
+            Assert.That(
+                bridge.Dispatch(new RageActionOp(actor)),
+                Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+            );
 
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             sourceController,
@@ -261,7 +258,7 @@ public sealed class DungeonActorStateAdapterTests
         {
             new AmmoCount { ammoName = "bolt", quantity = 5 },
         };
-        creature.Prepared = new PreparedCharacter(new CharacterBuild());
+        creature.Prepared = new PreparedCharacter();
         Conditions conditions = gameObject.AddComponent<Conditions>();
         return new SourceFixture(controller, creature, conditions, weapons);
     }

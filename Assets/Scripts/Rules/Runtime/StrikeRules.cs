@@ -267,15 +267,24 @@ namespace Game.Rules.Runtime
         private readonly IReadOnlyList<Modifier> attackModifiers;
         private readonly IReadOnlyList<TypedDamageDice> damageDice;
         private readonly IReadOnlyList<TypedFlatDamage> flatDamage;
+        private readonly IReadOnlyList<TypedDamageImmunity> immunities;
         private readonly IReadOnlyList<TypedDefenseAdjustment> weaknesses;
         private readonly IReadOnlyList<TypedDefenseAdjustment> resistances;
 
         /// <summary>Creates one frozen resolution-data snapshot.</summary>
+        /// <param name="armorClass">The target Armor Class for this resolution.</param>
+        /// <param name="attackModifiers">Current non-item attack modifiers.</param>
+        /// <param name="damageDice">Additional typed damage dice.</param>
+        /// <param name="flatDamage">Additional typed flat damage.</param>
+        /// <param name="immunities">Target damage-type immunities.</param>
+        /// <param name="weaknesses">Target typed weaknesses.</param>
+        /// <param name="resistances">Target typed resistances.</param>
         public StrikeResolutionData(
             int armorClass,
             IEnumerable<Modifier> attackModifiers,
             IEnumerable<TypedDamageDice> damageDice,
             IEnumerable<TypedFlatDamage> flatDamage,
+            IEnumerable<TypedDamageImmunity> immunities,
             IEnumerable<TypedDefenseAdjustment> weaknesses,
             IEnumerable<TypedDefenseAdjustment> resistances
         )
@@ -294,6 +303,7 @@ namespace Game.Rules.Runtime
             this.attackModifiers = Array.AsReadOnly(copiedModifiers);
             this.damageDice = Copy(damageDice, nameof(damageDice));
             this.flatDamage = Copy(flatDamage, nameof(flatDamage));
+            this.immunities = Copy(immunities, nameof(immunities));
             this.weaknesses = Copy(weaknesses, nameof(weaknesses));
             this.resistances = Copy(resistances, nameof(resistances));
         }
@@ -313,11 +323,40 @@ namespace Game.Rules.Runtime
         /// <summary>Gets prepared flat damage contributions.</summary>
         public IReadOnlyList<TypedFlatDamage> FlatDamage => flatDamage;
 
+        /// <summary>Gets target damage-type immunities.</summary>
+        public IReadOnlyList<TypedDamageImmunity> Immunities => immunities;
+
         /// <summary>Gets target weaknesses.</summary>
         public IReadOnlyList<TypedDefenseAdjustment> Weaknesses => weaknesses;
 
         /// <summary>Gets target resistances.</summary>
         public IReadOnlyList<TypedDefenseAdjustment> Resistances => resistances;
+
+        internal StrikeResolutionData WithPreparedContributions(
+            IEnumerable<TypedDamageDice> extraDice,
+            IEnumerable<TypedFlatDamage> extraFlat,
+            IEnumerable<TypedDamageImmunity> preparedImmunities,
+            IEnumerable<TypedDefenseAdjustment> preparedWeaknesses,
+            IEnumerable<TypedDefenseAdjustment> preparedResistances
+        ) =>
+            new(
+                ArmorClass,
+                AttackModifiers,
+                DamageDice.Concat(extraDice ?? throw new ArgumentNullException(nameof(extraDice))),
+                FlatDamage.Concat(extraFlat ?? throw new ArgumentNullException(nameof(extraFlat))),
+                Immunities.Concat(
+                    preparedImmunities
+                        ?? throw new ArgumentNullException(nameof(preparedImmunities))
+                ),
+                Weaknesses.Concat(
+                    preparedWeaknesses
+                        ?? throw new ArgumentNullException(nameof(preparedWeaknesses))
+                ),
+                Resistances.Concat(
+                    preparedResistances
+                        ?? throw new ArgumentNullException(nameof(preparedResistances))
+                )
+            );
 
         private static IReadOnlyList<T> Copy<T>(IEnumerable<T> values, string parameterName)
             where T : class
@@ -974,6 +1013,7 @@ namespace Game.Rules.Runtime
                 frame.Op.Target,
                 legal
             );
+            data = await AddPreparedContributions(frame, context, item, legal, data);
             if (
                 !context.Snapshot.MultipleAttackPenalty.TryGet(
                     frame.Op.Actor,
@@ -987,6 +1027,142 @@ namespace Game.Rules.Runtime
             int mapPenalty = MultipleAttackPenaltyResolver.Resolve(priorAttacks, item.IsAgile);
             return await Resolve(frame, item, data, legal, mapPenalty, context);
         }
+
+        private static async ValueTask<StrikeResolutionData> AddPreparedContributions(
+            OpFrame<ResolveStrikeOp> frame,
+            OpHandlerContext context,
+            StrikeItemDefinition item,
+            LegalStrikeTargetingOutcome targeting,
+            StrikeResolutionData data
+        )
+        {
+            if (
+                !context.Snapshot.PreparedInputs.TryGet(
+                    frame.Op.Actor,
+                    out PreparedCreatureInputs actorInputs
+                )
+            )
+                throw new InvalidOperationException("The Strike actor has no prepared inputs.");
+            if (
+                !context.Snapshot.PreparedInputs.TryGet(
+                    frame.Op.Target,
+                    out PreparedCreatureInputs targetInputs
+                )
+            )
+                throw new InvalidOperationException("The Strike target has no prepared inputs.");
+            string[] targetConditions = targeting.OffGuard
+                ? new[] { "off-guard" }
+                : Array.Empty<string>();
+            PreparedContributionContext baseContext = new(
+                item.Definition.Value,
+                item.Category,
+                item.IsRanged,
+                item.DamageDice[0].Dice.Sides,
+                item.Traits.Select(trait => trait.Slug),
+                Array.Empty<string>(),
+                targetConditions
+            );
+            OpResult<IReadOnlyList<PreparedItemAlterationSpec>> alterationResult =
+                await context.Dispatch(
+                    new CollectPreparedItemAlterationsOp(
+                        frame.Op.Actor,
+                        "weapon",
+                        "other-tags",
+                        baseContext
+                    )
+                );
+            if (
+                alterationResult
+                is not ResolvedOpResult<IReadOnlyList<PreparedItemAlterationSpec>> alterations
+            )
+                throw new InvalidOperationException("Prepared item alterations did not resolve.");
+            string[] tags = alterations
+                .Value.Where(value =>
+                    string.Equals(value.Mode, "add", StringComparison.OrdinalIgnoreCase)
+                )
+                .Select(value => value.Value)
+                .ToArray();
+            PreparedContributionContext finalContext = new(
+                item.Definition.Value,
+                item.Category,
+                item.IsRanged,
+                item.DamageDice[0].Dice.Sides,
+                item.Traits.Select(trait => trait.Slug),
+                tags,
+                targetConditions
+            );
+            IReadOnlyList<PreparedModifierValue> flat = RequireResolved(
+                await context.Dispatch(
+                    new CollectPreparedModifiersOp(frame.Op.Actor, "strike-damage", finalContext)
+                ),
+                "Prepared Strike modifiers"
+            );
+            List<TypedFlatDamage> extraFlat = flat.Where(value => value.Value != 0)
+                .Select(value => new TypedFlatDamage(
+                    value.Value,
+                    item.DamageDice[0].DamageType,
+                    value.Slug
+                ))
+                .ToList();
+            if (!item.IsRanged)
+            {
+                PreparedModifierValue ability = RequireResolved(
+                        await context.Dispatch(
+                            new CollectPreparedModifiersOp(
+                                frame.Op.Actor,
+                                "melee-strike-damage",
+                                finalContext
+                            )
+                        ),
+                        "Prepared melee modifiers"
+                    )
+                    .LastOrDefault(value => !string.IsNullOrWhiteSpace(value.Ability));
+                if (ability != null)
+                {
+                    int current = item.FlatDamage.Count == 0 ? 0 : item.FlatDamage[0].Amount;
+                    extraFlat.Add(
+                        new TypedFlatDamage(
+                            actorInputs.Abilities.Get(ability.Ability) - current,
+                            item.DamageDice[0].DamageType,
+                            ability.Ability
+                        )
+                    );
+                }
+            }
+            IReadOnlyList<PreparedDamageDiceSpec> dice = RequireResolved(
+                await context.Dispatch(
+                    new CollectPreparedDamageDiceOp(frame.Op.Actor, "strike-damage", finalContext)
+                ),
+                "Prepared damage dice"
+            );
+            return data.WithPreparedContributions(
+                dice.Select(value => new TypedDamageDice(
+                    new DiceExpression(value.DiceNumber, value.DieSize),
+                    value.Category,
+                    "Prepared damage dice"
+                )),
+                extraFlat,
+                targetInputs
+                    .Immunities.Where(value => value.Kind == PreparedImmunityKind.Damage)
+                    .Select(value => new TypedDamageImmunity(value.Type)),
+                targetInputs.Weaknesses.Select(value => new TypedDefenseAdjustment(
+                    value.Type,
+                    value.Value
+                )),
+                targetInputs.Resistances.Select(value => new TypedDefenseAdjustment(
+                    value.Type,
+                    value.Value
+                ))
+            );
+        }
+
+        private static IReadOnlyList<T> RequireResolved<T>(
+            OpResult<IReadOnlyList<T>> result,
+            string operation
+        ) =>
+            result is ResolvedOpResult<IReadOnlyList<T>> resolved
+                ? resolved.Value
+                : throw new InvalidOperationException($"{operation} did not resolve.");
 
         private static async ValueTask<StrikeResolution> Resolve(
             OpFrame<ResolveStrikeOp> frame,
@@ -1094,6 +1270,7 @@ namespace Game.Rules.Runtime
                 item.FlatDamage.Concat(data.FlatDamage),
                 criticalOnlyDice,
                 degree,
+                data.Immunities,
                 data.Weaknesses,
                 data.Resistances,
                 rolls

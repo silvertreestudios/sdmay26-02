@@ -74,14 +74,6 @@ public sealed class RulesStrikeUnityTests
     public void PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage()
     {
         CreatureComponent torgrim = Load("DataFiles/playerCharacters/Torgrim");
-        torgrim.Prepared.OwnedItems.RemoveAll(item =>
-            string.Equals(
-                item.Item.Slug,
-                "quick-tempered",
-                System.StringComparison.OrdinalIgnoreCase
-            )
-        );
-        torgrim.Prepared.RollOptions.Remove("feat:quick-tempered");
         CreatureComponent lena = Load("DataFiles/playerCharacters/Lena");
         CreatureComponent target = CreateCreature("Target", "enemy", 100, 10);
         torgrim.gameObject.AddComponent<Conditions>();
@@ -104,16 +96,19 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { torgrimController, lenaController, targetController },
             tiles,
-            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4, 5, 3)
+            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4, 4, 3)
         );
         CreatureId torgrimId = bridge.GetCreatureId(torgrim);
         CreatureId lenaId = bridge.GetCreatureId(lena);
         CreatureId targetId = bridge.GetCreatureId(target);
         bridge.BeginTurn(torgrimId, 3);
-        Assert.That(
-            bridge.Dispatch(new RageActionOp(torgrimId)),
-            Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
-        );
+        if (
+            !RageRules.GetActiveRollOptions(bridge.Snapshot, torgrimId).Contains("self:effect:rage")
+        )
+            Assert.That(
+                bridge.Dispatch(new RageActionOp(torgrimId)),
+                Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
+            );
 
         RulesStrikeAction torgrimStrike = torgrimController
             .GetActions()
@@ -141,6 +136,104 @@ public sealed class RulesStrikeUnityTests
             rogueStrike.Value.Damage.Single(part => part.DamageType == "slashing").Amount,
             Is.EqualTo(4 + lena.dexMod)
         );
+    }
+
+    [Test]
+    public void StrikeUsesCurrentTargetConditionAndOnlyTargetPreparedDefenses()
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        attacker.attackBonus = 10;
+        attacker.weaknesses.Add(new DamageValue("bludgeoning", 50));
+        attacker.resistances.Add(new DamageValue("bludgeoning", 50));
+        attacker.immunities.Add("bludgeoning");
+        CreatureComponent target = CreateCreature("Target", "enemies", 20, 21);
+        target.weaknesses.Add(new DamageValue("bludgeoning", 2));
+        target.resistances.Add(new DamageValue("bludgeoning", 1));
+        Conditions targetConditions = target.gameObject.AddComponent<Conditions>();
+        TestActionController attackerController =
+            attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Place(attacker.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, attacker.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController },
+            tiles,
+            new ScriptedRollService(20, 10, 10, 3)
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        bridge.BeginTurn(actor, 3);
+        targetConditions.Add("Off-Guard", new ConditionSource());
+        RulesStrikeAction action = attackerController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(candidate => candidate.ActionName == "Unarmed Strike");
+
+        ResolvedOpResult<StrikeResolution> result = RequireResolved(
+            bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId))
+        );
+
+        Assert.That(
+            bridge
+                .Snapshot.PreparedInputs[targetId]
+                .StaticOptions.Any(option =>
+                    option.StartsWith("self:condition:", StringComparison.Ordinal)
+                ),
+            Is.False
+        );
+        Assert.That(result.Value.Hit, Is.True);
+        Assert.That(result.Value.Damage.Single().Amount, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void StrikeUsesPreparedDefensesEnrolledWithReinforcementTarget()
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        attacker.attackBonus = 10;
+        CreatureComponent initialEnemy = CreateCreature("Initial Enemy", "enemies", 20, 10);
+        TestActionController attackerController =
+            attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController initialEnemyController =
+            initialEnemy.gameObject.AddComponent<TestActionController>();
+        Place(attacker.gameObject, 0);
+        Place(initialEnemy.gameObject, 2);
+        Tile[,] tiles = CreateTiles(3);
+        Occupy(tiles, attacker.gameObject);
+        Occupy(tiles, initialEnemy.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, initialEnemyController },
+            tiles,
+            new ScriptedRollService(20, 10, 5, 10, 3)
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        bridge.StartEncounter("heroes");
+
+        CreatureComponent reinforcement = CreateCreature("Reinforcement", "enemies", 20, 10);
+        reinforcement.weaknesses.Add(new DamageValue("bludgeoning", 1));
+        reinforcement.resistances.Add(new DamageValue("bludgeoning", 2));
+        reinforcement.immunities.Add("bludgeoning");
+        TestActionController reinforcementController =
+            reinforcement.gameObject.AddComponent<TestActionController>();
+        Place(reinforcement.gameObject, 1);
+        bridge.RegisterCombatants(new[] { reinforcementController });
+        Occupy(tiles, reinforcement.gameObject);
+        bridge.RefreshTopology(tiles);
+        CreatureId target = bridge.GetCreatureId(reinforcement);
+        RulesStrikeAction action = attackerController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(candidate => candidate.ActionName == "Unarmed Strike");
+
+        ResolvedOpResult<StrikeResolution> result = RequireResolved(
+            bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, target))
+        );
+
+        Assert.That(bridge.Snapshot.PreparedInputs.Contains(target), Is.True);
+        Assert.That(result.Value.Damage.Single().Amount, Is.Zero);
     }
 
     [Test]

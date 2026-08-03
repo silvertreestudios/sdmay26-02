@@ -96,6 +96,137 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
+    public void FailedEnrollmentAfterPreparedCompilationIsPureAndRetryMatchesCleanState()
+    {
+        GameObject failedObject = new("failed-prepared-enrollment");
+        GameObject cleanObject = new("clean-prepared-enrollment");
+        CompositeLifetime failedLifetime = new();
+        CompositeLifetime retryLifetime = new();
+        CompositeLifetime cleanLifetime = new();
+        try
+        {
+            CreatureComponent failedCreature = ConfigureUnpreparedCleric(failedObject);
+            BridgeTestActionController failedController =
+                failedObject.AddComponent<BridgeTestActionController>();
+            CreatureComponent cleanCreature = ConfigureUnpreparedCleric(cleanObject);
+            BridgeTestActionController cleanController =
+                cleanObject.AddComponent<BridgeTestActionController>();
+            CharacterBuild originalBuild = failedCreature.Build;
+            PreparedCharacter originalPrepared = failedCreature.Prepared;
+            List<WeaponBonus> originalWeaponBonuses = failedCreature.weaponBonuses;
+            List<WeaponActionBonus> originalWeaponActionBonuses =
+                failedCreature.weaponActionBonuses;
+            List<ArmorBonus> originalArmorBonuses = failedCreature.armorBonuses;
+            InvalidOperationException expected = new("later enrollment failure");
+            CapturingFailureEnrollmentModule failure = new(expected);
+            UnityEncounterComposition failingComposition = new(
+                new IUnityEncounterModule[] { new UnityPreparedRulesEncounterModule(), failure }
+            );
+            CreatureId creatureId = new("prepared-pure-retry");
+
+            InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
+                failingComposition.PrepareCombatant(
+                    CreateEnrollmentBuilder(
+                        failedController,
+                        failedCreature,
+                        creatureId,
+                        failedLifetime
+                    )
+                )
+            );
+            failedLifetime.Dispose();
+
+            Assert.That(actual, Is.SameAs(expected));
+            Assert.That(failedCreature.Build, Is.SameAs(originalBuild));
+            Assert.That(originalBuild.SubclassName, Is.Null);
+            Assert.That(originalBuild.ClassFeatName, Is.Null);
+            Assert.That(
+                originalBuild.RuleSelections,
+                Is.EqualTo(new Dictionary<string, string> { ["existing"] = "kept" })
+            );
+            Assert.That(originalBuild.TrainedSkills, Is.EqualTo(new[] { "arcana" }));
+            Assert.That(failedCreature.weaponBonuses, Is.SameAs(originalWeaponBonuses));
+            Assert.That(
+                failedCreature.weaponBonuses,
+                Is.EqualTo(
+                    new[]
+                    {
+                        new WeaponBonus { category = "simple", bonus = 91 },
+                    }
+                )
+            );
+            Assert.That(failedCreature.weaponActionBonuses, Is.SameAs(originalWeaponActionBonuses));
+            Assert.That(
+                failedCreature.weaponActionBonuses,
+                Is.EqualTo(
+                    new[]
+                    {
+                        new WeaponActionBonus { weaponName = "mace", bonus = 92 },
+                    }
+                )
+            );
+            Assert.That(failedCreature.armorBonuses, Is.SameAs(originalArmorBonuses));
+            Assert.That(
+                failedCreature.armorBonuses,
+                Is.EqualTo(
+                    new[]
+                    {
+                        new ArmorBonus { category = "unarmored", bonus = 93 },
+                    }
+                )
+            );
+            Assert.That(failedCreature.attackBonus, Is.EqualTo(7));
+            Assert.That(failedCreature.damageBonus, Is.EqualTo(4));
+            Assert.That(failedCreature.ac, Is.EqualTo(15));
+            Assert.That(failedCreature.Prepared, Is.SameAs(originalPrepared));
+
+            UnityEncounterComposition preparedOnly = new(
+                new IUnityEncounterModule[] { new UnityPreparedRulesEncounterModule() }
+            );
+            UnityCombatantEnrollmentBuilder retryBuilder = CreateEnrollmentBuilder(
+                failedController,
+                failedCreature,
+                creatureId,
+                retryLifetime
+            );
+            preparedOnly.PrepareCombatant(retryBuilder);
+            CombatantRulesState retry = retryBuilder.BuildState();
+            UnityCombatantEnrollmentBuilder cleanBuilder = CreateEnrollmentBuilder(
+                cleanController,
+                cleanCreature,
+                creatureId,
+                cleanLifetime
+            );
+            preparedOnly.PrepareCombatant(cleanBuilder);
+            CombatantRulesState clean = cleanBuilder.BuildState();
+
+            AssertPreparedStateEqual(failure.Captured, retry);
+            AssertPreparedStateEqual(clean, retry);
+            Assert.That(
+                retry.PreparedInputs.RuleValues["class.proficiency.weapon.simple"],
+                Is.EqualTo(2)
+            );
+            Assert.That(
+                retry.PreparedInputs.RuleValues["class.proficiency.armor.unarmored"],
+                Is.EqualTo(2)
+            );
+            Assert.That(retry.PreparedInputs.SkillRanks["religion"], Is.EqualTo(1));
+            Assert.That(
+                retry.PreparedInputs.BoundOptions.Select(value => value.Option),
+                Does.Contain("item:owned:domain-initiate")
+            );
+        }
+        finally
+        {
+            cleanLifetime.Dispose();
+            retryLifetime.Dispose();
+            failedLifetime.Dispose();
+            Object.DestroyImmediate(cleanObject);
+            Object.DestroyImmediate(failedObject);
+        }
+    }
+
+    [Test]
     public void InitialAndReinforcementEnrollmentUseTheSameFeatureOwnedBaseState()
     {
         GameObject initialObject = new GameObject("feature-state-initial");
@@ -1272,6 +1403,93 @@ public sealed class UnityCombatRulesBridgeTests
         return combatant.AddComponent<BridgeTestActionController>();
     }
 
+    private static CreatureComponent ConfigureUnpreparedCleric(GameObject gameObject)
+    {
+        CreatureComponent creature = gameObject.AddComponent<CreatureComponent>();
+        creature.level = 1;
+        creature.attackBonus = 7;
+        creature.damageBonus = 4;
+        creature.ac = 15;
+        creature.weaponBonuses = new List<WeaponBonus>
+        {
+            new WeaponBonus { category = "simple", bonus = 91 },
+        };
+        creature.weaponActionBonuses = new List<WeaponActionBonus>
+        {
+            new WeaponActionBonus { weaponName = "mace", bonus = 92 },
+        };
+        creature.armorBonuses = new List<ArmorBonus>
+        {
+            new ArmorBonus { category = "unarmored", bonus = 93 },
+        };
+        CharacterBuild build = new() { ClassName = "Cleric" };
+        build.RuleSelections.Add("existing", "kept");
+        build.TrainedSkills.Add("arcana");
+        creature.Build = build;
+        creature.Prepared = new PreparedCharacter();
+        return creature;
+    }
+
+    private static UnityCombatantEnrollmentBuilder CreateEnrollmentBuilder(
+        ActionController controller,
+        CreatureComponent creature,
+        CreatureId creatureId,
+        CompositeLifetime lifetime
+    ) =>
+        new(
+            controller,
+            creature,
+            new CreatureState(creatureId, new PlayerId("prepared-purity-player")),
+            new HealthState(10, 10),
+            new GridPosition(0, 0, 0),
+            new GridDistance(25),
+            lifetime
+        );
+
+    private static void AssertPreparedStateEqual(
+        CombatantRulesState expected,
+        CombatantRulesState actual
+    )
+    {
+        Assert.That(actual.PreparedInputs.Level, Is.EqualTo(expected.PreparedInputs.Level));
+        Assert.That(actual.PreparedInputs.Abilities, Is.EqualTo(expected.PreparedInputs.Abilities));
+        Assert.That(
+            actual.PreparedInputs.SkillRanks,
+            Is.EqualTo(expected.PreparedInputs.SkillRanks)
+        );
+        Assert.That(actual.PreparedInputs.Equipment, Is.EqualTo(expected.PreparedInputs.Equipment));
+        Assert.That(
+            actual.PreparedInputs.ArmorCategory,
+            Is.EqualTo(expected.PreparedInputs.ArmorCategory)
+        );
+        Assert.That(actual.PreparedInputs.Traits, Is.EqualTo(expected.PreparedInputs.Traits));
+        Assert.That(
+            actual.PreparedInputs.Weaknesses,
+            Is.EqualTo(expected.PreparedInputs.Weaknesses)
+        );
+        Assert.That(
+            actual.PreparedInputs.Resistances,
+            Is.EqualTo(expected.PreparedInputs.Resistances)
+        );
+        Assert.That(
+            actual.PreparedInputs.Immunities,
+            Is.EqualTo(expected.PreparedInputs.Immunities)
+        );
+        Assert.That(
+            actual.PreparedInputs.StaticOptions,
+            Is.EqualTo(expected.PreparedInputs.StaticOptions)
+        );
+        Assert.That(
+            actual.PreparedInputs.BoundOptions,
+            Is.EqualTo(expected.PreparedInputs.BoundOptions)
+        );
+        Assert.That(
+            actual.PreparedInputs.RuleValues,
+            Is.EqualTo(expected.PreparedInputs.RuleValues)
+        );
+        Assert.That(actual.RuleBindings, Is.EqualTo(expected.RuleBindings));
+    }
+
     private static GridPrivate.Tile[,] CreateTiles(int width)
     {
         GridPrivate.Tile[,] tiles = new GridPrivate.Tile[width, 1];
@@ -1302,28 +1520,26 @@ public sealed class UnityCombatRulesBridgeTests
 
     private static void ConfigureFeatureState(CreatureComponent creature)
     {
-        PreparedCharacter prepared = new PreparedCharacter(new CharacterBuild())
-        {
-            SpellBook = new PreparedSpellBook(
-                Array.Empty<PreparedSpellEntry>(),
-                new[] { new PreparedSpellSlotPool(new SpellSlotPoolId("module-owned-rank-1"), 2) },
-                0
-            ),
-        };
-        Assert.That(
-            Pf2eItem.TryParse(
-                "test-rage",
-                "{\"name\":\"Rage\",\"type\":\"action\",\"system\":{\"slug\":\"rage\"}}",
-                out Pf2eItem rage
-            ),
-            Is.True
+        creature.level = 1;
+        CharacterBuild build = new CharacterBuild { ClassName = "Barbarian" };
+        creature.Build = build;
+        PreparedCharacter prepared = Pf2eCharacterPreparer.Prepare(creature, build);
+        prepared.SpellBook = new PreparedSpellBook(
+            Array.Empty<PreparedSpellEntry>(),
+            new[] { new PreparedSpellSlotPool(new SpellSlotPoolId("module-owned-rank-1"), 2) },
+            0
         );
-        prepared.AddOwnedItem(rage);
         creature.Prepared = prepared;
     }
 
     private static void AssertFeatureState(RulesSnapshot snapshot, CreatureId creature)
     {
+        Assert.That(snapshot.PreparedInputs.Contains(creature), Is.True);
+        Assert.That(snapshot.PreparedInputs[creature].Level, Is.EqualTo(1));
+        Assert.That(
+            snapshot.PreparedInputs[creature].BoundOptions.Select(value => value.Option),
+            Does.Contain("item:owned:rage")
+        );
         Assert.That(
             snapshot.SpellSlots.Select(pair => pair.Value).Where(slot => slot.Owner == creature),
             Is.EqualTo(
@@ -1399,6 +1615,21 @@ public sealed class UnityCombatRulesBridgeTests
         {
             Facts.Add(fact);
             return default;
+        }
+    }
+
+    private sealed class CapturingFailureEnrollmentModule : IUnityCombatantEnrollmentModule
+    {
+        private readonly Exception failure;
+
+        public CapturingFailureEnrollmentModule(Exception failure) => this.failure = failure;
+
+        public CombatantRulesState Captured { get; private set; }
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
+        {
+            Captured = builder.BuildState();
+            throw failure;
         }
     }
 

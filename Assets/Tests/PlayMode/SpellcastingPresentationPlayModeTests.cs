@@ -149,6 +149,82 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [Test]
+    public void SpellInstallationOrdersActionsBySlugRankAndActionCost()
+    {
+        CreatureComponent caster = CreateCreature("Ordered Spell Caster", 0, prepared: false);
+        TestActionController controller = caster.gameObject.AddComponent<TestActionController>();
+        CreatureId owner = new("ordered-spell-caster");
+        SpellReference alphaRankOne = new(new SpellId("alpha"), 1);
+        SpellReference alphaRankTwo = new(new SpellId("alpha"), 2);
+        SpellReference zetaRankOne = new(new SpellId("zeta"), 1);
+        SpellReference zetaRankTwo = new(new SpellId("zeta"), 2);
+        SpellEffectDirective effect = new(
+            new RuleDefinitionId("test-installation-order-effect"),
+            EffectDuration.Indefinite,
+            "self"
+        );
+        UnitySpellDefinitionCatalog definitions = new(
+            new[]
+            {
+                new Game.Rules.Runtime.SpellDefinition(
+                    zetaRankOne.Spell,
+                    "Zeta",
+                    1,
+                    new[] { new SpellActionVariant(3), new SpellActionVariant(1) },
+                    Array.Empty<Trait>(),
+                    new[] { effect },
+                    Array.Empty<SpellAttackDefinition>()
+                ),
+                new Game.Rules.Runtime.SpellDefinition(
+                    alphaRankOne.Spell,
+                    "Alpha",
+                    1,
+                    new[] { new SpellActionVariant(2), new SpellActionVariant(1) },
+                    Array.Empty<Trait>(),
+                    new[] { effect },
+                    Array.Empty<SpellAttackDefinition>()
+                ),
+            }
+        );
+        ISpellBook book = new PreparedSpellBook(
+            new[]
+            {
+                PreparedSpellEntry.Cantrip(zetaRankTwo),
+                PreparedSpellEntry.Cantrip(alphaRankTwo),
+                PreparedSpellEntry.Cantrip(zetaRankOne),
+                PreparedSpellEntry.Cantrip(alphaRankOne),
+            },
+            Array.Empty<PreparedSpellSlotPool>(),
+            7
+        );
+        TestSpellActionCatalog catalog = new(definitions, owner, book);
+
+        UnitySpellActionInstaller.Install(controller, owner, catalog);
+
+        Assert.That(
+            controller
+                .GetActions()
+                .OfType<RulesCastSpellAction>()
+                .Select(action =>
+                    (action.Spell.Spell.Value, action.Spell.Rank, action.Variant.Actions)
+                ),
+            Is.EqualTo(
+                new[]
+                {
+                    ("alpha", 1, 1),
+                    ("alpha", 1, 2),
+                    ("alpha", 2, 1),
+                    ("alpha", 2, 2),
+                    ("zeta", 1, 1),
+                    ("zeta", 1, 3),
+                    ("zeta", 2, 1),
+                    ("zeta", 2, 3),
+                }
+            )
+        );
+    }
+
+    [Test]
     public void PreparedSpellMissingCatalogDefinitionFailsInstallation()
     {
         CreatureComponent caster = CreateCreature("Missing Definition Caster", 0, prepared: false);

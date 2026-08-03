@@ -1,129 +1,123 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Rules.Runtime;
 using Newtonsoft.Json.Linq;
 
 namespace Game.Creature.Rules
 {
-    /// <summary>
-    /// Evaluates the supported subset of Foundry PF2e predicates against prepared roll options and item options.
-    /// </summary>
+    /// <summary>Compiles the supported Foundry predicate JSON into the runtime's immutable AST.</summary>
     public static class Pf2ePredicate
     {
-        /// <summary>
-        /// Determines whether a predicate matches the current prepared character and transient item context.
-        /// </summary>
-        /// <param name="predicate">The predicate token from a PF2e rule element.</param>
-        /// <param name="prepared">The prepared character supplying roll options and numeric rule facts.</param>
-        /// <param name="itemOptions">Optional item-scoped options such as traits for a Strike or item alteration.</param>
-        /// <returns>True when the predicate is empty or all supported clauses match.</returns>
-        public static bool Evaluate(
-            JToken predicate,
-            PreparedCharacter prepared,
-            IEnumerable<string> itemOptions = null
-        )
+        /// <summary>Compiles a source predicate exactly once at the preparation boundary.</summary>
+        public static PreparedPredicate Compile(JToken predicate)
         {
             if (predicate == null || predicate.Type == JTokenType.Null)
-                return true;
-
+                return PreparedPredicate.Always;
             if (predicate is JArray array)
-                return array.All(entry => Evaluate(entry, prepared, itemOptions));
-
+                return new PreparedAllPredicate(array.Select(Compile));
             if (predicate.Type == JTokenType.String)
-                return EvaluateAtomic(predicate.Value<string>(), prepared, itemOptions);
-
-            if (predicate is JObject obj)
-            {
-                if (obj.TryGetValue("and", out JToken andToken))
-                    return (andToken as JArray)?.All(entry =>
-                            Evaluate(entry, prepared, itemOptions)
-                        )
-                        ?? Evaluate(andToken, prepared, itemOptions);
-                if (obj.TryGetValue("or", out JToken orToken))
-                    return (orToken as JArray)?.Any(entry => Evaluate(entry, prepared, itemOptions))
-                        ?? Evaluate(orToken, prepared, itemOptions);
-                if (obj.TryGetValue("not", out JToken notToken))
-                    return !Evaluate(notToken, prepared, itemOptions);
-                if (obj.TryGetValue("gte", out JToken gteToken))
-                    return EvaluateGte(gteToken as JArray, prepared);
-            }
-
-            return false;
+                return CompileAtomic(predicate.Value<string>());
+            if (predicate is not JObject value)
+                return PreparedPredicate.Never;
+            if (value.TryGetValue("and", out JToken andToken))
+                return new PreparedAllPredicate(Children(andToken));
+            if (value.TryGetValue("or", out JToken orToken))
+                return new PreparedAnyPredicate(Children(orToken));
+            if (value.TryGetValue("not", out JToken notToken))
+                return new PreparedNotPredicate(Compile(notToken));
+            if (
+                value.TryGetValue("gte", out JToken gteToken)
+                && gteToken is JArray gte
+                && gte.Count == 2
+            )
+                return CompileNumeric(gte[0].Value<string>(), gte[1].Value<int>());
+            return PreparedPredicate.Never;
         }
 
-        private static bool EvaluateAtomic(
-            string option,
-            PreparedCharacter prepared,
-            IEnumerable<string> itemOptions
+        internal static bool EvaluateStatic(
+            PreparedPredicate predicate,
+            IEnumerable<string> options,
+            IReadOnlyDictionary<string, int> skillRanks,
+            int level
         )
         {
-            if (string.IsNullOrWhiteSpace(option))
-                return true;
-
-            if (
-                option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
-                && option.EndsWith(":rank", StringComparison.OrdinalIgnoreCase)
-            )
-                return GetNumeric(option, prepared) > 0;
-
-            if (
-                option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
-                && option.Contains(":rank:", StringComparison.OrdinalIgnoreCase)
-            )
-            {
-                string[] parts = option.Split(':');
-                return parts.Length == 4
-                    && int.TryParse(parts[3], out int rank)
-                    && GetNumeric($"skill:{parts[1]}:rank", prepared) >= rank;
-            }
-
-            if (
-                itemOptions != null
-                && itemOptions.Contains(option, StringComparer.OrdinalIgnoreCase)
-            )
-                return true;
-
-            return prepared?.RollOptions.Contains(option) ?? false;
+            HashSet<string> values = new(
+                options ?? Array.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase
+            );
+            return Evaluate(predicate, values, skillRanks, level);
         }
 
-        private static bool EvaluateGte(JArray gte, PreparedCharacter prepared)
+        private static IEnumerable<PreparedPredicate> Children(JToken value) =>
+            value is JArray array ? array.Select(Compile) : new[] { Compile(value) };
+
+        private static PreparedPredicate CompileAtomic(string option)
         {
-            if (gte == null || gte.Count != 2)
-                return false;
-
-            int left = GetNumeric(gte[0].Value<string>(), prepared);
-            int right = gte[1].Value<int>();
-            return left >= right;
+            if (string.IsNullOrWhiteSpace(option))
+                return PreparedPredicate.Always;
+            string normalized = option.Trim().ToLowerInvariant();
+            if (
+                normalized.StartsWith("skill:", StringComparison.Ordinal)
+                && normalized.EndsWith(":rank", StringComparison.Ordinal)
+            )
+                return CompileNumeric(normalized, 1);
+            int rankMarker = normalized.IndexOf(":rank:", StringComparison.Ordinal);
+            if (
+                normalized.StartsWith("skill:", StringComparison.Ordinal)
+                && rankMarker > 6
+                && int.TryParse(normalized.Substring(rankMarker + 6), out int rank)
+            )
+                return CompileNumeric(normalized.Substring(0, rankMarker + 5), rank);
+            return new PreparedOptionPredicate(normalized);
         }
 
-        private static int GetNumeric(string path, PreparedCharacter prepared)
+        private static PreparedPredicate CompileNumeric(string path, int minimum)
         {
             if (string.Equals(path, "self:level", StringComparison.OrdinalIgnoreCase))
-            {
-                string levelOption = prepared.RollOptions.FirstOrDefault(option =>
-                    option.StartsWith("self:level:", StringComparison.OrdinalIgnoreCase)
+                return new PreparedNumericAtLeastPredicate(
+                    PreparedNumericFactKind.Level,
+                    string.Empty,
+                    minimum
                 );
-                if (
-                    levelOption != null
-                    && int.TryParse(levelOption.Substring("self:level:".Length), out int level)
-                )
-                    return level;
-            }
-
+            const string prefix = "skill:";
+            const string suffix = ":rank";
             if (
                 path != null
-                && path.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
-                && path.EndsWith(":rank", StringComparison.OrdinalIgnoreCase)
+                && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && path.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
             )
-            {
-                string skill = path.Substring(
-                    "skill:".Length,
-                    path.Length - "skill:".Length - ":rank".Length
+                return new PreparedNumericAtLeastPredicate(
+                    PreparedNumericFactKind.SkillRank,
+                    path.Substring(prefix.Length, path.Length - prefix.Length - suffix.Length),
+                    minimum
                 );
-                return prepared.SkillRanks.TryGetValue(skill, out int rank) ? rank : 0;
-            }
-
-            return 0;
+            return PreparedPredicate.Never;
         }
+
+        private static bool Evaluate(
+            PreparedPredicate predicate,
+            HashSet<string> options,
+            IReadOnlyDictionary<string, int> skills,
+            int level
+        ) =>
+            predicate switch
+            {
+                PreparedConstantPredicate value => value.Value,
+                PreparedOptionPredicate value => options.Contains(value.Option),
+                PreparedNumericAtLeastPredicate value => (
+                    value.Kind == PreparedNumericFactKind.Level ? level
+                    : skills.TryGetValue(value.Key, out int rank) ? rank
+                    : 0
+                ) >= value.Minimum,
+                PreparedAllPredicate value => value.Children.All(child =>
+                    Evaluate(child, options, skills, level)
+                ),
+                PreparedAnyPredicate value => value.Children.Any(child =>
+                    Evaluate(child, options, skills, level)
+                ),
+                PreparedNotPredicate value => !Evaluate(value.Child, options, skills, level),
+                _ => false,
+            };
     }
 }

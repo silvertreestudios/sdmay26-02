@@ -13,11 +13,14 @@ namespace Game.Rules.Runtime
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
+            PreparedCreatureInputs preparedInputs,
             IReadOnlyList<SpellSlotState> spellSlots,
             IReadOnlyList<ActiveRuleBinding> ruleBindings
         )
         {
             Creature = creature ?? throw new ArgumentNullException(nameof(creature));
+            PreparedInputs =
+                preparedInputs ?? throw new ArgumentNullException(nameof(preparedInputs));
             SpellSlots = CopyOwned(spellSlots, creature.Id);
             RuleBindings = CopyOwned(ruleBindings, creature.Id);
             Health = health;
@@ -36,6 +39,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the participant's authoritative land Speed.</summary>
         public GridDistance LandSpeed { get; }
+
+        /// <summary>Gets immutable build-time inputs owned by the rules store.</summary>
+        public PreparedCreatureInputs PreparedInputs { get; }
 
         /// <summary>Gets participant-owned initial spell-slot pools.</summary>
         public IReadOnlyList<SpellSlotState> SpellSlots { get; }
