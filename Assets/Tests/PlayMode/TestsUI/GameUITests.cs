@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using Game.Creature;
 using Game.Rules.Runtime;
 using NUnit.Framework;
@@ -268,6 +269,235 @@ namespace TestsUI
                 healthLabel.text,
                 "Exploration cards should refresh after the creature's health changes."
             );
+        }
+
+        [UnityTest]
+        public IEnumerator MissingCombatManagerMakesHudCombatantPresentationInert()
+        {
+            CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
+            HUDController hud = HUDController.GetInstance();
+            VisualElement cardHolder = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    return cardHolder != null
+                        && cardHolder.childCount > 0
+                        && root.Query<VisualElement>(className: "btn-row").ToList().Count > 0;
+                }
+            );
+            Assert.That(cardHolder, Is.Not.Null);
+            Assert.That(cardHolder.childCount, Is.GreaterThan(0));
+            Assert.That(root.Query<VisualElement>(className: "btn-row").ToList(), Is.Not.Empty);
+
+            Object.Destroy(combatManager.gameObject);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => !CombatManagerInterface.TryGetInstance(out _)
+            );
+            Assert.That(CombatManagerInterface.TryGetInstance(out _), Is.False);
+
+            yield return null;
+
+            Assert.That(cardHolder.childCount, Is.Zero);
+            Assert.That(root.Query<VisualElement>(className: "btn-row").ToList(), Is.Empty);
+            Assert.That(hud.isActionRunning(), Is.False);
+        }
+
+        [UnityTest]
+        public IEnumerator ExplorationGuidanceIsOwnedByExplorationMode()
+        {
+            player = CombatManagerInterface
+                .GetInstance()
+                .GetCombatants()
+                .Find(combatant => combatant.GetComponent<PlayerActionController>() != null);
+            ActionController controller = player.GetComponent<ActionController>();
+            HUDController hud = HUDController.GetInstance();
+
+            hud.ShowExploration(new[] { controller }, controller, candidate => candidate != null);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => root.Q<Label>("ExplorationGuidance") != null
+            );
+
+            Assert.That(root.Q<Button>("StrideButton"), Is.Null);
+            Assert.That(root.Q<Button>("EndTurnButton"), Is.Null);
+            Assert.That(
+                root.Query<Label>(className: "exploration-guidance").ToList(),
+                Has.Count.EqualTo(1)
+            );
+
+            hud.HideExploration();
+            Assert.That(root.Q<Label>("ExplorationGuidance"), Is.Null);
+
+            hud.ShowExploration(new[] { controller }, controller, candidate => candidate != null);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => root.Q<Label>("ExplorationGuidance") != null
+            );
+            Assert.That(
+                root.Query<Label>(className: "exploration-guidance").ToList(),
+                Has.Count.EqualTo(1)
+            );
+        }
+
+        [UnityTest]
+        public IEnumerator TacticsModeControlIsReusedAfterHudReenable()
+        {
+            HUDController hud = HUDController.GetInstance();
+            Button original = root.Q<Button>("TacticsModeButton");
+            Assert.That(original, Is.Not.Null);
+            Assert.That(original.ClassListContains("btn-tactics-mode"), Is.True);
+            int returnRequests = 0;
+            hud.ConfigureTacticsControl(
+                () => Assert.Fail("The tactics callback should not run in Tactics."),
+                () =>
+                {
+                    returnRequests++;
+                    return true;
+                }
+            );
+            Assert.That(original.text, Is.EqualTo("Enter Tactics"));
+            hud.ShowTactics();
+
+            hud.enabled = false;
+            yield return null;
+            hud.enabled = true;
+            yield return null;
+
+            Assert.That(root.Q<Button>("TacticsModeButton"), Is.SameAs(original));
+            Assert.That(
+                root.Query<Button>(name: "TacticsModeButton").ToList(),
+                Has.Count.EqualTo(1)
+            );
+            Assert.That(original.text, Is.EqualTo("Return to Exploration"));
+            Assert.That(original.resolvedStyle.display, Is.EqualTo(DisplayStyle.Flex));
+
+            PushButton(original);
+            yield return null;
+            Assert.That(returnRequests, Is.EqualTo(1));
+
+            GameObject currentTurn = CombatManagerInterface.GetInstance().WhosTurn();
+            Assert.That(currentTurn, Is.Not.Null);
+            root.Q<VisualElement>("ButtonGrid").Clear();
+            OnNextTurn.Invoke(currentTurn);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => root.Q<Button>("EndTurnButton") != null
+            );
+        }
+
+        /// <summary>
+        /// Verifies the unavailable mode control is inert, hidden, disabled, and lifecycle-stable.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator UnavailableTacticsModeControlClearsBothModeCallbacks()
+        {
+            HUDController hud = HUDController.GetInstance();
+            Button tacticsControl = root.Q<Button>("TacticsModeButton");
+            Assert.That(tacticsControl, Is.Not.Null);
+            int enterRequests = 0;
+            int returnRequests = 0;
+            System.Action enter = () => enterRequests++;
+            System.Func<bool> returnToExploration = () =>
+            {
+                returnRequests++;
+                return true;
+            };
+
+            hud.ConfigureTacticsControl(enter, returnToExploration);
+            Assert.That(tacticsControl.text, Is.EqualTo("Enter Tactics"));
+            Assert.That(tacticsControl.enabledSelf, Is.True);
+            hud.ShowTacticsUnavailable();
+            yield return null;
+
+            Assert.That(tacticsControl.resolvedStyle.display, Is.EqualTo(DisplayStyle.None));
+            Assert.That(tacticsControl.enabledSelf, Is.False);
+            PushButton(tacticsControl);
+            Assert.That(enterRequests, Is.Zero);
+            Assert.That(returnRequests, Is.Zero);
+
+            hud.enabled = false;
+            yield return null;
+            hud.enabled = true;
+            yield return null;
+
+            Assert.That(root.Q<Button>("TacticsModeButton"), Is.SameAs(tacticsControl));
+            Assert.That(tacticsControl.resolvedStyle.display, Is.EqualTo(DisplayStyle.None));
+            Assert.That(tacticsControl.enabledSelf, Is.False);
+
+            hud.ConfigureTacticsControl(enter, returnToExploration);
+            hud.ShowTactics();
+            Assert.That(tacticsControl.text, Is.EqualTo("Return to Exploration"));
+            Assert.That(tacticsControl.enabledSelf, Is.True);
+            hud.ShowTacticsUnavailable();
+            PushButton(tacticsControl);
+
+            Assert.That(enterRequests, Is.Zero);
+            Assert.That(returnRequests, Is.Zero);
+        }
+
+        [UnityTest]
+        public IEnumerator TacticsModePointerGuardIsLifecycleSafeAcrossHudReenable()
+        {
+            HUDController hud = HUDController.GetInstance();
+            Button tacticsControl = root.Q<Button>("TacticsModeButton");
+            Assert.That(tacticsControl, Is.Not.Null);
+            FieldInfo hoverCount = typeof(HUDController).GetField(
+                "_hudHoverCount",
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
+            Assert.That(hoverCount, Is.Not.Null);
+
+            using (PointerEnterEvent pointerEnter = PointerEnterEvent.GetPooled())
+            {
+                pointerEnter.target = tacticsControl;
+                tacticsControl.SendEvent(pointerEnter);
+            }
+            Assert.That(HUDController.IsPointerOverHUD, Is.True);
+            Assert.That(hoverCount.GetValue(hud), Is.EqualTo(1));
+
+            using (PointerLeaveEvent pointerLeave = PointerLeaveEvent.GetPooled())
+            {
+                pointerLeave.target = tacticsControl;
+                tacticsControl.SendEvent(pointerLeave);
+            }
+            Assert.That(HUDController.IsPointerOverHUD, Is.False);
+            Assert.That(hoverCount.GetValue(hud), Is.EqualTo(0));
+
+            using (PointerEnterEvent pointerEnter = PointerEnterEvent.GetPooled())
+            {
+                pointerEnter.target = tacticsControl;
+                tacticsControl.SendEvent(pointerEnter);
+            }
+            hud.enabled = false;
+            yield return null;
+            Assert.That(HUDController.IsPointerOverHUD, Is.False);
+            Assert.That(hoverCount.GetValue(hud), Is.EqualTo(0));
+
+            hud.enabled = true;
+            yield return null;
+            Assert.That(root.Q<Button>("TacticsModeButton"), Is.SameAs(tacticsControl));
+            using (PointerEnterEvent pointerEnter = PointerEnterEvent.GetPooled())
+            {
+                pointerEnter.target = tacticsControl;
+                tacticsControl.SendEvent(pointerEnter);
+            }
+            Assert.That(HUDController.IsPointerOverHUD, Is.True);
+            Assert.That(
+                hoverCount.GetValue(hud),
+                Is.EqualTo(1),
+                "Re-enabling the HUD must register the tactics hover callback exactly once."
+            );
+
+            using (PointerLeaveEvent pointerLeave = PointerLeaveEvent.GetPooled())
+            {
+                pointerLeave.target = tacticsControl;
+                tacticsControl.SendEvent(pointerLeave);
+            }
+            Assert.That(HUDController.IsPointerOverHUD, Is.False);
+            Assert.That(hoverCount.GetValue(hud), Is.EqualTo(0));
         }
 
         [UnityTest]

@@ -1368,6 +1368,63 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(endFacts.Order, Is.EqualTo(new[] { "expired", "ended" }));
         }
 
+        [Test]
+        public async Task ProtagonistDefeatOnlyPolicyIgnoresOppositionDefeat()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
+            Resolved(
+                await dispatcher.Dispatch(
+                    new StartEncounterOp(
+                        Encounter,
+                        Players,
+                        new[]
+                        {
+                            new EncounterParticipant(Hero, Players, 0),
+                            new EncounterParticipant(Enemy, Enemies, 0),
+                        },
+                        EncounterConclusionPolicy.ProtagonistDefeatOnly
+                    )
+                )
+            );
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Enemy,
+                        10,
+                        new HealthChangeOriginId("manual-tactics-enemy-defeat"),
+                        Source
+                    )
+                )
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Active)
+            );
+            Assert.That(dispatcher.Snapshot.Encounters[Encounter].Outcome, Is.Null);
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Hero,
+                        10,
+                        new HealthChangeOriginId("manual-tactics-player-defeat"),
+                        Source
+                    )
+                )
+            );
+
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Phase,
+                Is.EqualTo(EncounterPhase.Ended)
+            );
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter].Outcome,
+                Is.EqualTo(EncounterOutcome.PlayerDefeat)
+            );
+        }
+
         [TestCase(EffectDurationKind.Rounds, 2, false)]
         [TestCase(EffectDurationKind.Minutes, 10, false)]
         [TestCase(EffectDurationKind.Encounter, 0, true)]

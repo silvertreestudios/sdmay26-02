@@ -22,7 +22,7 @@ controller and creature are attached to that exact bridge, the following state i
 | Multiple attack penalty | `MultipleAttackPenaltyState`; `ActionController.StrikePenalty` projects its attack count. |
 | Health | `HealthState`; `CreatureComponent.Health`, `hp`, `maxHp`, and `tempHp` read it while attached. Health Facts project committed values and presentation back to Unity. |
 | Position and movement | `RulesSnapshot.Positions`, movement budgets, permissions, and movement reducers. Token movement is a committed-Fact projection. |
-| Encounter roster, initiative, round, and outcome | `EncounterState`, its roster and cursor, and encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
+| Encounter roster, initiative, round, and outcome | `EncounterState`, its roster, cursor, and `EncounterConclusionPolicy`, plus encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
 | Active-effect timing | `ActiveEffectInstance` and `ActiveEffectTimingState`, advanced at encounter initiative boundaries. |
 | Prepared rule participation | `RulesSnapshot.PreparedInputs` owns normalized creature facts and `RulesSnapshot.RuleBindings` alone controls whether definition-owned compiled behavior participates. `PreparedRulePackage` is only the ephemeral compiler result used to seed those slices. |
 | Migrated action slices | Stride, Strike, Reload, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
@@ -37,6 +37,12 @@ persistence boundary, not competing combat authority.
 
 Legacy-named `CombatManager` entry points still exist for scene compatibility, and many gameplay
 features remain Unity-native. They must not dual-write a migrated slice or revive a legacy fallback.
+The player-facing initiative mode is Tactics. Enemy-triggered Tactics uses automatic victory and
+defeat, while manually entered Tactics uses the rules-owned protagonist-defeat-only conclusion
+policy. Reinforcements do not replace that encounter-lifetime policy.
+Living enrolled opposition keeps Tactics and its hostile lifecycle active even when the party leaves
+the opponents' source rooms. Dormant or restored-suspended floor groups are not enrolled and do not
+block a manual Tactics session from returning to Exploration.
 
 ## Production composition
 
@@ -215,7 +221,8 @@ Facts are the notification contract.
 encounter handlers and engine reducers. Its current division of responsibility is:
 
 - `StartEncounterHandler`: roll initiative through `IRollService`, retain registration-order ties,
-  commit the roster, publish initiative assignments, and trigger the first boundary causally.
+  commit the roster and generic conclusion policy, publish initiative assignments, and trigger the
+  first boundary causally.
 - `JoinEncounterHandler`: validate an active turn, roll reinforcement initiative, commit full
   combatant states, and publish assignments from a later frame so new bindings can observe them.
 - `AdvanceEncounterHandler`: settle pending expirations, outcomes, initiative boundaries, skipped
@@ -366,8 +373,10 @@ shrink them through vertical migrations:
 - Unity action classes, selection coroutines, AI controllers, animation, combat logs, HUD, and scene
   transforms remain input/presentation adapters. Supported spell and Strike installers reconcile
   action lists at attachment.
-- `CreateExplorationStride` creates a temporary, unattached rules composition for movement outside
-  initiative and projects its committed boundary position before encounter composition begins.
+- Destination travel plans one complete exploration route, then repeatedly uses
+  `CreateExplorationStride` to create temporary, unattached rules compositions for each Stride
+  outside initiative. Each committed step is projected before the next Stride, preserving follower
+  occupancy and immediate encounter-boundary handoff.
 - `UnityCombatRulesBridge` still has the first-slice Stride fields and
   `GetStrideAvailability`, `CreateStrideSelectionWorkflow`, `DispatchStride`, and
   `DispatchProjectedStride` helpers. They are a transitional exception to the feature-agnostic
