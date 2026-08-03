@@ -939,19 +939,27 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException(
                     "Every combat controller requires a creature component."
                 );
+            string durableActorId = GetConfiguredDurableActorId(controller);
             CreatureId creatureId = AllocateCreatureId();
             PlayerId playerId = GetPlayerId(controller);
             Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
             int speedFeet = Mathf.Max(0, Mathf.RoundToInt(creature.speed));
+            GeneratedIdentityNamespace identityNamespace =
+                durableActorId.Length == 0
+                    ? GeneratedIdentityNamespace.ForCreature(creatureId)
+                    : new GeneratedIdentityNamespace(
+                        DurableActorSourceIdentity.Reserve(durableActorId).Value
+                    );
             return new UnityCombatantEnrollmentBuilder(
                 controller,
                 creature,
-                new CreatureState(creatureId, playerId),
+                new CreatureState(creatureId, playerId, identityNamespace),
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet),
                 UnityCreatureStatisticsAdapter.Capture(creatureId, creature),
-                preparationLifetime
+                preparationLifetime,
+                durableActorId
             );
         }
 
@@ -1176,10 +1184,12 @@ namespace Game.Rules.Unity
         internal void AddRegistrationMaps(
             ActionController controller,
             CreatureComponent creature,
-            CreatureId id
+            CreatureId id,
+            string durableId
         )
         {
-            string durableId = GetConfiguredDurableActorId(controller);
+            if (durableId == null)
+                throw new ArgumentNullException(nameof(durableId));
             if (
                 durableId.Length > 0
                 && durableActorIds.TryGetValue(durableId, out CreatureId existing)

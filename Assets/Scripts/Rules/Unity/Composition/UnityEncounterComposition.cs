@@ -137,7 +137,8 @@ namespace Game.Rules.Unity.Composition
             GridPosition position,
             GridDistance landSpeed,
             CreatureStatisticsState statistics,
-            CompositeLifetime preparationLifetime
+            CompositeLifetime preparationLifetime,
+            string durableActorId = ""
         )
         {
             Controller = controller ?? throw new ArgumentNullException(nameof(controller));
@@ -148,6 +149,8 @@ namespace Game.Rules.Unity.Composition
             this.position = position;
             this.landSpeed = landSpeed;
             this.statistics = statistics ?? throw new ArgumentNullException(nameof(statistics));
+            DurableActorId =
+                durableActorId ?? throw new ArgumentNullException(nameof(durableActorId));
             this.preparationLifetime =
                 preparationLifetime ?? throw new ArgumentNullException(nameof(preparationLifetime));
         }
@@ -155,6 +158,7 @@ namespace Game.Rules.Unity.Composition
         internal ActionController Controller { get; }
         internal CreatureComponent Creature { get; }
         internal CreatureId CreatureId => creatureState.Id;
+        internal string DurableActorId { get; }
 
         /// <summary>Gets the compiled inputs after the prepared-rules module contributes them.</summary>
         internal PreparedCreatureInputs PreparedInputs =>

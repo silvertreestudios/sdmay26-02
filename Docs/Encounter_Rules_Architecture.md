@@ -430,9 +430,14 @@ and active-effect timings. Exhaustion in the initial snapshot rejects constructi
 introduced by later reinforcement or adoption rejects the next allocation. Explicitly injected ID
 providers retain their supplied sequence unchanged. Condition creation additionally allocates from
 at least its frame ID and strictly above the current binding/timing maximum, probing both
-`condition-effect-N` and `condition-binding-N` until an available pair is found. This
-condition-local collision probing does not mutate the dispatcher provider and fails closed at
-exhaustion.
+`condition-effect-{target-namespace}-N` and `condition-binding-{target-namespace}-N` until an
+available pair is found. `CreatureState` owns that safe namespace as part of its structural state.
+Persistable Unity actors derive it from the exact reversible `DurableActorSourceIdentity` encoding;
+intentionally nondurable and pure-rules actors default to a reversible encoding of their local
+`CreatureId`. The numeric `CreationOrder` remains `N`, so ordering and dispatcher rebasing are
+unchanged. This condition-local collision probing does not mutate the dispatcher provider and fails
+closed at exhaustion. Authored and restored identities are retained exactly and never rewritten by
+this allocator.
 
 [`EncounterRuleRuntime`](../Assets/Scripts/Rules/Runtime/EncounterRuleRuntime.cs) installs the
 encounter handlers and engine reducers. Its current division of responsibility is:

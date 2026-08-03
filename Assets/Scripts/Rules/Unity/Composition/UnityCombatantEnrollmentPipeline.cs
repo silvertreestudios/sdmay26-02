@@ -70,7 +70,8 @@ namespace Game.Rules.Unity.Composition
                     owner.AddRegistrationMaps(
                         builder.Controller,
                         builder.Creature,
-                        builder.CreatureId
+                        builder.CreatureId,
+                        builder.DurableActorId
                     );
                     durableReservations.Add(
                         preparation.Add(

@@ -264,8 +264,15 @@ namespace Game.Rules.Runtime
                 rejection = "A freshly applied condition requires a registered source creature.";
                 return false;
             }
+            if (!state.Creatures.TryGet(operation.Target, out CreatureState target))
+            {
+                outcome = null;
+                rejection = "An active-effect binding owner is not a registered creature.";
+                return false;
+            }
             ConditionIdentityAllocation identity = ConditionIdentityAllocator.Allocate(
                 operationId,
+                target.IdentityNamespace,
                 state
             );
             ActiveEffectInstance effect = new ActiveEffectInstance(
@@ -332,8 +339,19 @@ namespace Game.Rules.Runtime
 
     internal static class ConditionIdentityAllocator
     {
-        internal static ConditionIdentityAllocation Allocate(OpId frameId, RulesStateDraft state)
+        internal static ConditionIdentityAllocation Allocate(
+            OpId frameId,
+            GeneratedIdentityNamespace targetNamespace,
+            RulesStateDraft state
+        )
         {
+            if (frameId.IsEmpty)
+                throw new ArgumentException("A condition frame ID is required.", nameof(frameId));
+            if (targetNamespace.IsEmpty)
+                throw new ArgumentException(
+                    "A condition target identity namespace is required.",
+                    nameof(targetNamespace)
+                );
             if (state == null)
                 throw new ArgumentNullException(nameof(state));
             long maximumCreationOrder = 0;
@@ -354,8 +372,12 @@ namespace Game.Rules.Runtime
             long candidate = Math.Max(frameId.Value, maximumCreationOrder + 1);
             while (true)
             {
-                ActiveEffectId effectId = new ActiveEffectId($"condition-effect-{candidate}");
-                BindingId bindingId = new BindingId($"condition-binding-{candidate}");
+                ActiveEffectId effectId = new ActiveEffectId(
+                    $"condition-effect-{targetNamespace.Value}-{candidate}"
+                );
+                BindingId bindingId = new BindingId(
+                    $"condition-binding-{targetNamespace.Value}-{candidate}"
+                );
                 if (
                     !state.ActiveEffects.Contains(effectId)
                     && !state.RuleBindings.Contains(bindingId)

@@ -375,6 +375,72 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void AllocatorNamespacesTheSameCandidateWithoutChangingCreationOrder()
+        {
+            GeneratedIdentityNamespace firstNamespace = new GeneratedIdentityNamespace(
+                "durable-actor-a"
+            );
+            GeneratedIdentityNamespace secondNamespace = new GeneratedIdentityNamespace(
+                "durable-actor-b"
+            );
+            RulesStateDraft firstState = new RulesState(new RulesStateSeed()).CreateDraft();
+            RulesStateDraft secondState = new RulesState(new RulesStateSeed()).CreateDraft();
+
+            ConditionIdentityAllocation first = ConditionIdentityAllocator.Allocate(
+                new OpId(7),
+                firstNamespace,
+                firstState
+            );
+            ConditionIdentityAllocation second = ConditionIdentityAllocator.Allocate(
+                new OpId(7),
+                secondNamespace,
+                secondState
+            );
+
+            Assert.That(first.CreationOrder, Is.EqualTo(7));
+            Assert.That(second.CreationOrder, Is.EqualTo(first.CreationOrder));
+            Assert.That(first.EffectId.Value, Is.EqualTo("condition-effect-durable-actor-a-7"));
+            Assert.That(first.BindingId.Value, Is.EqualTo("condition-binding-durable-actor-a-7"));
+            Assert.That(second.EffectId, Is.Not.EqualTo(first.EffectId));
+            Assert.That(second.BindingId, Is.Not.EqualTo(first.BindingId));
+        }
+
+        [Test]
+        public void AllocatorProbesAnOccupiedNamespacedPairWithoutChangingTheNamespace()
+        {
+            GeneratedIdentityNamespace identityNamespace = new GeneratedIdentityNamespace(
+                "durable-actor"
+            );
+            RulesStateDraft state = new RulesState(new RulesStateSeed()).CreateDraft();
+            ActiveEffectInstance occupiedEffect = Effect(
+                "condition-effect-durable-actor-7",
+                ConditionRuleDefinitions.Fatigued,
+                ConditionMarkerState.Instance
+            );
+            ActiveRuleBinding occupiedBinding = Binding(
+                "condition-binding-durable-actor-7",
+                occupiedEffect,
+                Owner,
+                6
+            );
+            state.ActiveEffects.Set(occupiedEffect.Id, occupiedEffect);
+            state.RuleBindings.Set(occupiedBinding.Id, occupiedBinding);
+
+            ConditionIdentityAllocation allocation = ConditionIdentityAllocator.Allocate(
+                new OpId(7),
+                identityNamespace,
+                state
+            );
+
+            Assert.That(allocation.CreationOrder, Is.EqualTo(8));
+            Assert.That(allocation.EffectId.Value, Is.EqualTo("condition-effect-durable-actor-8"));
+            Assert.That(
+                allocation.BindingId.Value,
+                Is.EqualTo("condition-binding-durable-actor-8")
+            );
+        }
+
+        [Test]
         public async Task RuntimeAdoptionAdvancesLaterConditionIdentityPastCreationOrder()
         {
             RuleRegistry registry = MarkerRegistry();
@@ -414,9 +480,16 @@ namespace Game.Rules.Runtime.Tests
             ResolvedOpResult<ConditionApplicationOutcome> created = RequireResolved(
                 await dispatcher.Dispatch(NewMarkerCondition())
             );
+            string identityNamespace = dispatcher.Snapshot.Creatures[Owner].IdentityNamespace.Value;
 
-            Assert.That(created.Value.EffectId.Value, Is.EqualTo("condition-effect-41"));
-            Assert.That(created.Value.BindingId.Value, Is.EqualTo("condition-binding-41"));
+            Assert.That(
+                created.Value.EffectId.Value,
+                Is.EqualTo($"condition-effect-{identityNamespace}-41")
+            );
+            Assert.That(
+                created.Value.BindingId.Value,
+                Is.EqualTo($"condition-binding-{identityNamespace}-41")
+            );
             Assert.That(
                 dispatcher.Snapshot.RuleBindings[created.Value.BindingId].CreationOrder,
                 Is.EqualTo(41)
@@ -424,8 +497,11 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task PersistedSuffixCollisionProbesBothConditionIds()
+        public async Task RestoredLegacyIdentityIsRetainedWhileFreshIdentityUsesTargetNamespace()
         {
+            GeneratedIdentityNamespace identityNamespace = GeneratedIdentityNamespace.ForCreature(
+                Owner
+            );
             ActiveEffectInstance collidingEffect = new ActiveEffectInstance(
                 new ActiveEffectId("condition-effect-41"),
                 ConditionRuleDefinitions.Fatigued,
@@ -464,12 +540,19 @@ namespace Game.Rules.Runtime.Tests
                 await dispatcher.Dispatch(NewMarkerCondition())
             );
 
-            Assert.That(created.Value.EffectId.Value, Is.EqualTo("condition-effect-42"));
-            Assert.That(created.Value.BindingId.Value, Is.EqualTo("condition-binding-42"));
+            Assert.That(
+                created.Value.EffectId.Value,
+                Is.EqualTo($"condition-effect-{identityNamespace.Value}-41")
+            );
+            Assert.That(
+                created.Value.BindingId.Value,
+                Is.EqualTo($"condition-binding-{identityNamespace.Value}-41")
+            );
             Assert.That(
                 dispatcher.Snapshot.RuleBindings[created.Value.BindingId].CreationOrder,
-                Is.EqualTo(42)
+                Is.EqualTo(41)
             );
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(collidingEffect.Id), Is.True);
         }
 
         [Test]

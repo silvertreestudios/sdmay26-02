@@ -364,6 +364,9 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<ArgumentException>(() => new CreatureState(default, player));
             Assert.Throws<ArgumentException>(() => new CreatureState(Creature, default));
             Assert.Throws<ArgumentException>(() =>
+                new CreatureState(Creature, player, default(GeneratedIdentityNamespace))
+            );
+            Assert.Throws<ArgumentException>(() =>
                 new CreatureState(Creature, player, new[] { default(Trait) })
             );
             Assert.Throws<ArgumentException>(() =>
@@ -485,6 +488,30 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<ArgumentException>(() => new AmmunitionState(default, Creature, 1));
             Assert.Throws<ArgumentException>(() =>
                 new AmmunitionState(new ItemId("ammunition"), default, 1)
+            );
+        }
+
+        [Test]
+        public void CreatureStateIdentityNamespaceParticipatesInValueSemantics()
+        {
+            PlayerId player = new PlayerId("namespace-player");
+            GeneratedIdentityNamespace firstNamespace = new GeneratedIdentityNamespace(
+                "durable-first"
+            );
+            GeneratedIdentityNamespace secondNamespace = new GeneratedIdentityNamespace(
+                "durable-second"
+            );
+            CreatureState first = new CreatureState(Creature, player, firstNamespace);
+            CreatureState reconstructed = new CreatureState(Creature, player, firstNamespace);
+            CreatureState changedNamespace = new CreatureState(Creature, player, secondNamespace);
+            CreatureState pureRulesDefault = new CreatureState(Creature, player);
+
+            Assert.That(first, Is.EqualTo(reconstructed));
+            Assert.That(first.GetHashCode(), Is.EqualTo(reconstructed.GetHashCode()));
+            Assert.That(first, Is.Not.EqualTo(changedNamespace));
+            Assert.That(
+                pureRulesDefault.IdentityNamespace,
+                Is.EqualTo(GeneratedIdentityNamespace.ForCreature(Creature))
             );
         }
 

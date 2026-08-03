@@ -4,23 +4,59 @@ using System.Linq;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Stores one creature's immutable authoritative identity and traits.</summary>
     public sealed class CreatureState : IEquatable<CreatureState>
     {
         private readonly IReadOnlyList<Trait> traits;
 
+        /// <summary>Gets the creature's store-local identity.</summary>
         public CreatureId Id { get; }
+
+        /// <summary>Gets the player or team that owns the creature.</summary>
         public PlayerId Player { get; }
+
+        /// <summary>Gets the namespace for stable identities generated for this creature.</summary>
+        public GeneratedIdentityNamespace IdentityNamespace { get; }
+
+        /// <summary>Gets the creature's distinct traits in their supplied order.</summary>
         public IReadOnlyList<Trait> Traits => traits;
 
+        /// <summary>
+        /// Initializes creature state with a deterministic store-local identity namespace.
+        /// </summary>
+        /// <param name="id">The creature's nonempty store-local identity.</param>
+        /// <param name="player">The creature's nonempty player or team identity.</param>
+        /// <param name="traits">Optional distinct creature traits.</param>
         public CreatureState(CreatureId id, PlayerId player, IEnumerable<Trait> traits = null)
+            : this(id, player, GeneratedIdentityNamespace.ForCreature(id), traits) { }
+
+        /// <summary>Initializes creature state with an explicit generated-identity namespace.</summary>
+        /// <param name="id">The creature's nonempty store-local identity.</param>
+        /// <param name="player">The creature's nonempty player or team identity.</param>
+        /// <param name="identityNamespace">
+        /// The stable namespace for identities generated on behalf of this creature.
+        /// </param>
+        /// <param name="traits">Optional distinct creature traits.</param>
+        public CreatureState(
+            CreatureId id,
+            PlayerId player,
+            GeneratedIdentityNamespace identityNamespace,
+            IEnumerable<Trait> traits = null
+        )
         {
             if (id.IsEmpty)
                 throw new ArgumentException("A creature ID is required.", nameof(id));
             if (player.IsEmpty)
                 throw new ArgumentException("A player ID is required.", nameof(player));
+            if (identityNamespace.IsEmpty)
+                throw new ArgumentException(
+                    "A generated identity namespace is required.",
+                    nameof(identityNamespace)
+                );
 
             Id = id;
             Player = player;
+            IdentityNamespace = identityNamespace;
             Trait[] copied = (traits ?? Array.Empty<Trait>()).Distinct().ToArray();
             if (copied.Any(trait => trait.IsEmpty))
                 throw new ArgumentException(
@@ -30,15 +66,28 @@ namespace Game.Rules.Runtime
             this.traits = Array.AsReadOnly(copied);
         }
 
+        /// <inheritdoc/>
         public bool Equals(CreatureState other) =>
             other != null
             && Id == other.Id
             && Player == other.Player
+            && IdentityNamespace == other.IdentityNamespace
             && traits.SequenceEqual(other.traits);
 
+        /// <inheritdoc/>
         public override bool Equals(object obj) => obj is CreatureState other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(Id, Player);
+        /// <inheritdoc/>
+        public override int GetHashCode()
+        {
+            HashCode hash = new HashCode();
+            hash.Add(Id);
+            hash.Add(Player);
+            hash.Add(IdentityNamespace);
+            foreach (Trait trait in traits)
+                hash.Add(trait);
+            return hash.ToHashCode();
+        }
     }
 
     /// <summary>

@@ -1807,8 +1807,9 @@ public sealed class ConditionUnityIntegrationTests
                     )
                 );
 
-        const string effectPrefix = "condition-effect-";
-        const string bindingPrefix = "condition-binding-";
+        string targetNamespace = DurableActorSourceIdentity.Reserve(target.DurableActorId).Value;
+        string effectPrefix = $"condition-effect-{targetNamespace}-";
+        string bindingPrefix = $"condition-binding-{targetNamespace}-";
         string effectIdentity = applied.Value.EffectId.Value;
         string bindingIdentity = applied.Value.BindingId.Value;
         Assert.That(applied.Value.EffectId, Is.Not.EqualTo(adoptedEffectId));
@@ -2720,6 +2721,141 @@ public sealed class ConditionUnityIntegrationTests
             target.Conditions.CaptureApplications().Single().SourceActorId,
             Is.EqualTo(durableSource)
         );
+    }
+
+    [Test]
+    public void SeparateDurableActorStoresGenerateDistinctConditionsThatEnrollTogether()
+    {
+        CreatureFixture firstActor = CreateCreature("Namespaced Condition First", "Heroes", 100);
+        CreatureFixture secondActor = CreateCreature("Namespaced Condition Second", "Enemies", 50);
+        UnityCombatRulesBridge firstStore = UnityCombatRulesBridge.Create(
+            new[] { firstActor.Controller },
+            CreateTiles()
+        );
+        CreatureId firstActorId = firstStore.GetCreatureId(firstActor.Creature);
+        ResolvedOpResult<ConditionApplicationOutcome> firstCondition =
+            (ResolvedOpResult<ConditionApplicationOutcome>)
+                firstStore.Dispatch(
+                    new ApplyConditionOp(
+                        "fatigued",
+                        firstActorId,
+                        firstActorId,
+                        RuleSource.FromSlug("first-namespaced-condition"),
+                        EffectDuration.Indefinite,
+                        ConditionMarkerState.Instance
+                    )
+                );
+        long firstCreationOrder = firstStore
+            .Snapshot
+            .RuleBindings[firstCondition.Value.BindingId]
+            .CreationOrder;
+        firstStore.ReleaseOwnership();
+
+        UnityCombatRulesBridge secondStore = UnityCombatRulesBridge.Create(
+            new[] { secondActor.Controller },
+            CreateTiles()
+        );
+        CreatureId secondActorId = secondStore.GetCreatureId(secondActor.Creature);
+        ResolvedOpResult<ConditionApplicationOutcome> secondCondition =
+            (ResolvedOpResult<ConditionApplicationOutcome>)
+                secondStore.Dispatch(
+                    new ApplyConditionOp(
+                        "fatigued",
+                        secondActorId,
+                        secondActorId,
+                        RuleSource.FromSlug("second-namespaced-condition"),
+                        EffectDuration.Indefinite,
+                        ConditionMarkerState.Instance
+                    )
+                );
+        long secondCreationOrder = secondStore
+            .Snapshot
+            .RuleBindings[secondCondition.Value.BindingId]
+            .CreationOrder;
+        secondStore.ReleaseOwnership();
+
+        Assert.That(secondCreationOrder, Is.EqualTo(firstCreationOrder));
+        Assert.That(secondCondition.Value.EffectId, Is.Not.EqualTo(firstCondition.Value.EffectId));
+        Assert.That(
+            secondCondition.Value.BindingId,
+            Is.Not.EqualTo(firstCondition.Value.BindingId)
+        );
+        Assert.That(
+            firstCondition.Value.EffectId.Value,
+            Does.Contain(DurableActorSourceIdentity.Reserve(firstActor.DurableActorId).Value)
+        );
+        Assert.That(
+            secondCondition.Value.EffectId.Value,
+            Does.Contain(DurableActorSourceIdentity.Reserve(secondActor.DurableActorId).Value)
+        );
+        Assert.That(
+            firstActor.Conditions.CaptureApplications().Single().EffectId,
+            Is.EqualTo(firstCondition.Value.EffectId)
+        );
+        Assert.That(
+            secondActor.Conditions.CaptureApplications().Single().EffectId,
+            Is.EqualTo(secondCondition.Value.EffectId)
+        );
+
+        CreatureFixture existingOpponent = CreateCreature(
+            "Namespaced Condition Existing Opponent",
+            "Enemies",
+            0
+        );
+        ScriptedRollService rolls = new ScriptedRollService(20, 10, 5);
+        UnityCombatRulesBridge laterEncounter = UnityCombatRulesBridge.Create(
+            new[] { firstActor.Controller, existingOpponent.Controller },
+            CreateTiles(),
+            rolls
+        );
+        laterEncounter.StartEncounter("Heroes");
+
+        Assert.DoesNotThrow(() =>
+            laterEncounter.RegisterCombatants(new[] { secondActor.Controller })
+        );
+        Assert.That(
+            laterEncounter.Snapshot.ActiveEffects.Contains(firstCondition.Value.EffectId),
+            Is.True
+        );
+        Assert.That(
+            laterEncounter.Snapshot.ActiveEffects.Contains(secondCondition.Value.EffectId),
+            Is.True
+        );
+        Assert.That(
+            laterEncounter.Snapshot.RuleBindings.Contains(firstCondition.Value.BindingId),
+            Is.True
+        );
+        Assert.That(
+            laterEncounter.Snapshot.RuleBindings.Contains(secondCondition.Value.BindingId),
+            Is.True
+        );
+        CreatureId reenrolledFirstActorId = laterEncounter.GetCreatureId(firstActor.Creature);
+        ResolvedOpResult<ConditionApplicationOutcome> nextFirstActorCondition =
+            (ResolvedOpResult<ConditionApplicationOutcome>)
+                laterEncounter.Dispatch(
+                    new ApplyConditionOp(
+                        "deafened",
+                        reenrolledFirstActorId,
+                        reenrolledFirstActorId,
+                        RuleSource.FromSlug("next-first-namespaced-condition"),
+                        EffectDuration.Indefinite,
+                        ConditionMarkerState.Instance
+                    )
+                );
+        long nextCreationOrder = laterEncounter
+            .Snapshot
+            .RuleBindings[nextFirstActorCondition.Value.BindingId]
+            .CreationOrder;
+        Assert.That(nextCreationOrder, Is.GreaterThan(firstCreationOrder));
+        Assert.That(nextCreationOrder, Is.GreaterThan(secondCreationOrder));
+        Assert.That(
+            nextFirstActorCondition.Value.EffectId.Value,
+            Does.StartWith(
+                $"condition-effect-{DurableActorSourceIdentity.Reserve(firstActor.DurableActorId).Value}-"
+            )
+        );
+        Assert.That(rolls.Remaining, Is.Zero);
+        laterEncounter.ReleaseOwnership();
     }
 
     [Test]
