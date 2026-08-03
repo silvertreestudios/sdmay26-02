@@ -248,7 +248,8 @@ public sealed class SpellcastingPresentationPlayModeTests
                     new[] { new SpellActionVariant(3), new SpellActionVariant(1) },
                     Array.Empty<Trait>(),
                     new[] { effect },
-                    Array.Empty<SpellAttackDefinition>()
+                    Array.Empty<SpellAttackDefinition>(),
+                    Array.Empty<SpellSaveDefinition>()
                 ),
                 new Game.Rules.Runtime.SpellDefinition(
                     alphaRankOne.Spell,
@@ -257,7 +258,8 @@ public sealed class SpellcastingPresentationPlayModeTests
                     new[] { new SpellActionVariant(2), new SpellActionVariant(1) },
                     Array.Empty<Trait>(),
                     new[] { effect },
-                    Array.Empty<SpellAttackDefinition>()
+                    Array.Empty<SpellAttackDefinition>(),
+                    Array.Empty<SpellSaveDefinition>()
                 ),
             }
         );
