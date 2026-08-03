@@ -57,26 +57,29 @@ namespace Game.Rules.Runtime
             RuleSource source
         )
         {
-            Binding = Require(binding);
-            ExpectedCreationOrder = RequireOrder(expectedCreationOrder);
-            Source = Require(source);
+            Binding = Require(binding, nameof(binding));
+            ExpectedCreationOrder = RequireOrder(
+                expectedCreationOrder,
+                nameof(expectedCreationOrder)
+            );
+            Source = Require(source, nameof(source));
         }
 
         public BindingId Binding { get; }
         public long ExpectedCreationOrder { get; }
         public RuleSource Source { get; }
 
-        private static BindingId Require(BindingId value) =>
+        private static BindingId Require(BindingId value, string parameterName) =>
             value.IsEmpty
-                ? throw new ArgumentException("A binding ID is required.", nameof(value))
+                ? throw new ArgumentException("A binding ID is required.", parameterName)
                 : value;
 
-        private static long RequireOrder(long value) =>
-            value < 0 ? throw new ArgumentOutOfRangeException(nameof(value)) : value;
+        private static long RequireOrder(long value, string parameterName) =>
+            value < 0 ? throw new ArgumentOutOfRangeException(parameterName) : value;
 
-        private static RuleSource Require(RuleSource value) =>
+        private static RuleSource Require(RuleSource value, string parameterName) =>
             value.IsEmpty
-                ? throw new ArgumentException("A rule source is required.", nameof(value))
+                ? throw new ArgumentException("A rule source is required.", parameterName)
                 : value;
     }
 
