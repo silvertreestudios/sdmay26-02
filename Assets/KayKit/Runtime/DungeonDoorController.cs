@@ -80,6 +80,15 @@ namespace Game.KayKit
         }
 
         /// <summary>
+        /// Determines whether this door can open against its current map state without mutating it.
+        /// </summary>
+        /// <returns>
+        /// <see langword="true"/> when the door is already open or its map cell remains a valid
+        /// door mutation target; otherwise <see langword="false"/>.
+        /// </returns>
+        public bool CanOpen() => IsOpen || map.CanSetDoorState(Cell, true);
+
+        /// <summary>
         /// Opens this door idempotently while atomically updating visuals, movement, pathfinding,
         /// and line of sight. V1 doors expose no runtime close operation.
         /// </summary>

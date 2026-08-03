@@ -309,6 +309,8 @@ namespace Game.Combat.Encounters
             );
             if (!decision.IsAllowed)
                 return false;
+            if (!door.CanOpen())
+                return false;
             if (mode == DungeonDoorInteractionMode.Combat)
             {
                 if (
@@ -322,7 +324,12 @@ namespace Game.Combat.Encounters
                     return false;
             }
             if (!door.TryOpen())
-                return false;
+            {
+                throw new InvalidOperationException(
+                    $"Door '{door.StableId}' passed its mutation precondition but could not open. "
+                        + "Door mutation must remain synchronous on Unity's main thread."
+                );
+            }
             combatManager.RefreshRulesTopology();
             openDoorIds.Add(door.StableId);
             EnterReachableEncounterRooms();

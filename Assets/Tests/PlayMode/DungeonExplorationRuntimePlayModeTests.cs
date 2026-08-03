@@ -11,6 +11,7 @@ using Game.DungeonGeneration;
 using Game.KayKit;
 using Game.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -779,6 +780,64 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(current.Creature.IsDefeated, Is.True);
         Assert.That(fixture.Runtime.TryOpenDoor(deadActorDoor.Cell), Is.False);
         Assert.That(fixture.Doors[deadActorDoor.Cell].Controller.IsOpen, Is.False);
+        yield break;
+    }
+
+    /// <summary>
+    /// Verifies an invalidated door cell rejects before typed Interact can spend either resource.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator CombatDoorInvalidatedBeforeInteractionDoesNotSpendTurnResources()
+    {
+        DoorSpec door = new("door-invalidated", new DungeonCell(2, 1));
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(1, 0, 1) },
+            doors: new[] { door },
+            configurePartyBeforeInitialization: party =>
+                party[0].GetComponent<CreatureComponent>().initiative = 1000
+        );
+        Combatant enemy = CreateCombatant(
+            "Invalidated Door Enemy",
+            "Enemies",
+            new Vector3Int(7, 0, 7),
+            initiative: 0,
+            addToken: false
+        );
+        manager.StartDungeonCombat(new[] { fixture.Party[0].Controller, enemy.Controller });
+        Combatant current = fixture.Party[0];
+        Assert.That(
+            current.Controller.TryGetCombatRules(
+                out UnityCombatRulesBridge bridge,
+                out CreatureId actor
+            ),
+            Is.True
+        );
+        Assert.That(
+            bridge.Dispatch(
+                new ApplyConditionOp(
+                    "Quickened",
+                    actor,
+                    actor,
+                    RuleSource.FromSlug("door-invalidation-quickened-interact"),
+                    EffectDuration.Indefinite,
+                    new QuickenedConditionState(new[] { InteractActionDefinition.DefinitionId })
+                )
+            ),
+            Is.TypeOf<ResolvedOpResult<ConditionApplicationOutcome>>()
+        );
+        bridge.BeginTurn(actor, 3);
+
+        Assert.That(bridge.GetStandardActionsRemaining(actor), Is.EqualTo(3));
+        Assert.That(bridge.GetOptionalActionAvailable(actor), Is.True);
+
+        fixture.Grid.GridData[door.Cell.X, door.Cell.Z] = TileType.Ground;
+
+        Assert.That(fixture.Runtime.TryOpenDoor(door.Cell), Is.False);
+        Assert.That(fixture.Doors[door.Cell].Controller.IsOpen, Is.False);
+        Assert.That(fixture.Doors[door.Cell].ClosedVisual.activeSelf, Is.True);
+        Assert.That(fixture.Doors[door.Cell].OpenVisual.activeSelf, Is.False);
+        Assert.That(bridge.GetStandardActionsRemaining(actor), Is.EqualTo(3));
+        Assert.That(bridge.GetOptionalActionAvailable(actor), Is.True);
         yield break;
     }
 
