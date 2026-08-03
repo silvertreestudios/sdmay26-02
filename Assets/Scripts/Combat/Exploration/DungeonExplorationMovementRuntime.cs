@@ -11,17 +11,21 @@ using UnityEngine;
 namespace Game.Combat.Exploration
 {
     /// <summary>
-    /// Projects each rules-committed leader step into the pure follower planner and commits its
-    /// ordered Unity movement one member at a time during destination travel.
+    /// Projects rules-committed leader steps into one action-scoped logical trail while presenting
+    /// each token on an independent movement channel.
     /// </summary>
-    internal sealed class DungeonExplorationMovementRuntime : IExplorationStrideCoordinator
+    internal sealed class DungeonExplorationMovementRuntime
+        : IExplorationStrideCoordinator,
+            IExplorationPresentationDrain
     {
         private readonly ActionController[] party;
         private readonly Func<ActionController> selectedLeader;
         private readonly Func<bool> isCombatActive;
         private readonly Func<ActionController, bool> canParticipate;
         private readonly Func<bool> processEncounterBoundary;
+        private readonly Func<DungeonCell, DungeonCell, bool> requiresEncounterBoundarySettlement;
         private readonly Func<bool> shouldInterruptStrideSuffix;
+        private ExplorationPresentationState activePresentation;
 
         internal DungeonExplorationMovementRuntime(
             IEnumerable<ActionController> party,
@@ -29,6 +33,7 @@ namespace Game.Combat.Exploration
             Func<bool> isCombatActive,
             Func<ActionController, bool> canParticipate,
             Func<bool> processEncounterBoundary,
+            Func<DungeonCell, DungeonCell, bool> requiresEncounterBoundarySettlement,
             Func<bool> shouldInterruptStrideSuffix
         )
         {
@@ -42,6 +47,9 @@ namespace Game.Combat.Exploration
             this.processEncounterBoundary =
                 processEncounterBoundary
                 ?? throw new ArgumentNullException(nameof(processEncounterBoundary));
+            this.requiresEncounterBoundarySettlement =
+                requiresEncounterBoundarySettlement
+                ?? throw new ArgumentNullException(nameof(requiresEncounterBoundarySettlement));
             this.shouldInterruptStrideSuffix =
                 shouldInterruptStrideSuffix
                 ?? throw new ArgumentNullException(nameof(shouldInterruptStrideSuffix));
@@ -86,64 +94,49 @@ namespace Game.Combat.Exploration
                 throw new ArgumentNullException(nameof(pathInterrupted));
             continuePath.Value = false;
             pathInterrupted.Value = false;
+            if (!Handles(leader) || tiles == null || movement == null)
+                yield break;
+
             if (
-                !Handles(leader)
-                || tiles == null
-                || movement == null
-                || Vector3Int.RoundToInt(leader.transform.position) != from
+                activePresentation != null
+                && activePresentation.Controllers.Any(controller => !canParticipate(controller))
             )
-                yield break;
-
-            ActionController[] livingParty = party.Where(canParticipate).ToArray();
-            Dictionary<ExplorationMemberId, ActionController> controllersById = new();
-            List<ExplorationPartyMember> members = new(livingParty.Length);
-            ExplorationMemberId leaderId = default;
-            for (int index = 0; index < livingParty.Length; index++)
             {
-                ActionController controller = livingParty[index];
-                ExplorationMemberId memberId = new($"party-{Array.IndexOf(party, controller):D4}");
-                Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
-                controllersById.Add(memberId, controller);
-                members.Add(
-                    new ExplorationPartyMember(memberId, new DungeonCell(position.x, position.z))
-                );
-                if (controller == selectedLeader())
-                    leaderId = memberId;
+                yield return DrainPendingFollowers(activePresentation);
+                activePresentation = null;
             }
-            if (leaderId.IsEmpty)
-                yield break;
-
-            ExplorationPartyState partyState;
-            try
+            if (activePresentation == null)
             {
-                partyState = new ExplorationPartyState(members, leaderId);
+                if (!TryCreatePresentationState(leader, out activePresentation))
+                    yield break;
             }
-            catch (ArgumentException)
-            {
-                // Invalid live occupancy must stop movement rather than compound an overlap.
+            if (!activePresentation.MatchesLeaderAndOrigin(leader, from))
                 yield break;
-            }
 
             ExplorationStepOutcome outcome = ExplorationStepPlanner.Plan(
                 new ExplorationStepRequest(
-                    partyState,
+                    activePresentation.Party,
                     new DungeonCell(destination.x, destination.z),
-                    new LiveGridCellAvailability(tiles, livingParty)
+                    new LiveGridCellAvailability(tiles, activePresentation.Controllers)
                 )
             );
             if (outcome is not AcceptedExplorationStepPlan accepted)
                 yield break;
 
-            bool leaderProjected = false;
             if (accepted.IsLeaderSwap)
             {
                 Ref<bool> swapped = new(false);
-                yield return SwapMembers(accepted, controllersById, tiles, movement, swapped);
+                yield return DrainPendingFollowers(activePresentation);
+                yield return SwapMembers(
+                    accepted,
+                    activePresentation.ControllersById,
+                    tiles,
+                    movement,
+                    swapped
+                );
                 if (!swapped.Value)
-                {
                     yield break;
-                }
-                leaderProjected = true;
+                activePresentation.Party = accepted.ResultingParty;
                 if (processEncounterBoundary())
                 {
                     pathInterrupted.Value = true;
@@ -152,26 +145,80 @@ namespace Game.Combat.Exploration
             }
             else
             {
-                foreach (ExplorationMemberMove plannedMove in accepted.Moves)
-                {
-                    ActionController controller = controllersById[plannedMove.MemberId];
-                    bool isLeader = plannedMove.MemberId == leaderId;
-                    Ref<bool> moved = new(false);
-                    yield return MoveMember(
-                        controller,
-                        plannedMove,
+                ExplorationMemberMove leaderMove = accepted.Moves[0];
+                ActionController leaderController = activePresentation.ControllersById[
+                    leaderMove.MemberId
+                ];
+                if (
+                    !TryProjectCommittedLeader(
+                        leaderController,
+                        leaderMove,
                         tiles,
                         movement,
-                        isLeader,
-                        moved
+                        out TokenMovement.ExplorationMovementOperation leaderPresentation
+                    )
+                )
+                {
+                    yield break;
+                }
+
+                // Queue the next leader segment before settling the prior follower batch. This
+                // keeps the leader continuous while preserving the invariant that boundary
+                // observation never sees half-presented followers from the preceding cell.
+                yield return DrainPendingFollowers(activePresentation);
+                yield return leaderPresentation;
+                if (leaderController == null)
+                {
+                    pathInterrupted.Value = true;
+                    yield break;
+                }
+                if (processEncounterBoundary())
+                {
+                    pathInterrupted.Value = true;
+                    yield break;
+                }
+
+                List<PendingFollowerPresentation> followers = new();
+                int preparedMoveCount = 1;
+                bool reachedEncounterBoundary = false;
+                for (int moveIndex = 1; moveIndex < accepted.Moves.Count; moveIndex++)
+                {
+                    ExplorationMemberMove plannedMove = accepted.Moves[moveIndex];
+                    bool reachesEncounterBoundary = requiresEncounterBoundarySettlement(
+                        plannedMove.From,
+                        plannedMove.To
                     );
-                    if (!moved.Value)
+                    ActionController controller = activePresentation.ControllersById[
+                        plannedMove.MemberId
+                    ];
+                    PendingFollowerPresentation pending = new(controller);
+                    Ref<bool> prepared = new(false);
+                    yield return PrepareFollower(pending, plannedMove, tiles, movement, prepared);
+                    if (!prepared.Value)
                     {
-                        pathInterrupted.Value = leaderProjected;
+                        activePresentation.PendingFollowers = followers;
+                        pathInterrupted.Value = true;
                         yield break;
                     }
-                    if (isLeader)
-                        leaderProjected = true;
+                    followers.Add(pending);
+                    preparedMoveCount++;
+                    if (!reachesEncounterBoundary)
+                        continue;
+
+                    reachedEncounterBoundary = true;
+                    break;
+                }
+                activePresentation.PendingFollowers = followers;
+                activePresentation.Party =
+                    preparedMoveCount == accepted.Moves.Count
+                        ? accepted.ResultingParty
+                        : ApplyMoves(activePresentation.Party, accepted.Moves, preparedMoveCount);
+                if (reachedEncounterBoundary)
+                {
+                    // Stop at the first triggering follower so encounter construction cannot
+                    // consume later room observations that it cannot activate in the same handoff.
+                    // Ordinary batches still remain pipelined with the next leader segment.
+                    yield return DrainPendingFollowers(activePresentation);
                     if (processEncounterBoundary())
                     {
                         pathInterrupted.Value = true;
@@ -188,6 +235,58 @@ namespace Game.Combat.Exploration
             }
             continuePath.Value =
                 !isCombatActive() && currentLeader != null && currentLeader.IsInDungeonExploration;
+        }
+
+        /// <inheritdoc/>
+        public IEnumerator DrainPresentation(GameObject leader)
+        {
+            if (activePresentation == null || activePresentation.Leader != leader)
+                yield break;
+
+            yield return DrainPendingFollowers(activePresentation);
+            activePresentation = null;
+            processEncounterBoundary();
+        }
+
+        private bool TryCreatePresentationState(
+            GameObject leader,
+            out ExplorationPresentationState state
+        )
+        {
+            state = null;
+            ActionController[] livingParty = party.Where(canParticipate).ToArray();
+            Dictionary<ExplorationMemberId, ActionController> controllersById = new();
+            List<ExplorationPartyMember> members = new(livingParty.Length);
+            ExplorationMemberId leaderId = default;
+            for (int index = 0; index < livingParty.Length; index++)
+            {
+                ActionController controller = livingParty[index];
+                ExplorationMemberId memberId = new($"party-{Array.IndexOf(party, controller):D4}");
+                Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
+                controllersById.Add(memberId, controller);
+                members.Add(
+                    new ExplorationPartyMember(memberId, new DungeonCell(position.x, position.z))
+                );
+                if (controller.gameObject == leader)
+                    leaderId = memberId;
+            }
+            if (leaderId.IsEmpty)
+                return false;
+
+            try
+            {
+                state = new ExplorationPresentationState(
+                    leader,
+                    new ExplorationPartyState(members, leaderId),
+                    controllersById
+                );
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                // Invalid live occupancy must stop movement rather than compound an overlap.
+                return false;
+            }
         }
 
         private static IEnumerator SwapMembers(
@@ -243,22 +342,25 @@ namespace Game.Combat.Exploration
                 yield break;
             allySource.ProjectCommittedArrival(leader.gameObject);
 
-            yield return AnimateMember(leader, allySourcePosition, movement, false);
-            yield return AnimateMember(ally, leaderSourcePosition, movement, true);
+            yield return QueueMemberPresentation(leader, allySourcePosition, movement);
+            CreaturePresentation allyPresentation = BeginFollowerPresentation(ally);
+            yield return QueueMemberPresentation(ally, leaderSourcePosition, movement);
+            EndFollowerPresentation(allyPresentation);
             yield return leaderSource.PlaceToken(ally.gameObject);
             swapped.Value = true;
         }
 
-        private static IEnumerator MoveMember(
+        private static bool TryProjectCommittedLeader(
             ActionController controller,
             ExplorationMemberMove plannedMove,
             Tile[,] tiles,
             TokenMovement movement,
-            bool isLeader,
-            Ref<bool> moved
+            out TokenMovement.ExplorationMovementOperation operation
         )
         {
-            moved.Value = false;
+            operation = TokenMovement.ExplorationMovementOperation.Completed;
+            if (controller == null)
+                return false;
             Vector3Int current = Vector3Int.RoundToInt(controller.transform.position);
             Vector3Int expected = new(plannedMove.From.X, current.y, plannedMove.From.Z);
             Vector3Int destination = new(plannedMove.To.X, current.y, plannedMove.To.Z);
@@ -267,9 +369,7 @@ namespace Game.Combat.Exploration
                 || !IsInBounds(tiles, current)
                 || !IsInBounds(tiles, destination)
             )
-            {
-                yield break;
-            }
+                return false;
 
             Tile source = tiles[current.x, current.z];
             Tile target = tiles[destination.x, destination.z];
@@ -279,53 +379,137 @@ namespace Game.Combat.Exploration
                 || !source.Occupants.Contains(controller.gameObject)
                 || target.Occupants.Any(occupant => occupant != controller.gameObject)
             )
-            {
-                yield break;
-            }
+                return false;
 
-            if (isLeader)
-            {
-                if (!source.ProjectCommittedDeparture(controller.gameObject))
-                    yield break;
-                target.ProjectCommittedArrival(controller.gameObject);
-            }
-            else
-            {
-                Ref<bool> prevented = new(false);
-                yield return source.RemoveToken(controller.gameObject, prevented);
-                if (prevented.Value)
-                    yield break;
-            }
-
-            yield return AnimateMember(controller, destination, movement, !isLeader);
-            if (!isLeader)
-                yield return target.PlaceToken(controller.gameObject);
-            moved.Value = true;
+            if (!source.ProjectCommittedDeparture(controller.gameObject))
+                return false;
+            target.ProjectCommittedArrival(controller.gameObject);
+            operation = QueueMemberPresentation(controller, destination, movement);
+            return true;
         }
 
-        private static IEnumerator AnimateMember(
+        private static IEnumerator PrepareFollower(
+            PendingFollowerPresentation pending,
+            ExplorationMemberMove plannedMove,
+            Tile[,] tiles,
+            TokenMovement movement,
+            Ref<bool> prepared
+        )
+        {
+            prepared.Value = false;
+            ActionController controller = pending.Controller;
+            if (controller == null)
+                yield break;
+
+            Vector3Int current = Vector3Int.RoundToInt(controller.transform.position);
+            Vector3Int expected = new(plannedMove.From.X, current.y, plannedMove.From.Z);
+            Vector3Int destination = new(plannedMove.To.X, current.y, plannedMove.To.Z);
+            if (
+                current != expected
+                || !IsInBounds(tiles, current)
+                || !IsInBounds(tiles, destination)
+            )
+                yield break;
+
+            Tile source = tiles[current.x, current.z];
+            Tile target = tiles[destination.x, destination.z];
+            if (
+                source == null
+                || target == null
+                || !source.Occupants.Contains(controller.gameObject)
+                || target.Occupants.Any(occupant => occupant != controller.gameObject)
+            )
+                yield break;
+
+            Ref<bool> prevented = new(false);
+            yield return source.RemoveToken(controller.gameObject, prevented);
+            if (prevented.Value || controller == null)
+                yield break;
+
+            CreaturePresentation presentation = BeginFollowerPresentation(controller);
+            pending.Begin(
+                target,
+                presentation,
+                QueueMemberPresentation(controller, destination, movement)
+            );
+            prepared.Value = true;
+        }
+
+        private static TokenMovement.ExplorationMovementOperation QueueMemberPresentation(
             ActionController controller,
             Vector3Int destination,
-            TokenMovement movement,
-            bool managePresentation
+            TokenMovement movement
         )
         {
             CreaturePresentation presentation = controller.GetComponent<CreaturePresentation>();
+            return presentation?.AnimationController != null
+                ? movement.QueueExplorationWalk(controller.transform, destination)
+                : movement.QueueExplorationHop(controller.transform, destination);
+        }
+
+        private static CreaturePresentation BeginFollowerPresentation(ActionController controller)
+        {
+            CreaturePresentation presentation = controller.GetComponent<CreaturePresentation>();
             float movementSpeed = controller.GetComponent<CreatureComponent>()?.speed ?? 25.0f;
-            if (managePresentation)
-                presentation?.SetMoving(true, movementSpeed);
-            try
+            presentation?.SetMoving(true, movementSpeed);
+            return presentation;
+        }
+
+        private static void EndFollowerPresentation(CreaturePresentation presentation)
+        {
+            if (presentation == null)
+                return;
+            presentation.SetMoving(false, 0.0f);
+        }
+
+        private static IEnumerator DrainPendingFollowers(ExplorationPresentationState state)
+        {
+            IReadOnlyList<PendingFollowerPresentation> pendingFollowers = state.PendingFollowers;
+            state.PendingFollowers = Array.Empty<PendingFollowerPresentation>();
+            foreach (PendingFollowerPresentation pending in pendingFollowers)
+                yield return pending.Operation;
+
+            foreach (PendingFollowerPresentation pending in pendingFollowers)
+                EndFollowerPresentation(pending.Presentation);
+
+            foreach (PendingFollowerPresentation pending in pendingFollowers)
             {
-                if (presentation?.AnimationController != null)
-                    yield return movement.Walk(controller.transform, destination);
-                else
-                    yield return movement.Hop(controller.transform, destination);
+                if (pending.Controller == null)
+                    continue;
+                if (
+                    pending.Target.Occupants.Any(occupant =>
+                        occupant != pending.Controller.gameObject
+                    )
+                )
+                {
+                    throw new InvalidOperationException(
+                        "A queued follower destination became occupied before presentation settled."
+                    );
+                }
+                yield return pending.Target.PlaceToken(pending.Controller.gameObject);
             }
-            finally
+        }
+
+        private static ExplorationPartyState ApplyMoves(
+            ExplorationPartyState party,
+            IReadOnlyList<ExplorationMemberMove> moves,
+            int moveCount
+        )
+        {
+            ExplorationPartyMember[] members = party.Members.ToArray();
+            for (int moveIndex = 0; moveIndex < moveCount; moveIndex++)
             {
-                if (managePresentation)
-                    presentation?.SetMoving(false, 0.0f);
+                ExplorationMemberMove move = moves[moveIndex];
+                int memberIndex = Array.FindIndex(members, member => member.Id == move.MemberId);
+                if (memberIndex < 0 || members[memberIndex].Cell != move.From)
+                {
+                    throw new InvalidOperationException(
+                        "A prepared exploration move did not match the current logical party state."
+                    );
+                }
+                members[memberIndex] = new ExplorationPartyMember(move.MemberId, move.To);
             }
+            return new ExplorationPartyState(members, party.SelectedLeaderId);
         }
 
         private static bool IsInBounds(Tile[,] tiles, Vector3Int cell) =>
@@ -333,6 +517,69 @@ namespace Game.Combat.Exploration
             && cell.z >= 0
             && cell.x < tiles.GetLength(0)
             && cell.z < tiles.GetLength(1);
+
+        private sealed class ExplorationPresentationState
+        {
+            internal ExplorationPresentationState(
+                GameObject leader,
+                ExplorationPartyState party,
+                IReadOnlyDictionary<ExplorationMemberId, ActionController> controllersById
+            )
+            {
+                Leader = leader;
+                Party = party;
+                ControllersById = controllersById;
+                Controllers = controllersById.Values.ToArray();
+            }
+
+            internal GameObject Leader { get; }
+
+            internal ExplorationPartyState Party { get; set; }
+
+            internal IReadOnlyDictionary<
+                ExplorationMemberId,
+                ActionController
+            > ControllersById { get; }
+
+            internal IReadOnlyList<ActionController> Controllers { get; }
+
+            internal IReadOnlyList<PendingFollowerPresentation> PendingFollowers { get; set; } =
+                Array.Empty<PendingFollowerPresentation>();
+
+            internal bool MatchesLeaderAndOrigin(GameObject leader, Vector3Int origin)
+            {
+                if (Leader != leader || leader == null)
+                    return false;
+                ExplorationPartyMember selected = Party.SelectedLeader;
+                return selected.Cell.X == origin.x && selected.Cell.Z == origin.z;
+            }
+        }
+
+        private sealed class PendingFollowerPresentation
+        {
+            internal PendingFollowerPresentation(ActionController controller) =>
+                Controller = controller;
+
+            internal ActionController Controller { get; }
+
+            internal Tile Target { get; private set; }
+
+            internal CreaturePresentation Presentation { get; private set; }
+
+            internal TokenMovement.ExplorationMovementOperation Operation { get; private set; } =
+                TokenMovement.ExplorationMovementOperation.Completed;
+
+            internal void Begin(
+                Tile target,
+                CreaturePresentation presentation,
+                TokenMovement.ExplorationMovementOperation operation
+            )
+            {
+                Target = target;
+                Presentation = presentation;
+                Operation = operation;
+            }
+        }
 
         private sealed class LiveGridCellAvailability : IExplorationCellAvailability
         {

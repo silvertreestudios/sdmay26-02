@@ -16,6 +16,7 @@ namespace Game.Rules.Unity
         private readonly CreatureId creature;
         private readonly GridBase grid;
         private readonly bool startedInExploration;
+        private IExplorationPresentationDrain explorationPresentation;
 
         internal UnityStrideProjectionObserver(
             GameObject character,
@@ -37,6 +38,10 @@ namespace Game.Rules.Unity
         /// destination route.
         /// </summary>
         internal bool WasRouteInterrupted { get; private set; }
+
+        /// <summary>Completes follower presentation queued by this exploration action.</summary>
+        internal IEnumerator DrainExplorationPresentation() =>
+            explorationPresentation?.DrainPresentation(character) ?? EmptyCoroutine();
 
         /// <inheritdoc/>
         public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
@@ -64,6 +69,7 @@ namespace Game.Rules.Unity
             IExplorationStrideCoordinator exploration = grid.ExplorationStrideCoordinator;
             if (startedInExploration && exploration.Handles(character))
             {
+                explorationPresentation = exploration as IExplorationPresentationDrain;
                 Ref<bool> continuePath = new Ref<bool>(false);
                 Ref<bool> pathInterrupted = new Ref<bool>(false);
                 yield return exploration.ProjectCommittedStep(
@@ -140,6 +146,11 @@ namespace Game.Rules.Unity
 
         private static Vector3Int ToUnity(GridPosition value) =>
             new Vector3Int(value.X, value.Y, value.Z);
+
+        private static IEnumerator EmptyCoroutine()
+        {
+            yield break;
+        }
     }
 
     /// <summary>

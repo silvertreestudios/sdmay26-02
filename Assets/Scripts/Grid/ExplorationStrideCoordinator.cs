@@ -24,8 +24,10 @@ namespace GridPrivate
         bool TryCancelActiveTravel();
 
         /// <summary>
-        /// Projects one already-committed leader step and any eligible follower steps, then
-        /// reports whether the queued leader path may continue.
+        /// Projects one already-committed leader step, queues its eligible follower trail, then
+        /// reports whether the queued leader path may continue. A follower batch that can start an
+        /// encounter settles immediately; otherwise a later step settles the prior batch and the
+        /// owning action drains the final batch.
         /// </summary>
         /// <param name="leader">The current exploration leader.</param>
         /// <param name="from">The leader's committed departure cell.</param>
@@ -41,7 +43,10 @@ namespace GridPrivate
         /// exploration path to be abandoned. A failure before leader projection leaves both result
         /// references <see langword="false"/>.
         /// </param>
-        /// <returns>A coroutine that completes after all committed member movement.</returns>
+        /// <returns>
+        /// A coroutine that completes after the leader reaches the committed cell and the current
+        /// follower batch is safely queued.
+        /// </returns>
         IEnumerator ProjectCommittedStep(
             GameObject leader,
             Vector3Int from,
@@ -51,6 +56,19 @@ namespace GridPrivate
             Ref<bool> continuePath,
             Ref<bool> pathInterrupted
         );
+    }
+
+    /// <summary>
+    /// Drains action-scoped exploration presentation without expanding the public coordinator
+    /// contract used by grid and rules code.
+    /// </summary>
+    internal interface IExplorationPresentationDrain
+    {
+        /// <summary>
+        /// Completes every queued follower segment owned by the supplied leader action and processes
+        /// the resulting encounter boundary before action completion.
+        /// </summary>
+        IEnumerator DrainPresentation(GameObject leader);
     }
 
     internal sealed class NoExplorationStrideCoordinator : IExplorationStrideCoordinator

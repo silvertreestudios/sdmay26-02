@@ -150,6 +150,9 @@ public sealed class RulesStrideAction : EntityAction, ISelectionDrivenEntityActi
             {
                 Debug.LogException(exception, target);
             }
+
+            if (startedInExploration)
+                yield return projection.DrainExplorationPresentation();
         }
         finally
         {

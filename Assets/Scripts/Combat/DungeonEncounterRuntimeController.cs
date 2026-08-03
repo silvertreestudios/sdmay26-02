@@ -62,7 +62,8 @@ namespace Game.Combat.Encounters
     [DisallowMultipleComponent]
     public sealed class DungeonEncounterRuntimeController
         : MonoBehaviour,
-            IExplorationStrideCoordinator
+            IExplorationStrideCoordinator,
+            IExplorationPresentationDrain
     {
         private static readonly Action DestinationReachedNoOp = delegate { };
         private DungeonRoom[] rooms = Array.Empty<DungeonRoom>();
@@ -782,6 +783,7 @@ namespace Game.Combat.Encounters
                 () => combatManager.IsCombatActive,
                 CanObserve,
                 ProcessImmediateExplorationBoundary,
+                RequiresEncounterBoundarySettlement,
                 () => HasActiveDestinationTravel && travelCancelled
             );
             grid.BindExplorationStrideCoordinator(this);
@@ -1105,6 +1107,16 @@ namespace Game.Combat.Encounters
                 pathInterrupted
             );
 
+        IEnumerator IExplorationPresentationDrain.DrainPresentation(GameObject leader) =>
+            explorationMovement is IExplorationPresentationDrain drain
+                ? drain.DrainPresentation(leader)
+                : EmptyCoroutine();
+
+        private static IEnumerator EmptyCoroutine()
+        {
+            yield break;
+        }
+
         private bool ProcessImmediateExplorationBoundary()
         {
             if (combatManager.IsCombatActive)
@@ -1251,6 +1263,32 @@ namespace Game.Combat.Encounters
                 }
             }
             return 0;
+        }
+
+        private bool RequiresEncounterBoundarySettlement(DungeonCell from, DungeonCell destination)
+        {
+            Vector3 destinationPosition = new(destination.X, 0.0f, destination.Z);
+            if (director.IsSuspendedEncounterReached(destinationPosition))
+                return true;
+
+            int destinationRoomId = FindRoomId(destinationPosition);
+            if (
+                destinationRoomId <= 0
+                || destinationRoomId == FindRoomId(new Vector3(from.X, 0.0f, from.Z))
+                || !encounterRoomIds.Contains(destinationRoomId)
+            )
+            {
+                return false;
+            }
+
+            DungeonEncounterGroupView encounter = director.Lifecycle.GetRoomEncounter(
+                destinationRoomId
+            );
+            return encounter.LivingCreatures.Count > 0
+                && (
+                    encounter.State == DungeonEncounterGroupState.Dormant
+                    || encounter.State == DungeonEncounterGroupState.Suspended
+                );
         }
 
         private static bool IsCardinallyAdjacent(ActionController controller, DungeonCell target)
