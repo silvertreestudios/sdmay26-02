@@ -9,7 +9,8 @@ namespace Game.Creature.Rules
     /// <summary>Composes condition workflows and immutable persistence enrollment.</summary>
     internal sealed class ConditionEncounterModule
         : IUnityEncounterDispatcherModule,
-            IUnityCombatantEnrollmentModule
+            IUnityCombatantEnrollmentModule,
+            IUnityEncounterTurnResourceModule
     {
         private readonly UnityCombatRulesBridge owner;
         private readonly RuleRegistry registry;
@@ -28,11 +29,22 @@ namespace Game.Creature.Rules
 
         /// <inheritdoc/>
         public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
-            builder.UseConditionRules(registry);
+            builder
+                .UseConditionRules(registry)
+                .RegisterActionPermission(
+                    ConditionTurnResourceComposition.CreateActionPermission()
+                );
+
+        /// <inheritdoc/>
+        public ITurnResourceContributionProvider CreateTurnResourceProvider() =>
+            ConditionTurnResourceComposition.CreateProvider();
 
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
+            builder.AddRuleBindings(
+                new[] { ConditionTurnResourceComposition.CreateListenerBinding(builder.CreatureId) }
+            );
             // A detached exploration action is not an encounter authority. It must neither adopt
             // nor consume the detached snapshot reserved for the next owning encounter.
             if (!installUnityAuthority)

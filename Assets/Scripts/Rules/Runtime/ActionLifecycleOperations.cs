@@ -125,20 +125,33 @@ namespace Game.Rules.Runtime
     /// </remarks>
     public sealed class CommitActionCostsOp : IRuleOp<ActionCostsOutcome>
     {
-        internal CommitActionCostsOp(OpId actionOpId, CreatureId actor, ActionProfile profile)
-            : this(actionOpId, actor, profile, ActionCostReceiptCheckpoint.None) { }
+        internal CommitActionCostsOp(
+            OpId actionOpId,
+            CreatureId actor,
+            ActionDefinitionId definitionId,
+            ActionProfile profile
+        )
+            : this(actionOpId, actor, definitionId, profile, ActionCostReceiptCheckpoint.None) { }
 
         internal CommitActionCostsOp(
             OpId actionOpId,
             CreatureId actor,
+            ActionDefinitionId definitionId,
             ActionProfile profile,
             IReceiptedActionOp receiptedAction
         )
-            : this(actionOpId, actor, profile, ActionCostReceiptCheckpoint.For(receiptedAction)) { }
+            : this(
+                actionOpId,
+                actor,
+                definitionId,
+                profile,
+                ActionCostReceiptCheckpoint.For(receiptedAction)
+            ) { }
 
         private CommitActionCostsOp(
             OpId actionOpId,
             CreatureId actor,
+            ActionDefinitionId definitionId,
             ActionProfile profile,
             ActionCostReceiptCheckpoint receiptCheckpoint
         )
@@ -147,8 +160,14 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("An action Op ID is required.", nameof(actionOpId));
             if (actor.IsEmpty)
                 throw new ArgumentException("An action actor is required.", nameof(actor));
+            if (definitionId.IsEmpty)
+                throw new ArgumentException(
+                    "An action definition is required.",
+                    nameof(definitionId)
+                );
             ActionOpId = actionOpId;
             Actor = actor;
+            DefinitionId = definitionId;
             Profile = profile ?? throw new ArgumentNullException(nameof(profile));
             ReceiptCheckpoint =
                 receiptCheckpoint ?? throw new ArgumentNullException(nameof(receiptCheckpoint));
@@ -163,6 +182,9 @@ namespace Game.Rules.Runtime
         /// Gets the creature paying the costs.
         /// </summary>
         public CreatureId Actor { get; }
+
+        /// <summary>Gets the trusted top-level action definition from the parent frame.</summary>
+        public ActionDefinitionId DefinitionId { get; }
 
         /// <summary>
         /// Gets the engine-owned frozen profile from the parent action frame.

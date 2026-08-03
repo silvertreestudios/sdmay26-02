@@ -30,13 +30,18 @@ public abstract class ActionController : MonoBehaviour
         }
     }
 
-    /// <summary>Gets authoritative remaining actions while attached to encounter rules.</summary>
+    /// <summary>Gets authoritative ordinary actions while attached to encounter rules.</summary>
     public uint ActionPoints =>
         TryGetAttachedCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
-            ? checked((uint)bridge.GetActionsRemaining(actor))
+            ? checked((uint)bridge.GetStandardActionsRemaining(actor))
             : 0;
 
-    /// <summary>Gets whether the current encounter reaction has been spent.</summary>
+    /// <summary>Gets whether the authoritative optional action resource is available.</summary>
+    public bool OptionalActionAvailable =>
+        TryGetAttachedCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
+        && bridge.GetOptionalActionAvailable(actor);
+
+    /// <summary>Gets whether the current encounter reaction is unavailable.</summary>
     public bool Reacted =>
         TryGetAttachedCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
         && !bridge.GetActionEconomy(actor).ReactionAvailable;
@@ -75,21 +80,6 @@ public abstract class ActionController : MonoBehaviour
     public virtual void ResetEncounterTurnState()
     {
         IsTakingAction = false;
-    }
-
-    /// <summary>Spends actions through the encounter store when combat rules are attached.</summary>
-    /// <param name="amount">The action count paid by a Unity-hosted action, including a free action.</param>
-    /// <exception cref="System.InvalidOperationException">
-    /// The controller cannot afford the requested positive cost.
-    /// </exception>
-    public void SpendActions(uint amount)
-    {
-        if (amount == 0)
-            return;
-        (UnityCombatRulesBridge bridge, CreatureId actor) = RequireCombatRules();
-        if (amount > checked((uint)bridge.GetActionsRemaining(actor)))
-            throw new System.InvalidOperationException("The controller cannot afford this action.");
-        bridge.SpendEncounterActions(actor, checked((int)amount));
     }
 
     internal void AttachCombatRules(UnityCombatRulesBridge bridge, CreatureId creatureId)

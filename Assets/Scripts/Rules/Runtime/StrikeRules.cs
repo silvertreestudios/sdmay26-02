@@ -538,6 +538,10 @@ namespace Game.Rules.Runtime
     /// <summary>Owns normal Strike availability and stable action identity.</summary>
     public sealed class StrikeActionDefinition
     {
+        private static readonly ActionProfile AvailabilityProfile = ActionProfile.OneAction(
+            Array.Empty<Trait>()
+        );
+
         /// <summary>Gets Strike's stable action definition ID.</summary>
         public static ActionDefinitionId DefinitionId { get; } = new ActionDefinitionId("strike");
 
@@ -558,7 +562,7 @@ namespace Game.Rules.Runtime
                 return ActionAvailability.Unavailable("The actor cannot act.");
             if (
                 !snapshot.ActionEconomy.TryGet(actor, out ActionEconomyState economy)
-                || economy.ActionsRemaining < 1
+                || !ActionResourcePayment.CanPay(economy, DefinitionId, AvailabilityProfile)
             )
                 return ActionAvailability.Unavailable("The actor does not have an action.");
             if (!snapshot.MultipleAttackPenalty.Contains(actor))
@@ -840,7 +844,14 @@ namespace Game.Rules.Runtime
                 return ActionAvailability.Unavailable("The weapon is already loaded.");
             if (
                 !snapshot.ActionEconomy.TryGet(actor, out ActionEconomyState economy)
-                || economy.ActionsRemaining < item.ReloadActions
+                || !ActionResourcePayment.CanPay(
+                    economy,
+                    DefinitionId,
+                    ActionProfile.Create(
+                        ActionCost.FromActions(item.ReloadActions),
+                        Array.Empty<Trait>()
+                    )
+                )
             )
                 return ActionAvailability.Unavailable("The actor cannot afford Reload.");
             if (

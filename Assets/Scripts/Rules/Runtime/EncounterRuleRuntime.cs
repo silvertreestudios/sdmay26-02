@@ -88,12 +88,35 @@ namespace Game.Rules.Runtime
             this RuleDispatcherBuilder builder,
             IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters,
             RuleRegistry registry
+        ) =>
+            UseEncounterRules(
+                builder,
+                turnStartAdapters,
+                registry,
+                new TurnResourceStrategy(Array.Empty<ITurnResourceContributionProvider>())
+            );
+
+        /// <summary>
+        /// Registers encounter transitions with explicit adapters, registry, and turn resources.
+        /// </summary>
+        /// <param name="builder">The shared dispatcher builder.</param>
+        /// <param name="turnStartAdapters">Ordered completion-only Unity adapters.</param>
+        /// <param name="registry">The active-effect registry shared by enrollment.</param>
+        /// <param name="turnResources">The explicitly composed generic refresh strategy.</param>
+        /// <returns>The same builder so composition can continue.</returns>
+        public static RuleDispatcherBuilder UseEncounterRules(
+            this RuleDispatcherBuilder builder,
+            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters,
+            RuleRegistry registry,
+            TurnResourceStrategy turnResources
         )
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
             if (registry == null)
                 throw new ArgumentNullException(nameof(registry));
+            if (turnResources == null)
+                throw new ArgumentNullException(nameof(turnResources));
             IEncounterTurnStartAdapter[] copied =
                 turnStartAdapters?.ToArray()
                 ?? throw new ArgumentNullException(nameof(turnStartAdapters));
@@ -112,7 +135,7 @@ namespace Game.Rules.Runtime
                     new AdvanceEncounterHandler()
                 )
                 .RegisterHandler<BeginInitiativeTurnOp, EncounterAdvanceOutcome>(
-                    new BeginInitiativeTurnHandler()
+                    new BeginInitiativeTurnHandler(turnResources)
                 )
                 .RegisterHandler<EndTurnOp, EncounterAdvanceOutcome>(new EndTurnHandler())
                 .RegisterHandler<SuspendEncounterOp, EncounterSuspensionOutcome>(
@@ -129,9 +152,6 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<TurnEndingOp, TurnEndContribution>(
                     new TurnEndingHandler(),
                     InvocationPolicy.NestedOnly
-                )
-                .RegisterHandler<SpendEncounterActionsOp, EncounterActionSpendOutcome>(
-                    new SpendEncounterActionsHandler()
                 )
                 .RegisterEngineReducer<CommitEncounterStartOp, EncounterStartOutcome>(
                     new CommitEncounterStartReducer(),
@@ -179,10 +199,6 @@ namespace Game.Rules.Runtime
                 )
                 .RegisterEngineReducer<CommitEncounterEndOp, EncounterEndOutcome>(
                     new CommitEncounterEndReducer(),
-                    Source
-                )
-                .RegisterEngineReducer<CommitEncounterActionsOp, EncounterActionSpendOutcome>(
-                    new SpendEncounterActionsReducer(),
                     Source
                 );
         }
@@ -587,8 +603,11 @@ namespace Game.Rules.Runtime
     internal sealed class BeginInitiativeTurnHandler
         : IOpHandler<BeginInitiativeTurnOp, EncounterAdvanceOutcome>
     {
-        private const int StandardTurnActions = 3;
-        private const bool StandardReactionAvailable = true;
+        private readonly TurnResourceStrategy turnResources;
+
+        internal BeginInitiativeTurnHandler(TurnResourceStrategy turnResources) =>
+            this.turnResources =
+                turnResources ?? throw new ArgumentNullException(nameof(turnResources));
 
         public async ValueTask<EncounterAdvanceOutcome> Handle(
             OpFrame<BeginInitiativeTurnOp> frame,
@@ -650,8 +669,7 @@ namespace Game.Rules.Runtime
                     new CommitTurnBeginOp(
                         frame.Op.Encounter,
                         entry.Creature,
-                        StandardTurnActions,
-                        StandardReactionAvailable
+                        turnResources.CreatePlan(context.Snapshot, entry.Creature)
                     )
                 ),
                 "turn begin"
@@ -985,25 +1003,6 @@ namespace Game.Rules.Runtime
             OpFrame<TurnEndingOp> frame,
             OpHandlerContext context
         ) => new ValueTask<TurnEndContribution>(TurnEndContribution.Complete);
-    }
-
-    internal sealed class SpendEncounterActionsHandler
-        : IOpHandler<SpendEncounterActionsOp, EncounterActionSpendOutcome>
-    {
-        public async ValueTask<EncounterActionSpendOutcome> Handle(
-            OpFrame<SpendEncounterActionsOp> frame,
-            OpHandlerContext context
-        ) =>
-            EncounterHandlerResults.Require(
-                await context.Dispatch(
-                    new CommitEncounterActionsOp(
-                        frame.Op.Actor,
-                        frame.Op.Amount,
-                        frame.Op.RequiredLivingTargets
-                    )
-                ),
-                "encounter action spend"
-            );
     }
 
     internal sealed class EncounterOutcomeListener

@@ -230,7 +230,11 @@ namespace Game.Rules.Unity
                     .UseActiveEffectRules(modules.Registry)
                     .UseStatelessRuleBindingRules(modules.Registry)
                     .UsePreparedContributions()
-                    .UseEncounterRules(composition.CreateTurnStartAdapters(), modules.Registry)
+                    .UseEncounterRules(
+                        composition.CreateTurnStartAdapters(),
+                        modules.Registry,
+                        composition.CreateTurnResourceStrategy()
+                    )
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)
                     .UseStrideRules(strideDefinition);
@@ -453,13 +457,17 @@ namespace Game.Rules.Unity
             return health;
         }
 
-        /// <summary>Gets the current authoritative action count for one controller.</summary>
+        /// <summary>Gets the current authoritative ordinary-action count for one controller.</summary>
         /// <param name="creature">The controller's encounter-stable creature ID.</param>
         /// <returns>The non-negative action count.</returns>
-        public int GetActionsRemaining(CreatureId creature)
+        public int GetStandardActionsRemaining(CreatureId creature)
         {
-            return GetActionEconomy(creature).ActionsRemaining;
+            return GetActionEconomy(creature).StandardActionsRemaining;
         }
+
+        /// <summary>Gets whether one optional action allowance is currently available.</summary>
+        public bool GetOptionalActionAvailable(CreatureId creature) =>
+            !GetActionEconomy(creature).OptionalAction.IsNone;
 
         /// <summary>Gets the required authoritative action-economy slice.</summary>
         public ActionEconomyState GetActionEconomy(CreatureId creature)
@@ -573,14 +581,6 @@ namespace Game.Rules.Unity
                 }
                 ExceptionDispatchInfo.Capture(failure).Throw();
             }
-        }
-
-        /// <summary>Spends authoritative actions for a Unity-hosted encounter action.</summary>
-        /// <param name="creature">The registered creature paying the cost.</param>
-        /// <param name="amount">The positive action count to spend.</param>
-        public void SpendEncounterActions(CreatureId creature, int amount)
-        {
-            DispatchNow(new SpendEncounterActionsOp(creature, amount));
         }
 
         /// <summary>Suspends this encounter without deciding an outcome.</summary>
@@ -1313,7 +1313,7 @@ namespace Game.Rules.Unity
                 .SeedHealth(id, state.Health)
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)
-                .SeedActionEconomy(id, new ActionEconomyState(0, false))
+                .SeedActionEconomy(id, new ActionEconomyState(0, ActionAllowance.None, false))
                 .SeedMultipleAttackPenalty(id, new MultipleAttackPenaltyState(0));
             foreach (SpellSlotState slot in state.SpellSlots)
                 seed.SeedSpellSlot(slot);

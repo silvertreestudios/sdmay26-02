@@ -166,12 +166,10 @@ namespace TestsUI
             ).resolvedStyle.height;
 
             uint[] actionPointStates = { 3, 2, 1, 0 };
-            uint previousActionPoints = actionController.ActionPoints;
             foreach (uint actionPoints in actionPointStates)
             {
-                if (previousActionPoints > actionPoints)
-                    actionController.SpendActions(previousActionPoints - actionPoints);
-                previousActionPoints = actionPoints;
+                while (actionController.ActionPoints > actionPoints)
+                    Assert.IsTrue(actionController.TryCommitInteract());
 
                 yield return WaitUntilWithTimeout(
                     timeout,
@@ -222,6 +220,75 @@ namespace TestsUI
                     "Action medallion container height should not shift as AP changes."
                 );
             }
+        }
+
+        [UnityTest]
+        public IEnumerator QuickenedMedallionProjectsBridgeRefreshAndTypedSpend()
+        {
+            VisualElement cardHolder = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    return cardHolder != null && cardHolder.childCount > 0 && player != null;
+                }
+            );
+            ActionController controller = player.GetComponent<ActionController>();
+            Assert.IsNotNull(controller);
+            Assert.IsTrue(
+                controller.TryGetCombatRules(
+                    out UnityCombatRulesBridge bridge,
+                    out CreatureId actor
+                )
+            );
+            int cardIndex = CombatManagerInterface.GetInstance().GetCombatants().IndexOf(player);
+            Assert.GreaterOrEqual(cardIndex, 0);
+            Assert.Less(cardIndex, cardHolder.childCount);
+            VisualElement quickened = cardHolder
+                .ElementAt(cardIndex)
+                .Q<VisualElement>(className: "action-medallion--quickened");
+            Assert.IsNotNull(quickened);
+
+            Assert.That(
+                bridge.Dispatch(
+                    new ApplyConditionOp(
+                        "Quickened",
+                        actor,
+                        actor,
+                        RuleSource.FromSlug("hud-quickened-interact"),
+                        EffectDuration.Indefinite,
+                        new QuickenedConditionState(new[] { InteractActionDefinition.DefinitionId })
+                    )
+                ),
+                Is.TypeOf<ResolvedOpResult<ConditionApplicationOutcome>>()
+            );
+            CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
+            int remainingTurns = combatManager.GetCombatants().Count + 1;
+            do
+            {
+                combatManager.NextTurn();
+            } while (combatManager.WhosTurn() != player && remainingTurns-- > 0);
+            Assert.AreSame(player, combatManager.WhosTurn());
+
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                    controller.OptionalActionAvailable
+                    && quickened.ClassListContains("action-medallion--filled")
+            );
+            Assert.AreEqual(3u, controller.ActionPoints);
+
+            Assert.IsTrue(controller.TryCommitInteract());
+
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                    !controller.OptionalActionAvailable
+                    && quickened.ClassListContains("action-medallion--empty")
+            );
+            Assert.AreEqual(3u, controller.ActionPoints);
         }
 
         [UnityTest]
@@ -518,7 +585,8 @@ namespace TestsUI
             ActionController actionController = player.GetComponent<ActionController>();
             Assert.IsNotNull(actionController, "Current player has no ActionController.");
 
-            actionController.SpendActions(actionController.ActionPoints);
+            while (actionController.ActionPoints > 0)
+                Assert.IsTrue(actionController.TryCommitInteract());
             yield return null;
 
             Assert.AreEqual(
@@ -558,7 +626,8 @@ namespace TestsUI
             {
                 combatManager.NextTurn();
             } while (combatManager.WhosTurn() != player && remainingTurns-- > 0);
-            actionController.SpendActions(2);
+            Assert.IsTrue(actionController.TryCommitInteract());
+            Assert.IsTrue(actionController.TryCommitInteract());
             yield return null;
 
             Assert.IsTrue(

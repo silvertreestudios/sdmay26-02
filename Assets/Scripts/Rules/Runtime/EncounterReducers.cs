@@ -288,7 +288,10 @@ namespace Game.Rules.Runtime
                 state.ActiveEffectTimings.Set(timing.Effect, timing);
             foreach (InitiativeEntry entry in encounter.Roster)
             {
-                state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
+                state.ActionEconomy.Set(
+                    entry.Creature,
+                    new ActionEconomyState(0, ActionAllowance.None, false)
+                );
                 state.MultipleAttackPenalty.Set(entry.Creature, new MultipleAttackPenaltyState(0));
             }
             facts.Stage(new EncounterStartedFact(encounter));
@@ -428,7 +431,10 @@ namespace Game.Rules.Runtime
                     if (!binding.EffectId.HasValue)
                         StatelessBindingReduction.Record(state, binding);
                 }
-                state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
+                state.ActionEconomy.Set(
+                    entry.Creature,
+                    new ActionEconomyState(0, ActionAllowance.None, false)
+                );
                 state.MultipleAttackPenalty.Set(entry.Creature, new MultipleAttackPenaltyState(0));
             }
             state.Encounters.Set(updated.Id, updated);
@@ -697,11 +703,52 @@ namespace Game.Rules.Runtime
                 isTurnStartPending: false
             );
             state.Encounters.Set(updated.Id, updated);
-            state.ActionEconomy.Set(
-                context.Op.Actor,
-                new ActionEconomyState(context.Op.Actions, context.Op.ReactionAvailable)
-            );
+            TurnResourceCommitPlan commit = context.Op.Resources;
+            TurnResourcePlan resources = commit.Resources;
+            if (
+                commit.EffectAdjustment.IsPresent
+                && !TurnResourceEffectReduction.TryCommit(
+                    state,
+                    facts,
+                    context.Op.Actor,
+                    commit.EffectAdjustment,
+                    resources.StunnedConsumed,
+                    out string effectRejection
+                )
+            )
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(effectRejection);
+
+            state.ActionEconomy.Set(context.Op.Actor, resources.Economy);
             state.MultipleAttackPenalty.Set(context.Op.Actor, new MultipleAttackPenaltyState(0));
+            facts.Stage(
+                new ActionResourceGainedFact(
+                    context.Op.Actor,
+                    ActionResourceKind.Standard,
+                    TurnResourcePlanner.StandardActionCount
+                )
+            );
+            if (!resources.GrantedOptionalAction.IsNone)
+            {
+                facts.Stage(
+                    new ActionResourceGainedFact(context.Op.Actor, ActionResourceKind.Optional, 1)
+                );
+            }
+            if (resources.Loss.OptionalAction)
+            {
+                facts.Stage(
+                    new ActionResourceLostFact(context.Op.Actor, ActionResourceKind.Optional, 1)
+                );
+            }
+            if (resources.Loss.StandardActions > 0)
+            {
+                facts.Stage(
+                    new ActionResourceLostFact(
+                        context.Op.Actor,
+                        ActionResourceKind.Standard,
+                        resources.Loss.StandardActions
+                    )
+                );
+            }
             facts.Stage(new TurnBeganFact(turn));
             return ReductionResult<EncounterAdvanceOutcome>.Accept(
                 new EncounterAdvanceOutcome(updated)
@@ -947,7 +994,7 @@ namespace Game.Rules.Runtime
                 );
             state.ActionEconomy.Set(
                 requested.Actor,
-                new ActionEconomyState(0, economy.ReactionAvailable)
+                new ActionEconomyState(0, ActionAllowance.None, economy.ReactionAvailable)
             );
             state.MultipleAttackPenalty.Set(requested.Actor, new MultipleAttackPenaltyState(0));
             EncounterState updated = encounter.Replace(clearCurrentTurn: true);
@@ -996,7 +1043,10 @@ namespace Game.Rules.Runtime
         {
             foreach (InitiativeEntry entry in encounter.Roster)
             {
-                state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
+                state.ActionEconomy.Set(
+                    entry.Creature,
+                    new ActionEconomyState(0, ActionAllowance.None, false)
+                );
                 state.MultipleAttackPenalty.Set(entry.Creature, new MultipleAttackPenaltyState(0));
                 state.MovementBudgets.Remove(entry.Creature);
             }
@@ -1043,61 +1093,6 @@ namespace Game.Rules.Runtime
             state.RuleBindings.Remove(EncounterRuleRuntime.OutcomeBindingId(updated.Id));
             facts.Stage(new EncounterOutcomeCommittedFact(updated.Id, actual));
             return ReductionResult<EncounterEndOutcome>.Accept(new EncounterEndOutcome(updated));
-        }
-    }
-
-    internal sealed class SpendEncounterActionsReducer
-        : IOpReducer<CommitEncounterActionsOp, EncounterActionSpendOutcome>
-    {
-        public ReductionResult<EncounterActionSpendOutcome> Reduce(
-            ReductionContext<CommitEncounterActionsOp> context,
-            RulesStateDraft state,
-            FactSink facts
-        )
-        {
-            EncounterState encounter = state
-                .Encounters.Where(pair =>
-                    pair.Value.Phase == EncounterPhase.Active
-                    && pair.Value.CurrentTurn.HasValue
-                    && pair.Value.CurrentTurn.Value.Actor == context.Op.Actor
-                )
-                .Select(pair => pair.Value)
-                .FirstOrDefault();
-            if (encounter == null)
-                return ReductionResult<EncounterActionSpendOutcome>.Reject(
-                    "The actor does not own an active current turn."
-                );
-            if (
-                context.Op.RequiredLivingTargets.Any(target =>
-                    !encounter.Roster.Any(entry => entry.Creature == target)
-                    || !EncounterReduction.IsLiving(state, target)
-                )
-            )
-                return ReductionResult<EncounterActionSpendOutcome>.Reject(
-                    "A selected action target is no longer a living participant in the actor's encounter."
-                );
-            if (
-                !state.ActionEconomy.TryGet(context.Op.Actor, out ActionEconomyState economy)
-                || economy.ActionsRemaining < context.Op.Amount
-            )
-                return ReductionResult<EncounterActionSpendOutcome>.Reject(
-                    "The actor has insufficient authoritative actions."
-                );
-            if (context.Op.Amount == 0)
-                return ReductionResult<EncounterActionSpendOutcome>.Accept(
-                    new EncounterActionSpendOutcome(economy.ActionsRemaining)
-                );
-            int remaining = economy.ActionsRemaining - context.Op.Amount;
-            state.ActionEconomy.Set(
-                context.Op.Actor,
-                new ActionEconomyState(remaining, economy.ReactionAvailable)
-            );
-            facts.Stage(
-                new EncounterActionsSpentFact(context.Op.Actor, context.Op.Amount, remaining)
-            );
-            return ReductionResult<EncounterActionSpendOutcome>.Accept(
-                new EncounterActionSpendOutcome(remaining)
-            );
         }
     }
 }

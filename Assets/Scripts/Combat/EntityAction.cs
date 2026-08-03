@@ -37,12 +37,6 @@ public abstract class EntityAction
         return controller.IsInDungeonExploration || ActionCost <= controller.ActionPoints;
     }
 
-    protected void PayCost(ActionController ac)
-    {
-        if (ac != null && !ac.IsInDungeonExploration)
-            ac.SpendActions(ActionCost);
-    }
-
     /// <summary>
     /// Base caller for entity actions. Should be
     /// called once action is completed.

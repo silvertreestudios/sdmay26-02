@@ -25,20 +25,6 @@ namespace Game.Rules.Runtime
                 );
             return Array.AsReadOnly(copied);
         }
-
-        public static IReadOnlyList<CreatureId> CopyRequiredLivingTargets(
-            IEnumerable<CreatureId> targets
-        )
-        {
-            CreatureId[] copied =
-                targets?.Distinct().ToArray() ?? throw new ArgumentNullException(nameof(targets));
-            if (copied.Any(target => target.IsEmpty))
-                throw new ArgumentException(
-                    "Required living targets cannot contain an empty creature identity.",
-                    nameof(targets)
-                );
-            return Array.AsReadOnly(copied);
-        }
     }
 
     /// <summary>Requests a new encounter, initiative rolls, and its first eligible turn.</summary>
@@ -317,69 +303,6 @@ namespace Game.Rules.Runtime
         internal TurnEndingOp(TurnIdentity turn) => Turn = turn;
     }
 
-    /// <summary>Requests exact-turn authorization with an optional authoritative action spend.</summary>
-    public sealed class SpendEncounterActionsOp : IRuleOp<EncounterActionSpendOutcome>
-    {
-        /// <summary>Gets the creature whose reducer-owned actions are spent.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the non-negative action cost; zero validates authority without mutation.</summary>
-        public int Amount { get; }
-
-        /// <summary>
-        /// Gets the encounter participants that must still be living when the spend commits.
-        /// </summary>
-        public IReadOnlyList<CreatureId> RequiredLivingTargets { get; }
-
-        /// <summary>Creates an authoritative encounter action authorization/spend request.</summary>
-        /// <param name="actor">The creature paying the action cost.</param>
-        /// <param name="amount">The non-negative number of actions to spend.</param>
-        public SpendEncounterActionsOp(CreatureId actor, int amount)
-            : this(actor, amount, Array.Empty<CreatureId>()) { }
-
-        /// <summary>
-        /// Creates an action spend that atomically requires one current living encounter target.
-        /// </summary>
-        /// <param name="actor">The creature paying the action cost.</param>
-        /// <param name="amount">The non-negative number of actions to spend.</param>
-        /// <param name="requiredLivingTarget">
-        /// The selected participant that must remain living in the actor's encounter.
-        /// </param>
-        public SpendEncounterActionsOp(
-            CreatureId actor,
-            int amount,
-            CreatureId requiredLivingTarget
-        )
-            : this(actor, amount, new[] { requiredLivingTarget }) { }
-
-        /// <summary>
-        /// Creates an action spend that atomically requires every selected encounter target to
-        /// remain living.
-        /// </summary>
-        /// <param name="actor">The creature paying the action cost.</param>
-        /// <param name="amount">The non-negative number of actions to spend.</param>
-        /// <param name="requiredLivingTargets">
-        /// The selected participants that must remain living in the actor's encounter. The
-        /// operation copies and de-duplicates this sequence before dispatch.
-        /// </param>
-        public SpendEncounterActionsOp(
-            CreatureId actor,
-            int amount,
-            IEnumerable<CreatureId> requiredLivingTargets
-        )
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("An actor is required.", nameof(actor));
-            if (amount < 0)
-                throw new ArgumentOutOfRangeException(nameof(amount));
-            Actor = actor;
-            Amount = amount;
-            RequiredLivingTargets = EncounterOperationValues.CopyRequiredLivingTargets(
-                requiredLivingTargets
-            );
-        }
-    }
-
     /// <summary>Returns the encounter snapshot produced by a successful start.</summary>
     public readonly struct EncounterStartOutcome : ISettledOperationResult<EncounterStartOutcome>
     {
@@ -491,15 +414,6 @@ namespace Game.Rules.Runtime
     {
         /// <summary>Gets the completed hook marker.</summary>
         public static TurnEndContribution Complete => default;
-    }
-
-    /// <summary>Returns remaining actions after exact-turn authorization and any requested spend.</summary>
-    public readonly struct EncounterActionSpendOutcome
-    {
-        /// <summary>Gets the actor's committed action count.</summary>
-        public int Remaining { get; }
-
-        internal EncounterActionSpendOutcome(int remaining) => Remaining = remaining;
     }
 
     internal sealed class CommitEncounterStartOp : IRuleOp<EncounterStartOutcome>
@@ -614,20 +528,17 @@ namespace Game.Rules.Runtime
     {
         public EncounterId Encounter { get; }
         public CreatureId Actor { get; }
-        public int Actions { get; }
-        public bool ReactionAvailable { get; }
+        public TurnResourceCommitPlan Resources { get; }
 
         public CommitTurnBeginOp(
             EncounterId encounter,
             CreatureId actor,
-            int actions,
-            bool reactionAvailable
+            TurnResourceCommitPlan resources
         )
         {
             Encounter = encounter;
             Actor = actor;
-            Actions = actions;
-            ReactionAvailable = reactionAvailable;
+            Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         }
     }
 
@@ -777,24 +688,6 @@ namespace Game.Rules.Runtime
         {
             Encounter = encounter;
             Outcome = outcome;
-        }
-    }
-
-    internal sealed class CommitEncounterActionsOp : IRuleOp<EncounterActionSpendOutcome>
-    {
-        public CreatureId Actor { get; }
-        public int Amount { get; }
-        public IReadOnlyList<CreatureId> RequiredLivingTargets { get; }
-
-        public CommitEncounterActionsOp(
-            CreatureId actor,
-            int amount,
-            IReadOnlyList<CreatureId> requiredLivingTargets
-        )
-        {
-            Actor = actor;
-            Amount = amount;
-            RequiredLivingTargets = requiredLivingTargets;
         }
     }
 

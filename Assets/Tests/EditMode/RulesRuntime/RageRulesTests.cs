@@ -382,7 +382,10 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
 
             Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.True);
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
             Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.EqualTo(3));
             Assert.That(
                 dispatcher.Snapshot.Health[Actor].TemporarySource,
@@ -402,7 +405,10 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new RageActionOp(Actor)
             );
             Assert.That(duplicate, Is.TypeOf<InvalidOpResult<RageStartOutcome>>());
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
         }
 
         [Test]
@@ -587,8 +593,14 @@ namespace Game.Tests.EditMode.RulesRuntime
                 await unowned.Dispatch(new RageActionOp(Actor)),
                 Is.TypeOf<InvalidOpResult<RageStartOutcome>>()
             );
-            Assert.That(fatigued.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
-            Assert.That(unowned.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                fatigued.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
+            Assert.That(
+                unowned.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
         }
 
         [Test]
@@ -618,7 +630,10 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
 
             Assert.That(RageRules.IsRaging(allowed.Snapshot, Actor), Is.True);
-            Assert.That(allowed.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                allowed.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(RageRules.IsRaging(encumbered.Snapshot, Actor), Is.False);
             Assert.That(RageRules.IsRaging(heavy.Snapshot, Actor), Is.False);
             Assert.That(RageRules.IsRaging(armoredException.Snapshot, Actor), Is.True);
@@ -633,7 +648,10 @@ namespace Game.Tests.EditMode.RulesRuntime
                 await allowed.Dispatch(new RageActionOp(Actor)),
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
             );
-            Assert.That(allowed.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                allowed.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
         }
 
         [Test]
@@ -1785,12 +1803,18 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
             RuleDispatcher dispatcher = CreateDispatcher(provider);
             await dispatcher.Dispatch(new RageActionOp(Actor));
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
 
             ResolvedOpResult<RageEndOutcome> ended = RequireResolved(
                 await dispatcher.Dispatch(new EndRageOp(Actor))
             );
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
             ResolvedOpResult<RageStartOutcome> restarted = RequireResolved(
                 await dispatcher.Dispatch(new RageActionOp(Actor))
             );
@@ -2167,7 +2191,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 .SeedCreature(new CreatureState(Enemy, Opposition))
                 .SeedHealth(Actor, actorHealth ?? new HealthState(10, 10))
                 .SeedHealth(Enemy, new HealthState(10, 10))
-                .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
+                .SeedActionEconomy(Actor, new ActionEconomyState(3, ActionAllowance.None, true));
             SeedPreparedActor(seed, registryBuilder, Actor, provider.State);
             foreach (
                 ActiveRuleBinding binding in RageRules.CreateInitialBindings(Actor, provider.State)
@@ -2356,7 +2380,10 @@ namespace Game.Tests.EditMode.RulesRuntime
                 seed.SeedCreature(new CreatureState(pair.Key, player))
                     .SeedPreparedInputs(pair.Key, PreparedInputsFor(pair.Value))
                     .SeedHealth(pair.Key, new HealthState(10, 10))
-                    .SeedActionEconomy(pair.Key, new ActionEconomyState(3, true))
+                    .SeedActionEconomy(
+                        pair.Key,
+                        new ActionEconomyState(3, ActionAllowance.None, true)
+                    )
                     .SeedMultipleAttackPenalty(pair.Key, new MultipleAttackPenaltyState(0));
                 foreach (
                     ActiveRuleBinding binding in RageRules.CreateInitialBindings(

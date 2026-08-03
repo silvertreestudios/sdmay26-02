@@ -1,10 +1,6 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
-
-/// <summary>Triggered upon reseting action points</summary>
-public class OnResetActionPoints : UnityEvent<Ref<uint>> { }
 
 /// <summary>Triggered upon actions retrieval</summary>
 public class OnGetActions : UnityEvent<List<EntityAction>> { }

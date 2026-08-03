@@ -728,7 +728,7 @@ namespace Game.Rules.Runtime.Tests
                 .SeedPosition(Mover, Origin)
                 .SeedPosition(Occupant, Occupied)
                 .SeedPosition(OtherOccupant, new GridPosition(4, 0, 4))
-                .SeedActionEconomy(Mover, new ActionEconomyState(3, true));
+                .SeedActionEconomy(Mover, new ActionEconomyState(3, ActionAllowance.None, true));
             if (seedMiddleware)
             {
                 seed.SeedRuleBinding(

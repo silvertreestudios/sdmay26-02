@@ -71,14 +71,7 @@ namespace Game.Combat.Spells
             GridPublic.AreaTargetResult area = null
         )
         {
-            return SpellcastingRuntime.Cast(
-                caster,
-                spell,
-                variantActionCost,
-                targets,
-                area,
-                spendActions: true
-            );
+            return SpellcastingRuntime.Cast(caster, spell, variantActionCost, targets, area);
         }
 
         protected override IEnumerator MFInvoke(GameObject caster)
@@ -91,13 +84,7 @@ namespace Game.Combat.Spells
                 yield break;
             }
 
-            SpellCastContext context = new(
-                caster,
-                spell,
-                variantActionCost,
-                spendActions: true,
-                definition
-            );
+            SpellCastContext context = new(caster, spell, variantActionCost, definition);
             yield return definition.SelectAndCast(context);
         }
 

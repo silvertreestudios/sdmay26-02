@@ -10,13 +10,9 @@ using Game.Rules.Unity.Spells;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
-using AdvanceMultipleAttackPenaltyOp = Game.Rules.Runtime.AdvanceMultipleAttackPenaltyOp;
 using CreatureId = Game.Rules.Runtime.CreatureId;
 using DegreeOfSuccess = Game.Creature.DegreeOfSuccess;
-using InvalidMapOpResult = Game.Rules.Runtime.InvalidOpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
-using MapOpResult = Game.Rules.Runtime.OpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
 using MultipleAttackPenaltyState = Game.Rules.Runtime.MultipleAttackPenaltyState;
-using ResolvedMapOpResult = Game.Rules.Runtime.ResolvedOpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
 using RuleSource = Game.Rules.Runtime.RuleSource;
 
 namespace Game.Combat.Spells
@@ -60,21 +56,18 @@ namespace Game.Combat.Spells
         public GameObject Caster { get; }
         public PreparedSpell Spell { get; }
         public uint ActionCost { get; }
-        public bool SpendActions { get; }
         public ISpellDefinition Definition { get; }
 
         public SpellCastContext(
             GameObject caster,
             PreparedSpell spell,
             uint actionCost,
-            bool spendActions,
             ISpellDefinition definition
         )
         {
             Caster = caster;
             Spell = spell;
             ActionCost = actionCost;
-            SpendActions = spendActions;
             Definition = definition;
         }
 
@@ -105,8 +98,7 @@ namespace Game.Combat.Spells
             PreparedSpell spell,
             uint actionCost,
             IReadOnlyList<GameObject> targets = null,
-            AreaTargetResult area = null,
-            bool spendActions = true
+            AreaTargetResult area = null
         )
         {
             ActionController controller = caster?.GetComponent<ActionController>();
@@ -124,7 +116,6 @@ namespace Game.Combat.Spells
                     spell,
                     actionCost,
                     new SpellTargetSelection(targets, area),
-                    spendActions,
                     CreateInvocationId("programmatic-cast")
                 );
             if (!SpellRegistry.TryGet(spell?.Slug, out ISpellDefinition definition))
@@ -134,7 +125,7 @@ namespace Game.Combat.Spells
                     controller
                 );
 
-            SpellCastContext context = new(caster, spell, actionCost, spendActions, definition);
+            SpellCastContext context = new(caster, spell, actionCost, definition);
             return Cast(context, new SpellTargetSelection(targets, area));
         }
 
@@ -183,7 +174,6 @@ namespace Game.Combat.Spells
                 spell,
                 actionCost,
                 new SpellTargetSelection(targets, area),
-                spendActions: true,
                 invocationId: invocationId
             );
         }
@@ -208,7 +198,6 @@ namespace Game.Combat.Spells
                     context.Spell,
                     context.ActionCost,
                     selection,
-                    context.SpendActions,
                     CreateInvocationId("programmatic-cast")
                 );
             if (
@@ -218,13 +207,6 @@ namespace Game.Combat.Spells
                 || context.Spell == null
             )
                 return Fail(result, "Caster is not ready to cast spells.", controller);
-            if (
-                context.ActionCost > 0
-                && controller != null
-                && context.SpendActions
-                && controller.ActionPoints < context.ActionCost
-            )
-                return Fail(result, "Not enough actions.", controller);
             if (!state.CanCast(context.Spell))
                 return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
 
@@ -232,37 +214,8 @@ namespace Game.Combat.Spells
                 return Fail(result, "Spell target is invalid.", controller);
             if (!state.Spend(context.Spell))
                 return Fail(result, context.Spell.Name + " has no remaining slot.", controller);
-            if (controller != null && context.SpendActions)
-            {
-                try
-                {
-                    controller.SpendActions(context.ActionCost);
-                    if (context.Definition.AppliesMultipleAttackPenalty(context))
-                    {
-                        if (
-                            controller.TryGetCombatRules(
-                                out UnityCombatRulesBridge mapBridge,
-                                out CreatureId mapActor
-                            )
-                        )
-                        {
-                            MapOpResult map = mapBridge.Dispatch(
-                                new AdvanceMultipleAttackPenaltyOp(mapActor)
-                            );
-                            if (map is InvalidMapOpResult invalid)
-                                throw new InvalidOperationException(invalid.Reason);
-                            if (map is not ResolvedMapOpResult)
-                                throw new InvalidOperationException(
-                                    "MAP advancement did not resolve."
-                                );
-                        }
-                    }
-                }
-                finally
-                {
-                    controller.IsTakingAction = false;
-                }
-            }
+            if (controller != null)
+                controller.IsTakingAction = false;
             result.Success = true;
             if (!creature.IsDefeated)
                 context
@@ -351,15 +304,10 @@ namespace Game.Combat.Spells
             PreparedSpell spell,
             uint actionCost,
             SpellTargetSelection selection,
-            bool spendActions,
             ActionInvocationId invocationId
         )
         {
             CastSpellResult result = new();
-            if (!spendActions)
-                throw new InvalidOperationException(
-                    "Encounter spellcasting cannot bypass authoritative action costs."
-                );
             if (spell == null || actionCost == 0 || actionCost > 3)
                 return Fail(result, "The encounter spell request is incomplete.", controller);
             SpellTargetSelection requested = selection ?? SpellTargetSelection.None;

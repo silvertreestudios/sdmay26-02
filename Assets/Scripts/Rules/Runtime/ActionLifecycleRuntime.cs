@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -114,8 +115,9 @@ namespace Game.Rules.Runtime
         public static ActionRuntime Create(
             IActionCatalog catalog,
             IActionProfileResolver resolver,
-            IDictionary<Type, List<IActionValidatorRegistration>> validators
-        ) => new ConfiguredActionRuntime(catalog, resolver, validators);
+            IDictionary<Type, List<IActionValidatorRegistration>> validators,
+            IReadOnlyList<IActionPermission> permissions
+        ) => new ConfiguredActionRuntime(catalog, resolver, validators, permissions);
 
         private sealed class DisabledActionRuntime : ActionRuntime
         {
@@ -165,11 +167,13 @@ namespace Game.Rules.Runtime
                 Type,
                 IReadOnlyList<IActionValidatorRegistration>
             > validators;
+            private readonly IReadOnlyList<IActionPermission> permissions;
 
             public ConfiguredActionRuntime(
                 IActionCatalog catalog,
                 IActionProfileResolver resolver,
-                IDictionary<Type, List<IActionValidatorRegistration>> validators
+                IDictionary<Type, List<IActionValidatorRegistration>> validators,
+                IReadOnlyList<IActionPermission> permissions
             )
             {
                 this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -183,6 +187,9 @@ namespace Game.Rules.Runtime
                     Type,
                     IReadOnlyList<IActionValidatorRegistration>
                 >(copied);
+                this.permissions = Array.AsReadOnly(
+                    permissions?.ToArray() ?? throw new ArgumentNullException(nameof(permissions))
+                );
             }
 
             public override FrameActionState CreateFrameState(
@@ -262,6 +269,20 @@ namespace Game.Rules.Runtime
 
             public override ActionValidationResult Validate(IFrameInvocation invocation)
             {
+                foreach (IActionPermission permission in permissions)
+                {
+                    ActionValidationResult result = permission.Validate(
+                        invocation.FrameView.ActionInfo,
+                        invocation.FrameView.ActionProfile,
+                        invocation.FrameView.Snapshot
+                    );
+                    if (result == null)
+                        throw new InvalidOperationException(
+                            $"Action permission {permission.GetType().Name} returned null."
+                        );
+                    if (result is ActionValidationResult.InvalidActionValidationResult)
+                        return result;
+                }
                 if (
                     !validators.TryGetValue(
                         invocation.FrameView.OpType,
@@ -299,7 +320,8 @@ namespace Game.Rules.Runtime
         public abstract bool IsConfigured { get; }
 
         public abstract ActionRuntime CreateRuntime(
-            IDictionary<Type, List<IActionValidatorRegistration>> validators
+            IDictionary<Type, List<IActionValidatorRegistration>> validators,
+            IReadOnlyList<IActionPermission> permissions
         );
 
         public static ActionRuntimeConfiguration Configure(
@@ -312,7 +334,8 @@ namespace Game.Rules.Runtime
             public override bool IsConfigured => false;
 
             public override ActionRuntime CreateRuntime(
-                IDictionary<Type, List<IActionValidatorRegistration>> validators
+                IDictionary<Type, List<IActionValidatorRegistration>> validators,
+                IReadOnlyList<IActionPermission> permissions
             ) => ActionRuntime.Disabled;
         }
 
@@ -333,8 +356,9 @@ namespace Game.Rules.Runtime
             public override bool IsConfigured => true;
 
             public override ActionRuntime CreateRuntime(
-                IDictionary<Type, List<IActionValidatorRegistration>> validators
-            ) => ActionRuntime.Create(catalog, resolver, validators);
+                IDictionary<Type, List<IActionValidatorRegistration>> validators,
+                IReadOnlyList<IActionPermission> permissions
+            ) => ActionRuntime.Create(catalog, resolver, validators, permissions);
         }
     }
 

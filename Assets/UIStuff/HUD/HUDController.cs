@@ -451,7 +451,7 @@ public class HUDController
             UpdateActionPointMedallions(
                 cardInstance,
                 GetStandardActionsRemaining(Players[i].GetComponent<ActionController>()),
-                quickenedResourceAvailable: false
+                GetOptionalActionAvailable(Players[i].GetComponent<ActionController>())
             );
         }
     }
@@ -1152,7 +1152,7 @@ public class HUDController
                 UpdateActionPointMedallions(
                     card,
                     GetStandardActionsRemaining(p.GetComponent<ActionController>()),
-                    quickenedResourceAvailable: false
+                    GetOptionalActionAvailable(p.GetComponent<ActionController>())
                 );
                 if (p.hp <= 0)
                 {
@@ -1211,6 +1211,9 @@ public class HUDController
     {
         return actionController == null ? 0 : checked((int)actionController.ActionPoints);
     }
+
+    private static bool GetOptionalActionAvailable(ActionController actionController) =>
+        actionController != null && actionController.OptionalActionAvailable;
 
     private static void UpdateActionPointMedallions(
         VisualElement card,

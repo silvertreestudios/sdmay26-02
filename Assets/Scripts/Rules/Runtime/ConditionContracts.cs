@@ -45,6 +45,7 @@ namespace Game.Rules.Runtime
             builder.Define(Slowed);
             builder.Define(Stunned);
             builder.Define(Quickened);
+            ConditionTurnResourceRules.Define(builder);
             return builder;
         }
 

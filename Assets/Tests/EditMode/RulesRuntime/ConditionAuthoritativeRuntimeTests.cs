@@ -853,6 +853,8 @@ namespace Game.Rules.Runtime.Tests
                 3
             );
             RulesStateSeed restrictedSeed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedPreparedInputs(Owner, PreparedCreatureInputs.Empty)
                 .SeedActiveEffect(stride.Effect)
                 .SeedRuleBinding(stride.Binding)
                 .SeedActiveEffect(strike.Effect)

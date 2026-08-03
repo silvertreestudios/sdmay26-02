@@ -320,7 +320,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         CreatureId actor = bridge.GetCreatureId(controller);
 
         bridge.BeginTurn(actor, 3);
-        bridge.SpendEncounterActions(actor, 2);
+        Assert.That(controller.TryCommitInteract(), Is.True);
+        Assert.That(controller.TryCommitInteract(), Is.True);
         controller.IsTakingAction = true;
         light.Invoke(cleric.gameObject);
         yield return null;

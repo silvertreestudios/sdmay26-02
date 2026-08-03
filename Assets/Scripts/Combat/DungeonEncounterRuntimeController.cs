@@ -6,6 +6,8 @@ using Game.Combat.Exploration;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
+using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
@@ -287,6 +289,8 @@ namespace Game.Combat.Encounters
             bool actorIsAlive = actorIsPartyMember && CanObserve(actor);
             if (
                 actor == null
+                || !actorIsPartyMember
+                || !actorIsAlive
                 || actor.IsTakingAction
                 || mode == DungeonDoorInteractionMode.Combat && !actor.HasTurnAuthority
             )
@@ -298,18 +302,27 @@ namespace Game.Combat.Encounters
             DungeonDoorInteractionDecision decision = DungeonDoorInteractionPolicy.Evaluate(
                 new DungeonDoorInteractionRequest(
                     mode,
-                    actorIsPartyMember,
-                    actorIsAlive,
                     new DungeonCell(actorPosition.x, actorPosition.z),
                     door.Cell,
-                    door.IsOpen,
-                    actor.ActionPoints
+                    door.IsOpen
                 )
             );
-            if (!decision.IsAllowed || !door.TryOpen())
+            if (!decision.IsAllowed)
                 return false;
-
-            actor.SpendActions(decision.ActionCost);
+            if (mode == DungeonDoorInteractionMode.Combat)
+            {
+                if (
+                    !actor.TryGetCombatRules(
+                        out UnityCombatRulesBridge bridge,
+                        out CreatureId creature
+                    )
+                    || bridge.Dispatch(new InteractActionOp(creature))
+                        is not ResolvedOpResult<InteractOutcome>
+                )
+                    return false;
+            }
+            if (!door.TryOpen())
+                return false;
             combatManager.RefreshRulesTopology();
             openDoorIds.Add(door.StableId);
             EnterReachableEncounterRooms();

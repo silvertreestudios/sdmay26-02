@@ -93,13 +93,19 @@ public class MindlessController : AIActionController
         // Let StartTurn retain the coroutine handle before this sequence can complete or end a turn.
         yield return null;
 
-        while (ActionPoints > 0)
+        while (
+            TryGetTurnEconomy(
+                out UnityCombatRulesBridge bridge,
+                out CreatureId actor,
+                out ActionEconomyState economy
+            ) && (economy.StandardActionsRemaining > 0 || !economy.OptionalAction.IsNone)
+        )
         {
             //Debug.Log(ActionPoints + " action points remaining");
             EntityAction action = SelectNextAction();
             if (action != null)
             {
-                uint actionsBeforeInvocation = ActionPoints;
+                ActionEconomyState economyBeforeInvocation = economy;
                 //wait for half a second as to not spam attacks
                 yield return new WaitForSeconds(1f);
                 // yield return waits for the TakeAction coroutine to completely finish
@@ -117,7 +123,10 @@ public class MindlessController : AIActionController
                     TakeAction(action);
                 }
                 yield return new WaitUntil(() => !IsTakingAction); // Wait until the action is fully resolved before continuing
-                if (ActionPoints >= actionsBeforeInvocation)
+                if (
+                    !TryGetTurnEconomy(out bridge, out actor, out ActionEconomyState currentEconomy)
+                    || currentEconomy == economyBeforeInvocation
+                )
                 {
                     // A rejected selection or dispatch makes no rules progress. Retrying the same
                     // deterministic decision would otherwise keep this turn alive forever.
@@ -134,6 +143,24 @@ public class MindlessController : AIActionController
         turnSequence = null;
         EndTurn();
         yield return null;
+    }
+
+    private bool TryGetTurnEconomy(
+        out UnityCombatRulesBridge bridge,
+        out CreatureId actor,
+        out ActionEconomyState economy
+    )
+    {
+        if (TryGetCombatRules(out bridge, out actor) && bridge.HasTurnAuthority(actor))
+        {
+            economy = bridge.GetActionEconomy(actor);
+            return true;
+        }
+
+        bridge = null;
+        actor = default;
+        economy = default;
+        return false;
     }
 
     /// <summary>Selects the next action for the turn loop.</summary>

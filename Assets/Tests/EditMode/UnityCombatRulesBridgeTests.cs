@@ -936,7 +936,7 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
-    public void DetachedControllerProjectsNeutralCombatStateAndRejectsPositiveAuthority()
+    public void DetachedControllerProjectsNeutralCombatStateAndRejectsTurnStartup()
     {
         GameObject creatureObject = new GameObject("detached-controller");
         try
@@ -951,8 +951,6 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(controller.ActionPoints, Is.Zero);
             Assert.That(controller.Reacted, Is.False);
             Assert.That(controller.StrikePenalty, Is.Zero);
-            Assert.DoesNotThrow(() => controller.SpendActions(0));
-            Assert.Throws<InvalidOperationException>(() => controller.SpendActions(1));
             Assert.Throws<InvalidOperationException>(() => controller.StartTurn());
         }
         finally
@@ -1531,7 +1529,7 @@ public sealed class UnityCombatRulesBridgeTests
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>());
             Assert.That(bridge.Snapshot.Positions[id], Is.EqualTo(new GridPosition(2, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[id].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(bridge.Snapshot.ActionEconomy[id].StandardActionsRemaining, Is.EqualTo(2));
             Assert.That(controller.ActionPoints, Is.EqualTo(2));
         }
         finally
@@ -1696,7 +1694,7 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(observer.Facts[1].From, Is.EqualTo(new GridPosition(1, 0, 0)));
             Assert.That(observer.Facts[1].To, Is.EqualTo(new GridPosition(2, 0, 0)));
             Assert.That(bridge.Snapshot.Positions[id], Is.EqualTo(new GridPosition(2, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[id].ActionsRemaining, Is.Zero);
+            Assert.That(bridge.Snapshot.ActionEconomy[id].StandardActionsRemaining, Is.Zero);
             Assert.That(
                 controller.ActionPoints,
                 Is.Zero,
@@ -1781,7 +1779,10 @@ public sealed class UnityCombatRulesBridgeTests
                 : string.Empty;
             Assert.That(forward, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>(), forwardFailure);
             Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(2, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                bridge.Snapshot.ActionEconomy[moverId].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
 
             bridge.BeginTurn(occupantId, 3);
             OpResult<MovePathOutcome> reverse = await bridge.DispatchStride(
@@ -1797,7 +1798,10 @@ public sealed class UnityCombatRulesBridgeTests
                 bridge.Snapshot.Positions[occupantId],
                 Is.EqualTo(new GridPosition(1, 0, 0))
             );
-            Assert.That(bridge.Snapshot.ActionEconomy[occupantId].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                bridge.Snapshot.ActionEconomy[occupantId].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(occupant.ActionPoints, Is.EqualTo(3));
         }
         finally
@@ -1863,7 +1867,10 @@ public sealed class UnityCombatRulesBridgeTests
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<MovePathOutcome>>());
             Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(0, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                bridge.Snapshot.ActionEconomy[moverId].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(mover.ActionPoints, Is.EqualTo(3));
             Assert.That(result.Facts, Is.Empty);
         }

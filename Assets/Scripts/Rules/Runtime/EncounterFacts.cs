@@ -209,28 +209,4 @@ namespace Game.Rules.Runtime
             Outcome = outcome;
         }
     }
-
-    /// <summary>Reports an authoritative encounter action spend.</summary>
-    public sealed class EncounterActionsSpentFact : RuleFact
-    {
-        /// <summary>Gets the spending actor.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the number of actions spent.</summary>
-        public int Amount { get; }
-
-        /// <summary>Gets the actor's committed remaining actions.</summary>
-        public int Remaining { get; }
-
-        /// <summary>Creates a fact for one committed encounter action spend.</summary>
-        /// <param name="actor">The creature that spent actions.</param>
-        /// <param name="amount">The positive action cost.</param>
-        /// <param name="remaining">The committed remaining actions.</param>
-        public EncounterActionsSpentFact(CreatureId actor, int amount, int remaining)
-        {
-            Actor = actor;
-            Amount = amount;
-            Remaining = remaining;
-        }
-    }
 }

@@ -84,37 +84,37 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            if (cost.Kind == ActionCostKind.Actions)
-            {
-                if (economy.ActionsRemaining < cost.Amount)
-                    return ActionValidationResult.Invalid(
-                        "The actor has insufficient actions remaining."
-                    );
+            if (
+                !ActionResourcePayment.TryPay(
+                    economy,
+                    op.DefinitionId,
+                    op.Profile,
+                    out ActionEconomyState remaining,
+                    out ActionResourceKind? spentResource
+                )
+            )
+                return ActionValidationResult.Invalid(
+                    cost.Kind == ActionCostKind.Reaction
+                        ? "The actor's reaction is not available."
+                        : "The actor has insufficient actions remaining."
+                );
 
-                state.ActionEconomy.Set(
-                    op.Actor,
-                    new ActionEconomyState(
-                        economy.ActionsRemaining - cost.Amount,
-                        economy.ReactionAvailable
+            state.ActionEconomy.Set(op.Actor, remaining);
+
+            facts.Stage(new ActionCostSpentFact(op.ActionOpId, op.Actor, cost));
+            if (spentResource.HasValue)
+            {
+                facts.Stage(
+                    new ActionResourceSpentFact(
+                        op.ActionOpId,
+                        op.Actor,
+                        spentResource.Value,
+                        cost.Amount,
+                        remaining.StandardActionsRemaining,
+                        !remaining.OptionalAction.IsNone
                     )
                 );
             }
-            else if (cost.Kind == ActionCostKind.Reaction)
-            {
-                if (!economy.ReactionAvailable)
-                    return ActionValidationResult.Invalid("The actor's reaction is not available.");
-
-                state.ActionEconomy.Set(
-                    op.Actor,
-                    new ActionEconomyState(economy.ActionsRemaining, false)
-                );
-            }
-            else
-            {
-                throw new InvalidOperationException($"Unsupported action cost kind {cost.Kind}.");
-            }
-
-            facts.Stage(new ActionCostSpentFact(op.ActionOpId, op.Actor, cost));
             return ActionValidationResult.Valid;
         }
 

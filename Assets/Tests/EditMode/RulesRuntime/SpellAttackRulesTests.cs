@@ -76,7 +76,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(attack.Damage.Single().Sources, Does.Contain("divine-lance"));
             Assert.That(attack.FinalDamage, Is.EqualTo(5));
             Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(25));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.EqualTo(1));
             DamageAppliedFact damage = result.Facts.OfType<DamageAppliedFact>().Single();
             Assert.That(damage.Creature, Is.EqualTo(Target));
@@ -116,7 +119,10 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(actual, Is.SameAs(expected));
             Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(25));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.EqualTo(1));
             Assert.That(observer.ObservedHealthAtDamage, Is.EqualTo(25));
             Assert.That(observer.ObservedMapAtDamage, Is.EqualTo(1));
@@ -141,7 +147,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(retry.Facts, Is.Empty);
             Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
             Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(25));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.EqualTo(1));
             Assert.That(observer.ActionCosts, Is.EqualTo(1));
             Assert.That(observer.DamageApplications, Is.EqualTo(1));
@@ -392,7 +401,10 @@ namespace Game.Rules.Runtime.Tests
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(operation);
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(30));
             Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.Zero);
             Assert.That(result.Facts, Is.Empty);
@@ -423,7 +435,10 @@ namespace Game.Rules.Runtime.Tests
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(Cast(Target));
 
             Assert.That(result, Is.TypeOf<InterruptedOpResult<CastSpellOutcome>>());
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.Health[Target].Current, Is.EqualTo(30));
             Assert.That(store.Snapshot.MultipleAttackPenalty[Actor].AttackCount, Is.Zero);
             Assert.That(provider.CaptureCalls, Is.Zero);
@@ -508,7 +523,10 @@ namespace Game.Rules.Runtime.Tests
                 .SeedPreparedInputs(Actor, PreparedInputs(actorImmunities))
                 .SeedPreparedInputs(Target, PreparedInputs(targetImmunities))
                 .SeedPreparedInputs(DeadTarget, PreparedCreatureInputs.Empty)
-                .SeedActionEconomy(Actor, new ActionEconomyState(actions, true))
+                .SeedActionEconomy(
+                    Actor,
+                    new ActionEconomyState(actions, ActionAllowance.None, true)
+                )
                 .SeedStatistics(
                     new CreatureStatisticsState(
                         Actor,

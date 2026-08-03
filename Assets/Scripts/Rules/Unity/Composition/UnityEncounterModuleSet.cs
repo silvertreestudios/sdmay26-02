@@ -81,6 +81,7 @@ namespace Game.Rules.Unity.Composition
             )
                 registryBuilder.Define(definitionId);
             ConditionRuleDefinitions.DefineAll(registryBuilder);
+            SlowedEncounterModule.DefineRules(registryBuilder);
             foreach (
                 IUnityEncounterRegistryModule module in extensions.OfType<IUnityEncounterRegistryModule>()
             )
@@ -93,6 +94,7 @@ namespace Game.Rules.Unity.Composition
                 new RottingAuraEncounterModule(owner),
                 new ConditionEncounterModule(owner, registry, installUnityAuthority),
                 new SlowedEncounterModule(owner),
+                new UnityInteractEncounterModule(),
                 new UnityRageEncounterModule(rageDefinition),
                 new UnityStrikeEncounterModule(
                     strikeContext,
@@ -231,6 +233,8 @@ namespace Game.Rules.Unity.Composition
                 throw new InvalidOperationException(
                     "Reload profiles require the selected item on ReloadActionOp."
                 );
+            if (definitionId == InteractActionDefinition.DefinitionId)
+                return InteractActionDefinition.Profile;
             foreach (IActionCatalog catalog in featureCatalogs)
             {
                 try
@@ -256,5 +260,13 @@ namespace Game.Rules.Unity.Composition
 
         /// <inheritdoc/>
         public ISpellBook GetSpellBook(CreatureId creature) => spellBooks.GetSpellBook(creature);
+    }
+
+    /// <summary>Composes the rules-native Interact action used by combat-world adapters.</summary>
+    internal sealed class UnityInteractEncounterModule : IUnityEncounterDispatcherModule
+    {
+        /// <inheritdoc/>
+        public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
+            builder.UseInteractRules();
     }
 }

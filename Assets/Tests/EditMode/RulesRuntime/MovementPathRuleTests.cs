@@ -617,7 +617,7 @@ namespace Game.Rules.Runtime.Tests
                 new RulesStateSeed()
                     .SeedPosition(Mover, origin)
                     .SeedMovementBudget(Mover, budget)
-                    .SeedActionEconomy(Mover, new ActionEconomyState(2, true))
+                    .SeedActionEconomy(Mover, new ActionEconomyState(2, ActionAllowance.None, true))
             );
             RuleDispatcher dispatcher = CreateDispatcher(
                 store,
@@ -635,7 +635,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(store.Snapshot.MovementBudgets[Mover], Is.EqualTo(budget));
             Assert.That(
                 store.Snapshot.ActionEconomy[Mover],
-                Is.EqualTo(new ActionEconomyState(2, true))
+                Is.EqualTo(new ActionEconomyState(2, ActionAllowance.None, true))
             );
             Assert.That(fact.OriginOpId, Is.EqualTo(fact.RootOpId));
             Assert.That(fact.Kind, Is.EqualTo(RelocationKind.FromSlug("test-relocation")));
@@ -769,7 +769,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedPosition(Mover, moverPosition)
-                .SeedActionEconomy(Mover, new ActionEconomyState(3, true));
+                .SeedActionEconomy(Mover, new ActionEconomyState(3, ActionAllowance.None, true));
             if (!budgetId.IsEmpty)
             {
                 seed.SeedMovementBudget(

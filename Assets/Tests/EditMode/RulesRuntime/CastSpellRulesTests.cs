@@ -81,7 +81,10 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(catalog.SpellBookLookups, Is.Zero);
             Assert.That(store.Snapshot.Version, Is.EqualTo(initialVersion));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.EqualTo(1));
             Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(store.Snapshot.ActionReceipts, Is.Empty);
@@ -118,7 +121,10 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
             Assert.That(catalog.SpellBookLookups, Is.EqualTo(2));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             ActionProfile firstProfile = dispatcher
                 .Trace.OrderedFrames.Single(frame => frame.OpType == typeof(CastSpellActionOp))
                 .ActionProfile;
@@ -173,7 +179,10 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(catalog.SpellBookLookups, Is.EqualTo(1));
             Assert.That(store.Snapshot.Version, Is.EqualTo(initialVersion));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(store.Snapshot.ActionReceipts, Is.Empty);
         }
@@ -200,7 +209,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
             CastSpellOutcome outcome = ((ResolvedOpResult<CastSpellOutcome>)result).Value;
             Assert.That(outcome.CreatedEffects, Has.Count.EqualTo(1));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             ActiveEffectInstance effect = store.Snapshot.ActiveEffects[
                 outcome.CreatedEffects.Single()
             ];
@@ -232,7 +244,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(((ResolvedOpResult<CastSpellOutcome>)exactRetry).Value, Is.SameAs(outcome));
             Assert.That(exactRetry.Facts, Is.Empty);
             Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.ActiveEffects, Has.Count.EqualTo(1));
             Assert.That(observer.Calls, Is.EqualTo(1));
         }
@@ -319,7 +334,10 @@ namespace Game.Rules.Runtime.Tests
                 await dispatcher.Dispatch(operation)
             );
 
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
             Assert.That(
                 store.Snapshot.ActionReceipts[invocation],
@@ -369,7 +387,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(retry.Facts.OfType<ActionCostsCommittedFact>(), Is.Empty);
             Assert.That(retry.Facts.OfType<ActiveEffectRemovedFact>().Count(), Is.EqualTo(1));
             Assert.That(retry.Facts.OfType<ActiveEffectCreatedFact>().Count(), Is.EqualTo(1));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
             Assert.That(
                 store.Snapshot.ActionReceipts[invocation],
@@ -434,7 +455,10 @@ namespace Game.Rules.Runtime.Tests
             );
 
             Assert.That(error.Message, Does.Contain("already exists"));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(
                 store.Snapshot.ActionReceipts[invocation],
                 Is.TypeOf<CostsCommittedActionReceipt>()
@@ -537,7 +561,10 @@ namespace Game.Rules.Runtime.Tests
             );
 
             Assert.That(error.Message, Does.Contain("active-instance invariant violated"));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.EqualTo(1));
             Assert.That(store.Snapshot.ActionReceipts.Contains(invocation), Is.False);
             Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(5));
@@ -665,7 +692,10 @@ namespace Game.Rules.Runtime.Tests
                 Does.Contain(expectedReason)
             );
             Assert.That(store.Snapshot.Version, Is.EqualTo(initialVersion));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(store.Snapshot.ActionReceipts, Is.Empty);
             Assert.That(result.Facts, Is.Empty);
@@ -688,7 +718,10 @@ namespace Game.Rules.Runtime.Tests
                 )
             );
             Assert.That(wrongRank, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(wrongRank.Facts, Is.Empty);
             Assert.That(typeof(CastSpellActionOp).GetProperty("Authorization"), Is.Null);
             Assert.That(typeof(CastSpellActionOp).GetProperty("SlotPool"), Is.Null);
@@ -710,9 +743,12 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(shortResult, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
             Assert.That(unprepared, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
-            Assert.That(shortStore.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
             Assert.That(
-                unpreparedStore.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                shortStore.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                unpreparedStore.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(shortResult.Facts, Is.Empty);
@@ -736,7 +772,10 @@ namespace Game.Rules.Runtime.Tests
             );
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
             Assert.That(result.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
             Assert.That(result.Facts.OfType<SpellSlotSpentFact>().Count(), Is.EqualTo(1));
@@ -751,7 +790,10 @@ namespace Game.Rules.Runtime.Tests
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(Cast());
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.EqualTo(1));
             Assert.That(store.Snapshot.SpellSlots[AlternateRankedPool].Remaining, Is.EqualTo(1));
             Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
@@ -795,7 +837,10 @@ namespace Game.Rules.Runtime.Tests
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(operation);
 
             Assert.That(result, Is.TypeOf<InterruptedOpResult<CastSpellOutcome>>());
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.ActiveEffects.Count, Is.Zero);
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
             Assert.That(result.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
@@ -846,7 +891,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(retry, Is.TypeOf<InterruptedOpResult<CastSpellOutcome>>());
             Assert.That(retry.Facts, Is.Empty);
             Assert.That(store.Snapshot.Version, Is.EqualTo(interruptedVersion));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
             Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(middleware.Calls, Is.EqualTo(1));
@@ -898,7 +946,10 @@ namespace Game.Rules.Runtime.Tests
             {
                 seed.SeedCreature(new CreatureState(OtherActor, OtherPlayer))
                     .SeedHealth(OtherActor, new HealthState(10, 10))
-                    .SeedActionEconomy(OtherActor, new ActionEconomyState(3, true))
+                    .SeedActionEconomy(
+                        OtherActor,
+                        new ActionEconomyState(3, ActionAllowance.None, true)
+                    )
                     .SeedStatistics(CreatureStatisticsState.Empty(OtherActor));
             }
             foreach (
@@ -917,7 +968,10 @@ namespace Game.Rules.Runtime.Tests
             new RulesStateSeed()
                 .SeedCreature(new CreatureState(Actor, Player))
                 .SeedHealth(Actor, new HealthState(10, 10))
-                .SeedActionEconomy(Actor, new ActionEconomyState(actions, true))
+                .SeedActionEconomy(
+                    Actor,
+                    new ActionEconomyState(actions, ActionAllowance.None, true)
+                )
                 .SeedStatistics(CreatureStatisticsState.Empty(Actor));
 
         private static ActiveEffectRegistration[] CreateFourMatchingLightRegistrations() =>
@@ -1073,7 +1127,10 @@ namespace Game.Rules.Runtime.Tests
                 );
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(store.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(result.Facts, Is.Empty);
         }

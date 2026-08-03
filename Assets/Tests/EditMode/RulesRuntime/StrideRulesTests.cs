@@ -35,7 +35,10 @@ namespace Game.Tests.EditMode.RulesRuntime
                 dispatcher.Snapshot.Positions[Actor],
                 Is.EqualTo(new GridPosition(2, 0, 0))
             );
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
             Assert.That(resolved.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
             Assert.That(resolved.Facts.OfType<TokenMovedFact>().Count(), Is.EqualTo(2));
         }
@@ -60,7 +63,10 @@ namespace Game.Tests.EditMode.RulesRuntime
                 dispatcher.Snapshot.Positions[Actor],
                 Is.EqualTo(new GridPosition(0, 0, 0))
             );
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(result.Facts, Is.Empty);
         }
 
@@ -99,7 +105,10 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new StrideActionOp(Actor, path)
             );
             Assert.That(enemyResult, Is.TypeOf<InvalidOpResult<MovePathOutcome>>());
-            Assert.That(enemy.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                enemy.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
         }
 
         [TestCase(2)]
@@ -131,7 +140,10 @@ namespace Game.Tests.EditMode.RulesRuntime
                 dispatcher.Snapshot.Positions[Actor],
                 Is.EqualTo(new GridPosition(secondOccupiedX + 1, 0, 0))
             );
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
             Assert.That(
                 result.Facts.OfType<OccupiedSpaceTraversedFact>().Select(fact => fact.Occupant),
                 Is.EqualTo(new[] { Other, SecondOther })
@@ -196,7 +208,10 @@ namespace Game.Tests.EditMode.RulesRuntime
 
             Assert.That(first.Value.DistanceSpent, Is.EqualTo(new GridDistance(5)));
             Assert.That(second.Value.DistanceSpent, Is.EqualTo(new GridDistance(10)));
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(1)
+            );
         }
 
         private static RulesStateSeed SeedActor(int speedFeet = 25) =>
@@ -204,7 +219,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 .SeedCreature(new CreatureState(Actor, Party))
                 .SeedPosition(Actor, new GridPosition(0, 0, 0))
                 .SeedLandSpeed(Actor, new GridDistance(speedFeet))
-                .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
+                .SeedActionEconomy(Actor, new ActionEconomyState(3, ActionAllowance.None, true));
 
         private static RuleDispatcher CreateDispatcher(
             IGridTopologyProvider topology,

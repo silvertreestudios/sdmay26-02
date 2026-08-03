@@ -368,6 +368,8 @@ namespace Game.Rules.Runtime
             QuickTemperedTraits
         );
 
+        internal static ActionProfile StandardProfile => RageProfile;
+
         /// <summary>Gets Rage's stable action-definition identity.</summary>
         public static ActionDefinitionId DefinitionId { get; } = new ActionDefinitionId("rage");
 
@@ -716,7 +718,11 @@ namespace Game.Rules.Runtime
                 return ActionAvailability.Unavailable(invalid.Reason);
             if (
                 !snapshot.ActionEconomy.TryGet(actor, out ActionEconomyState economy)
-                || economy.ActionsRemaining < ActionCost.One.Amount
+                || !ActionResourcePayment.CanPay(
+                    economy,
+                    RageActionDefinition.DefinitionId,
+                    RageActionDefinition.StandardProfile
+                )
             )
             {
                 return ActionAvailability.Unavailable("The actor does not have an action.");
