@@ -3518,15 +3518,12 @@ namespace Game.Tests.EditMode.RulesRuntime
             internal IReadOnlyList<bool> ObservedRaging => observedRaging;
             internal IReadOnlyList<bool> ObservedRageState => observedRageState;
 
-            public ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public ValueTask Apply(EncounterTurnStartContext context)
             {
                 observedActors.Add(context.Actor);
                 observedRaging.Add(RageRules.IsRaging(context.Snapshot, context.Actor));
                 observedRageState.Add(HasOwnedRageState(context.Snapshot, context.Actor));
-                return new ValueTask<TurnStartContribution>(current);
+                return default;
             }
         }
 
@@ -4042,17 +4039,14 @@ namespace Game.Tests.EditMode.RulesRuntime
             public bool WasRaging { get; private set; }
             public int TemporaryHitPoints { get; private set; } = -1;
 
-            public ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public ValueTask Apply(EncounterTurnStartContext context)
             {
                 if (context.Actor != actor)
-                    return new ValueTask<TurnStartContribution>(current);
+                    return default;
                 Calls++;
                 WasRaging = RageRules.IsRaging(context.Snapshot, actor);
                 TemporaryHitPoints = context.Snapshot.Health[actor].Temporary;
-                return new ValueTask<TurnStartContribution>(current);
+                return default;
             }
         }
 
@@ -4068,25 +4062,28 @@ namespace Game.Tests.EditMode.RulesRuntime
 
             public void Enable() => enabled = true;
 
-            public async ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public async ValueTask Apply(EncounterTurnStartContext context)
             {
                 if (!enabled || context.Actor != actor)
-                    return current;
+                    return;
                 ActorTurnCalls++;
                 if (ActorTurnCalls != 10)
-                    return current;
+                    return;
 
                 TemporaryHitPointsBeforeDamage = context.Snapshot.Health[actor].Temporary;
-                await context.ApplyFinalDamage(
-                    actor,
-                    1,
-                    new HealthChangeOriginId("rage-expiration-turn-start"),
-                    RuleSource.FromSlug("rage-expiration-turn-start-test")
+                RuleSource source = RuleSource.FromSlug("rage-expiration-turn-start-test");
+                await context.CommitFinalDamageBatchAndCompleteAdapter(
+                    new[]
+                    {
+                        new HealthBatchChange(
+                            HealthBatchChangeKind.Damage,
+                            actor,
+                            1,
+                            new HealthChangeOriginId("rage-expiration-turn-start"),
+                            source
+                        ),
+                    }
                 );
-                return current;
             }
         }
     }

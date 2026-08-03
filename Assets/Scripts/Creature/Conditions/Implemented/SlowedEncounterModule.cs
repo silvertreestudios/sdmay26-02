@@ -1,29 +1,19 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
 
 namespace Game.Creature.Rules
 {
-    /// <summary>Projects authoritative Slowed state into the transitional turn-start contribution.</summary>
-    internal sealed class SlowedEncounterModule
-        : IUnityEncounterTurnStartModule,
-            IUnityCombatantEnrollmentModule
+    /// <summary>Seeds the authored passive Slowed identity for later resource integration.</summary>
+    internal sealed class SlowedEncounterModule : IUnityCombatantEnrollmentModule
     {
         private const string AuthoredPassiveName = "Slow";
         private readonly UnityCombatRulesBridge owner;
-        private readonly Dictionary<CreatureId, AuthoredPassiveSlowedIdentity> authoredPassives =
-            new();
 
         internal SlowedEncounterModule(UnityCombatRulesBridge owner) =>
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
-
-        /// <inheritdoc/>
-        public IEncounterTurnStartAdapter CreateTurnStartAdapter() =>
-            new TurnStartAdapter(authoredPassives);
 
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
@@ -42,52 +32,7 @@ namespace Game.Creature.Rules
                 builder.CreatureId,
                 owner.GetDurableActorId(builder.CreatureId)
             );
-            if (!authoredPassives.TryAdd(builder.CreatureId, identity))
-                throw new InvalidOperationException(
-                    "The authored Slow passive was prepared more than once for one combatant."
-                );
-            builder.Own(new RegistrationToken(() => authoredPassives.Remove(builder.CreatureId)));
             builder.AddActiveEffects(new[] { identity.Registration });
-        }
-
-        private sealed class TurnStartAdapter : IEncounterTurnStartAdapter
-        {
-            private readonly IReadOnlyDictionary<
-                CreatureId,
-                AuthoredPassiveSlowedIdentity
-            > authoredPassives;
-
-            internal TurnStartAdapter(
-                IReadOnlyDictionary<CreatureId, AuthoredPassiveSlowedIdentity> authoredPassives
-            ) =>
-                this.authoredPassives =
-                    authoredPassives ?? throw new ArgumentNullException(nameof(authoredPassives));
-
-            /// <inheritdoc/>
-            public ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
-            {
-                int slowed = ConditionSelectors.TryGetSlowed(
-                    context.Snapshot,
-                    context.Actor,
-                    out ConditionSelection<SlowedConditionState> selected
-                )
-                    ? selected.State.Value
-                    : 0;
-                bool suppressesReaction =
-                    authoredPassives.TryGetValue(
-                        context.Actor,
-                        out AuthoredPassiveSlowedIdentity authored
-                    ) && authored.IsExactActiveRegistration(context.Snapshot);
-                return new ValueTask<TurnStartContribution>(
-                    new TurnStartContribution(
-                        Math.Max(0, current.Actions - slowed),
-                        current.ReactionAvailable && !suppressesReaction
-                    )
-                );
-            }
         }
     }
 
@@ -98,16 +43,9 @@ namespace Game.Creature.Rules
     {
         private static readonly RuleSource Source = RuleSource.FromSlug("authored-passive-slow");
 
-        private AuthoredPassiveSlowedIdentity(
-            CreatureId owner,
-            ActiveEffectRegistration registration
-        )
-        {
-            Owner = owner;
+        private AuthoredPassiveSlowedIdentity(ActiveEffectRegistration registration) =>
             Registration = registration;
-        }
 
-        internal CreatureId Owner { get; }
         internal ActiveEffectRegistration Registration { get; }
 
         internal static AuthoredPassiveSlowedIdentity Create(CreatureId owner, string durableOwner)
@@ -134,22 +72,7 @@ namespace Game.Creature.Rules
                 Source,
                 0
             );
-            return new AuthoredPassiveSlowedIdentity(
-                owner,
-                new ActiveEffectRegistration(effect, binding)
-            );
-        }
-
-        internal bool IsExactActiveRegistration(RulesSnapshot snapshot)
-        {
-            ActiveEffectInstance expectedEffect = Registration.Effect;
-            ActiveRuleBinding expectedBinding = Registration.Binding;
-            return snapshot.ActiveEffects.TryGet(expectedEffect.Id, out ActiveEffectInstance effect)
-                && snapshot.RuleBindings.TryGet(expectedBinding.Id, out ActiveRuleBinding binding)
-                && effect.Status == ActiveEffectStatus.Active
-                && binding.IsEnabled
-                && Owner == expectedBinding.Owner
-                && Registration.HasSameStructure(new ActiveEffectRegistration(effect, binding));
+            return new AuthoredPassiveSlowedIdentity(new ActiveEffectRegistration(effect, binding));
         }
     }
 }

@@ -49,7 +49,7 @@ constructs the only production module sequence:
 1. `UnityPreparedRulesEncounterModule`
 2. `RottingAuraEncounterModule`
 3. `ConditionEncounterModule`
-4. `SlowedEncounterModule`
+4. `SlowedEncounterModule` (enrollment only)
 5. `UnityRageEncounterModule`
 6. `UnityStrikeEncounterModule`
 7. `UnitySpellcastingEncounterModule`
@@ -110,7 +110,7 @@ Each pass filters the same sequence by capability, preserving supplied order:
 | --- | --- |
 | `IUnityEncounterRegistryModule.ConfigureRegistry` | Contribute stateless effect and binding definitions before the encounter's single registry build. Additional modules are invoked in their explicit supplied order. |
 | `IUnityEncounterDispatcherModule.ConfigureDispatcher` | Register feature-owned handlers, reducers, validators, and engine composition with `RuleDispatcherBuilder`. |
-| `IUnityEncounterTurnStartModule.CreateTurnStartAdapter` | Supply a transitional `IEncounterTurnStartAdapter`. Adapters run sequentially in module order. |
+| `IUnityEncounterTurnStartModule.CreateTurnStartAdapter` | Supply a completion-only transitional `IEncounterTurnStartAdapter`. Adapters run sequentially in module order. |
 | `IUnityEncounterRuntimeModule.RegisterRuntime` | Register observers and other encounter-scoped resources into the supplied `CompositeLifetime`. |
 | `IUnityEncounterTopologyModule.RefreshTopology` | Refresh a feature-owned Unity topology adapter after a live grid change. |
 | `IUnityCombatantEnrollmentModule.PrepareCombatant` | Precompute state and Unity installation contributions for every enrolled combatant. |
@@ -452,17 +452,15 @@ encounter handlers and engine reducers. Its current division of responsibility i
   or ineligible roster slots, and effect timing in deterministic order. When
   `EncounterState.IsTurnStartPending` is set, advancement resumes `BeginInitiativeTurnOp` for the
   exact already published actor, round, and roster slot instead of consuming another boundary.
-- `BeginInitiativeTurnHandler`: reset movement budget, run ordered turn-start adapters, stop if the
-  actor is defeated, then commit the exact turn and final action contribution. The published-boundary
-  checkpoint stores the next adapter index and current contribution; each adapter result commits
-  before the next adapter runs, so a fresh-root recovery resumes only unfinished adapters. The engine
-  checkpoints a successfully returned adapter, not partial internal work: an adapter with multiple
-  commits must itself be transactional or exact-replay-safe on internal failure. The narrow
+- `BeginInitiativeTurnHandler`: reset movement budget, run ordered completion-only turn-start
+  adapters, stop if the actor is defeated, then commit the exact turn with the temporary ordinary
+  three-action and one-reaction default. The published-boundary checkpoint stores only the next
+  adapter index; each adapter completion commits before the next adapter runs, so a fresh-root
+  recovery resumes only unfinished adapters. The narrow
   `CommitFinalDamageBatchAndCompleteAdapter` boundary lets a transitional adapter atomically commit
   an ordered same-actor damage batch and its completion checkpoint before fallible presentation;
-  an adapter using it may perform only presentation before returning the checkpointed contribution.
-  A completed
-  zero-HP turn-start attempt atomically clears the published-boundary checkpoint with
+  an adapter using it may perform only presentation before returning. A completed zero-HP
+  turn-start attempt atomically clears the published-boundary checkpoint with
   `InitiativeTurnStartSkippedFact` before deferred defeat reactions run, so rescuing the actor does
   not replay adapters for the already resolved slot.
 - `EndTurnHandler`: require the exact current `TurnIdentity`, run turn-end work, reset movement,
@@ -618,7 +616,7 @@ framework.
 6. **Add topology or turn-start capabilities only if required.** Implement
    `IUnityEncounterTopologyModule` for a live geometry adapter. Use
    `IUnityEncounterTurnStartModule` only for a transitional Unity-owned calculation that cannot yet
-   be a rules feature; Rotting Aura and Slowed are current seams, not templates for new rules.
+   be a rules feature; Rotting Aura is the current seam, not a template for new rules.
 7. **Complete static composition, then add the module once.** Every `RuleDefinitionId` used by an
    `ActiveRuleBinding` or `ActiveEffectInstance` must be defined before the production registry's
    single `Build`. A built-in module may be wired explicitly in `UnityEncounterModuleSet.Create`.
@@ -684,8 +682,9 @@ shrink them through vertical migrations:
   every applicable aura before mutation, then atomically commits the ordered final-damage batch and
   adapter checkpoint through encounter rules before presentation, so post-commit failure cannot
   replay any aura damage.
-- `SlowedEncounterModule` obtains the current action contribution through
-  `ActionController.CalculateTurnStartActions` and legacy `ResetActionPointsEvent` listeners.
+- `SlowedEncounterModule` preserves the authored passive's stable active-effect and binding
+  identity at enrollment, but intentionally has no turn-start adapter or action/reaction resource
+  authority. Later rules-native resource integration must consume that state directly.
 - `UnityStrikeContext` and `UnitySpellAttackContext` adapt current creature/equipment/team/grid data
   into rule definitions and validation. They are feature-owned adapters, not alternate authorities.
 - Strike reinforcement replay compares the complete actor-owned equipment and ammunition

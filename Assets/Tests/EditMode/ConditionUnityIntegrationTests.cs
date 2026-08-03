@@ -940,7 +940,7 @@ public sealed class ConditionUnityIntegrationTests
 
     [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler")]
     [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura")]
-    public void AuthoredZombieSlowImportsEnrollsReplaysAndSuppressesReactions(string path)
+    public void AuthoredZombieSlowImportsEnrollsAndReplaysWithoutResourceAuthority(string path)
     {
         CreatureFixture zombie = CreateCreatureFromJson(path, "Enemies", 100);
         CreatureFixture opponent = CreateCreature("Zombie Opponent", "Heroes", 0);
@@ -977,9 +977,9 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(authored.Binding.Id.Value, Is.EqualTo($"{authoredIdentity}-binding"));
         Assert.That(authored.Effect.Duration, Is.EqualTo(EffectDuration.Indefinite));
         Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
-        first.BeginTurn(zombieId, 2);
-        Assert.That(first.GetActionEconomy(zombieId).ReactionAvailable, Is.False);
-        Assert.That(zombie.Controller.Reacted, Is.True);
+        first.BeginTurn(zombieId, 3);
+        Assert.That(first.GetActionEconomy(zombieId).ReactionAvailable, Is.True);
+        Assert.That(zombie.Controller.Reacted, Is.False);
 
         first.ReleaseOwnership();
         Assert.That(zombie.Conditions.CaptureApplications(), Has.Count.EqualTo(2));
@@ -998,13 +998,13 @@ public sealed class ConditionUnityIntegrationTests
                 .Effect.Id.Value,
             Is.EqualTo($"{authoredIdentity}-effect")
         );
-        replay.BeginTurn(replayId, 2);
-        Assert.That(replay.GetActionEconomy(replayId).ReactionAvailable, Is.False);
+        replay.BeginTurn(replayId, 3);
+        Assert.That(replay.GetActionEconomy(replayId).ReactionAvailable, Is.True);
     }
 
     [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler")]
     [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura")]
-    public void ReinforcementZombieSlowUsesTheSameEnrollmentAndTurnAuthority(string path)
+    public void ReinforcementZombieSlowUsesTheSameEnrollmentWithoutResourceAuthority(string path)
     {
         CreatureFixture initial = CreateCreature("Reinforcement Initial", "Heroes", 100);
         CreatureFixture opponent = CreateCreature("Reinforcement Opponent", "Enemies", 50);
@@ -1023,14 +1023,14 @@ public sealed class ConditionUnityIntegrationTests
             .Single();
         Assert.That(authored.Source, Is.EqualTo(RuleSource.FromSlug("authored-passive-slow")));
         Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
-        bridge.BeginTurn(zombieId, 2);
-        Assert.That(bridge.GetActionEconomy(zombieId).ReactionAvailable, Is.False);
-        Assert.That(zombie.Controller.Reacted, Is.True);
+        bridge.BeginTurn(zombieId, 3);
+        Assert.That(bridge.GetActionEconomy(zombieId).ReactionAvailable, Is.True);
+        Assert.That(zombie.Controller.Reacted, Is.False);
     }
 
     [TestCase("ordinary-slowed")]
     [TestCase("authored-passive-slow")]
-    public void OrdinaryOrFakeIdentitySlowedReducesActionsWithoutSuppressingReaction(string source)
+    public void OrdinaryOrFakeIdentitySlowedHasNoTurnResourceAuthority(string source)
     {
         CreatureFixture actor = CreateCreature("Ordinary Slowed", "Heroes", 100);
         CreatureFixture opponent = CreateCreature("Ordinary Slowed Opponent", "Enemies", 0);
@@ -1052,9 +1052,9 @@ public sealed class ConditionUnityIntegrationTests
         );
         CreatureId actorId = bridge.GetCreatureId(actor.Creature);
 
-        bridge.BeginTurn(actorId, 2);
+        bridge.BeginTurn(actorId, 3);
 
-        Assert.That(bridge.GetActionEconomy(actorId).ActionsRemaining, Is.EqualTo(2));
+        Assert.That(bridge.GetActionEconomy(actorId).ActionsRemaining, Is.EqualTo(3));
         Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
         Assert.That(actor.Controller.Reacted, Is.False);
         bridge.ReleaseOwnership();
@@ -2083,9 +2083,9 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(authored.Source, Is.EqualTo(RuleSource.FromSlug("authored-passive-slow")));
         Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
         Assert.That(actor.Conditions.ActiveConditionNames, Does.Contain("slowed"));
-        first.BeginTurn(actorId, 2);
-        Assert.That(first.GetActionEconomy(actorId).ReactionAvailable, Is.False);
-        Assert.That(actor.Controller.Reacted, Is.True);
+        first.BeginTurn(actorId, 3);
+        Assert.That(first.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        Assert.That(actor.Controller.Reacted, Is.False);
         Assert.That(actor.Conditions.CaptureApplications(), Is.Empty);
 
         Assert.DoesNotThrow(() => first.ReleaseOwnership());

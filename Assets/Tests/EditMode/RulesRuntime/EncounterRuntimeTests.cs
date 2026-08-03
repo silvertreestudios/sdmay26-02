@@ -136,10 +136,7 @@ namespace Game.Rules.Runtime.Tests
                 1,
                 null,
                 isTurnStartPending: true,
-                turnStartAdapterProgress: new TurnStartAdapterProgress(
-                    1,
-                    new TurnStartContribution(2)
-                )
+                turnStartAdapterProgress: new TurnStartAdapterProgress(1)
             );
 
             RulesSnapshot snapshot = new InMemoryRulesStore(
@@ -251,13 +248,9 @@ namespace Game.Rules.Runtime.Tests
                 null,
                 isTurnStartPending: true
             );
-            DamageAndContributionTurnStartAdapter first = new DamageAndContributionTurnStartAdapter(
-                Hero,
-                1,
-                2
-            );
+            DamageTurnStartAdapter first = new DamageTurnStartAdapter(Hero, 1);
             ThrowOnceTurnStartAdapter second = new ThrowOnceTurnStartAdapter();
-            RecordingTurnStartAdapter third = new RecordingTurnStartAdapter("third", actions: 1);
+            RecordingTurnStartAdapter third = new RecordingTurnStartAdapter("third");
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(),
                 BaseSeed().SeedEncounter(pending),
@@ -274,7 +267,6 @@ namespace Game.Rules.Runtime.Tests
             EncounterState checkpoint = dispatcher.Snapshot.Encounters[Encounter];
             Assert.That(checkpoint.IsTurnStartPending, Is.True);
             Assert.That(checkpoint.TurnStartAdapterProgress.NextAdapterIndex, Is.EqualTo(1));
-            Assert.That(checkpoint.TurnStartAdapterProgress.Contribution.Actions, Is.EqualTo(2));
             Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.EqualTo(9));
             Assert.That(first.Calls, Is.EqualTo(1));
             Assert.That(second.Calls, Is.EqualTo(1));
@@ -288,7 +280,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(begun.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
             Assert.That(begun.IsTurnStartPending, Is.False);
             Assert.That(begun.TurnStartAdapterProgress, Is.Null);
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Hero].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(dispatcher.Snapshot.ActionEconomy[Hero].ActionsRemaining, Is.EqualTo(3));
             Assert.That(first.Calls, Is.EqualTo(1));
             Assert.That(second.Calls, Is.EqualTo(2));
             Assert.That(third.Actors, Is.EqualTo(new[] { Hero }));
@@ -346,7 +338,6 @@ namespace Game.Rules.Runtime.Tests
         [TestCase("slot")]
         [TestCase("actor")]
         [TestCase("index")]
-        [TestCase("contribution")]
         public async Task TurnStartProgressReducerRejectsEveryExactMismatchWithoutMutation(
             string mismatch
         )
@@ -373,11 +364,7 @@ namespace Game.Rules.Runtime.Tests
                 mismatch == "round" ? RoundNumber.First.Next() : RoundNumber.First,
                 mismatch == "slot" ? 1 : 0,
                 mismatch == "actor" ? Enemy : Hero,
-                mismatch == "index" ? 1 : 0,
-                mismatch == "contribution"
-                    ? new TurnStartContribution(2)
-                    : TurnStartContribution.Standard,
-                new TurnStartContribution(2)
+                mismatch == "index" ? 1 : 0
             );
 
             OpResult<TurnStartAdapterProgress> result = Resolved(
@@ -764,7 +751,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task OrderedStartAdaptersSetFinalActionsBeforeTurnBeganFact()
+        public async Task OrderedStartAdaptersCompleteBeforeStandardTurnBeganFact()
         {
             List<string> order = new List<string>();
             RuleDispatcher dispatcher = CreateDispatcher(
@@ -773,7 +760,7 @@ namespace Game.Rules.Runtime.Tests
                 {
                     new RecordingTurnStartAdapter("spell", order),
                     new RecordingTurnStartAdapter("aura", order),
-                    new RecordingTurnStartAdapter("slowed", order, 2),
+                    new RecordingTurnStartAdapter("last", order),
                 }
             );
             TurnBeganSnapshotObserver observer = new TurnBeganSnapshotObserver(order);
@@ -786,11 +773,11 @@ namespace Game.Rules.Runtime.Tests
                 )
             );
 
-            Assert.That(order, Is.EqualTo(new[] { "spell", "aura", "slowed", "fact" }));
-            Assert.That(observer.ActionsAtFact, Is.EqualTo(2));
+            Assert.That(order, Is.EqualTo(new[] { "spell", "aura", "last", "fact" }));
+            Assert.That(observer.ActionsAtFact, Is.EqualTo(3));
             Assert.That(
                 dispatcher.Snapshot.ActionEconomy[Hero],
-                Is.EqualTo(new ActionEconomyState(2, true))
+                Is.EqualTo(new ActionEconomyState(3, true))
             );
         }
 
@@ -3343,32 +3330,21 @@ namespace Game.Rules.Runtime.Tests
         {
             private readonly string label;
             private readonly IList<string> order;
-            private readonly int? actions;
             private readonly List<CreatureId> actors = new List<CreatureId>();
 
-            public RecordingTurnStartAdapter(
-                string label,
-                IList<string> order = null,
-                int? actions = null
-            )
+            public RecordingTurnStartAdapter(string label, IList<string> order = null)
             {
                 this.label = label;
                 this.order = order;
-                this.actions = actions;
             }
 
             public IReadOnlyList<CreatureId> Actors => actors;
 
-            public ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public ValueTask Apply(EncounterTurnStartContext context)
             {
                 actors.Add(context.Actor);
                 order?.Add(label);
-                return new ValueTask<TurnStartContribution>(
-                    actions.HasValue ? new TurnStartContribution(actions.Value) : current
-                );
+                return default;
             }
         }
 
@@ -3380,55 +3356,57 @@ namespace Game.Rules.Runtime.Tests
 
             public int Calls { get; private set; }
 
-            public async ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public async ValueTask Apply(EncounterTurnStartContext context)
             {
                 if (context.Actor != target)
-                    return current;
+                    return;
                 Calls++;
                 HealthState health = context.Snapshot.Health[context.Actor];
-                await context.ApplyFinalDamage(
-                    context.Actor,
-                    health.Current + health.Temporary,
-                    new HealthChangeOriginId("lethal-turn-start"),
-                    Source
+                await context.CommitFinalDamageBatchAndCompleteAdapter(
+                    new[]
+                    {
+                        new HealthBatchChange(
+                            HealthBatchChangeKind.Damage,
+                            context.Actor,
+                            health.Current + health.Temporary,
+                            new HealthChangeOriginId("lethal-turn-start"),
+                            Source
+                        ),
+                    }
                 );
-                return current;
             }
         }
 
-        private sealed class DamageAndContributionTurnStartAdapter : IEncounterTurnStartAdapter
+        private sealed class DamageTurnStartAdapter : IEncounterTurnStartAdapter
         {
             private readonly CreatureId actor;
             private readonly int damage;
-            private readonly int actions;
 
-            public DamageAndContributionTurnStartAdapter(CreatureId actor, int damage, int actions)
+            public DamageTurnStartAdapter(CreatureId actor, int damage)
             {
                 this.actor = actor;
                 this.damage = damage;
-                this.actions = actions;
             }
 
             public int Calls { get; private set; }
 
-            public async ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public async ValueTask Apply(EncounterTurnStartContext context)
             {
                 if (context.Actor != actor)
-                    return current;
+                    return;
                 Calls++;
-                await context.ApplyFinalDamage(
-                    actor,
-                    damage,
-                    new HealthChangeOriginId("turn-start-progress-damage"),
-                    Source
+                await context.CommitFinalDamageBatchAndCompleteAdapter(
+                    new[]
+                    {
+                        new HealthBatchChange(
+                            HealthBatchChangeKind.Damage,
+                            actor,
+                            damage,
+                            new HealthChangeOriginId("turn-start-progress-damage"),
+                            Source
+                        ),
+                    }
                 );
-                return new TurnStartContribution(actions);
             }
         }
 
@@ -3436,15 +3414,12 @@ namespace Game.Rules.Runtime.Tests
         {
             public int Calls { get; private set; }
 
-            public ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public ValueTask Apply(EncounterTurnStartContext context)
             {
                 Calls++;
                 if (Calls == 1)
                     throw new InvalidOperationException("Injected turn-start adapter failure.");
-                return new ValueTask<TurnStartContribution>(current);
+                return default;
             }
         }
 

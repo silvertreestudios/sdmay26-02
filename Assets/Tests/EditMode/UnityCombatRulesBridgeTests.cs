@@ -3439,15 +3439,12 @@ public sealed class UnityCombatRulesBridgeTests
 
         internal void FailNextTurnBeganFact(Exception failure) => turnBeganFailure = failure;
 
-        public ValueTask<TurnStartContribution> Apply(
-            EncounterTurnStartContext context,
-            TurnStartContribution current
-        )
+        public ValueTask Apply(EncounterTurnStartContext context)
         {
             AdapterCalls++;
             if (adapterFailures.Count > 0)
                 throw adapterFailures.Dequeue();
-            return new ValueTask<TurnStartContribution>(current);
+            return default;
         }
 
         public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot currentSnapshot)
@@ -3490,10 +3487,7 @@ public sealed class UnityCombatRulesBridgeTests
 
     private sealed class RecordingTurnStartAdapter : IEncounterTurnStartAdapter
     {
-        public ValueTask<TurnStartContribution> Apply(
-            EncounterTurnStartContext context,
-            TurnStartContribution current
-        ) => new ValueTask<TurnStartContribution>(current);
+        public ValueTask Apply(EncounterTurnStartContext context) => default;
     }
 
     private sealed class BridgeTestActionController : ActionController

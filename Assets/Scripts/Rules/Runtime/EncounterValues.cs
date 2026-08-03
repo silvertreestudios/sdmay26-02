@@ -650,11 +650,11 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Identifies the next ordered adapter and its current contribution at one published turn start.
+    /// Identifies the next ordered adapter at one published turn start.
     /// </summary>
     /// <remarks>
     /// The enclosing <see cref="EncounterState"/> supplies the exact encounter, round, roster slot,
-    /// and actor. This value carries only the portion that changes after each successfully returned
+    /// and actor. This value carries only the index that changes after each successfully completed
     /// adapter.
     /// </remarks>
     public sealed class TurnStartAdapterProgress : IEquatable<TurnStartAdapterProgress>
@@ -662,42 +662,28 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the first adapter index with work that has not committed.</summary>
         public int NextAdapterIndex { get; }
 
-        /// <summary>Gets the contribution returned by the immediately preceding adapter.</summary>
-        public TurnStartContribution Contribution { get; }
-
-        /// <summary>Gets the initial standard contribution before any adapter runs.</summary>
-        public static TurnStartAdapterProgress Initial =>
-            new TurnStartAdapterProgress(0, TurnStartContribution.Standard);
+        /// <summary>Gets progress before any adapter runs.</summary>
+        public static TurnStartAdapterProgress Initial => new TurnStartAdapterProgress(0);
 
         /// <summary>Creates immutable validated turn-start adapter progress.</summary>
         /// <param name="nextAdapterIndex">The non-negative next adapter index.</param>
-        /// <param name="contribution">The current action contribution.</param>
-        public TurnStartAdapterProgress(int nextAdapterIndex, TurnStartContribution contribution)
+        public TurnStartAdapterProgress(int nextAdapterIndex)
         {
             if (nextAdapterIndex < 0)
                 throw new ArgumentOutOfRangeException(nameof(nextAdapterIndex));
             NextAdapterIndex = nextAdapterIndex;
-            Contribution = contribution;
         }
 
         /// <inheritdoc/>
         public bool Equals(TurnStartAdapterProgress other) =>
-            other != null
-            && NextAdapterIndex == other.NextAdapterIndex
-            && Contribution.Actions == other.Contribution.Actions
-            && Contribution.ReactionAvailable == other.Contribution.ReactionAvailable;
+            other != null && NextAdapterIndex == other.NextAdapterIndex;
 
         /// <inheritdoc/>
         public override bool Equals(object obj) =>
             obj is TurnStartAdapterProgress other && Equals(other);
 
         /// <inheritdoc/>
-        public override int GetHashCode() =>
-            HashCode.Combine(
-                NextAdapterIndex,
-                Contribution.Actions,
-                Contribution.ReactionAvailable
-            );
+        public override int GetHashCode() => NextAdapterIndex;
     }
 
     /// <summary>

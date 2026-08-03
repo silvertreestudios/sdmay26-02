@@ -813,7 +813,7 @@ namespace Game.Rules.Runtime
             builder.Define(RageActionDefinition.EffectDefinitionId);
             builder
                 .Define(LifecycleRuleDefinitionId)
-                .Middleware<TurnStartingOp, TurnStartContribution>(
+                .Middleware<TurnStartingOp, TurnStartCompletion>(
                     RuleLifecyclePhase.Prevention,
                     new RetryExpiredRageCleanupMiddleware()
                 )
@@ -1048,12 +1048,12 @@ namespace Game.Rules.Runtime
     /// runtime to recognize Rage-specific tombstones.
     /// </remarks>
     internal sealed class RetryExpiredRageCleanupMiddleware
-        : IOpMiddleware<TurnStartingOp, TurnStartContribution>
+        : IOpMiddleware<TurnStartingOp, TurnStartCompletion>
     {
-        public async ValueTask<OpResult<TurnStartContribution>> Invoke(
+        public async ValueTask<OpResult<TurnStartCompletion>> Invoke(
             OpFrame<TurnStartingOp> frame,
             OpMiddlewareContext context,
-            OpNext<TurnStartContribution> next
+            OpNext<TurnStartCompletion> next
         )
         {
             if (

@@ -61,7 +61,7 @@ namespace Game.Rules.Runtime
         /// </summary>
         /// <param name="builder">The shared dispatcher builder that owns all encounter rules.</param>
         /// <param name="turnStartAdapters">
-        /// The spell, aura, and action-contribution adapters to await in exact registration order.
+        /// The completion-only turn-start adapters to await in exact registration order.
         /// </param>
         /// <returns>The same builder so composition can continue.</returns>
         /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
@@ -75,7 +75,7 @@ namespace Game.Rules.Runtime
         /// </summary>
         /// <param name="builder">The shared dispatcher builder that owns all encounter rules.</param>
         /// <param name="turnStartAdapters">
-        /// The spell, aura, and action-contribution adapters to await in exact registration order.
+        /// The completion-only turn-start adapters to await in exact registration order.
         /// </param>
         /// <param name="registry">
         /// The registry used to validate atomic reinforcement effects. Unity enrollment and these
@@ -122,7 +122,7 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<EvaluateEncounterOutcomeOp, EncounterEvaluationOutcome>(
                     new EvaluateEncounterOutcomeHandler()
                 )
-                .RegisterHandler<TurnStartingOp, TurnStartContribution>(
+                .RegisterHandler<TurnStartingOp, TurnStartCompletion>(
                     new TurnStartingHandler(copied),
                     InvocationPolicy.NestedOnly
                 )
@@ -587,6 +587,9 @@ namespace Game.Rules.Runtime
     internal sealed class BeginInitiativeTurnHandler
         : IOpHandler<BeginInitiativeTurnOp, EncounterAdvanceOutcome>
     {
+        private const int StandardTurnActions = 3;
+        private const bool StandardReactionAvailable = true;
+
         public async ValueTask<EncounterAdvanceOutcome> Handle(
             OpFrame<BeginInitiativeTurnOp> frame,
             OpHandlerContext context
@@ -622,7 +625,7 @@ namespace Game.Rules.Runtime
                 "turn-start movement reset"
             );
 
-            TurnStartContribution contribution = EncounterHandlerResults.Require(
+            EncounterHandlerResults.Require(
                 await context.Dispatch(new TurnStartingOp(frame.Op.Encounter, entry.Creature)),
                 "turn-start hook"
             );
@@ -647,8 +650,8 @@ namespace Game.Rules.Runtime
                     new CommitTurnBeginOp(
                         frame.Op.Encounter,
                         entry.Creature,
-                        contribution.Actions,
-                        contribution.ReactionAvailable
+                        StandardTurnActions,
+                        StandardReactionAvailable
                     )
                 ),
                 "turn begin"
@@ -901,14 +904,14 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class TurnStartingHandler : IOpHandler<TurnStartingOp, TurnStartContribution>
+    internal sealed class TurnStartingHandler : IOpHandler<TurnStartingOp, TurnStartCompletion>
     {
         private readonly IReadOnlyList<IEncounterTurnStartAdapter> adapters;
 
         public TurnStartingHandler(IEnumerable<IEncounterTurnStartAdapter> adapters) =>
             this.adapters = Array.AsReadOnly(adapters.ToArray());
 
-        public async ValueTask<TurnStartContribution> Handle(
+        public async ValueTask<TurnStartCompletion> Handle(
             OpFrame<TurnStartingOp> frame,
             OpHandlerContext context
         )
@@ -931,7 +934,6 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException(
                     "Turn-start adapters require the exact current published boundary progress."
                 );
-            TurnStartContribution contribution = progress.Contribution;
             for (int index = progress.NextAdapterIndex; index < adapters.Count; index++)
             {
                 EncounterTurnStartContext adapterContext = new EncounterTurnStartContext(
@@ -940,11 +942,9 @@ namespace Game.Rules.Runtime
                     encounter.Round,
                     encounter.Cursor,
                     index,
-                    contribution,
                     context
                 );
-                TurnStartContribution returned = await adapters[index]
-                    .Apply(adapterContext, contribution);
+                await adapters[index].Apply(adapterContext);
                 progress = EncounterRuleRuntime
                     .RequireEncounter(context.Snapshot, frame.Op.Encounter)
                     .TurnStartAdapterProgress;
@@ -952,14 +952,9 @@ namespace Game.Rules.Runtime
                 {
                     // The adapter used its atomic mutation-plus-completion boundary. Its durable
                     // checkpoint already owns recovery, so a second progress commit would conflict.
-                    if (
-                        progress == null
-                        || progress.NextAdapterIndex != index + 1
-                        || progress.Contribution.Actions != returned.Actions
-                        || progress.Contribution.ReactionAvailable != returned.ReactionAvailable
-                    )
+                    if (progress == null || progress.NextAdapterIndex != index + 1)
                         throw new InvalidOperationException(
-                            "The atomically completed adapter returned a conflicting contribution."
+                            "The atomically completed adapter has conflicting progress."
                         );
                 }
                 else
@@ -971,19 +966,16 @@ namespace Game.Rules.Runtime
                                 encounter.Round,
                                 encounter.Cursor,
                                 frame.Op.Actor,
-                                index,
-                                contribution,
-                                returned
+                                index
                             )
                         ),
                         "turn-start adapter progress"
                     );
                 }
-                contribution = progress.Contribution;
                 if (!EncounterEndValidation.IsLiving(context.Snapshot, frame.Op.Actor))
                     break;
             }
-            return contribution;
+            return TurnStartCompletion.Complete;
         }
     }
 

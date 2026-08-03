@@ -718,8 +718,6 @@ namespace Game.Rules.Runtime
             int slot,
             CreatureId actor,
             int expectedNextAdapterIndex,
-            TurnStartContribution priorContribution,
-            TurnStartContribution returnedContribution,
             out EncounterState updated,
             out TurnStartAdapterProgress advanced,
             out string rejection
@@ -746,18 +744,13 @@ namespace Game.Rules.Runtime
                 || encounter.Cursor != slot
                 || encounter.Roster[encounter.Cursor].Creature != actor
                 || progress.NextAdapterIndex != expectedNextAdapterIndex
-                || progress.Contribution.Actions != priorContribution.Actions
-                || progress.Contribution.ReactionAvailable != priorContribution.ReactionAvailable
                 || expectedNextAdapterIndex == int.MaxValue
             )
             {
                 rejection = "Only the exact current turn-start adapter progress can advance.";
                 return false;
             }
-            advanced = new TurnStartAdapterProgress(
-                checked(expectedNextAdapterIndex + 1),
-                returnedContribution
-            );
+            advanced = new TurnStartAdapterProgress(checked(expectedNextAdapterIndex + 1));
             updated = encounter.Replace(turnStartAdapterProgress: advanced);
             rejection = string.Empty;
             return true;
@@ -801,8 +794,6 @@ namespace Game.Rules.Runtime
                     context.Op.Slot,
                     context.Op.Actor,
                     context.Op.ExpectedNextAdapterIndex,
-                    context.Op.PriorContribution,
-                    context.Op.ReturnedContribution,
                     out EncounterState updated,
                     out TurnStartAdapterProgress advanced,
                     out string rejection
@@ -837,8 +828,6 @@ namespace Game.Rules.Runtime
                     context.Op.Slot,
                     context.Op.Actor,
                     context.Op.ExpectedNextAdapterIndex,
-                    context.Op.PriorContribution,
-                    context.Op.ReturnedContribution,
                     out EncounterState updated,
                     out TurnStartAdapterProgress advanced,
                     out string rejection

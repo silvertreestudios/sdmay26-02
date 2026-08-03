@@ -28,7 +28,7 @@ namespace Game.Rules.Unity.Composition
         void ConfigureDispatcher(RuleDispatcherBuilder builder);
     }
 
-    /// <summary>Contributes one transitional turn-start adapter owned by its feature.</summary>
+    /// <summary>Contributes one completion-only transitional turn-start adapter.</summary>
     internal interface IUnityEncounterTurnStartModule : IUnityEncounterModule
     {
         /// <summary>Creates the adapter installed at this module's deterministic position.</summary>
