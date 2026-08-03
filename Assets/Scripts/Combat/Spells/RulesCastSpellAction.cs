@@ -94,6 +94,12 @@ namespace Game.Combat.Spells
                 )
             )
                 return false;
+            if (TryGetPendingOperation(out CastSpellActionOp pending))
+            {
+                return pending.Actor == actor
+                    && bridge.HasTurnAuthority(actor)
+                    && actionDefinition.HasExactPendingCostReceipt(bridge.Snapshot, pending);
+            }
             return actionDefinition.GetAvailability(bridge.Snapshot, actor, spell, variant)
                 is AvailableActionAvailability;
         }

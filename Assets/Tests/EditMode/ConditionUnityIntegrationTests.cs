@@ -402,6 +402,89 @@ public sealed class ConditionUnityIntegrationTests
     }
 
     [Test]
+    public void RulesCastSpellActionRetriesPendingPaidIntentThroughActionController()
+    {
+        CreateActionExecutionHosts();
+        CreatureFixture caster = CreateCreature("Action Retry Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Action Retry Target", "Enemies", 0);
+        PrepareCantrip(caster, "Light", "light");
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            CreateTiles()
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        bridge.BeginTurn(casterId, 3);
+        RulesCastSpellAction action = caster
+            .Controller.GetActions()
+            .OfType<RulesCastSpellAction>()
+            .Single(value => value.Spell == new SpellReference(new SpellId("light"), 1));
+        InvalidOperationException expected = new("injected action cost observer failure");
+        ThrowOnceFactObserver<ActionCostsCommittedFact> observer = new(expected);
+        using IDisposable registration = GetDispatcher(bridge)
+            .RegisterFactObserver<ActionCostsCommittedFact>(observer);
+
+        Assert.That(caster.Controller.CanTakeAction(action), Is.True);
+        bool loggingEnabled = Debug.unityLogger.logEnabled;
+        try
+        {
+            Debug.unityLogger.logEnabled = false;
+            caster.Controller.TakeAction(action);
+        }
+        finally
+        {
+            Debug.unityLogger.logEnabled = loggingEnabled;
+        }
+
+        Assert.That(caster.Controller.ActionPoints, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.ActiveEffects, Is.Empty);
+        Assert.That(action.TryGetPendingOperation(out CastSpellActionOp pending), Is.True);
+        Assert.That(pending.Actor, Is.EqualTo(casterId));
+        Assert.That(pending.Spell, Is.EqualTo(action.Spell));
+        Assert.That(pending.Variant, Is.EqualTo(action.Variant));
+        Assert.That(pending.Selection, Is.SameAs(SpellCastSelection.Empty));
+        Assert.That(caster.Controller.CanTakeAction(action), Is.True);
+        Assert.That(action.IsAvailable(caster.Controller), Is.True);
+
+        caster.Controller.TakeAction(action);
+
+        Assert.That(caster.Controller.ActionPoints, Is.EqualTo(1));
+        Assert.That(action.TryGetPendingOperation(out _), Is.False);
+        Assert.That(bridge.Snapshot.ActiveEffects, Has.Count.EqualTo(1));
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Single().Value.GetState<SpellEffectState>().Spell,
+            Is.EqualTo(new SpellReference(new SpellId("light"), 1))
+        );
+        Assert.That(observer.Count, Is.EqualTo(1));
+        Assert.That(caster.Controller.CanTakeAction(action), Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void RulesCastSpellActionPendingIntentFailsClosedWithoutAuthoritativeReceipt()
+    {
+        CreatureFixture caster = CreateCreature("Unreceipted Cast Caster", "Heroes", 100);
+        CreatureFixture target = CreateCreature("Unreceipted Cast Target", "Enemies", 0);
+        PrepareCantrip(caster, "Light", "light");
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { caster.Controller, target.Controller },
+            CreateTiles()
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster.Creature);
+        bridge.BeginTurn(casterId, 3);
+        RulesCastSpellAction action = caster
+            .Controller.GetActions()
+            .OfType<RulesCastSpellAction>()
+            .Single(value => value.Spell == new SpellReference(new SpellId("light"), 1));
+        action.RetainPendingOperation(casterId, SpellCastSelection.Empty);
+
+        Assert.That(action.IsAvailable(caster.Controller), Is.False);
+        Assert.That(caster.Controller.CanTakeAction(action), Is.False);
+
+        bridge.ReleaseOwnership();
+        Assert.That(action.IsAvailable(caster.Controller), Is.False);
+    }
+
+    [Test]
     public void ProductionSpellCatalogInstallsOnlyExplicitlyRulesReadyDefinitions()
     {
         UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
@@ -3061,6 +3144,35 @@ public sealed class ConditionUnityIntegrationTests
         {
             { new Tile() },
         };
+
+    private void CreateActionExecutionHosts()
+    {
+        if (!CoroutineRunner.TryGetInstance(out _))
+        {
+            GameObject coroutineHost = new("Condition Test Coroutine Runner");
+            created.Add(coroutineHost);
+            InitializeSingleton<CoroutineRunner>(coroutineHost.AddComponent<CoroutineRunner>());
+        }
+        if (!CombatManager.TryGetInstance(out _))
+        {
+            GameObject combatManagerHost = new("Condition Test Combat Manager");
+            created.Add(combatManagerHost);
+            InitializeSingleton<CombatManagerInterface>(
+                combatManagerHost.AddComponent<CombatManager>()
+            );
+        }
+    }
+
+    private static void InitializeSingleton<T>(SingletonMonoBehaviour<T> singleton)
+        where T : MonoBehaviour
+    {
+        var awake = typeof(SingletonMonoBehaviour<T>).GetMethod(
+            "Awake",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+        );
+        Assert.That(awake, Is.Not.Null);
+        awake.Invoke(singleton, null);
+    }
 
     private static RuleDispatcher GetDispatcher(UnityCombatRulesBridge bridge)
     {

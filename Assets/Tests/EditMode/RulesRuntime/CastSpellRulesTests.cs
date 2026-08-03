@@ -323,17 +323,28 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(resolver.Calls, Is.EqualTo(1));
             Assert.That(validator.Calls, Is.EqualTo(1));
             Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
+            Assert.That(
+                ActionReceiptReduction.HasExactPendingCostReceipt(store.Snapshot, operation),
+                Is.True
+            );
+
+            CastSpellActionOp conflictingOperation = new(
+                invocation,
+                Actor,
+                Light,
+                TwoActions,
+                new SpellCastSelection(new[] { Actor })
+            );
+            Assert.That(
+                ActionReceiptReduction.HasExactPendingCostReceipt(
+                    store.Snapshot,
+                    conflictingOperation
+                ),
+                Is.False
+            );
 
             OpResult<CastSpellOutcome> conflict = dispatcher
-                .Dispatch(
-                    new CastSpellActionOp(
-                        invocation,
-                        Actor,
-                        Light,
-                        TwoActions,
-                        new SpellCastSelection(new[] { Actor })
-                    )
-                )
+                .Dispatch(conflictingOperation)
                 .GetAwaiter()
                 .GetResult();
 
@@ -363,6 +374,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(validator.Calls, Is.EqualTo(1));
             Assert.That(failure.Calls, Is.EqualTo(1));
             Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
+            Assert.That(
+                ActionReceiptReduction.HasExactPendingCostReceipt(store.Snapshot, operation),
+                Is.False
+            );
             Assert.That(
                 store.Snapshot.ActiveEffects.Contains(new ActiveEffectId("effect-light-alpha")),
                 Is.False

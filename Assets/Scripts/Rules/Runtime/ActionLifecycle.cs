@@ -224,8 +224,41 @@ namespace Game.Rules.Runtime
                 state.ActionReceipts.TryGet(
                     operation.InvocationId,
                     out ActionInvocationReceipt receipt
-                )
-                && receipt is CostsCommittedActionReceipt costsCommitted
+                ) && TryMatchExactPending(receipt, operation, out pending)
+            )
+                return true;
+
+            pending = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Checks whether an authoritative snapshot proves that the exact action intent has paid
+        /// its frozen costs but has not yet reached a final lifecycle receipt.
+        /// </summary>
+        internal static bool HasExactPendingCostReceipt(
+            RulesSnapshot snapshot,
+            IReceiptedActionOp operation
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (operation == null)
+                throw new ArgumentNullException(nameof(operation));
+            return snapshot.ActionReceipts.TryGet(
+                    operation.InvocationId,
+                    out ActionInvocationReceipt receipt
+                ) && TryMatchExactPending(receipt, operation, out _);
+        }
+
+        private static bool TryMatchExactPending(
+            ActionInvocationReceipt receipt,
+            IReceiptedActionOp operation,
+            out CostsCommittedActionReceipt pending
+        )
+        {
+            if (
+                receipt is CostsCommittedActionReceipt costsCommitted
                 && operation.HasSameIntent(costsCommitted.Operation)
             )
             {
