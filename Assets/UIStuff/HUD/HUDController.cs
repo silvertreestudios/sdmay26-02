@@ -524,10 +524,11 @@ public class HUDController
                     if (isDungeonExploration)
                         SelectExplorationController(captured.GetComponent<ActionController>());
                 });
+            ActionController actionController = Players[i].GetComponent<ActionController>();
             UpdateActionPointMedallions(
                 cardInstance,
-                GetStandardActionsRemaining(Players[i].GetComponent<ActionController>()),
-                GetOptionalActionAvailable(Players[i].GetComponent<ActionController>())
+                GetStandardActionsRemaining(actionController),
+                GetOptionalActionAvailable(actionController)
             );
         }
     }
@@ -1286,10 +1287,11 @@ public class HUDController
                     // card.style.opacity = 0.5f;
                     cardVE.AddToClassList("card-inactive");
                 }
+                ActionController actionController = p.GetComponent<ActionController>();
                 UpdateActionPointMedallions(
                     card,
-                    GetStandardActionsRemaining(p.GetComponent<ActionController>()),
-                    GetOptionalActionAvailable(p.GetComponent<ActionController>())
+                    GetStandardActionsRemaining(actionController),
+                    GetOptionalActionAvailable(actionController)
                 );
                 if (p.hp <= 0)
                 {
