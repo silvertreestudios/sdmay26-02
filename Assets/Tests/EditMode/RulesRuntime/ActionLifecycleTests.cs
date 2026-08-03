@@ -259,6 +259,50 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task ZeroCostReceiptedActionCheckpointsAndExactRetryEmitsNoFactsOrWork()
+        {
+            ActionProfile profile = ActionProfile.Create(ActionCost.None, Array.Empty<Trait>());
+            InMemoryRulesStore store = CreateFullySeededStore();
+            ReceiptedActionHandler handler = new();
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(store)
+                .RegisterHandler<ReceiptedTestActionOp, TestActionOutcome>(handler)
+                .RegisterReducer<CommitReceiptedTestActionOp, TestActionOutcome>(
+                    new CommitReceiptedTestActionReducer(),
+                    Source
+                )
+                .UseActionLifecycle(new FixedActionCatalog(profile))
+                .UseRuleRegistry(CreateRuleRegistry())
+                .Build();
+            ActionInvocationId invocation = new("zero-cost-receipted-action");
+
+            ResolvedOpResult<TestActionOutcome> first = RequireResolved(
+                await dispatcher.Dispatch(new ReceiptedTestActionOp(invocation))
+            );
+
+            Assert.That(first.Value.DomainSucceeded, Is.True);
+            Assert.That(first.Facts.OfType<ActionCostSpentFact>(), Is.Empty);
+            ActionCostsCommittedFact costsCommitted = first
+                .Facts.OfType<ActionCostsCommittedFact>()
+                .Single();
+            Assert.That(costsCommitted.Actor, Is.EqualTo(Actor));
+            Assert.That(costsCommitted.DefinitionId, Is.EqualTo(ActionDefinition));
+            Assert.That(first.Facts.OfType<ActionReceiptCommittedFact>().Count(), Is.EqualTo(1));
+            Assert.That(handler.Calls, Is.EqualTo(1));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            long committedVersion = store.Snapshot.Version;
+
+            ResolvedOpResult<TestActionOutcome> retry = RequireResolved(
+                await dispatcher.Dispatch(new ReceiptedTestActionOp(invocation))
+            );
+
+            Assert.That(retry.Value.DomainSucceeded, Is.True);
+            Assert.That(retry.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(handler.Calls, Is.EqualTo(1));
+        }
+
+        [Test]
         public async Task FeatureLevelFailureRemainsResolved()
         {
             ActionProfile profile = ActionProfile.Create(
@@ -654,6 +698,74 @@ namespace Game.Rules.Runtime.Tests
         {
             public TestActionOp()
                 : base(ActionLifecycleTests.Actor, ActionDefinition) { }
+        }
+
+        private sealed class ReceiptedTestActionOp : ActionOp<TestActionOutcome>, IReceiptedActionOp
+        {
+            public ReceiptedTestActionOp(ActionInvocationId invocationId)
+                : base(ActionLifecycleTests.Actor, ActionDefinition) => InvocationId = invocationId;
+
+            public ActionInvocationId InvocationId { get; }
+
+            bool IReceiptedActionOp.HasSameIntent(IReceiptedActionOp other) =>
+                other is ReceiptedTestActionOp receipted && Actor == receipted.Actor;
+        }
+
+        private sealed class CommitReceiptedTestActionOp : IRuleOp<TestActionOutcome>
+        {
+            public CommitReceiptedTestActionOp(
+                ReceiptedTestActionOp operation,
+                TestActionOutcome outcome
+            )
+            {
+                Operation = operation;
+                Outcome = outcome;
+            }
+
+            public ReceiptedTestActionOp Operation { get; }
+            public TestActionOutcome Outcome { get; }
+        }
+
+        private sealed class CommitReceiptedTestActionReducer
+            : IOpReducer<CommitReceiptedTestActionOp, TestActionOutcome>
+        {
+            public ReductionResult<TestActionOutcome> Reduce(
+                ReductionContext<CommitReceiptedTestActionOp> context,
+                RulesStateDraft state,
+                FactSink facts
+            ) =>
+                ActionReceiptReduction.TryResolve(
+                    state,
+                    facts,
+                    context.Op.Operation,
+                    context.Op.Outcome
+                )
+                    ? ReductionResult<TestActionOutcome>.Accept(context.Op.Outcome)
+                    : ReductionResult<TestActionOutcome>.Reject(
+                        ActionReceiptReduction.NotPendingReason
+                    );
+        }
+
+        private sealed class ReceiptedActionHandler
+            : IOpHandler<ReceiptedTestActionOp, TestActionOutcome>
+        {
+            public int Calls { get; private set; }
+
+            public async ValueTask<TestActionOutcome> Handle(
+                OpFrame<ReceiptedTestActionOp> frame,
+                OpHandlerContext context
+            )
+            {
+                Calls++;
+                OpResult<TestActionOutcome> committed = await context.Dispatch(
+                    new CommitReceiptedTestActionOp(frame.Op, new TestActionOutcome(true))
+                );
+                if (committed is ResolvedOpResult<TestActionOutcome> resolved)
+                    return resolved.Value;
+                throw new InvalidOperationException(
+                    "The test receipted action could not commit its final receipt."
+                );
+            }
         }
 
         private sealed class FixedActionCatalog : IActionCatalog

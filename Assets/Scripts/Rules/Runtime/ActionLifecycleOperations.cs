@@ -126,6 +126,22 @@ namespace Game.Rules.Runtime
     public sealed class CommitActionCostsOp : IRuleOp<ActionCostsOutcome>
     {
         internal CommitActionCostsOp(OpId actionOpId, CreatureId actor, ActionProfile profile)
+            : this(actionOpId, actor, profile, ActionCostReceiptCheckpoint.None) { }
+
+        internal CommitActionCostsOp(
+            OpId actionOpId,
+            CreatureId actor,
+            ActionProfile profile,
+            IReceiptedActionOp receiptedAction
+        )
+            : this(actionOpId, actor, profile, ActionCostReceiptCheckpoint.For(receiptedAction)) { }
+
+        private CommitActionCostsOp(
+            OpId actionOpId,
+            CreatureId actor,
+            ActionProfile profile,
+            ActionCostReceiptCheckpoint receiptCheckpoint
+        )
         {
             if (actionOpId.IsEmpty)
                 throw new ArgumentException("An action Op ID is required.", nameof(actionOpId));
@@ -134,6 +150,8 @@ namespace Game.Rules.Runtime
             ActionOpId = actionOpId;
             Actor = actor;
             Profile = profile ?? throw new ArgumentNullException(nameof(profile));
+            ReceiptCheckpoint =
+                receiptCheckpoint ?? throw new ArgumentNullException(nameof(receiptCheckpoint));
         }
 
         /// <summary>
@@ -150,5 +168,37 @@ namespace Game.Rules.Runtime
         /// Gets the engine-owned frozen profile from the parent action frame.
         /// </summary>
         public ActionProfile Profile { get; }
+
+        internal ActionCostReceiptCheckpoint ReceiptCheckpoint { get; }
+    }
+
+    internal sealed class ActionCostReceiptCheckpoint
+    {
+        internal static ActionCostReceiptCheckpoint None { get; } =
+            new ActionCostReceiptCheckpoint(null);
+
+        private readonly IReceiptedActionOp operation;
+
+        private ActionCostReceiptCheckpoint(IReceiptedActionOp operation) =>
+            this.operation = operation;
+
+        internal static ActionCostReceiptCheckpoint For(IReceiptedActionOp operation) =>
+            new ActionCostReceiptCheckpoint(
+                operation ?? throw new ArgumentNullException(nameof(operation))
+            );
+
+        internal bool TryGetOperation(out IReceiptedActionOp value)
+        {
+            value = operation;
+            return operation != null;
+        }
+    }
+
+    internal sealed class InterruptReceiptedActionOp : IRuleOp<ActionStartOutcome>
+    {
+        internal InterruptReceiptedActionOp(IReceiptedActionOp operation) =>
+            Operation = operation ?? throw new ArgumentNullException(nameof(operation));
+
+        internal IReceiptedActionOp Operation { get; }
     }
 }

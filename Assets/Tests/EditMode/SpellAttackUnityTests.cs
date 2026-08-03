@@ -3,6 +3,7 @@ using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Spells;
 using GridPrivate;
+using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -17,6 +18,65 @@ public sealed class SpellAttackUnityTests
             if (gameObject != null)
                 Object.DestroyImmediate(gameObject);
         created.Clear();
+    }
+
+    [Test]
+    public void AreaAdapterMapsEveryShapeAndDirectionWithoutOrdinalAssumptions()
+    {
+        (SpellAreaShape Rules, AreaShape Grid)[] shapes =
+        {
+            (SpellAreaShape.Cone, AreaShape.Cone),
+            (SpellAreaShape.Burst, AreaShape.Burst),
+            (SpellAreaShape.Emanation, AreaShape.Emanation),
+            (SpellAreaShape.Line, AreaShape.Line),
+        };
+        foreach ((SpellAreaShape rules, AreaShape grid) in shapes)
+        {
+            Assert.That(UnitySpellAreaAdapter.ToGridShape(rules), Is.EqualTo(grid));
+            Assert.That(UnitySpellAreaAdapter.ToRulesShape(grid), Is.EqualTo(rules));
+        }
+
+        (SpellAreaDirection Rules, AreaDirection Grid)[] directions =
+        {
+            (SpellAreaDirection.East, AreaDirection.East),
+            (SpellAreaDirection.NorthEast, AreaDirection.NorthEast),
+            (SpellAreaDirection.North, AreaDirection.North),
+            (SpellAreaDirection.NorthWest, AreaDirection.NorthWest),
+            (SpellAreaDirection.West, AreaDirection.West),
+            (SpellAreaDirection.SouthWest, AreaDirection.SouthWest),
+            (SpellAreaDirection.South, AreaDirection.South),
+            (SpellAreaDirection.SouthEast, AreaDirection.SouthEast),
+        };
+        foreach ((SpellAreaDirection rules, AreaDirection grid) in directions)
+        {
+            Assert.That(UnitySpellAreaAdapter.ToGridDirection(rules), Is.EqualTo(grid));
+            Assert.That(UnitySpellAreaAdapter.ToRulesDirection(grid), Is.EqualTo(rules));
+        }
+    }
+
+    [Test]
+    public void AreaAdapterRoundTripsRequestsAndPlacements()
+    {
+        SpellAreaTarget target = new(SpellAreaShape.Burst, 10, 30);
+        AreaTargetRequest request = UnitySpellAreaAdapter.ToGridRequest(target);
+        Assert.That(request.Shape, Is.EqualTo(AreaShape.Burst));
+        Assert.That(request.SizeFeet, Is.EqualTo(10));
+        Assert.That(request.RangeFeet, Is.EqualTo(30));
+        Assert.That(request.RequiresLineOfEffect, Is.True);
+
+        SpellAreaPlacement rules = new(
+            SpellAreaShape.Cone,
+            new GridPosition(2, 1, 3),
+            4,
+            5,
+            SpellAreaDirection.SouthWest
+        );
+        AreaPlacement grid = UnitySpellAreaAdapter.ToGridPlacement(rules);
+        Assert.That(grid.Shape, Is.EqualTo(AreaShape.Cone));
+        Assert.That(grid.OriginCell, Is.EqualTo(new Vector3Int(2, 1, 3)));
+        Assert.That(grid.OriginCorner, Is.EqualTo(new Vector2Int(4, 5)));
+        Assert.That(grid.Direction, Is.EqualTo(AreaDirection.SouthWest));
+        Assert.That(UnitySpellAreaAdapter.ToRulesPlacement(grid), Is.EqualTo(rules));
     }
 
     [Test]

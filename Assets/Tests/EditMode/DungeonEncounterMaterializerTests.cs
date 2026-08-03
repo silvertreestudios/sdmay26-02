@@ -42,6 +42,7 @@ public sealed class DungeonEncounterMaterializerTests
         member.Configure(
             "encounter-1",
             "encounter-1/creature-0000",
+            3,
             "goblin-warrior",
             "restored-child-state"
         );
@@ -51,6 +52,11 @@ public sealed class DungeonEncounterMaterializerTests
         Assert.That(member.IsConfigured, Is.True);
         Assert.That(member.EncounterId, Is.EqualTo("encounter-1"));
         Assert.That(member.InstanceId, Is.EqualTo("encounter-1/creature-0000"));
+        Assert.That(member.FloorDepth, Is.EqualTo(3));
+        Assert.That(
+            member.DurableActorId,
+            Is.EqualTo("dungeon-enemy-v1/3/encounter-1/creature-0000")
+        );
         Assert.That(member.CreatureContentId, Is.EqualTo("goblin-warrior"));
         Assert.That(member.PersistentState, Is.EqualTo("restored-child-state"));
         Assert.That(member.DefeatWasReported, Is.True);
@@ -59,9 +65,48 @@ public sealed class DungeonEncounterMaterializerTests
             member.Configure(
                 "encounter-1",
                 "encounter-1/creature-0000",
+                3,
                 "goblin-warrior",
                 string.Empty
             )
+        );
+    }
+
+    /// <summary>Verifies floor scope distinguishes equal floor-local encounter identities.</summary>
+    [Test]
+    public void EncounterMemberDurableIdentityDiffersAcrossFloors()
+    {
+        GameObject floorZeroOwner = Track(new GameObject("Floor zero enemy"));
+        GameObject floorOneOwner = Track(new GameObject("Floor one enemy"));
+        DungeonEncounterMember floorZero = floorZeroOwner.AddComponent<DungeonEncounterMember>();
+        DungeonEncounterMember floorOne = floorOneOwner.AddComponent<DungeonEncounterMember>();
+        const string instanceId = "encounter-1/creature-0000";
+
+        floorZero.Configure("encounter-1", instanceId, 0, "goblin-warrior", string.Empty);
+        floorOne.Configure("encounter-1", instanceId, 1, "goblin-warrior", string.Empty);
+
+        Assert.That(floorZero.InstanceId, Is.EqualTo(floorOne.InstanceId));
+        Assert.That(floorZero.DurableActorId, Is.Not.EqualTo(floorOne.DurableActorId));
+        Assert.That(
+            floorZero.DurableActorId,
+            Is.EqualTo("dungeon-enemy-v1/0/encounter-1/creature-0000")
+        );
+        Assert.That(
+            floorOne.DurableActorId,
+            Is.EqualTo("dungeon-enemy-v1/1/encounter-1/creature-0000")
+        );
+    }
+
+    /// <summary>Verifies every materializer rejects an invalid implicit floor scope.</summary>
+    [Test]
+    public void MaterializerRejectsNegativeFloorDepth()
+    {
+        GameObject prefab = CreaturePrefab("Negative floor prefab");
+        DungeonEncounterCreatureCatalog catalog = Catalog(Entry("goblin-warrior", prefab));
+        RecordingFactory factory = new();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new DungeonEncounterMaterializer(catalog, factory, -1)
         );
     }
 
@@ -174,7 +219,7 @@ public sealed class DungeonEncounterMaterializerTests
             Entry("kobold-warrior", prefab)
         );
         RecordingFactory factory = new();
-        DungeonEncounterMaterializer materializer = new(catalog, factory);
+        DungeonEncounterMaterializer materializer = new(catalog, factory, 3);
         GameObject root = Track(new GameObject("Encounter root"));
         DungeonEncounterPlan plan = Plan(
             new[] { new DungeonCell(4, 7), new DungeonCell(8, 2) },
@@ -193,6 +238,17 @@ public sealed class DungeonEncounterMaterializerTests
         Assert.That(
             result.Members.Select(member => member.CreatureContentId),
             Is.EqualTo(new[] { "goblin-warrior", "kobold-warrior" })
+        );
+        Assert.That(result.Members.Select(member => member.FloorDepth), Is.All.EqualTo(3));
+        Assert.That(
+            result.Members.Select(member => member.DurableActorId),
+            Is.EqualTo(
+                new[]
+                {
+                    "dungeon-enemy-v1/3/encounter-1/creature-0000",
+                    "dungeon-enemy-v1/3/encounter-1/creature-0001",
+                }
+            )
         );
         Assert.That(
             result.Members.Select(member => member.transform.position),
@@ -215,7 +271,7 @@ public sealed class DungeonEncounterMaterializerTests
         GameObject prefab = CreaturePrefab("Restored prefab");
         DungeonEncounterCreatureCatalog catalog = Catalog(Entry("goblin-warrior", prefab));
         RecordingFactory factory = new();
-        DungeonEncounterMaterializer materializer = new(catalog, factory);
+        DungeonEncounterMaterializer materializer = new(catalog, factory, 0);
         GameObject root = Track(new GameObject("Restored root"));
         DungeonEncounterPlan plan = Plan(
             new[] { new DungeonCell(1, 2), new DungeonCell(6, 7) },
@@ -248,7 +304,7 @@ public sealed class DungeonEncounterMaterializerTests
         );
         RecordingFactory factory = new(failOnCall: 2);
         RecordingRuntimeRegistration registration = new();
-        DungeonEncounterMaterializer materializer = new(catalog, factory, registration);
+        DungeonEncounterMaterializer materializer = new(catalog, factory, registration, 0);
         GameObject root = Track(new GameObject("Rollback root"));
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
@@ -277,7 +333,7 @@ public sealed class DungeonEncounterMaterializerTests
         RecordingFactory factory = new();
         DungeonCell occupied = new(4, 7);
         RecordingRuntimeRegistration registration = new(occupied);
-        DungeonEncounterMaterializer materializer = new(catalog, factory, registration);
+        DungeonEncounterMaterializer materializer = new(catalog, factory, registration, 0);
         GameObject root = Track(new GameObject("Occupied-cell root"));
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
@@ -299,7 +355,7 @@ public sealed class DungeonEncounterMaterializerTests
         RecordingFactory factory = new();
         DungeonCell occupied = new(4, 7);
         RecordingRuntimeRegistration registration = new(occupied);
-        DungeonEncounterMaterializer materializer = new(catalog, factory, registration);
+        DungeonEncounterMaterializer materializer = new(catalog, factory, registration, 0);
         GameObject root = Track(new GameObject("Fallback root"));
         DungeonEncounterPlan plan = Plan(new[] { occupied }, "goblin-warrior");
         DungeonEncounterStateMachine lifecycle = new(new[] { plan });
@@ -345,7 +401,8 @@ public sealed class DungeonEncounterMaterializerTests
             catalog,
             factory,
             new RecordingRuntimeRegistration(),
-            runtimeState.Creatures
+            runtimeState.Creatures,
+            0
         );
         GameObject root = Track(new GameObject("Restored survivor root"));
 
@@ -372,7 +429,7 @@ public sealed class DungeonEncounterMaterializerTests
         GameObject prefab = CreaturePrefab("Preflight prefab");
         DungeonEncounterCreatureCatalog catalog = Catalog(Entry("goblin-warrior", prefab));
         RecordingFactory factory = new();
-        DungeonEncounterMaterializer materializer = new(catalog, factory);
+        DungeonEncounterMaterializer materializer = new(catalog, factory, 0);
         GameObject root = Track(new GameObject("Preflight root"));
 
         Assert.Throws<KeyNotFoundException>(() =>

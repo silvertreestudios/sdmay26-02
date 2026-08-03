@@ -128,6 +128,21 @@ namespace Game.Rules.Runtime
             this.modifiers = Array.AsReadOnly(copiedModifiers);
         }
 
+        /// <summary>Creates a zero-valued statistics state for deterministic fixtures.</summary>
+        /// <param name="creature">The stable creature identity.</param>
+        /// <returns>A complete immutable state with no skills or modifier inputs.</returns>
+        public static CreatureStatisticsState Empty(CreatureId creature) =>
+            new CreatureStatisticsState(
+                creature,
+                0,
+                0,
+                0,
+                0,
+                0,
+                new Dictionary<Skill, int>(),
+                Array.Empty<Modifier>()
+            );
+
         /// <summary>
         /// Gets a skill's modifier or zero when the statistics state does not define that skill.
         /// </summary>
@@ -183,14 +198,28 @@ namespace Game.Rules.Runtime
             obj is CreatureStatisticsState other && Equals(other);
 
         /// <inheritdoc/>
-        public override int GetHashCode() =>
-            HashCode.Combine(
-                Creature,
-                AttackModifier,
-                ArmorClass,
-                FortitudeModifier,
-                ReflexModifier,
-                WillModifier
-            );
+        public override int GetHashCode()
+        {
+            HashCode hash = new HashCode();
+            hash.Add(Creature);
+            hash.Add(AttackModifier);
+            hash.Add(ArmorClass);
+            hash.Add(FortitudeModifier);
+            hash.Add(ReflexModifier);
+            hash.Add(WillModifier);
+            foreach (
+                KeyValuePair<Skill, int> skill in skillModifiers.OrderBy(
+                    pair => pair.Key.Slug,
+                    StringComparer.Ordinal
+                )
+            )
+            {
+                hash.Add(skill.Key);
+                hash.Add(skill.Value);
+            }
+            foreach (Modifier modifier in modifiers)
+                hash.Add(modifier);
+            return hash.ToHashCode();
+        }
     }
 }

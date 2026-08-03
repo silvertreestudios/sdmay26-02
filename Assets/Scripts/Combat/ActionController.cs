@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
@@ -48,7 +50,6 @@ public abstract class ActionController : MonoBehaviour
             : 0;
 
     //Events
-    public OnResetActionPoints ResetActionPointsEvent { get; protected set; } = new();
     public OnGetActions GetActionsEvent { get; protected set; } = new();
     public OnGetReactions GetReactionsEvent { get; protected set; } = new();
 
@@ -145,14 +146,6 @@ public abstract class ActionController : MonoBehaviour
             return false;
         }
         return TryGetAttachedCombatRules(out bridge, out creatureId);
-    }
-
-    /// <summary>Calculates the Unity Slowed contribution without owning turn state.</summary>
-    internal uint CalculateTurnStartActions()
-    {
-        Ref<uint> contribution = new(3);
-        ResetActionPointsEvent.Invoke(contribution);
-        return contribution.Value;
     }
 
     /// <summary>Enables or disables destination-travel authority between Tactics sessions.</summary>
@@ -297,7 +290,7 @@ public abstract class ActionController : MonoBehaviour
     public uint GetInitiative()
     {
         int initiativeBonus = this.gameObject.GetComponent<CreatureComponent>().GetInitiative();
-        uint roll = (uint)Random.Range(1, 20);
+        uint roll = (uint)UnityEngine.Random.Range(1, 20);
         Debug.Log(
             this.gameObject.name
                 + " rolled initiative: "
@@ -320,6 +313,30 @@ public abstract class ActionController : MonoBehaviour
     public void RemoveAction(EntityAction action)
     {
         Actions.Remove(action);
+    }
+
+    /// <summary>Atomically replaces one feature's action-bar projection with a prepared result.</summary>
+    /// <remarks>
+    /// The replacement list is built before the live list changes. This makes an enrollment retry
+    /// converge after any earlier installation failure while preserving actions owned by other
+    /// features, including Stride and Rage.
+    /// </remarks>
+    internal void ReconcileActions(
+        Func<EntityAction, bool> isFeatureOwned,
+        IEnumerable<EntityAction> desired
+    )
+    {
+        if (isFeatureOwned == null)
+            throw new ArgumentNullException(nameof(isFeatureOwned));
+        EntityAction[] copied =
+            desired?.ToArray() ?? throw new ArgumentNullException(nameof(desired));
+        if (copied.Any(action => action == null))
+            throw new ArgumentException("Desired actions cannot contain null.", nameof(desired));
+
+        List<EntityAction> replacement = Actions.Where(action => !isFeatureOwned(action)).ToList();
+        replacement.AddRange(copied);
+        Actions = replacement;
+        _actionNames = replacement.Select(action => action.ToString()).ToList();
     }
 
     public string GetActionNames() // Temporary method for testing purposes to display available actions in log

@@ -42,7 +42,6 @@ namespace Game.Rules.Runtime
             CreatureId,
             MultipleAttackPenaltyState
         > MultipleAttackPenalty { get; }
-        public StateSliceSnapshot<ConditionId, ConditionState> Conditions { get; }
         public StateSliceSnapshot<ItemId, EquipmentState> Equipment { get; }
 
         /// <summary>
@@ -71,6 +70,11 @@ namespace Game.Rules.Runtime
             ActiveEffectTimingState
         > ActiveEffectTimings { get; }
 
+        internal StateSliceSnapshot<
+            ActionInvocationId,
+            ActionInvocationReceipt
+        > ActionReceipts { get; }
+
         internal RulesSnapshot(RulesStateData data)
         {
             Version = data.Version;
@@ -96,7 +100,6 @@ namespace Game.Rules.Runtime
             MultipleAttackPenalty = new StateSliceSnapshot<CreatureId, MultipleAttackPenaltyState>(
                 data.MultipleAttackPenalty
             );
-            Conditions = new StateSliceSnapshot<ConditionId, ConditionState>(data.Conditions);
             Equipment = new StateSliceSnapshot<ItemId, EquipmentState>(data.Equipment);
             ActiveEffects = new StateSliceSnapshot<ActiveEffectId, ActiveEffectInstance>(
                 data.ActiveEffects
@@ -109,6 +112,9 @@ namespace Game.Rules.Runtime
             Encounters = new StateSliceSnapshot<EncounterId, EncounterState>(data.Encounters);
             ActiveEffectTimings = new StateSliceSnapshot<ActiveEffectId, ActiveEffectTimingState>(
                 data.ActiveEffectTimings
+            );
+            ActionReceipts = new StateSliceSnapshot<ActionInvocationId, ActionInvocationReceipt>(
+                data.ActionReceipts
             );
         }
     }

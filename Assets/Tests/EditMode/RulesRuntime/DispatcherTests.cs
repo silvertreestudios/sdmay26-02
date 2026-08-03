@@ -189,6 +189,218 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task DefaultIdsBeginAfterPersistedActiveTombstoneAndTimingCreationOrders()
+        {
+            BindingId activeBindingId = new BindingId("persisted-active");
+            BindingId tombstoneBindingId = new BindingId("persisted-tombstone");
+            ActiveEffectId timingEffectId = new ActiveEffectId("persisted-timing");
+            RuleDefinitionId activeDefinition = new RuleDefinitionId("persisted-active-definition");
+            RuleDefinitionId tombstoneDefinition = new RuleDefinitionId(
+                "persisted-tombstone-definition"
+            );
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedHealth(Creature, new HealthState(10, 100))
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        activeBindingId,
+                        activeDefinition,
+                        Creature,
+                        null,
+                        Source,
+                        11,
+                        true
+                    )
+                )
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        tombstoneBindingId,
+                        tombstoneDefinition,
+                        Creature,
+                        null,
+                        Source,
+                        17,
+                        false
+                    )
+                )
+                .SeedActiveEffectTiming(
+                    new ActiveEffectTimingState(
+                        timingEffectId,
+                        new EncounterId("persisted-encounter"),
+                        tombstoneBindingId,
+                        Creature,
+                        1,
+                        false,
+                        23
+                    )
+                );
+            RuleRegistryBuilder registry = new RuleRegistryBuilder();
+            registry.Define(activeDefinition);
+            registry.Define(tombstoneDefinition);
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
+                .UseRuleRegistry(registry.Build())
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .Build();
+
+            await dispatcher.Dispatch(new SettlementTokenOp());
+
+            Assert.That(dispatcher.Trace.OrderedFrames.Single().Id, Is.EqualTo(new OpId(24)));
+        }
+
+        [Test]
+        public async Task InjectedIdProviderIsNotRebasedAgainstPersistedCreationOrders()
+        {
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedHealth(Creature, new HealthState(10, 100))
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        new BindingId("persisted-binding"),
+                        new RuleDefinitionId("persisted-definition"),
+                        Creature,
+                        null,
+                        Source,
+                        100,
+                        false
+                    )
+                );
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                new InMemoryRulesStore(seed),
+                new SequentialOpIdProvider(7)
+            )
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .Build();
+
+            await dispatcher.Dispatch(new SettlementTokenOp());
+
+            Assert.That(dispatcher.Trace.OrderedFrames.Single().Id, Is.EqualTo(new OpId(7)));
+        }
+
+        [Test]
+        public async Task DefaultIdsRebaseAfterLateActiveEffectAdoption()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("late-adoption-definition");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
+            registryBuilder.Define(definition);
+            RulesStateSeed seed = new RulesStateSeed().SeedCreature(
+                new CreatureState(Creature, new PlayerId("dispatcher-player"))
+            );
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
+                .UseActiveEffectRules(registryBuilder.Build())
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .Build();
+
+            await dispatcher.Dispatch(
+                new AdoptActiveEffectRegistrationsOp(
+                    new[] { LateActiveEffectRegistration(definition, 41, "rebase") },
+                    Source
+                )
+            );
+            await dispatcher.Dispatch(new SettlementTokenOp());
+            await dispatcher.Dispatch(new SettlementTokenOp());
+
+            Assert.That(
+                dispatcher.Trace.OrderedFrames.Select(frame => frame.Id),
+                Is.EqualTo(new[] { new OpId(1), new OpId(42), new OpId(43) })
+            );
+        }
+
+        [Test]
+        public async Task DefaultIdsReturnLongMaxOnceThenFailAfterLateNearMaximumAdoption()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("late-exhaustion-definition");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
+            registryBuilder.Define(definition);
+            RulesStateSeed seed = new RulesStateSeed().SeedCreature(
+                new CreatureState(Creature, new PlayerId("dispatcher-player"))
+            );
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
+                .UseActiveEffectRules(registryBuilder.Build())
+                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
+                .Build();
+            await dispatcher.Dispatch(
+                new AdoptActiveEffectRegistrationsOp(
+                    new[]
+                    {
+                        LateActiveEffectRegistration(definition, long.MaxValue - 1, "exhaustion"),
+                    },
+                    Source
+                )
+            );
+            await dispatcher.Dispatch(new SettlementTokenOp());
+            long committedVersion = dispatcher.Snapshot.Version;
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new SettlementTokenOp())
+            );
+
+            Assert.That(error.Message, Does.Contain("exhausted"));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(
+                dispatcher.Trace.OrderedFrames.Last().Id,
+                Is.EqualTo(new OpId(long.MaxValue))
+            );
+            Assert.That(dispatcher.Trace.OrderedFrames.Count, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void DefaultIdProviderFailsClosedWhenPersistedCreationOrderIsExhausted()
+        {
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedHealth(Creature, new HealthState(10, 100))
+                .SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        new BindingId("exhausted-binding"),
+                        new RuleDefinitionId("exhausted-definition"),
+                        Creature,
+                        null,
+                        Source,
+                        long.MaxValue,
+                        false
+                    )
+                );
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+                new RuleDispatcherBuilder(new InMemoryRulesStore(seed))
+            );
+
+            Assert.That(error.Message, Does.Contain("exhausted"));
+        }
+
+        [Test]
+        public void SequentialIdProviderReturnsLongMaxValueOnceThenFailsClosed()
+        {
+            SequentialOpIdProvider ids = new SequentialOpIdProvider(long.MaxValue);
+
+            Assert.That(ids.Next(), Is.EqualTo(new OpId(long.MaxValue)));
+            Assert.Throws<InvalidOperationException>(() => ids.Next());
+        }
+
+        private static ActiveEffectRegistration LateActiveEffectRegistration(
+            RuleDefinitionId definition,
+            long creationOrder,
+            string suffix
+        )
+        {
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                new ActiveEffectId($"late-{suffix}-effect"),
+                definition,
+                Creature,
+                Source,
+                EffectDuration.Indefinite,
+                ConditionMarkerState.Instance
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId($"late-{suffix}-binding"),
+                definition,
+                Creature,
+                effect.Id,
+                Source,
+                creationOrder
+            );
+            return new ActiveEffectRegistration(effect, binding);
+        }
+
+        [Test]
         public async Task ReducerRejectionBecomesExpectedInvalidResultWithoutFacts()
         {
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(10))

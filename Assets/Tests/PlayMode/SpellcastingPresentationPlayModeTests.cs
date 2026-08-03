@@ -9,6 +9,7 @@ using Game.Creature.Rules;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using Game.Rules.Unity.Light;
 using GridPrivate;
 using GridPublic;
@@ -148,6 +149,80 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
     }
 
+    [UnityTest]
+    public IEnumerator FailedAndReorderedEncounterRebindSpellActionsToCurrentCatalog()
+    {
+        InstallCoroutineRunner();
+        CreatureComponent caster = CreateCreature("Catalog Retry Caster", 0, prepared: true);
+        TestActionController casterController =
+            caster.gameObject.AddComponent<TestActionController>();
+        CreatureComponent noncaster = CreateCreature("Catalog Retry Noncaster", 1, prepared: false);
+        noncaster.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController noncasterController =
+            noncaster.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, caster.gameObject);
+        Occupy(tiles, noncaster.gameObject);
+        FailingSpellInstallationModule failure = new(casterController) { FailuresRemaining = 1 };
+
+        Assert.Throws<InvalidOperationException>(() =>
+            UnityCombatRulesBridge.CreateForTests(
+                new ActionController[] { casterController, noncasterController },
+                tiles,
+                new ScriptedRollService(20, 10),
+                new IUnityEncounterModule[] { failure }
+            )
+        );
+        RulesCastSpellAction failedAction = LightActions(casterController).Single();
+        Assert.That(failedAction.IsAvailable(casterController), Is.False);
+
+        UnityCombatRulesBridge retry = UnityCombatRulesBridge.CreateForTests(
+            new ActionController[] { casterController, noncasterController },
+            tiles,
+            new ScriptedRollService(20, 10),
+            new IUnityEncounterModule[] { failure }
+        );
+        RulesCastSpellAction retriedAction = LightActions(casterController).Single();
+        Assert.That(retriedAction, Is.Not.SameAs(failedAction));
+        retry.StartEncounter("players");
+        CreatureId retryActor = retry.GetCreatureId(casterController);
+        Assert.That(retryActor.Value, Is.EqualTo("combat-creature-1"));
+        retry.BeginTurn(retryActor, 3);
+        Assert.That(retriedAction.IsAvailable(casterController), Is.True);
+        casterController.IsTakingAction = true;
+        retriedAction.Invoke(caster.gameObject);
+        for (int frame = 0; frame < 10 && casterController.IsTakingAction; frame++)
+            yield return null;
+        Assert.That(casterController.ActionPoints, Is.EqualTo(1));
+        Assert.That(VisualLights(caster), Has.Count.EqualTo(1));
+
+        retry.ReleaseOwnership();
+        yield return null;
+        Assert.That(VisualLights(caster), Is.Empty);
+
+        UnityCombatRulesBridge reordered = UnityCombatRulesBridge.Create(
+            new ActionController[] { noncasterController, casterController },
+            tiles,
+            new ScriptedRollService(10, 20)
+        );
+        RulesCastSpellAction reboundAction = LightActions(casterController).Single();
+        Assert.That(reboundAction, Is.Not.SameAs(retriedAction));
+        reordered.StartEncounter("players");
+        CreatureId reorderedActor = reordered.GetCreatureId(casterController);
+        Assert.That(reorderedActor.Value, Is.EqualTo("combat-creature-2"));
+        reordered.BeginTurn(reorderedActor, 3);
+        Assert.That(reboundAction.IsAvailable(casterController), Is.True);
+        casterController.IsTakingAction = true;
+        reboundAction.Invoke(caster.gameObject);
+        for (int frame = 0; frame < 10 && casterController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(casterController.ActionPoints, Is.EqualTo(1));
+        Assert.That(VisualLights(caster), Has.Count.EqualTo(1));
+        reordered.ReleaseOwnership();
+    }
+
     [Test]
     public void SpellInstallationOrdersActionsBySlugRankAndActionCost()
     {
@@ -173,7 +248,8 @@ public sealed class SpellcastingPresentationPlayModeTests
                     new[] { new SpellActionVariant(3), new SpellActionVariant(1) },
                     Array.Empty<Trait>(),
                     new[] { effect },
-                    Array.Empty<SpellAttackDefinition>()
+                    Array.Empty<SpellAttackDefinition>(),
+                    Array.Empty<SpellSaveDefinition>()
                 ),
                 new Game.Rules.Runtime.SpellDefinition(
                     alphaRankOne.Spell,
@@ -182,7 +258,8 @@ public sealed class SpellcastingPresentationPlayModeTests
                     new[] { new SpellActionVariant(2), new SpellActionVariant(1) },
                     Array.Empty<Trait>(),
                     new[] { effect },
-                    Array.Empty<SpellAttackDefinition>()
+                    Array.Empty<SpellAttackDefinition>(),
+                    Array.Empty<SpellSaveDefinition>()
                 ),
             }
         );
@@ -300,40 +377,6 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator PreparedRulesNativeSpellWithoutSupportedBehaviorFailsInstallation()
-    {
-        CreatureComponent caster = CreateCreature("Unsupported Native Caster", 0, prepared: true);
-        TestActionController controller = caster.gameObject.AddComponent<TestActionController>();
-        yield return null;
-        Tile[,] tiles = CreateTiles(1);
-        Occupy(tiles, caster.gameObject);
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(new[] { controller }, tiles);
-        CreatureId owner = bridge.GetCreatureId(controller);
-        SpellReference unsupported = Reference("unsupported-native");
-        Game.Rules.Runtime.SpellDefinition definition = new(
-            unsupported.Spell,
-            "Unsupported Native",
-            1,
-            new[] { new SpellActionVariant(2) },
-            Array.Empty<Trait>(),
-            Array.Empty<SpellEffectDirective>(),
-            Array.Empty<SpellAttackDefinition>()
-        );
-        ISpellBook book = new PreparedSpellBook(
-            new[] { PreparedSpellEntry.Cantrip(unsupported) },
-            Array.Empty<PreparedSpellSlotPool>(),
-            7
-        );
-        UnsupportedSpellActionCatalog catalog = new(definition, owner, book);
-
-        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-            UnitySpellActionInstaller.Install(controller, owner, catalog)
-        );
-
-        Assert.That(error.Message, Does.Contain("no supported effect or attack"));
-    }
-
-    [UnityTest]
     public IEnumerator ResolvedAndInvalidLightCastsReleaseLockAndOnlyResolvedCreatesVisual()
     {
         CreatureComponent cleric = CreateCreature("Casting Cleric", 0, prepared: true);
@@ -376,6 +419,57 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(gameplayCommitCount, Is.EqualTo(1));
         Assert.That(VisualLights(cleric), Has.Count.EqualTo(1));
         Assert.That(VisualLights(cleric).Single().range, Is.EqualTo(4f));
+
+        bridge.ReleaseOwnership();
+        yield return null;
+        Assert.That(VisualLights(cleric), Is.Empty);
+    }
+
+    [UnityTest]
+    public IEnumerator FiveTurnRefreshedLightCastsLeaveFourRulesEffectsAndFourVisualLights()
+    {
+        CreatureComponent cleric = CreateCreature("Limited Light Cleric", 0, prepared: true);
+        InstallCoroutineRunner();
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Limited Light Opponent", 1, prepared: false);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10)
+        );
+        RulesCastSpellAction light = LightActions(controller).Single();
+        CreatureId actor = bridge.GetCreatureId(controller);
+
+        for (int cast = 0; cast < 5; cast++)
+        {
+            bridge.BeginTurn(actor, 3);
+            controller.IsTakingAction = true;
+            light.Invoke(cleric.gameObject);
+            for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+                yield return null;
+            Assert.That(controller.IsTakingAction, Is.False, $"Cast {cast + 1} did not finish.");
+        }
+
+        Assert.That(
+            bridge
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Count(effect =>
+                    effect.Status == ActiveEffectStatus.Active
+                    && effect.SourceCreature == actor
+                    && effect.Source == RuleSource.FromSlug("light")
+                    && effect.DefinitionId == new RuleDefinitionId("spell-effect-light")
+                    && effect.State.GetType() == typeof(SpellEffectState)
+                    && effect.GetState<SpellEffectState>().Spell.Spell == new SpellId("light")
+                ),
+            Is.EqualTo(4)
+        );
+        Assert.That(VisualLights(cleric), Has.Count.EqualTo(4));
 
         bridge.ReleaseOwnership();
         yield return null;
@@ -564,7 +658,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator GenericExpirationThenRemovalAndDisposeAreIdempotentAndIsolated()
+    public IEnumerator InitialAdoptedCreatedAndRemovalPresentationAreIdempotentAndIsolated()
     {
         CreatureComponent owner = CreateCreature("Effect Owner", 0, prepared: false);
         CreatureId ownerId = new("effect-owner");
@@ -574,11 +668,61 @@ public sealed class SpellcastingPresentationPlayModeTests
             lightDefinition,
             ownerId
         );
+        ActiveRuleBinding binding = new(
+            new BindingId("binding-light"),
+            lightDefinition,
+            ownerId,
+            effect.Id,
+            effect.Source,
+            1
+        );
         RulesSnapshot snapshot = new InMemoryRulesStore(
-            new RulesStateSeed().SeedActiveEffect(effect)
+            new RulesStateSeed().SeedActiveEffect(effect).SeedRuleBinding(binding)
+        ).Snapshot;
+        ActiveEffectInstance foreignSourceEffect = CreateEffect(
+            new ActiveEffectId("effect-light-foreign-source"),
+            lightDefinition,
+            ownerId,
+            new CreatureId("foreign-source")
+        );
+        ActiveRuleBinding foreignSourceBinding = new(
+            new BindingId("binding-light-foreign-source"),
+            lightDefinition,
+            ownerId,
+            foreignSourceEffect.Id,
+            foreignSourceEffect.Source,
+            1
+        );
+        RulesSnapshot foreignSourceSnapshot = new InMemoryRulesStore(
+            new RulesStateSeed()
+                .SeedActiveEffect(foreignSourceEffect)
+                .SeedRuleBinding(foreignSourceBinding)
         ).Snapshot;
         Dictionary<CreatureId, CreatureComponent> creatures = new() { [ownerId] = owner };
         UnityLightEffectPresentationObserver observer = new(lightDefinition, creatures);
+        PlayerId team = new("light-presentation-team");
+        EncounterState encounter = new(
+            new EncounterId("light-presentation-encounter"),
+            EncounterPhase.Active,
+            team,
+            RoundNumber.First,
+            new[] { new InitiativeEntry(ownerId, team, 10, 0, 0, RoundNumber.First) },
+            -1,
+            null,
+            1,
+            null
+        );
+
+        observer.OnFactCommitted(new EncounterStartedFact(encounter), foreignSourceSnapshot);
+        Assert.That(VisualLights(owner), Is.Empty);
+
+        observer.OnFactCommitted(new EncounterStartedFact(encounter), snapshot);
+        observer.OnFactCommitted(new EncounterStartedFact(encounter), snapshot);
+        Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
+
+        observer.OnFactCommitted(new ActiveEffectAdoptedFact(effect, binding), snapshot);
+        observer.OnFactCommitted(new ActiveEffectAdoptedFact(effect, binding), snapshot);
+        Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
@@ -670,11 +814,18 @@ public sealed class SpellcastingPresentationPlayModeTests
         ActiveEffectId id,
         RuleDefinitionId definition,
         CreatureId owner
+    ) => CreateEffect(id, definition, owner, owner);
+
+    private static ActiveEffectInstance CreateEffect(
+        ActiveEffectId id,
+        RuleDefinitionId definition,
+        CreatureId owner,
+        CreatureId source
     ) =>
         new(
             id,
             definition,
-            owner,
+            source,
             RuleSource.FromSlug("test-spell"),
             EffectDuration.Indefinite,
             new SpellEffectState(Reference("light"), owner)
@@ -742,6 +893,37 @@ public sealed class SpellcastingPresentationPlayModeTests
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class FailingSpellInstallationModule : IUnityCombatantEnrollmentModule
+    {
+        private readonly ActionController target;
+
+        internal FailingSpellInstallationModule(ActionController target) => this.target = target;
+
+        internal int FailuresRemaining { get; set; }
+
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
+        {
+            if (ReferenceEquals(builder.Controller, target))
+                builder.AddInstallation(new FailingInstallation(this));
+        }
+
+        private sealed class FailingInstallation : IUnityCombatantInstallationContribution
+        {
+            private readonly FailingSpellInstallationModule owner;
+
+            internal FailingInstallation(FailingSpellInstallationModule owner) =>
+                this.owner = owner;
+
+            public void Reconcile()
+            {
+                if (owner.FailuresRemaining == 0)
+                    return;
+                owner.FailuresRemaining--;
+                throw new InvalidOperationException("Injected spell installation failure.");
+            }
+        }
     }
 
     private sealed class SelectingGridApi : GridAPI
@@ -851,43 +1033,5 @@ public sealed class SpellcastingPresentationPlayModeTests
             creature == owner ? book : EmptySpellBook.Instance;
 
         public void RemoveDefinitions() => definitionsAvailable = false;
-    }
-
-    private sealed class UnsupportedSpellActionCatalog : ISpellActionCatalog
-    {
-        private readonly Game.Rules.Runtime.SpellDefinition definition;
-        private readonly CreatureId owner;
-        private readonly ISpellBook book;
-
-        public UnsupportedSpellActionCatalog(
-            Game.Rules.Runtime.SpellDefinition definition,
-            CreatureId owner,
-            ISpellBook book
-        )
-        {
-            this.definition = definition;
-            this.owner = owner;
-            this.book = book;
-        }
-
-        public ActionProfile GetBaseProfile(ActionDefinitionId definitionId) =>
-            throw new KeyNotFoundException();
-
-        public bool TryGetSpell(
-            SpellReference reference,
-            out Game.Rules.Runtime.SpellDefinition value
-        )
-        {
-            if (reference.Spell == definition.Id && reference.Rank == definition.MinimumRank)
-            {
-                value = definition;
-                return true;
-            }
-            value = null;
-            return false;
-        }
-
-        public ISpellBook GetSpellBook(CreatureId creature) =>
-            creature == owner ? book : EmptySpellBook.Instance;
     }
 }

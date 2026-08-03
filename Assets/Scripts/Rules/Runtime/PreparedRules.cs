@@ -139,7 +139,7 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>Contains the immutable creature facts available to prepared predicates and collectors.</summary>
-    public sealed class PreparedCreatureInputs
+    public sealed class PreparedCreatureInputs : IEquatable<PreparedCreatureInputs>
     {
         private readonly IReadOnlyDictionary<string, int> skillRanks;
         private readonly IReadOnlyDictionary<string, int> ruleValues;
@@ -270,6 +270,71 @@ namespace Game.Rules.Runtime
         /// Gets immutable numeric facts compiled from class/build math and rule behavior.
         /// </summary>
         public IReadOnlyDictionary<string, int> RuleValues => ruleValues;
+
+        /// <inheritdoc/>
+        public bool Equals(PreparedCreatureInputs other) =>
+            other != null
+            && Level == other.Level
+            && Abilities.Equals(other.Abilities)
+            && DictionaryEquals(skillRanks, other.skillRanks)
+            && Equipment.SequenceEqual(other.Equipment)
+            && ArmorCategory == other.ArmorCategory
+            && Traits.SequenceEqual(other.Traits)
+            && Weaknesses.SequenceEqual(other.Weaknesses)
+            && Resistances.SequenceEqual(other.Resistances)
+            && Immunities.SequenceEqual(other.Immunities)
+            && StaticOptions.SequenceEqual(other.StaticOptions)
+            && BoundOptions.SequenceEqual(other.BoundOptions)
+            && DictionaryEquals(ruleValues, other.ruleValues);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) =>
+            obj is PreparedCreatureInputs other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode()
+        {
+            HashCode hash = new HashCode();
+            hash.Add(Level);
+            hash.Add(Abilities);
+            AddDictionaryHash(ref hash, skillRanks, StringComparer.Ordinal);
+            AddSequenceHash(ref hash, Equipment);
+            hash.Add(ArmorCategory, StringComparer.Ordinal);
+            AddSequenceHash(ref hash, Traits);
+            AddSequenceHash(ref hash, Weaknesses);
+            AddSequenceHash(ref hash, Resistances);
+            AddSequenceHash(ref hash, Immunities);
+            AddSequenceHash(ref hash, StaticOptions);
+            AddSequenceHash(ref hash, BoundOptions);
+            AddDictionaryHash(ref hash, ruleValues, StringComparer.OrdinalIgnoreCase);
+            return hash.ToHashCode();
+        }
+
+        private static bool DictionaryEquals(
+            IReadOnlyDictionary<string, int> left,
+            IReadOnlyDictionary<string, int> right
+        ) =>
+            left.Count == right.Count
+            && left.All(pair => right.TryGetValue(pair.Key, out int value) && pair.Value == value);
+
+        private static void AddDictionaryHash(
+            ref HashCode hash,
+            IReadOnlyDictionary<string, int> values,
+            StringComparer comparer
+        )
+        {
+            foreach (KeyValuePair<string, int> pair in values.OrderBy(pair => pair.Key, comparer))
+            {
+                hash.Add(pair.Key, comparer);
+                hash.Add(pair.Value);
+            }
+        }
+
+        private static void AddSequenceHash<T>(ref HashCode hash, IEnumerable<T> values)
+        {
+            foreach (T value in values)
+                hash.Add(value);
+        }
 
         private static IReadOnlyList<T> Freeze<T>(IEnumerable<T> values, string parameter)
         {
@@ -529,6 +594,85 @@ namespace Game.Rules.Runtime
             $"{value.Length.ToString(CultureInfo.InvariantCulture)}:{value}";
     }
 
+    /// <summary>Resolves snapshot-derived and typed operation options through one runtime path.</summary>
+    public static class RuntimeOptionResolver
+    {
+        /// <summary>Composes normalized operation options with authoritative active-rule options.</summary>
+        public static IReadOnlyList<string> Resolve(
+            RulesSnapshot snapshot,
+            CreatureId owner,
+            IEnumerable<string> operationOptions
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (owner.IsEmpty)
+                throw new ArgumentException("An option owner is required.", nameof(owner));
+
+            SortedSet<string> resolved = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            Add(resolved, operationOptions);
+            foreach (string condition in ConditionSelectors.GetActiveSlugs(snapshot, owner))
+                resolved.Add($"self:condition:{condition}");
+            foreach (
+                ActiveRuleBinding binding in snapshot
+                    .RuleBindings.Select(pair => pair.Value)
+                    .Where(binding => binding.Owner == owner)
+            )
+            {
+                if (!ActiveEffectAssociation.TryGetActive(snapshot, binding, out _))
+                    continue;
+                if (ConditionRuleDefinitions.IsConditionDefinition(binding.DefinitionId))
+                    continue;
+
+                string definitionSlug = Pf2eSlug.FromName(binding.DefinitionId.Value);
+                resolved.Add($"self:effect:{definitionSlug}");
+                if (definitionSlug.StartsWith("effect-", StringComparison.Ordinal))
+                    resolved.Add($"self:effect:{definitionSlug.Substring("effect-".Length)}");
+                else if (definitionSlug.EndsWith("-effect", StringComparison.Ordinal))
+                    resolved.Add(
+                        $"self:effect:{definitionSlug.Substring(0, definitionSlug.Length - "-effect".Length)}"
+                    );
+            }
+            return Array.AsReadOnly(resolved.ToArray());
+        }
+
+        /// <summary>Composes canonical active target conditions with typed operation conditions.</summary>
+        public static IReadOnlyList<string> ResolveTargetConditions(
+            RulesSnapshot snapshot,
+            CreatureId target,
+            IEnumerable<string> operationConditions
+        )
+        {
+            SortedSet<string> resolved = new SortedSet<string>(
+                ConditionSelectors.GetActiveSlugs(snapshot, target),
+                StringComparer.Ordinal
+            );
+            Add(resolved, operationConditions?.Select(NormalizeTargetCondition));
+            return Array.AsReadOnly(resolved.ToArray());
+        }
+
+        private static string NormalizeTargetCondition(string input)
+        {
+            const string prefix = "target:condition:";
+            string value = input?.Trim() ?? string.Empty;
+            if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                value = value.Substring(prefix.Length);
+            string slug = Pf2eSlug.FromName(value);
+            return
+                ConditionInputNormalizer.TryNormalize(slug, out RuleDefinitionId definition)
+                && ConditionRuleDefinitions.TryGetCanonicalSlug(definition, out string canonical)
+                ? canonical
+                : slug;
+        }
+
+        private static void Add(ISet<string> options, IEnumerable<string> additions)
+        {
+            foreach (string option in additions ?? Array.Empty<string>())
+                if (!string.IsNullOrWhiteSpace(option))
+                    options.Add(option.Trim().ToLowerInvariant());
+        }
+    }
+
     /// <summary>Evaluates predicates from immutable inputs and one authoritative binding snapshot.</summary>
     /// <remarks>
     /// Definition-bound options form a deterministic least fixed point. Active grants are grouped
@@ -562,15 +706,10 @@ namespace Game.Rules.Runtime
                 );
             Inputs = inputs;
             options = new HashSet<string>(Inputs.StaticOptions, StringComparer.OrdinalIgnoreCase);
-            foreach (string option in currentOptions ?? Array.Empty<string>())
-                if (!string.IsNullOrWhiteSpace(option))
-                    options.Add(option.Trim().ToLowerInvariant());
-            foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in snapshot.RuleBindings)
-            {
-                ActiveRuleBinding binding = pair.Value;
-                if (binding.Owner == owner && binding.IsEnabled && binding.EffectId.HasValue)
-                    options.Add($"self:effect:{binding.Source.Slug}");
-            }
+            foreach (
+                string option in RuntimeOptionResolver.Resolve(snapshot, owner, currentOptions)
+            )
+                options.Add(option);
             AddBoundOptions(inputs.BoundOptions);
         }
 

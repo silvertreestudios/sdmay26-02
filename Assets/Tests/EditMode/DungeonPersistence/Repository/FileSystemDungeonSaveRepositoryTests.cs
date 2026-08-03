@@ -4,6 +4,7 @@ using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence.Repository;
+using Game.Rules.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -256,13 +257,141 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
+    public void LoadRejectsRulesSpellEffectOwnedByAnotherAvailableActor()
+    {
+        DungeonRunSave valid = CreateRun(0, 2);
+        DungeonActorSaveState actor = ActorState(1, "floor-0");
+        actor.RulesSpellEffects = new[]
+        {
+            new DungeonRulesSpellEffectSaveState
+            {
+                EffectId = "saved-light-effect",
+                BindingId = "saved-light-binding",
+                DefinitionId = "spell-effect-light",
+                SourceActorId = "party-slot",
+                TargetActorId = "party-slot",
+                RuleSource = "light",
+                DurationKind = EffectDurationKind.Indefinite,
+                DurationAmount = 0,
+                Version = 0,
+                Status = ActiveEffectStatus.Active,
+                CreationOrder = 0,
+                BindingEnabled = true,
+                SpellId = "light",
+                SpellRank = 1,
+            },
+        };
+        DungeonFloorSavePayload[] payloads = valid.FloorPayloads.ToArray();
+        payloads[0].FloorJson = DungeonLevelJsonSerializer.Serialize(
+            CreateFloor(0, embeddedActorState: DungeonSaveJson.SerializeActor(actor))
+        );
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(valid.Manifest, payloads);
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain("owning actor"));
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain("floors/0.json"));
+    }
+
+    [Test]
+    public void LoadAcceptsConditionWhoseDurableSourceIsARecordedDefeatedActor()
+    {
+        DungeonRunSave valid = CreateRun(0, 2);
+        DungeonActorSaveState actor = ActorState(1, "floor-0");
+        actor.Conditions = new[]
+        {
+            new DungeonConditionSaveState
+            {
+                EffectId = "condition-effect-9",
+                BindingId = "condition-binding-9",
+                DefinitionId = "condition-fatigued",
+                SourceActorId = InstanceId(0),
+                RuleSource = "defeated-source-condition",
+                DurationKind = EffectDurationKind.Indefinite,
+                DurationAmount = 0,
+                Version = 0,
+                Status = ActiveEffectStatus.Active,
+                CreationOrder = 9,
+                BindingEnabled = true,
+                StateKind = DungeonConditionStateKind.Marker,
+                Value = 0,
+                AllowedActionIds = Array.Empty<string>(),
+                HasTiming = false,
+                RemainingBoundaries = 0,
+                ExpiresWithEncounter = false,
+            },
+        };
+        DungeonFloorSavePayload[] payloads = valid.FloorPayloads.ToArray();
+        payloads[0].FloorJson = DungeonLevelJsonSerializer.Serialize(
+            CreateFloor(0, embeddedActorState: DungeonSaveJson.SerializeActor(actor))
+        );
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(valid.Manifest, payloads);
+
+        Assert.That(result.IsSuccess, Is.True);
+    }
+
+    [Test]
+    public void LoadAcceptsPartyConditionWithHistoricalSourceFromEarlierFloor()
+    {
+        DungeonRunSave valid = DungeonRunSave
+            .CreateNew(Party(12), CreateFloor(0, encounterId: "encounter-1"))
+            .WithAddedAndSelectedFloor(Party(10), CreateFloor(2, encounterId: "encounter-2"));
+        string historicalSource = InstanceId("encounter-1", 0);
+        DungeonRunSaveManifest manifest = valid.Manifest;
+        manifest.Party[0].State.Conditions = new[]
+        {
+            new DungeonConditionSaveState
+            {
+                EffectId = "party-historical-effect",
+                BindingId = "party-historical-binding",
+                DefinitionId = "condition-fatigued",
+                SourceActorId = historicalSource,
+                RuleSource = "party-historical-condition",
+                DurationKind = EffectDurationKind.Indefinite,
+                DurationAmount = 0,
+                Version = 0,
+                Status = ActiveEffectStatus.Active,
+                CreationOrder = 11,
+                BindingEnabled = true,
+                StateKind = DungeonConditionStateKind.Marker,
+                Value = 0,
+                AllowedActionIds = Array.Empty<string>(),
+                HasTiming = false,
+                RemainingBoundaries = 0,
+                ExpiresWithEncounter = false,
+            },
+        };
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(
+            manifest,
+            valid.FloorPayloads.ToArray()
+        );
+
+        Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
+        Assert.That(
+            valid
+                .GetFloor(2)
+                .RuntimeState.DefeatedCreatureIds.Concat(
+                    valid.GetFloor(2).RuntimeState.Creatures.Select(creature => creature.InstanceId)
+                ),
+            Does.Not.Contain(historicalSource)
+        );
+        Assert.That(result.IsSuccess, Is.True);
+        Assert.That(
+            result.Value.Manifest.Party[0].State.Conditions.Single().SourceActorId,
+            Is.EqualTo(historicalSource)
+        );
+    }
+
+    [Test]
     public void LoadRejectsOutdatedManifestAndUnsupportedFloorDocumentVersions()
     {
         FileSystemDungeonSaveRepository repository = new(directory);
         Assert.That(repository.Save(CreateRun(0, 2)).IsSuccess, Is.True);
         string json = File.ReadAllText(repository.AutosavePath);
         string outdated = json.Replace(
-            "\"DocumentVersion\":2",
+            "\"DocumentVersion\":3",
             "\"DocumentVersion\":1",
             StringComparison.Ordinal
         );
@@ -471,6 +600,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             TemporaryHitPointImmunities = Array.Empty<string>(),
             Conditions = Array.Empty<DungeonConditionSaveState>(),
             TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            RulesSpellEffects = Array.Empty<DungeonRulesSpellEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {

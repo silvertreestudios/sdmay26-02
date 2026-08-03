@@ -75,13 +75,6 @@ namespace Game.Rules.Runtime.Tests
             List<Trait> callerTraits = new List<Trait> { Trait.FromSlug("humanoid") };
 
             PlayerId player = new PlayerId("player-1");
-            ConditionState condition = new ConditionState(
-                new ConditionId("condition-1"),
-                new RuleDefinitionId("frightened"),
-                Creature,
-                1,
-                TestSource
-            );
             EquipmentState item = new EquipmentState(
                 new ItemId("item-1"),
                 new ItemDefinitionId("longsword"),
@@ -125,7 +118,6 @@ namespace Game.Rules.Runtime.Tests
                 .SeedFocusPoints(Creature, new FocusPointState(1, 3))
                 .SeedAmmunition(ammunition)
                 .SeedMultipleAttackPenalty(Creature, new MultipleAttackPenaltyState(0))
-                .SeedCondition(condition)
                 .SeedEquipment(item)
                 .SeedActiveEffect(effect)
                 .SeedRuleBinding(binding)
@@ -147,7 +139,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(snapshot.FocusPoints[Creature], Is.EqualTo(new FocusPointState(1, 3)));
             Assert.That(snapshot.Ammunition[ammunition.Item], Is.EqualTo(ammunition));
             Assert.That(snapshot.MultipleAttackPenalty[Creature].AttackCount, Is.Zero);
-            Assert.That(snapshot.Conditions[condition.Id], Is.EqualTo(condition));
             Assert.That(snapshot.Equipment[item.Id], Is.EqualTo(item));
             Assert.That(snapshot.ActiveEffects[effect.Id], Is.EqualTo(effect));
             Assert.That(snapshot.RuleBindings[binding.Id], Is.EqualTo(binding));
@@ -373,25 +364,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.Throws<ArgumentException>(() => new CreatureState(default, player));
             Assert.Throws<ArgumentException>(() => new CreatureState(Creature, default));
             Assert.Throws<ArgumentException>(() =>
+                new CreatureState(Creature, player, default(GeneratedIdentityNamespace))
+            );
+            Assert.Throws<ArgumentException>(() =>
                 new CreatureState(Creature, player, new[] { default(Trait) })
-            );
-            Assert.Throws<ArgumentException>(() =>
-                new ConditionState(default, definition, Creature, 1, TestSource)
-            );
-            Assert.Throws<ArgumentException>(() =>
-                new ConditionState(new ConditionId("condition-1"), default, Creature, 1, TestSource)
-            );
-            Assert.Throws<ArgumentException>(() =>
-                new ConditionState(
-                    new ConditionId("condition-1"),
-                    definition,
-                    default,
-                    1,
-                    TestSource
-                )
-            );
-            Assert.Throws<ArgumentException>(() =>
-                new ConditionState(new ConditionId("condition-1"), definition, Creature, 1, default)
             );
             Assert.Throws<ArgumentException>(() =>
                 new EquipmentState(
@@ -516,6 +492,30 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void CreatureStateIdentityNamespaceParticipatesInValueSemantics()
+        {
+            PlayerId player = new PlayerId("namespace-player");
+            GeneratedIdentityNamespace firstNamespace = new GeneratedIdentityNamespace(
+                "durable-first"
+            );
+            GeneratedIdentityNamespace secondNamespace = new GeneratedIdentityNamespace(
+                "durable-second"
+            );
+            CreatureState first = new CreatureState(Creature, player, firstNamespace);
+            CreatureState reconstructed = new CreatureState(Creature, player, firstNamespace);
+            CreatureState changedNamespace = new CreatureState(Creature, player, secondNamespace);
+            CreatureState pureRulesDefault = new CreatureState(Creature, player);
+
+            Assert.That(first, Is.EqualTo(reconstructed));
+            Assert.That(first.GetHashCode(), Is.EqualTo(reconstructed.GetHashCode()));
+            Assert.That(first, Is.Not.EqualTo(changedNamespace));
+            Assert.That(
+                pureRulesDefault.IdentityNamespace,
+                Is.EqualTo(GeneratedIdentityNamespace.ForCreature(Creature))
+            );
+        }
+
+        [Test]
         public void SeedAndDraftBoundariesRejectDefaultKeys()
         {
             RulesStateSeed seed = new RulesStateSeed();
@@ -547,6 +547,238 @@ namespace Game.Rules.Runtime.Tests
                 store.Reduce(Context(new AdjustHealthOp(Creature, 0)), new EmptyIdDraftReducer())
             );
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
+        }
+
+        [Test]
+        public void ActiveEffectSeedMethodsReplaceEarlierValuesByIdentity()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("duplicate-seed-definition");
+            ActiveEffectId effectId = new ActiveEffectId("duplicate-seed-effect");
+            BindingId bindingId = new BindingId("duplicate-seed-binding");
+            ActiveEffectInstance firstEffect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Creature,
+                TestSource,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveEffectInstance replacementEffect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Creature,
+                TestSource,
+                EffectDuration.Rounds(2),
+                new TestEffectState()
+            );
+            ActiveRuleBinding firstBinding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Creature,
+                effectId,
+                TestSource,
+                4
+            );
+            ActiveRuleBinding replacementBinding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Creature,
+                effectId,
+                TestSource,
+                5
+            );
+            EncounterId encounter = new EncounterId("duplicate-seed-encounter");
+            ActiveEffectTimingState firstTiming = new ActiveEffectTimingState(
+                effectId,
+                encounter,
+                bindingId,
+                Creature,
+                1,
+                false,
+                4
+            );
+            ActiveEffectTimingState replacementTiming = new ActiveEffectTimingState(
+                effectId,
+                encounter,
+                bindingId,
+                Creature,
+                2,
+                false,
+                5
+            );
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedActiveEffect(firstEffect)
+                .SeedRuleBinding(firstBinding)
+                .SeedActiveEffectTiming(firstTiming)
+                .SeedActiveEffect(replacementEffect)
+                .SeedRuleBinding(replacementBinding)
+                .SeedActiveEffectTiming(replacementTiming);
+            RulesSnapshot snapshot = new InMemoryRulesStore(seed).Snapshot;
+
+            Assert.That(snapshot.ActiveEffects[effectId], Is.SameAs(replacementEffect));
+            Assert.That(snapshot.RuleBindings[bindingId], Is.SameAs(replacementBinding));
+            Assert.That(snapshot.ActiveEffectTimings[effectId], Is.SameAs(replacementTiming));
+        }
+
+        [Test]
+        public void UniqueActiveEffectSeedMethodsRejectDuplicateIdentities()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("unique-seed-definition");
+            ActiveEffectId effectId = new ActiveEffectId("unique-seed-effect");
+            BindingId bindingId = new BindingId("unique-seed-binding");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Creature,
+                TestSource,
+                EffectDuration.Rounds(2),
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Creature,
+                effectId,
+                TestSource,
+                4
+            );
+            ActiveEffectTimingState timing = new ActiveEffectTimingState(
+                effectId,
+                new EncounterId("unique-seed-encounter"),
+                bindingId,
+                Creature,
+                2,
+                false,
+                4
+            );
+            RulesStateSeed seed = new RulesStateSeed()
+                .AddUniqueActiveEffect(effect)
+                .AddUniqueRuleBinding(binding)
+                .AddUniqueActiveEffectTiming(timing);
+
+            Assert.Throws<InvalidOperationException>(() => seed.AddUniqueActiveEffect(effect));
+            Assert.Throws<InvalidOperationException>(() => seed.AddUniqueRuleBinding(binding));
+            Assert.Throws<InvalidOperationException>(() =>
+                seed.AddUniqueActiveEffectTiming(timing)
+            );
+            Assert.Throws<ArgumentNullException>(() => seed.AddUniqueActiveEffect(null));
+            Assert.Throws<ArgumentNullException>(() => seed.AddUniqueRuleBinding(null));
+            Assert.Throws<ArgumentNullException>(() => seed.AddUniqueActiveEffectTiming(null));
+        }
+
+        [Test]
+        public void ActiveEffectRegistrationsRetainReferenceEquality()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("registration-reference-definition");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                new ActiveEffectId("registration-reference-effect"),
+                definition,
+                Creature,
+                TestSource,
+                EffectDuration.Indefinite,
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("registration-reference-binding"),
+                definition,
+                Creature,
+                effect.Id,
+                TestSource,
+                4
+            );
+            ActiveEffectRegistration first = new ActiveEffectRegistration(effect, binding);
+            ActiveEffectRegistration second = new ActiveEffectRegistration(effect, binding);
+
+            Assert.That(first, Is.Not.SameAs(second));
+            Assert.That(first, Is.Not.EqualTo(second));
+        }
+
+        [Test]
+        public void ActiveEffectRegistrationRejectsActiveEffectWithDisabledBinding()
+        {
+            ActiveEffectInstance effect = RegistrationEffect(
+                EffectDuration.Indefinite,
+                ActiveEffectStatus.Active
+            );
+            ActiveRuleBinding binding = RegistrationBinding(effect, isEnabled: false);
+
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new ActiveEffectRegistration(effect, binding)
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("binding"));
+            Assert.That(error.Message, Does.Contain("lifecycle status"));
+        }
+
+        [Test]
+        public void ActiveEffectRegistrationRejectsExpiredEffectWithEnabledBinding()
+        {
+            ActiveEffectInstance effect = RegistrationEffect(
+                EffectDuration.Indefinite,
+                ActiveEffectStatus.Expired
+            );
+            ActiveRuleBinding binding = RegistrationBinding(effect, isEnabled: true);
+
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new ActiveEffectRegistration(effect, binding)
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("binding"));
+            Assert.That(error.Message, Does.Contain("lifecycle status"));
+        }
+
+        [Test]
+        public void ActiveEffectRegistrationRejectsIndefiniteEffectWithTiming()
+        {
+            ActiveEffectInstance effect = RegistrationEffect(
+                EffectDuration.Indefinite,
+                ActiveEffectStatus.Active
+            );
+            ActiveRuleBinding binding = RegistrationBinding(effect, isEnabled: true);
+            ActiveEffectTimingState timing = RegistrationTiming(effect, binding, false);
+
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new ActiveEffectRegistration(effect, binding, timing)
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("timing"));
+            Assert.That(error.Message, Does.Contain("finite-duration"));
+        }
+
+        [Test]
+        public void ActiveEffectRegistrationRejectsExpiredEffectWithTiming()
+        {
+            ActiveEffectInstance effect = RegistrationEffect(
+                EffectDuration.Rounds(2),
+                ActiveEffectStatus.Expired
+            );
+            ActiveRuleBinding binding = RegistrationBinding(effect, isEnabled: false);
+            ActiveEffectTimingState timing = RegistrationTiming(effect, binding, false);
+
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new ActiveEffectRegistration(effect, binding, timing)
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("timing"));
+            Assert.That(error.Message, Does.Contain("active effect"));
+        }
+
+        [Test]
+        public void ActiveEffectRegistrationRejectsDurationTimingEncounterMismatch()
+        {
+            ActiveEffectInstance effect = RegistrationEffect(
+                EffectDuration.Encounter,
+                ActiveEffectStatus.Active
+            );
+            ActiveRuleBinding binding = RegistrationBinding(effect, isEnabled: true);
+            ActiveEffectTimingState timing = RegistrationTiming(effect, binding, false);
+
+            ArgumentException error = Assert.Throws<ArgumentException>(() =>
+                new ActiveEffectRegistration(effect, binding, timing)
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo("timing"));
+            Assert.That(error.Message, Does.Contain("effect duration"));
         }
 
         [Test]
@@ -637,6 +869,49 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(committed.Facts[0].Id, Is.EqualTo(new FactId(1)));
         }
+
+        private static ActiveEffectInstance RegistrationEffect(
+            EffectDuration duration,
+            ActiveEffectStatus status
+        ) =>
+            new ActiveEffectInstance(
+                new ActiveEffectId("registration-invariant-effect"),
+                new RuleDefinitionId("registration-invariant-definition"),
+                Creature,
+                TestSource,
+                duration,
+                new TestEffectState(),
+                status: status
+            );
+
+        private static ActiveRuleBinding RegistrationBinding(
+            ActiveEffectInstance effect,
+            bool isEnabled
+        ) =>
+            new ActiveRuleBinding(
+                new BindingId("registration-invariant-binding"),
+                effect.DefinitionId,
+                Creature,
+                effect.Id,
+                TestSource,
+                12,
+                isEnabled
+            );
+
+        private static ActiveEffectTimingState RegistrationTiming(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            bool expiresWithEncounter
+        ) =>
+            new ActiveEffectTimingState(
+                effect.Id,
+                new EncounterId("registration-invariant-encounter"),
+                binding.Id,
+                effect.SourceCreature,
+                2,
+                expiresWithEncounter,
+                binding.CreationOrder
+            );
 
         private static InMemoryRulesStore CreateStore(int hitPoints)
         {

@@ -9,6 +9,7 @@ namespace Game.Rules.Runtime
         public Dictionary<CreatureId, PreparedCreatureInputs> PreparedInputs { get; }
         public Dictionary<CreatureId, CreatureStatisticsState> Statistics { get; }
         public Dictionary<CreatureId, HealthState> Health { get; }
+        internal Dictionary<CreatureId, long> TemporaryHitPointRevisionTombstones { get; }
         public Dictionary<CreatureId, GridPosition> Positions { get; }
         public Dictionary<CreatureId, GridDistance> LandSpeeds { get; }
         public Dictionary<CreatureId, MovementBudgetState> MovementBudgets { get; }
@@ -17,7 +18,6 @@ namespace Game.Rules.Runtime
         public Dictionary<CreatureId, FocusPointState> FocusPoints { get; }
         public Dictionary<ItemId, AmmunitionState> Ammunition { get; }
         public Dictionary<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; }
-        public Dictionary<ConditionId, ConditionState> Conditions { get; }
         public Dictionary<ItemId, EquipmentState> Equipment { get; }
         public Dictionary<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; }
         public Dictionary<BindingId, ActiveRuleBinding> RuleBindings { get; }
@@ -25,6 +25,7 @@ namespace Game.Rules.Runtime
         public Dictionary<BindingId, FrequencyState> Frequencies { get; }
         public Dictionary<EncounterId, EncounterState> Encounters { get; }
         public Dictionary<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
+        public Dictionary<ActionInvocationId, ActionInvocationReceipt> ActionReceipts { get; }
 
         public RulesStateData(RulesStateSeed seed)
             : this(
@@ -33,6 +34,7 @@ namespace Game.Rules.Runtime
                 new Dictionary<CreatureId, PreparedCreatureInputs>(seed.PreparedInputs),
                 new Dictionary<CreatureId, CreatureStatisticsState>(seed.Statistics),
                 new Dictionary<CreatureId, HealthState>(seed.Health),
+                new Dictionary<CreatureId, long>(),
                 new Dictionary<CreatureId, GridPosition>(seed.Positions),
                 new Dictionary<CreatureId, GridDistance>(seed.LandSpeeds),
                 new Dictionary<CreatureId, MovementBudgetState>(seed.MovementBudgets),
@@ -41,14 +43,14 @@ namespace Game.Rules.Runtime
                 new Dictionary<CreatureId, FocusPointState>(seed.FocusPoints),
                 new Dictionary<ItemId, AmmunitionState>(seed.Ammunition),
                 new Dictionary<CreatureId, MultipleAttackPenaltyState>(seed.MultipleAttackPenalty),
-                new Dictionary<ConditionId, ConditionState>(seed.Conditions),
                 new Dictionary<ItemId, EquipmentState>(seed.Equipment),
                 new Dictionary<ActiveEffectId, ActiveEffectInstance>(seed.ActiveEffects),
                 new Dictionary<BindingId, ActiveRuleBinding>(seed.RuleBindings),
                 new Dictionary<BindingId, long>(seed.StatelessRuleBindingGenerations),
                 new Dictionary<BindingId, FrequencyState>(seed.Frequencies),
                 new Dictionary<EncounterId, EncounterState>(seed.Encounters),
-                new Dictionary<ActiveEffectId, ActiveEffectTimingState>(seed.ActiveEffectTimings)
+                new Dictionary<ActiveEffectId, ActiveEffectTimingState>(seed.ActiveEffectTimings),
+                new Dictionary<ActionInvocationId, ActionInvocationReceipt>()
             ) { }
 
         public RulesStateData(
@@ -57,6 +59,7 @@ namespace Game.Rules.Runtime
             Dictionary<CreatureId, PreparedCreatureInputs> preparedInputs,
             Dictionary<CreatureId, CreatureStatisticsState> statistics,
             Dictionary<CreatureId, HealthState> health,
+            Dictionary<CreatureId, long> temporaryHitPointRevisionTombstones,
             Dictionary<CreatureId, GridPosition> positions,
             Dictionary<CreatureId, GridDistance> landSpeeds,
             Dictionary<CreatureId, MovementBudgetState> movementBudgets,
@@ -65,14 +68,14 @@ namespace Game.Rules.Runtime
             Dictionary<CreatureId, FocusPointState> focusPoints,
             Dictionary<ItemId, AmmunitionState> ammunition,
             Dictionary<CreatureId, MultipleAttackPenaltyState> multipleAttackPenalty,
-            Dictionary<ConditionId, ConditionState> conditions,
             Dictionary<ItemId, EquipmentState> equipment,
             Dictionary<ActiveEffectId, ActiveEffectInstance> activeEffects,
             Dictionary<BindingId, ActiveRuleBinding> ruleBindings,
             Dictionary<BindingId, long> statelessRuleBindingGenerations,
             Dictionary<BindingId, FrequencyState> frequencies,
             Dictionary<EncounterId, EncounterState> encounters,
-            Dictionary<ActiveEffectId, ActiveEffectTimingState> activeEffectTimings
+            Dictionary<ActiveEffectId, ActiveEffectTimingState> activeEffectTimings,
+            Dictionary<ActionInvocationId, ActionInvocationReceipt> actionReceipts
         )
         {
             Version = version;
@@ -80,6 +83,7 @@ namespace Game.Rules.Runtime
             PreparedInputs = preparedInputs;
             Statistics = statistics;
             Health = health;
+            TemporaryHitPointRevisionTombstones = temporaryHitPointRevisionTombstones;
             Positions = positions;
             LandSpeeds = landSpeeds;
             MovementBudgets = movementBudgets;
@@ -88,7 +92,6 @@ namespace Game.Rules.Runtime
             FocusPoints = focusPoints;
             Ammunition = ammunition;
             MultipleAttackPenalty = multipleAttackPenalty;
-            Conditions = conditions;
             Equipment = equipment;
             ActiveEffects = activeEffects;
             RuleBindings = ruleBindings;
@@ -96,6 +99,13 @@ namespace Game.Rules.Runtime
             Frequencies = frequencies;
             Encounters = encounters;
             ActiveEffectTimings = activeEffectTimings;
+            ActionReceipts = actionReceipts;
+            ConditionImmunityValidation.ValidateStateInvariant(
+                Creatures,
+                PreparedInputs,
+                ActiveEffects,
+                RuleBindings
+            );
         }
     }
 }

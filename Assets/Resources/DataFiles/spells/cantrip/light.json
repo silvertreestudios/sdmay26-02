@@ -4,6 +4,7 @@
     "img": "systems/pf2e/icons/spells/light.webp",
     "name": "Light",
     "system": {
+        "rulesNativeReady": true,
         "area": null,
         "cost": {
             "value": ""
@@ -34,6 +35,7 @@
             {
                 "key": "CreateActiveEffect",
                 "definition": "spell-effect-light",
+                "maximumActiveInstances": 4,
                 "target": "self"
             }
         ],

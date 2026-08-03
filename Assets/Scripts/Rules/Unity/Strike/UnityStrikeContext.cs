@@ -175,14 +175,6 @@ namespace Game.Rules.Unity.Strike
                     tiles,
                     Math.Max(5, item.ReachFeet)
                 );
-            Conditions conditions = defender.GetComponent<Conditions>();
-            offGuard |=
-                conditions != null
-                && conditions.ActiveConditionNames.Any(condition =>
-                    string.Equals(condition, "flat-footed", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(condition, "offguard", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(condition, "off-guard", StringComparison.OrdinalIgnoreCase)
-                );
             return StrikeTargetingOutcome.Legal(
                 result.DistanceFeet,
                 result.RangePenalty,
@@ -202,7 +194,7 @@ namespace Game.Rules.Unity.Strike
         {
             if (!creatures.TryGetValue(target, out CreatureComponent defender) || defender == null)
                 return ActionValidationResult.Invalid("The selected creature is unavailable.");
-            return ResolveArmorClass(defender, targeting) > 0
+            return ResolveBaseArmorClass(defender) > 0
                 ? ActionValidationResult.Valid
                 : ActionValidationResult.Invalid("The target's Armor Class must be positive.");
         }
@@ -237,7 +229,7 @@ namespace Game.Rules.Unity.Strike
                 // Validation rejects an invalid AC before costs. If Unity-side presentation state
                 // changes after the action begins, keep resolution non-failing instead of turning
                 // that late adapter change into a partially committed Strike.
-                Math.Max(1, ResolveArmorClass(defender, targeting)),
+                Math.Max(1, ResolveBaseArmorClass(defender)),
                 attackModifiers,
                 extraDice,
                 Array.Empty<TypedFlatDamage>(),
@@ -460,16 +452,7 @@ namespace Game.Rules.Unity.Strike
             {
                 if (bridge == null)
                     throw new ArgumentNullException(nameof(bridge));
-                OpResult<bool> result = bridge.Dispatch(
-                    new RegisterStrikeCombatantOp(registration)
-                );
-                if (result is ResolvedOpResult<bool>)
-                    return;
-                if (result is InvalidOpResult<bool> invalid)
-                    throw new InvalidOperationException(invalid.Reason);
-                throw new InvalidOperationException(
-                    "Strike combatant registration did not resolve."
-                );
+                _ = bridge.DispatchRequired(new RegisterStrikeCombatantOp(registration));
             }
 
             /// <inheritdoc/>
@@ -489,36 +472,8 @@ namespace Game.Rules.Unity.Strike
             return creature;
         }
 
-        private static int ResolveArmorClass(
-            CreatureComponent defender,
-            LegalStrikeTargetingOutcome targeting
-        )
-        {
-            List<Pf2eModifier> modifiers = new();
-            if (targeting.CoverBonus != 0)
-            {
-                modifiers.Add(
-                    new Pf2eModifier(
-                        targeting.CoverBonus,
-                        Pf2eModifierType.Circumstance,
-                        "Cover",
-                        Pf2eStatistic.ArmorClass
-                    )
-                );
-            }
-            if (targeting.OffGuard)
-            {
-                modifiers.Add(
-                    new Pf2eModifier(
-                        -2,
-                        Pf2eModifierType.Circumstance,
-                        "Off-guard",
-                        Pf2eStatistic.ArmorClass
-                    )
-                );
-            }
-            return defender.ResolveArmorClass(modifiers).Total;
-        }
+        private static int ResolveBaseArmorClass(CreatureComponent defender) =>
+            defender.ResolveArmorClass(Array.Empty<Pf2eModifier>()).Total;
 
         private static IEnumerable<EquipmentWeapon> EnumerateWeapons(CreatureComponent creature)
         {

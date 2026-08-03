@@ -40,6 +40,220 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(distinctHashes, Is.GreaterThan(1));
         }
 
+        [Test]
+        public void HealthStatePublicEqualityAndHashIgnoreTemporaryHitPointRevision()
+        {
+            HealthState visible = new HealthState(10, 10, 4, Rage);
+            HealthState revised = visible.WithTemporaryHitPointRevision(37);
+
+            Assert.That(revised.TemporaryHitPointRevision, Is.EqualTo(37));
+            Assert.That(revised, Is.EqualTo(visible));
+            Assert.That(revised.GetHashCode(), Is.EqualTo(visible.GetHashCode()));
+            Assert.That(revised == visible, Is.True);
+        }
+
+        [Test]
+        public void HealthDraftPreservesPublicSliceApiAndExactRevisionAcrossRemoveReadd()
+        {
+            HealthState initial = new HealthState(10, 10, 2, Other);
+            RulesState state = new RulesState(new RulesStateSeed().SeedHealth(Creature, initial));
+            RulesStateDraft draft = state.CreateDraft();
+
+            SetHealthThroughPublicSlice(draft.Health, new HealthState(9, 10, 2, Other));
+            Assert.That(
+                RequireHealth(draft).TemporaryHitPointRevision,
+                Is.EqualTo(initial.TemporaryHitPointRevision)
+            );
+
+            SetHealthThroughPublicSlice(draft.Health, new HealthState(9, 10, 3, Rage));
+            Assert.That(RequireHealth(draft).TemporaryHitPointRevision, Is.EqualTo(1));
+
+            SetHealthThroughPublicSlice(draft.Health, new HealthState(9, 10, 2, Other));
+            Assert.That(RequireHealth(draft).TemporaryHitPointRevision, Is.EqualTo(2));
+            Assert.That(
+                draft.IsDirty,
+                Is.True,
+                "An away-and-back public pool value must still commit its exact revision."
+            );
+            Assert.That(draft.Health.Remove(new CreatureId("missing-health")), Is.False);
+            HealthState beforeRemoval = RequireHealth(draft);
+            Assert.That(draft.Health.Remove(Creature), Is.True);
+            Assert.That(draft.Health.Contains(Creature), Is.False);
+            Assert.That(draft.Health.Remove(Creature), Is.False);
+            Assert.That(draft.Health.Set(Creature, beforeRemoval), Is.True);
+            HealthState restored = RequireHealth(draft);
+            Assert.That(restored, Is.EqualTo(beforeRemoval));
+            Assert.That(restored.TemporaryHitPointRevision, Is.EqualTo(3));
+            Assert.That(draft.IsDirty, Is.True);
+            AssertOldExactRestorationRejected(draft, beforeRemoval);
+        }
+
+        [Test]
+        public void HealthDraftCarriesRevisionTombstoneAcrossCommittedTransactions()
+        {
+            HealthState initial = new HealthState(10, 10, 4, Rage).WithTemporaryHitPointRevision(
+                12
+            );
+            RulesState original = new RulesState(
+                new RulesStateSeed().SeedHealth(Creature, initial)
+            );
+            RulesStateDraft removal = original.CreateDraft();
+            Assert.That(removal.Health.Remove(Creature), Is.True);
+            RulesState removed = new RulesState(removal.Build(1));
+            RulesStateDraft readd = removed.CreateDraft();
+
+            Assert.That(readd.Health.Set(Creature, initial), Is.True);
+
+            HealthState restored = RequireHealth(readd);
+            Assert.That(restored, Is.EqualTo(initial));
+            Assert.That(restored.TemporaryHitPointRevision, Is.EqualTo(13));
+            AssertOldExactRestorationRejected(readd, initial);
+        }
+
+        [Test]
+        public void AcceptedAddThenRemoveCommitsRevisionTombstoneFromEmptyHealth()
+        {
+            HealthState initial = new HealthState(10, 10, 4, Rage);
+            InMemoryRulesStore store = new InMemoryRulesStore();
+            HealthDraftMutationReducer reducer = new HealthDraftMutationReducer();
+
+            ReductionResult<bool> removed = store.Reduce(
+                HealthDraftContext(
+                    new HealthDraftMutationOp(HealthDraftMutation.AddThenRemove, initial)
+                ),
+                reducer
+            );
+            ReductionResult<bool> readded = store.Reduce(
+                HealthDraftContext(new HealthDraftMutationOp(HealthDraftMutation.Readd, initial)),
+                reducer
+            );
+
+            Assert.That(removed.IsAccepted, Is.True);
+            Assert.That(removed.Value, Is.True);
+            Assert.That(removed.DidCommit, Is.True);
+            Assert.That(removed.Facts, Has.Count.EqualTo(1));
+            Assert.That(removed.Snapshot.Health, Is.Empty);
+            Assert.That(readded.IsAccepted, Is.True);
+            Assert.That(readded.DidCommit, Is.True);
+            Assert.That(readded.Snapshot.Health[Creature], Is.EqualTo(initial));
+            Assert.That(readded.Snapshot.Health[Creature].TemporaryHitPointRevision, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void HealthDraftFailsClosedBeforeReaddingMaximumRevisionTombstone()
+        {
+            HealthState exhausted = new HealthState(10, 10, 2, Other).WithTemporaryHitPointRevision(
+                long.MaxValue
+            );
+            RulesState original = new RulesState(
+                new RulesStateSeed().SeedHealth(Creature, exhausted)
+            );
+            RulesStateDraft removal = original.CreateDraft();
+            Assert.That(removal.Health.Remove(Creature), Is.True);
+            RulesState removed = new RulesState(removal.Build(1));
+            RulesStateDraft readd = removed.CreateDraft();
+
+            Assert.That(readd.Health.Remove(Creature), Is.False);
+            Assert.Throws<InvalidOperationException>(() => readd.Health.Set(Creature, exhausted));
+            Assert.That(readd.Health.Contains(Creature), Is.False);
+            Assert.Throws<InvalidOperationException>(() => readd.Health.Set(Creature, exhausted));
+            Assert.That(readd.Health.Contains(Creature), Is.False);
+        }
+
+        [Test]
+        public void RejectedReductionDoesNotLeakHealthOrRevisionTombstoneMutation()
+        {
+            HealthState initial = new HealthState(10, 10, 3, Rage).WithTemporaryHitPointRevision(8);
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedHealth(Creature, initial)
+            );
+            HealthDraftMutationReducer reducer = new HealthDraftMutationReducer();
+
+            ReductionResult<bool> removed = store.Reduce(
+                HealthDraftContext(new HealthDraftMutationOp(HealthDraftMutation.Remove, initial)),
+                reducer
+            );
+            RulesSnapshot removedSnapshot = store.Snapshot;
+            ReductionResult<bool> rejected = store.Reduce(
+                HealthDraftContext(
+                    new HealthDraftMutationOp(HealthDraftMutation.ReaddThenReject, initial)
+                ),
+                reducer
+            );
+            ReductionResult<bool> readded = store.Reduce(
+                HealthDraftContext(new HealthDraftMutationOp(HealthDraftMutation.Readd, initial)),
+                reducer
+            );
+
+            Assert.That(removed.IsAccepted, Is.True);
+            Assert.That(removed.Facts, Has.Count.EqualTo(1));
+            Assert.That(rejected.IsRejected, Is.True);
+            Assert.That(rejected.Facts, Is.Empty);
+            Assert.That(rejected.Snapshot, Is.SameAs(removedSnapshot));
+            Assert.That(removedSnapshot.Health.Contains(Creature), Is.False);
+            Assert.That(readded.IsAccepted, Is.True);
+            Assert.That(readded.Facts, Has.Count.EqualTo(1));
+            Assert.That(store.Snapshot.Health[Creature], Is.EqualTo(initial));
+            Assert.That(store.Snapshot.Health[Creature].TemporaryHitPointRevision, Is.EqualTo(9));
+            Assert.That(
+                typeof(RulesSnapshot).GetProperties().Select(property => property.Name),
+                Does.Not.Contain("TemporaryHitPointRevisionTombstones")
+            );
+            Assert.That(
+                typeof(RulesStateSeed).GetProperties().Select(property => property.Name),
+                Does.Not.Contain("TemporaryHitPointRevisionTombstones")
+            );
+        }
+
+        [Test]
+        public void ExactRestorationRejectsSameRevisionWithDifferentPoolValues()
+        {
+            HealthState malformedCurrent = new HealthState(
+                10,
+                10,
+                4,
+                Rage
+            ).WithTemporaryHitPointRevision(7);
+            RulesStateDraft draft = new RulesState(
+                new RulesStateSeed().SeedHealth(Creature, malformedCurrent)
+            ).CreateDraft();
+
+            bool prepared = TemporaryHitPointsGrantReduction.TryPrepareExactRestoration(
+                draft,
+                Creature,
+                Rage,
+                new TemporaryHitPointsPoolState(3, Rage, 7),
+                new TemporaryHitPointsPoolState(2, Other, 6),
+                out _,
+                out string rejection
+            );
+
+            Assert.That(prepared, Is.False);
+            Assert.That(rejection, Does.Contain("conflicting pool values"));
+            Assert.That(RequireHealth(draft), Is.EqualTo(malformedCurrent));
+            Assert.That(draft.IsDirty, Is.False);
+        }
+
+        [Test]
+        public void HealthDraftFailsClosedBeforeMutatingAnExhaustedPoolRevision()
+        {
+            HealthState exhausted = new HealthState(10, 10, 2, Other).WithTemporaryHitPointRevision(
+                long.MaxValue
+            );
+            RulesStateDraft draft = new RulesState(
+                new RulesStateSeed().SeedHealth(Creature, exhausted)
+            ).CreateDraft();
+
+            Assert.Throws<InvalidOperationException>(() =>
+                draft.Health.Set(Creature, new HealthState(10, 10, 3, Rage))
+            );
+
+            HealthState retained = RequireHealth(draft);
+            Assert.That(retained.Temporary, Is.EqualTo(2));
+            Assert.That(retained.TemporarySource, Is.EqualTo(Other));
+            Assert.That(retained.TemporaryHitPointRevision, Is.EqualTo(long.MaxValue));
+        }
+
         private static readonly CreatureId Creature = new CreatureId("health-target");
         private static readonly RuleSource Strike = RuleSource.FromSlug("strike");
         private static readonly RuleSource Rage = RuleSource.FromSlug("rage");
@@ -271,6 +485,11 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Snapshot.Health[Creature].HasTemporaryHitPointImmunity(Rage),
                 Is.True
             );
+            Assert.That(
+                dispatcher.Snapshot.Health[Creature].TemporaryHitPointRevision,
+                Is.EqualTo(3),
+                "Grant, temporary-HP damage, and removal are the only pool mutations."
+            );
         }
 
         [Test]
@@ -335,5 +554,94 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             result as ResolvedOpResult<TResult>
             ?? throw new AssertionException($"Expected Resolved but received {result.Status}.");
+
+        private static HealthState RequireHealth(RulesStateDraft draft)
+        {
+            Assert.That(draft.Health.TryGet(Creature, out HealthState health), Is.True);
+            return health;
+        }
+
+        private static void SetHealthThroughPublicSlice(
+            StateSliceDraft<CreatureId, HealthState> health,
+            HealthState value
+        ) => health.Set(Creature, value);
+
+        private static void AssertOldExactRestorationRejected(
+            RulesStateDraft draft,
+            HealthState oldHealth
+        )
+        {
+            TemporaryHitPointsPoolState oldPool = TemporaryHitPointsPoolState.Capture(oldHealth);
+            bool prepared = TemporaryHitPointsGrantReduction.TryPrepareExactRestoration(
+                draft,
+                Creature,
+                oldHealth.TemporarySource,
+                oldPool,
+                oldPool,
+                out _,
+                out string rejection
+            );
+
+            Assert.That(prepared, Is.False);
+            Assert.That(rejection, Does.Contain("newer pool"));
+        }
+
+        private static ReductionContext<HealthDraftMutationOp> HealthDraftContext(
+            HealthDraftMutationOp operation
+        ) =>
+            new ReductionContext<HealthDraftMutationOp>(operation, new OpId(2), new OpId(1), Other);
+
+        private enum HealthDraftMutation
+        {
+            AddThenRemove,
+            Remove,
+            Readd,
+            ReaddThenReject,
+        }
+
+        private sealed class HealthDraftMutationOp : IRuleOp<bool>
+        {
+            internal HealthDraftMutationOp(HealthDraftMutation mutation, HealthState value)
+            {
+                Mutation = mutation;
+                Value = value;
+            }
+
+            internal HealthDraftMutation Mutation { get; }
+
+            internal HealthState Value { get; }
+        }
+
+        private sealed class HealthDraftMutationFact : RuleFact { }
+
+        private sealed class HealthDraftMutationReducer : IOpReducer<HealthDraftMutationOp, bool>
+        {
+            public ReductionResult<bool> Reduce(
+                ReductionContext<HealthDraftMutationOp> context,
+                RulesStateDraft state,
+                FactSink facts
+            )
+            {
+                bool changed;
+                if (context.Op.Mutation == HealthDraftMutation.AddThenRemove)
+                {
+                    state.Health.Set(Creature, context.Op.Value);
+                    state.Health.Remove(Creature);
+                    changed = state.IsDirty;
+                }
+                else
+                {
+                    changed =
+                        context.Op.Mutation == HealthDraftMutation.Remove
+                            ? state.Health.Remove(Creature)
+                            : state.Health.Set(Creature, context.Op.Value);
+                }
+                if (changed)
+                    facts.Stage(new HealthDraftMutationFact());
+                return context.Op.Mutation == HealthDraftMutation.ReaddThenReject
+                    ? ReductionResult<bool>.Reject("rejected health draft mutation")
+                    : ReductionResult<bool>.Accept(changed);
+            }
+        }
     }
 }

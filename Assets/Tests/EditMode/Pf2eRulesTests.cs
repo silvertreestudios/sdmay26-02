@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Strike;
@@ -15,6 +16,7 @@ using Object = UnityEngine.Object;
 public class Pf2eRulesTests
 {
     private readonly List<GameObject> created = new();
+    private int nextTargetIdentity;
 
     private static GridPrivate.Tile[,] CreateTiles() =>
         new[,]
@@ -29,6 +31,7 @@ public class Pf2eRulesTests
             if (go != null)
                 Object.DestroyImmediate(go);
         created.Clear();
+        nextTargetIdentity = 0;
         Pf2eItemCatalog.ResetForTests();
     }
 
@@ -107,46 +110,6 @@ public class Pf2eRulesTests
     }
 
     [Test]
-    public void ZombiePassiveSlowAppliesAtCombatStart()
-    {
-        GameObject zombie = CreatureJsonConverter.CreateFromFile(
-            "DataFiles/pathfinder-monster-core/zombie-shambler"
-        );
-        created.Add(zombie);
-        TestActionController actionController = zombie.AddComponent<TestActionController>();
-
-        Assert.That(zombie.GetComponent<CreatureComponent>().passives, Does.Contain("Slow"));
-
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
-
-        Assert.That(zombie.GetComponent<Conditions>().Contains("Slowed"), Is.True);
-        Team team = zombie.AddComponent<Team>();
-        team.Name = "Players";
-        UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
-        bridge.StartEncounter("Players");
-        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
-    }
-
-    [Test]
-    public void ZombiePassiveSlowDoesNotStackWhenCombatStartRulesRunAgain()
-    {
-        GameObject zombie = CreatureJsonConverter.CreateFromFile(
-            "DataFiles/pathfinder-monster-core/zombie-shambler"
-        );
-        created.Add(zombie);
-        TestActionController actionController = zombie.AddComponent<TestActionController>();
-
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
-        Pf2eRulesEngine.ApplyCombatStartRules(new[] { actionController });
-
-        Team team = zombie.AddComponent<Team>();
-        team.Name = "Players";
-        UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
-        bridge.StartEncounter("Players");
-        Assert.That(actionController.ActionPoints, Is.EqualTo(2));
-    }
-
-    [Test]
     public void PredicateSupportsAtomicCompoundAndNumericChecks()
     {
         CreatureComponent creature = CreatePreparedBarbarian();
@@ -202,7 +165,11 @@ public class Pf2eRulesTests
         UnityCombatRulesBridge bridge = CreateCombatRules(creature);
         CreatureId actor = bridge.GetCreatureId(creature);
         bridge.BeginTurn(actor, 3);
-        if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
+        if (
+            !RuntimeOptionResolver
+                .Resolve(bridge.Snapshot, actor, Array.Empty<string>())
+                .Contains("self:effect:rage")
+        )
             Assert.That(
                 bridge.Dispatch(new RageActionOp(actor)),
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
@@ -292,7 +259,11 @@ public class Pf2eRulesTests
         bridge.BeginTurn(actor, 3);
 
         PreparedRulePackage package = Compile(creature);
-        if (!RageRules.GetActiveRollOptions(bridge.Snapshot, actor).Contains("self:effect:rage"))
+        if (
+            !RuntimeOptionResolver
+                .Resolve(bridge.Snapshot, actor, Array.Empty<string>())
+                .Contains("self:effect:rage")
+        )
             Assert.That(
                 bridge.Dispatch(new RageActionOp(actor)),
                 Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
@@ -454,6 +425,7 @@ public class Pf2eRulesTests
             "death-effects",
             "disease",
             "poison",
+            "Flat-Footed",
             "paralyzed",
             "fire",
             "bleed",
@@ -468,7 +440,7 @@ public class Pf2eRulesTests
             immunities
                 .Where(value => value.Kind == PreparedImmunityKind.Condition)
                 .Select(value => value.Type),
-            Is.EqualTo(new[] { "paralyzed" })
+            Is.EqualTo(new[] { "off-guard", "paralyzed" })
         );
         Assert.That(
             immunities
@@ -700,7 +672,12 @@ public class Pf2eRulesTests
         StrikeResolutionContext normalContext = PrepareStrike(rogue, normalTarget, target);
         Assert.That(normalContext.DamageDice.Count, Is.EqualTo(1));
 
-        target.GetComponent<Conditions>().Add("Off-Guard", new ConditionSource());
+        target
+            .GetComponent<Conditions>()
+            .RestoreApplications(
+                new[] { PersistedOffGuard(target.gameObject, "sneak-attack-test") }
+            );
+        AttachPreparedStrikeBridge(rogue, target);
         StrikeProfile offGuardTarget = CreateDogslicerStrike(rogue);
         StrikeResolutionContext offGuardContext = PrepareStrike(rogue, offGuardTarget, target);
         Assert.That(offGuardContext.DamageDice.Count, Is.EqualTo(2));
@@ -726,7 +703,10 @@ public class Pf2eRulesTests
     {
         CreatureComponent rogue = CreatePreparedRogue();
         CreatureComponent target = CreateTarget("Flat-Footed Target");
-        target.GetComponent<Conditions>().Add("Flat-Footed", new ConditionSource());
+        target
+            .GetComponent<Conditions>()
+            .RestoreApplications(new[] { PersistedOffGuard(target.gameObject, "alias-test") });
+        AttachPreparedStrikeBridge(rogue, target);
 
         StrikeProfile shortbowStrike = new(
             new List<Dice> { new Dice(1, 6, "piercing") },
@@ -745,6 +725,34 @@ public class Pf2eRulesTests
         Assert.That(shortbowContext.DamageDice.Last().numberOfDice, Is.EqualTo(1));
         Assert.That(shortbowContext.DamageDice.Last().sidesPerDie, Is.EqualTo(6));
         Assert.That(shortbowContext.DamageDice.Last().damageType, Is.EqualTo("precision"));
+    }
+
+    private static ConditionApplicationSnapshot PersistedOffGuard(
+        GameObject sourceCreature,
+        string identity
+    )
+    {
+        DungeonPartyMemberIdentity sourceIdentity =
+            sourceCreature.GetComponent<DungeonPartyMemberIdentity>();
+        if (sourceIdentity == null || !sourceIdentity.IsConfigured)
+            throw new System.InvalidOperationException(
+                $"Persisted Off-Guard source '{sourceCreature.name}' requires a configured dungeon party identity."
+            );
+        RuleSource source = RuleSource.FromSlug(identity);
+        return new ConditionApplicationSnapshot(
+            new ActiveEffectId($"effect-{identity}"),
+            new BindingId($"binding-{identity}"),
+            ConditionRuleDefinitions.OffGuard,
+            sourceIdentity.RosterSlotId,
+            source,
+            EffectDuration.Indefinite,
+            EffectStateVersion.Initial,
+            ConditionMarkerState.Instance,
+            ActiveEffectStatus.Active,
+            1,
+            true,
+            null
+        );
     }
 
     private CreatureComponent CreatePreparedBarbarian()
@@ -813,6 +821,9 @@ public class Pf2eRulesTests
     {
         GameObject go = new(name);
         created.Add(go);
+        int identity = nextTargetIdentity++;
+        go.AddComponent<DungeonPartyMemberIdentity>()
+            .Configure($"pf2e-target-{identity}", $"pf2e-target-content-{identity}");
         CreatureComponent creature = go.AddComponent<CreatureComponent>();
         go.AddComponent<Conditions>();
         creature.ac = 15;
@@ -844,6 +855,7 @@ public class Pf2eRulesTests
         PreparedRulePackage package = Compile(attacker);
         RulesSnapshot snapshot;
         CreatureId actor;
+        CreatureId targetId = default;
         ActionController controller = attacker.GetComponent<ActionController>();
         if (
             controller != null
@@ -851,6 +863,7 @@ public class Pf2eRulesTests
         )
         {
             snapshot = bridge.Snapshot;
+            bridge.TryGetCreatureId(resolvedTarget, out targetId);
         }
         else
         {
@@ -860,10 +873,13 @@ public class Pf2eRulesTests
                 seed.SeedRuleBinding(binding.Create(actor));
             snapshot = new InMemoryRulesStore(seed).Snapshot;
         }
-        bool offGuard = resolvedTarget
-            .GetComponent<Conditions>()
-            .GetConditionNames()
-            .Any(value => value == "Off-Guard" || value == "Flat-Footed");
+        IReadOnlyList<string> targetConditions = targetId.IsEmpty
+            ? Array.Empty<string>()
+            : RuntimeOptionResolver.ResolveTargetConditions(
+                snapshot,
+                targetId,
+                Array.Empty<string>()
+            );
         RuleDispatcher dispatcher = CreatePreparedDispatcher(package, actor, snapshot);
         PreparedContributionContext baseContext = new(
             profile.ItemSlug ?? "test-item",
@@ -872,7 +888,7 @@ public class Pf2eRulesTests
             profile.DamageDice[0].sidesPerDie,
             profile.Traits,
             Array.Empty<string>(),
-            offGuard ? new[] { "off-guard" } : Array.Empty<string>()
+            targetConditions
         );
         string[] tags = Resolve(
                 dispatcher.Dispatch(
@@ -889,7 +905,7 @@ public class Pf2eRulesTests
             profile.DamageDice[0].sidesPerDie,
             profile.Traits,
             tags,
-            offGuard ? new[] { "off-guard" } : Array.Empty<string>()
+            targetConditions
         );
         IReadOnlyList<PreparedModifierValue> flat = Resolve(
             dispatcher.Dispatch(
@@ -956,7 +972,17 @@ public class Pf2eRulesTests
         foreach (KeyValuePair<BindingId, ActiveRuleBinding> binding in sourceSnapshot.RuleBindings)
         {
             if (binding.Value.Owner == actor)
+            {
                 seed.SeedRuleBinding(mapBinding(binding.Value));
+                if (
+                    binding.Value.EffectId.HasValue
+                    && sourceSnapshot.ActiveEffects.TryGet(
+                        binding.Value.EffectId.Value,
+                        out ActiveEffectInstance effect
+                    )
+                )
+                    seed.SeedActiveEffect(effect);
+            }
         }
         RuleRegistryBuilder registryBuilder = new();
         foreach (PreparedRuleDefinitionSpec definition in package.Definitions)
@@ -1081,6 +1107,20 @@ public class Pf2eRulesTests
                 $"Unknown prepared predicate {predicate.GetType().Name}."
             ),
         };
+
+    private void AttachPreparedStrikeBridge(CreatureComponent attacker, CreatureComponent target)
+    {
+        TestActionController attackerController =
+            attacker.GetComponent<TestActionController>()
+            ?? attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.GetComponent<TestActionController>()
+            ?? target.gameObject.AddComponent<TestActionController>();
+        UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController },
+            CreateTiles()
+        );
+    }
 
     private UnityCombatRulesBridge CreateActiveEncounter(ActionController protagonist)
     {

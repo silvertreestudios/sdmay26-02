@@ -367,22 +367,48 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void StrictInitialBindingSeedRecordsStatelessGenerationHistory()
+        {
+            BindingId id = new("strict-initial-generation");
+            ActiveRuleBinding binding = new(id, Definition, Owner, null, Source, 9);
+
+            RulesSnapshot snapshot = new InMemoryRulesStore(
+                new RulesStateSeed().AddUniqueRuleBinding(binding)
+            ).Snapshot;
+
+            Assert.That(snapshot.RuleBindings[id], Is.EqualTo(binding));
+            Assert.That(snapshot.StatelessRuleBindingGenerations[id], Is.EqualTo(9));
+        }
+
+        [Test]
         public void PredicateUsesOwnedStaticDynamicAndCurrentContextFacts()
         {
             PreparedRulePackage package = CreatePackage();
             ActiveRuleBinding owned = package.Bindings.Single().Create(Owner);
+            ActiveEffectId rageEffectId = new ActiveEffectId("rage-effect");
+            RuleDefinitionId rageDefinition = new RuleDefinitionId("rage-effect");
+            RuleSource rageSource = RuleSource.FromSlug("rage");
+            ActiveEffectInstance rageEffect = new ActiveEffectInstance(
+                rageEffectId,
+                rageDefinition,
+                Owner,
+                rageSource,
+                EffectDuration.Indefinite,
+                new RageEffectState(false)
+            );
             ActiveRuleBinding effect = new(
                 new BindingId("rage-effect-binding"),
-                new RuleDefinitionId("rage-effect"),
+                rageDefinition,
                 Owner,
-                new ActiveEffectId("rage-effect"),
-                RuleSource.FromSlug("rage"),
+                rageEffectId,
+                rageSource,
                 2
             );
             RulesSnapshot snapshot = new InMemoryRulesStore(
                 new RulesStateSeed()
                     .SeedPreparedInputs(Owner, package.Inputs)
                     .SeedRuleBinding(owned)
+                    .SeedActiveEffect(rageEffect)
                     .SeedRuleBinding(effect)
             ).Snapshot;
             PreparedPredicateContext context = new(
@@ -414,6 +440,83 @@ namespace Game.Rules.Runtime.Tests
                 }
             );
             Assert.That(predicate.Evaluate(context), Is.True);
+        }
+
+        [TestCase("missing")]
+        [TestCase("expired")]
+        [TestCase("disabled")]
+        [TestCase("mismatched-id")]
+        [TestCase("mismatched-definition")]
+        [TestCase("mismatched-source")]
+        public void RuntimeEffectOptionsRequireOneExactActiveEffectPair(string invalidPair)
+        {
+            ActiveEffectId effectId = new ActiveEffectId("runtime-option-effect");
+            RuleDefinitionId definition = new RuleDefinitionId("rage-effect");
+            RuleSource source = RuleSource.FromSlug("rage");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                invalidPair == "mismatched-definition"
+                    ? new RuleDefinitionId("other-effect")
+                    : definition,
+                Owner,
+                invalidPair == "mismatched-source" ? RuleSource.FromSlug("other") : source,
+                EffectDuration.Indefinite,
+                new RageEffectState(false),
+                default,
+                invalidPair == "expired" ? ActiveEffectStatus.Expired : ActiveEffectStatus.Active
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("runtime-option-binding"),
+                definition,
+                Owner,
+                invalidPair == "mismatched-id" ? new ActiveEffectId("other-effect-id") : effectId,
+                source,
+                1,
+                invalidPair != "disabled"
+            );
+            RulesStateSeed seed = new RulesStateSeed().SeedRuleBinding(binding);
+            if (invalidPair != "missing")
+                seed.SeedActiveEffect(effect);
+
+            IReadOnlyList<string> options = RuntimeOptionResolver.Resolve(
+                new InMemoryRulesStore(seed).Snapshot,
+                Owner,
+                Array.Empty<string>()
+            );
+
+            Assert.That(options, Does.Not.Contain("self:effect:rage"));
+            Assert.That(options, Does.Not.Contain("self:effect:rage-effect"));
+        }
+
+        [Test]
+        public void TargetConditionOptionsCanonicalizeAliasesAndStripOneTypedPrefix()
+        {
+            IReadOnlyList<string> conditions = RuntimeOptionResolver.ResolveTargetConditions(
+                new InMemoryRulesStore().Snapshot,
+                Owner,
+                new[]
+                {
+                    "Flat-Footed",
+                    "off-guard",
+                    "target:condition:Flat Footed",
+                    "target:condition:custom-mark",
+                }
+            );
+            PreparedContributionContext context = new PreparedContributionContext(
+                string.Empty,
+                string.Empty,
+                false,
+                0,
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                conditions
+            );
+
+            Assert.That(conditions, Is.EqualTo(new[] { "custom-mark", "off-guard" }));
+            Assert.That(
+                context.Options().Where(option => option.StartsWith("target:condition:")),
+                Is.EqualTo(new[] { "target:condition:custom-mark", "target:condition:off-guard" })
+            );
         }
 
         [Test]

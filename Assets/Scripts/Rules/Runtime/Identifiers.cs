@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 
 namespace Game.Rules.Runtime
 {
@@ -107,6 +108,111 @@ namespace Game.Rules.Runtime
         public static bool operator ==(CreatureId left, CreatureId right) => left.Equals(right);
 
         public static bool operator !=(CreatureId left, CreatureId right) => !left.Equals(right);
+    }
+
+    /// <summary>
+    /// Provides a collision-safe stable namespace for identities generated from authoritative
+    /// creature state.
+    /// </summary>
+    /// <remarks>
+    /// Namespace values are restricted to an ASCII token so they can be embedded in generated
+    /// stable IDs without escaping or delimiter ambiguity. Persistable adapters should supply a
+    /// namespace derived from the actor's durable identity. Pure-rules and intentionally
+    /// nondurable callers can use <see cref="ForCreature"/>.
+    /// </remarks>
+    public readonly struct GeneratedIdentityNamespace : IEquatable<GeneratedIdentityNamespace>
+    {
+        private const string CreaturePrefix = "creature-identity-v1-";
+
+        /// <summary>Gets the safe stable token used inside generated identities.</summary>
+        public string Value { get; }
+
+        /// <summary>Gets whether this value is the uninitialized namespace.</summary>
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+
+        /// <summary>Initializes a nonempty ASCII namespace token.</summary>
+        /// <param name="value">
+        /// A canonical token containing only ASCII letters, digits, hyphens, or underscores.
+        /// </param>
+        public GeneratedIdentityNamespace(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                throw new ArgumentException(
+                    "A generated identity namespace cannot be blank.",
+                    nameof(value)
+                );
+            foreach (char character in value)
+            {
+                if (
+                    !(character >= 'A' && character <= 'Z')
+                    && !(character >= 'a' && character <= 'z')
+                    && !(character >= '0' && character <= '9')
+                    && character != '-'
+                    && character != '_'
+                )
+                    throw new ArgumentException(
+                        "A generated identity namespace must be a canonical ASCII token.",
+                        nameof(value)
+                    );
+            }
+            Value = value;
+        }
+
+        /// <summary>
+        /// Creates the deterministic namespace used by pure-rules or intentionally nondurable
+        /// creature state.
+        /// </summary>
+        /// <param name="creature">The store-local creature identity to encode reversibly.</param>
+        /// <returns>A safe namespace distinct from adapter-owned durable namespace formats.</returns>
+        public static GeneratedIdentityNamespace ForCreature(CreatureId creature)
+        {
+            if (creature.IsEmpty)
+                throw new ArgumentException("A creature ID is required.", nameof(creature));
+            try
+            {
+                string payload = Convert
+                    .ToBase64String(new UTF8Encoding(false, true).GetBytes(creature.Value))
+                    .TrimEnd('=')
+                    .Replace('+', '-')
+                    .Replace('/', '_');
+                return new GeneratedIdentityNamespace(CreaturePrefix + payload);
+            }
+            catch (EncoderFallbackException exception)
+            {
+                throw new ArgumentException(
+                    "A creature ID must contain valid Unicode.",
+                    nameof(creature),
+                    exception
+                );
+            }
+        }
+
+        /// <inheritdoc/>
+        public bool Equals(GeneratedIdentityNamespace other) =>
+            string.Equals(Value, other.Value, StringComparison.Ordinal);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) =>
+            obj is GeneratedIdentityNamespace other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            StringComparer.Ordinal.GetHashCode(Value ?? string.Empty);
+
+        /// <inheritdoc/>
+        public override string ToString() => Value ?? string.Empty;
+
+        /// <summary>Compares two generated identity namespaces by stable value.</summary>
+        public static bool operator ==(
+            GeneratedIdentityNamespace left,
+            GeneratedIdentityNamespace right
+        ) => left.Equals(right);
+
+        /// <summary>Compares two generated identity namespaces by stable value.</summary>
+        public static bool operator !=(
+            GeneratedIdentityNamespace left,
+            GeneratedIdentityNamespace right
+        ) => !left.Equals(right);
     }
 
     /// <summary>
@@ -238,28 +344,6 @@ namespace Game.Rules.Runtime
 
         public static bool operator !=(ActiveEffectId left, ActiveEffectId right) =>
             !left.Equals(right);
-    }
-
-    public readonly struct ConditionId : IEquatable<ConditionId>
-    {
-        public string Value { get; }
-        public bool IsEmpty => string.IsNullOrEmpty(Value);
-
-        public ConditionId(string value) => Value = StableId.Require(value, nameof(value));
-
-        public bool Equals(ConditionId other) =>
-            string.Equals(Value, other.Value, StringComparison.Ordinal);
-
-        public override bool Equals(object obj) => obj is ConditionId other && Equals(other);
-
-        public override int GetHashCode() =>
-            StringComparer.Ordinal.GetHashCode(Value ?? string.Empty);
-
-        public override string ToString() => Value ?? string.Empty;
-
-        public static bool operator ==(ConditionId left, ConditionId right) => left.Equals(right);
-
-        public static bool operator !=(ConditionId left, ConditionId right) => !left.Equals(right);
     }
 
     public readonly struct ActionDefinitionId : IEquatable<ActionDefinitionId>

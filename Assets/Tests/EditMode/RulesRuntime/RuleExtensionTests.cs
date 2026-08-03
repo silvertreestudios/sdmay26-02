@@ -1037,6 +1037,56 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void FactListenerFailuresAttemptEveryDeliveryAndAggregateInStableOrder()
+        {
+            List<string> calls = new List<string>();
+            InvalidOperationException first = new InvalidOperationException("first listener");
+            ApplicationException second = new ApplicationException("second listener");
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules
+                .Define(DefinitionA)
+                .FactListener(
+                    RuleLifecyclePhase.Reaction,
+                    new OrderedThrowingFactListener("first", calls, first)
+                );
+            rules
+                .Define(DefinitionB)
+                .FactListener(
+                    RuleLifecyclePhase.Reaction,
+                    new OrderedThrowingFactListener("second", calls, second)
+                );
+            rules
+                .Define(DefinitionC)
+                .FactListener(RuleLifecyclePhase.Reaction, new LoggingFactListener(calls));
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
+                CreateStore(
+                    Binding("first", DefinitionA, 0),
+                    Binding("second", DefinitionB, 1),
+                    Binding("completed", DefinitionC, 2)
+                )
+            )
+                .RegisterHandler<RootIncrementOp, int>(new RootIncrementHandler())
+                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+
+            AggregateException failure = Assert.ThrowsAsync<AggregateException>(async () =>
+                await dispatcher.Dispatch(new RootIncrementOp(new[] { 1 }))
+            );
+
+            Assert.That(
+                failure.Message,
+                Does.StartWith(
+                    "Multiple committed-Fact listeners failed after their source root committed."
+                )
+            );
+            Assert.That(failure.InnerExceptions, Is.EqualTo(new Exception[] { first, second }));
+            Assert.That(calls, Is.EqualTo(new[] { "first", "second", "completed" }));
+            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(11));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(1));
+        }
+
+        [Test]
         public async Task ExceptionalHandlerPublishesDurableFactsOnceBeforeRethrowing()
         {
             DispatchingFactListener listener = new DispatchingFactListener();
@@ -2051,6 +2101,26 @@ namespace Game.Rules.Runtime.Tests
             {
                 Calls++;
                 throw new InvalidOperationException("listener notification failed");
+            }
+        }
+
+        private sealed class OrderedThrowingFactListener : IRuleFactListener<CounterChangedFact>
+        {
+            private readonly string name;
+            private readonly List<string> calls;
+            private readonly Exception failure;
+
+            public OrderedThrowingFactListener(string name, List<string> calls, Exception failure)
+            {
+                this.name = name;
+                this.calls = calls;
+                this.failure = failure;
+            }
+
+            public ValueTask OnFactCommitted(CounterChangedFact fact, FactContext context)
+            {
+                calls.Add(name);
+                throw failure;
             }
         }
 

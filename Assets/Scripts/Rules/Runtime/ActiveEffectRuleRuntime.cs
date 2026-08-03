@@ -10,7 +10,7 @@ namespace Game.Rules.Runtime
         );
 
         /// <summary>
-        /// Adds typed create, update, expire, and remove reducers backed by one static registry.
+        /// Adds typed creation, adoption, update, expiration, and removal reducers.
         /// </summary>
         /// <param name="builder">The dispatcher builder being composed.</param>
         /// <param name="registry">
@@ -19,10 +19,10 @@ namespace Game.Rules.Runtime
         /// <returns>The supplied builder for fluent composition.</returns>
         /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
         /// <remarks>
-        /// All four operations are reducer registrations and therefore nested-only. Feature handlers
-        /// authorize their use; presentation and encounter-clock code may only request work through
-        /// those workflows. This method also attaches the same registry to the dispatcher so an
-        /// effect cannot create a binding for a definition unavailable to runtime extensions.
+        /// Lifecycle mutations are nested-only so feature handlers authorize them; prepared-state
+        /// adoption is an explicit external enrollment boundary. This method also attaches the same
+        /// registry to the dispatcher so an effect cannot create or adopt a binding for a definition
+        /// unavailable to runtime extensions.
         /// </remarks>
         public static RuleDispatcherBuilder UseActiveEffectRules(
             this RuleDispatcherBuilder builder,
@@ -39,6 +39,11 @@ namespace Game.Rules.Runtime
                 .RegisterReducer<CreateActiveEffectOp, ActiveEffectCreationOutcome>(
                     new CreateActiveEffectReducer(registry),
                     LifecycleSource
+                )
+                .RegisterReducer<AdoptActiveEffectRegistrationsOp, ActiveEffectAdoptionOutcome>(
+                    new AdoptActiveEffectRegistrationsReducer(registry),
+                    LifecycleSource,
+                    InvocationPolicy.ExternalAllowed
                 )
                 .RegisterReducer<UpdateActiveEffectStateOp, ActiveEffectStateUpdateOutcome>(
                     new UpdateActiveEffectStateReducer(),

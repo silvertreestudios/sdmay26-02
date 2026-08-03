@@ -13,6 +13,74 @@ namespace Game.Rules.Runtime
     public interface IEffectState { }
 
     /// <summary>
+    /// Supplies engine-only equality when an effect state's public value equality intentionally
+    /// omits workflow receipt data.
+    /// </summary>
+    internal interface IExactEffectState
+    {
+        bool ExactEquals(IEffectState other);
+
+        int GetExactHashCode();
+    }
+
+    /// <summary>Compares effect state using its engine receipt contract when one exists.</summary>
+    internal static class EffectStateExactEquality
+    {
+        internal static bool Equals(IEffectState left, IEffectState right)
+        {
+            if (ReferenceEquals(left, right))
+                return true;
+            if (left == null || right == null)
+                return false;
+            if (left is IExactEffectState exactLeft)
+                return exactLeft.ExactEquals(right);
+            if (right is IExactEffectState exactRight)
+                return exactRight.ExactEquals(left);
+            return object.Equals(left, right);
+        }
+
+        internal static int GetHashCode(IEffectState value) =>
+            value is IExactEffectState exact ? exact.GetExactHashCode() : value?.GetHashCode() ?? 0;
+    }
+
+    /// <summary>
+    /// Compares immutable active-effect registrations without changing their public value contract.
+    /// </summary>
+    internal static class ActiveEffectInstanceExactEquality
+    {
+        internal static bool Equals(ActiveEffectInstance left, ActiveEffectInstance right) =>
+            ReferenceEquals(left, right)
+            || (
+                left != null
+                && right != null
+                && left.Id == right.Id
+                && left.DefinitionId == right.DefinitionId
+                && left.SourceCreature == right.SourceCreature
+                && left.Source == right.Source
+                && left.Duration == right.Duration
+                && left.EffectStateVersion == right.EffectStateVersion
+                && EffectStateExactEquality.Equals(left.State, right.State)
+                && left.Status == right.Status
+            );
+
+        internal static int GetHashCode(ActiveEffectInstance value)
+        {
+            if (value == null)
+                return 0;
+            HashCode hash = new HashCode();
+            hash.Add(value.Id);
+            hash.Add(value.DefinitionId);
+            hash.Add(value.SourceCreature);
+            hash.Add(value.Source);
+            hash.Add(value.Duration);
+            hash.Add(value.EffectStateVersion);
+            hash.Add(EffectStateExactEquality.GetHashCode(value.State));
+            hash.Add(value.Status);
+            return hash.ToHashCode();
+        }
+    }
+
+    /// <summary>
     /// Identifies how active-effect duration metadata is expressed before encounter timing resolves it.
     /// </summary>
     public enum EffectDurationKind

@@ -83,6 +83,8 @@ namespace Game.Rules.Runtime
 
         private readonly List<ResolvedOpObserverRegistration> resolvedOpObservers =
             new List<ResolvedOpObserverRegistration>();
+        private readonly HashSet<ActionInvocationId> claimedReceiptedRootObserverBatches =
+            new HashSet<ActionInvocationId>();
 
         /// <summary>Registers a typed observer for later resolved-operation notification passes.</summary>
         /// <typeparam name="TOp">The exact concrete operation type to observe.</typeparam>
@@ -160,7 +162,8 @@ namespace Game.Rules.Runtime
             IRuleOp operation,
             Type resultType,
             object result,
-            RulesSnapshot currentSnapshot
+            RulesSnapshot currentSnapshot,
+            bool isRoot
         )
         {
             Type operationType = operation.GetType();
@@ -173,6 +176,23 @@ namespace Game.Rules.Runtime
                         && registration.ResultType == resultType
                     )
                     .ToArray();
+                if (isRoot && operation is IReceiptedActionOp receipted)
+                {
+                    if (
+                        !currentSnapshot.ActionReceipts.TryGet(
+                            receipted.InvocationId,
+                            out ActionInvocationReceipt receipt
+                        )
+                        || receipt is not ResolvedActionReceipt resolvedReceipt
+                        || !receipted.HasSameIntent(receipt.Operation)
+                        || !Equals(resolvedReceipt.Outcome, result)
+                    )
+                        throw new InvalidOperationException(
+                            "A receipted root resolved without its exact final receipt."
+                        );
+                    if (!claimedReceiptedRootObserverBatches.Add(receipted.InvocationId))
+                        return;
+                }
             }
 
             ObserverFailureState failures = EmptyResolvedOperationObserverFailures;

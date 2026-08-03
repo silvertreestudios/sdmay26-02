@@ -12,23 +12,53 @@ namespace Game.Rules.Runtime
             IReadOnlyList<BoundMiddlewareRegistration> middleware
         )
         {
-            ActionValidationResult validation = actionRuntime.Validate(invocation);
-            if (validation is ActionValidationResult.InvalidActionValidationResult invalid)
-                return registration.CreateInvalidResult(invalid.Reason);
+            IReceiptedActionOp receiptedAction =
+                invocation.FrameView.Operation as IReceiptedActionOp;
+            bool costsAlreadyCommitted = false;
+            if (
+                receiptedAction != null
+                && invocation.FrameView.Snapshot.ActionReceipts.TryGet(
+                    receiptedAction.InvocationId,
+                    out ActionInvocationReceipt receipt
+                )
+            )
+            {
+                if (!receiptedAction.HasSameIntent(receipt.Operation))
+                    return registration.CreateInvalidResult(
+                        ActionReceiptReduction.ConflictingIntentReason
+                    );
+                if (receipt is ResolvedActionReceipt resolvedReceipt)
+                    return registration.CreateResolvedResult(resolvedReceipt.Outcome);
+                if (receipt is InterruptedActionReceipt)
+                    return registration.CreateInterruptedResult();
+                if (receipt is not CostsCommittedActionReceipt)
+                    throw new InvalidOperationException(
+                        "The action invocation receipt has an unknown lifecycle phase."
+                    );
+                costsAlreadyCommitted = true;
+            }
 
             ActionOpInfo action = invocation.FrameView.ActionInfo;
             ActionProfile profile = invocation.FrameView.ActionProfile;
-            OpResult<ActionCostsOutcome> costs = await DispatchNested(
-                new CommitActionCostsOp(action.Id, action.Actor, profile),
-                action.Id
-            );
-            if (costs is InvalidOpResult<ActionCostsOutcome> invalidCosts)
-                return registration.CreateInvalidResult(invalidCosts.Reason);
-            if (!(costs is ResolvedOpResult<ActionCostsOutcome>))
+            if (!costsAlreadyCommitted)
             {
-                throw new InvalidOperationException(
-                    "Atomic action costs may only resolve or reject before an action begins."
-                );
+                ActionValidationResult validation = actionRuntime.Validate(invocation);
+                if (validation is ActionValidationResult.InvalidActionValidationResult invalid)
+                    return registration.CreateInvalidResult(invalid.Reason);
+
+                CommitActionCostsOp commitCosts =
+                    receiptedAction != null
+                        ? new CommitActionCostsOp(action.Id, action.Actor, profile, receiptedAction)
+                        : new CommitActionCostsOp(action.Id, action.Actor, profile);
+                OpResult<ActionCostsOutcome> costs = await DispatchNested(commitCosts, action.Id);
+                if (costs is InvalidOpResult<ActionCostsOutcome> invalidCosts)
+                    return registration.CreateInvalidResult(invalidCosts.Reason);
+                if (!(costs is ResolvedOpResult<ActionCostsOutcome>))
+                {
+                    throw new InvalidOperationException(
+                        "Atomic action costs may only resolve or reject before an action begins."
+                    );
+                }
             }
 
             OpResult<ActionStartOutcome> begun = await DispatchNested(
@@ -42,7 +72,20 @@ namespace Game.Rules.Runtime
                 );
             }
             if (resolvedBegun.Value.Decision == ActionStartDecision.Interrupted)
+            {
+                if (invocation.FrameView.Operation is IReceiptedActionOp interruptedAction)
+                {
+                    OpResult<ActionStartOutcome> interrupted = await DispatchNested(
+                        new InterruptReceiptedActionOp(interruptedAction),
+                        action.Id
+                    );
+                    if (!(interrupted is ResolvedOpResult<ActionStartOutcome>))
+                        throw new InvalidOperationException(
+                            "A receipted action interruption could not checkpoint its final phase."
+                        );
+                }
                 return registration.CreateInterruptedResult();
+            }
 
             object featureResult = await InvokeWithMiddleware(
                 registration,

@@ -100,7 +100,6 @@ namespace Game.Combat.Spells
         {
             ["shield"] = new ShieldSpell(),
             ["guidance"] = new GuidanceSpell(),
-            ["haunting-hymn"] = new HauntingHymnSpell(),
             ["bless"] = new BlessSpell(),
             ["infuse-vitality"] = new InfuseVitalitySpell(),
             ["heal"] = new HealSpell(),
@@ -162,43 +161,6 @@ namespace Game.Combat.Spells
                 return false;
             controller.AddOrRefresh(new GuidanceSpellEffect(context.Caster));
             result.Targets.Add(target);
-            return true;
-        }
-    }
-
-    public sealed class HauntingHymnSpell : SpellDefinition
-    {
-        public override string Slug => "haunting-hymn";
-
-        public override IEnumerator SelectAndCast(SpellCastContext context)
-        {
-            return SelectAreaAndCast(
-                context,
-                new AreaTargetRequest { Shape = AreaShape.Cone, SizeFeet = 15 }
-            );
-        }
-
-        public override bool Cast(
-            SpellCastContext context,
-            SpellTargetSelection selection,
-            CastSpellResult result
-        )
-        {
-            if (selection?.Area == null)
-                return false;
-            foreach (
-                AreaAffectedCreature affected in selection.Area.Creatures.Where(creature =>
-                    creature.IsAffected
-                )
-            )
-                SpellcastingRuntime.ApplyBasicFortitudeDamage(
-                    context.Caster,
-                    affected.Creature,
-                    new Dice(1, 8, "sonic"),
-                    result,
-                    applyDeafenedOnCriticalFailure: true,
-                    source: RuleSource.FromSlug(Slug)
-                );
             return true;
         }
     }
@@ -347,7 +309,6 @@ namespace Game.Combat.Spells
                         target,
                         new DamageValue("vitality", amount),
                         result,
-                        applyDeafenedOnCriticalFailure: false,
                         source: RuleSource.FromSlug(Slug)
                     );
                 else if (SpellcastingRuntime.IsFriendly(context.Caster, target))

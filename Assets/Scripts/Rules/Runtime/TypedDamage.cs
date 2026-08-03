@@ -157,6 +157,54 @@ namespace Game.Rules.Runtime
             if (degree != DegreeOfSuccess.Success && degree != DegreeOfSuccess.CriticalSuccess)
                 return Array.Empty<TypedDamagePart>();
 
+            return ScaleAndDefend(
+                Roll(dice, flatDamage, rolls),
+                Roll(
+                    degree == DegreeOfSuccess.CriticalSuccess
+                        ? criticalOnlyDice
+                        : Array.Empty<TypedDamageDice>(),
+                    Array.Empty<TypedFlatDamage>(),
+                    rolls
+                ),
+                degree == DegreeOfSuccess.CriticalSuccess ? 2 : 1,
+                1,
+                immunities,
+                weaknesses,
+                resistances
+            );
+        }
+
+        internal static IReadOnlyList<TypedDamagePart> ResolveBasicSave(
+            IEnumerable<TypedDamageDice> dice,
+            DegreeOfSuccess degree,
+            IEnumerable<TypedDamageImmunity> immunities,
+            IEnumerable<TypedDefenseAdjustment> weaknesses,
+            IEnumerable<TypedDefenseAdjustment> resistances,
+            IRollService rolls
+        )
+        {
+            return ResolveBasicSave(
+                Roll(dice, Array.Empty<TypedFlatDamage>(), rolls),
+                degree,
+                immunities,
+                weaknesses,
+                resistances
+            );
+        }
+
+        internal static IReadOnlyList<TypedDamagePart> Roll(
+            IEnumerable<TypedDamageDice> dice,
+            IEnumerable<TypedFlatDamage> flatDamage,
+            IRollService rolls
+        )
+        {
+            if (dice == null)
+                throw new ArgumentNullException(nameof(dice));
+            if (flatDamage == null)
+                throw new ArgumentNullException(nameof(flatDamage));
+            if (rolls == null)
+                throw new ArgumentNullException(nameof(rolls));
+
             Dictionary<string, DamageGroup> groups = new(StringComparer.OrdinalIgnoreCase);
             foreach (TypedDamageDice component in dice)
                 Add(
@@ -167,19 +215,61 @@ namespace Game.Rules.Runtime
                 );
             foreach (TypedFlatDamage component in flatDamage)
                 Add(groups, component.DamageType, component.Amount, component.Source);
+            return ToParts(groups);
+        }
 
+        internal static IReadOnlyList<TypedDamagePart> ResolveBasicSave(
+            IReadOnlyList<TypedDamagePart> rolled,
+            DegreeOfSuccess degree,
+            IEnumerable<TypedDamageImmunity> immunities,
+            IEnumerable<TypedDefenseAdjustment> weaknesses,
+            IEnumerable<TypedDefenseAdjustment> resistances
+        )
+        {
+            if (rolled == null)
+                throw new ArgumentNullException(nameof(rolled));
             if (degree == DegreeOfSuccess.CriticalSuccess)
-            {
-                foreach (DamageGroup group in groups.Values)
-                    group.Amount = checked(group.Amount * 2);
-                foreach (TypedDamageDice component in criticalOnlyDice)
-                    Add(
-                        groups,
-                        component.DamageType,
-                        rolls.Roll(component.Dice).Total,
-                        component.Source
-                    );
-            }
+                return Array.Empty<TypedDamagePart>();
+            return ScaleAndDefend(
+                rolled,
+                Array.Empty<TypedDamagePart>(),
+                degree == DegreeOfSuccess.CriticalFailure ? 2 : 1,
+                degree == DegreeOfSuccess.Success ? 2 : 1,
+                immunities,
+                weaknesses,
+                resistances
+            );
+        }
+
+        private static IReadOnlyList<TypedDamagePart> ScaleAndDefend(
+            IEnumerable<TypedDamagePart> baseDamage,
+            IEnumerable<TypedDamagePart> postScaleDamage,
+            int multiplier,
+            int divisor,
+            IEnumerable<TypedDamageImmunity> immunities,
+            IEnumerable<TypedDefenseAdjustment> weaknesses,
+            IEnumerable<TypedDefenseAdjustment> resistances
+        )
+        {
+            if (baseDamage == null)
+                throw new ArgumentNullException(nameof(baseDamage));
+            if (postScaleDamage == null)
+                throw new ArgumentNullException(nameof(postScaleDamage));
+            if (immunities == null)
+                throw new ArgumentNullException(nameof(immunities));
+            if (weaknesses == null)
+                throw new ArgumentNullException(nameof(weaknesses));
+            if (resistances == null)
+                throw new ArgumentNullException(nameof(resistances));
+
+            Dictionary<string, DamageGroup> groups = new(StringComparer.OrdinalIgnoreCase);
+            foreach (TypedDamagePart component in baseDamage)
+                Add(groups, component);
+
+            foreach (DamageGroup group in groups.Values)
+                group.Amount = checked(group.Amount * multiplier) / divisor;
+            foreach (TypedDamagePart component in postScaleDamage)
+                Add(groups, component);
 
             foreach (DamageGroup group in groups.Values)
             {
@@ -217,14 +307,19 @@ namespace Game.Rules.Runtime
                 group.Amount = Math.Max(0, group.Amount);
             }
 
-            return groups
+            return ToParts(groups);
+        }
+
+        private static IReadOnlyList<TypedDamagePart> ToParts(
+            IReadOnlyDictionary<string, DamageGroup> groups
+        ) =>
+            groups
                 .Values.Select(group => new TypedDamagePart(
                     group.DamageType,
                     group.Amount,
                     group.Sources
                 ))
                 .ToArray();
-        }
 
         private static void Add(
             IDictionary<string, DamageGroup> groups,
@@ -240,6 +335,17 @@ namespace Game.Rules.Runtime
             }
             group.Amount = checked(group.Amount + amount);
             group.Sources.Add(source);
+        }
+
+        private static void Add(IDictionary<string, DamageGroup> groups, TypedDamagePart component)
+        {
+            if (!groups.TryGetValue(component.DamageType, out DamageGroup group))
+            {
+                group = new DamageGroup(component.DamageType);
+                groups.Add(component.DamageType, group);
+            }
+            group.Amount = checked(group.Amount + component.Amount);
+            group.Sources.AddRange(component.Sources);
         }
 
         private sealed class DamageGroup

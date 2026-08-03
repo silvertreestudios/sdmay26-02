@@ -10,8 +10,9 @@ namespace Game.Rules.Runtime
     /// priorities. Choose the stage that describes the rule's purpose. If two rules need a more
     /// specific ordering relationship, introduce a distinct lifecycle operation instead of using
     /// a stage as an undocumented priority. Fact listeners run in the order shown. Middleware
-    /// nests in reverse phase order so its post-<c>next</c> result settles through Prevention,
-    /// Transformation, Adjustment, Reaction, and finally Observation.
+    /// enters in Observation, Reaction, Transformation, Prevention order before ordinary
+    /// resolution, then returns through Prevention, Transformation, Reaction, and Observation.
+    /// Observation is therefore the outermost phase and sees the fully settled inner result.
     /// </remarks>
     public enum RuleLifecyclePhase
     {
@@ -24,11 +25,6 @@ namespace Game.Rules.Runtime
         /// Rules that replace or transform the value produced by ordinary resolution.
         /// </summary>
         Transformation,
-
-        /// <summary>
-        /// Rules that adjust values after every ordinary transformation has contributed.
-        /// </summary>
-        Adjustment,
 
         /// <summary>
         /// Rules that perform a rules response, such as offering or resolving a reaction.
@@ -93,7 +89,9 @@ namespace Game.Rules.Runtime
     /// eligibility is frozen when the Fact's source operation frame begins, then the binding is
     /// checked again immediately before notification. A binding enabled or created by a frame
     /// cannot observe that frame's Facts, while a binding disabled, removed, or changed before
-    /// delivery is skipped.
+    /// delivery is skipped. A listener failure does not prevent later selected listeners from
+    /// running. After every eligible delivery is attempted, one failure is rethrown directly or
+    /// multiple failures are reported in deterministic delivery order.
     /// </remarks>
     public interface IRuleFactListener<TFact>
         where TFact : RuleFact

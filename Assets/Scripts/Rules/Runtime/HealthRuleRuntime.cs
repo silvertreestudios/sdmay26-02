@@ -177,14 +177,7 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         ) =>
             await HealthHandlerResult.RequireResolved(
-                context.Dispatch(
-                    new CommitTemporaryHitPointsGrantOp(
-                        frame.Op.Target,
-                        frame.Op.Amount,
-                        frame.Op.Origin,
-                        frame.Op.Source
-                    )
-                )
+                context.Dispatch(frame.Op.Intent.CreateCommitOperation(frame.Op))
             );
     }
 

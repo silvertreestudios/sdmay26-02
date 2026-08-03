@@ -242,10 +242,6 @@ namespace Game.Rules.Runtime
                     .OrderBy(effect => effect.Id.Value, StringComparer.Ordinal)
             )
             {
-                if (state.ActiveEffectTimings.Contains(effect.Id))
-                    return ReductionResult<EncounterStartOutcome>.Reject(
-                        $"Active effect {effect.Id.Value} already has encounter timing."
-                    );
                 ActiveRuleBinding[] bindings = state
                     .RuleBindings.Select(pair => pair.Value)
                     .Where(binding =>
@@ -262,9 +258,31 @@ namespace Game.Rules.Runtime
                     return ReductionResult<EncounterStartOutcome>.Reject(
                         $"Active effect {effect.Id.Value} requires one matching enabled binding."
                     );
-                adoptedTimings.Add(
-                    ActiveEffectTimingState.ForEncounter(effect, bindings[0], encounter)
-                );
+                if (
+                    state.ActiveEffectTimings.TryGet(
+                        effect.Id,
+                        out ActiveEffectTimingState restoredTiming
+                    )
+                )
+                {
+                    if (
+                        restoredTiming.Encounter != encounter.Id
+                        || restoredTiming.Binding != bindings[0].Id
+                        || restoredTiming.SourceCreature != effect.SourceCreature
+                        || restoredTiming.CreationOrder != bindings[0].CreationOrder
+                        || restoredTiming.ExpiresWithEncounter
+                            != (effect.Duration.Kind == EffectDurationKind.Encounter)
+                    )
+                        return ReductionResult<EncounterStartOutcome>.Reject(
+                            $"Active effect {effect.Id.Value} has invalid restored encounter timing."
+                        );
+                }
+                else
+                {
+                    adoptedTimings.Add(
+                        ActiveEffectTimingState.ForEncounter(effect, bindings[0], encounter)
+                    );
+                }
             }
             state.Encounters.Set(encounter.Id, encounter);
             state.RuleBindings.Set(outcomeBindingId, outcomeBinding);
@@ -286,6 +304,11 @@ namespace Game.Rules.Runtime
     internal sealed class CommitEncounterJoinReducer
         : IOpReducer<CommitEncounterJoinOp, EncounterJoinOutcome>
     {
+        private readonly RuleRegistry registry;
+
+        internal CommitEncounterJoinReducer(RuleRegistry registry) =>
+            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
+
         public ReductionResult<EncounterJoinOutcome> Reduce(
             ReductionContext<CommitEncounterJoinOp> context,
             RulesStateDraft state,
@@ -308,6 +331,11 @@ namespace Game.Rules.Runtime
             HashSet<CreatureId> existing = new HashSet<CreatureId>(
                 encounter.Roster.Select(entry => entry.Creature)
             );
+            Dictionary<CreatureId, CombatantRulesState> reinforcementRegistrations =
+                encounter.ReinforcementRegistrations.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value
+                );
             HashSet<SpellSlotPoolId> incomingSpellSlots = new HashSet<SpellSlotPoolId>();
             HashSet<BindingId> incomingRuleBindings = new HashSet<BindingId>();
             if (context.Op.Registrations.Count != context.Op.Additions.Count)
@@ -332,6 +360,7 @@ namespace Game.Rules.Runtime
                 if (
                     state.Creatures.Contains(entry.Creature)
                     || state.PreparedInputs.Contains(entry.Creature)
+                    || state.Statistics.Contains(entry.Creature)
                     || state.Health.Contains(entry.Creature)
                     || state.Positions.Contains(entry.Creature)
                     || state.LandSpeeds.Contains(entry.Creature)
@@ -340,6 +369,10 @@ namespace Game.Rules.Runtime
                 )
                     return ReductionResult<EncounterJoinOutcome>.Reject(
                         $"Creature {entry.Creature.Value} collides with existing registration state."
+                    );
+                if (!reinforcementRegistrations.TryAdd(entry.Creature, registration))
+                    return ReductionResult<EncounterJoinOutcome>.Reject(
+                        $"Creature {entry.Creature.Value} already has a reinforcement receipt."
                     );
                 foreach (SpellSlotState slot in registration.SpellSlots)
                     if (state.SpellSlots.Contains(slot.Id) || !incomingSpellSlots.Add(slot.Id))
@@ -366,23 +399,6 @@ namespace Game.Rules.Runtime
                             bindingGenerationRejection
                         );
             }
-            foreach (InitiativeEntry entry in context.Op.Additions)
-            {
-                CombatantRulesState registration = context.Op.Registrations[entry.Creature];
-                state.Creatures.Set(entry.Creature, registration.Creature);
-                state.PreparedInputs.Set(entry.Creature, registration.PreparedInputs);
-                state.Health.Set(entry.Creature, registration.Health);
-                state.Positions.Set(entry.Creature, registration.Position);
-                state.LandSpeeds.Set(entry.Creature, registration.LandSpeed);
-                foreach (SpellSlotState slot in registration.SpellSlots)
-                    state.SpellSlots.Set(slot.Id, slot);
-                foreach (ActiveRuleBinding binding in registration.RuleBindings)
-                {
-                    state.RuleBindings.Set(binding.Id, binding);
-                    if (!binding.EffectId.HasValue)
-                        StatelessBindingReduction.Record(state, binding);
-                }
-            }
             InitiativeEntry[] roster = encounter
                 .Roster.Concat(context.Op.Additions)
                 .OrderByDescending(entry => entry.Total)
@@ -395,14 +411,47 @@ namespace Game.Rules.Runtime
             EncounterState updated = encounter.Replace(
                 roster: roster,
                 cursor: cursor,
-                currentTurn: encounter.CurrentTurn.Value
+                currentTurn: encounter.CurrentTurn.Value,
+                reinforcementRegistrations: reinforcementRegistrations
             );
-            state.Encounters.Set(updated.Id, updated);
             foreach (InitiativeEntry entry in context.Op.Additions)
             {
+                CombatantRulesState registration = context.Op.Registrations[entry.Creature];
+                state.Creatures.Set(entry.Creature, registration.Creature);
+                state.PreparedInputs.Set(entry.Creature, registration.PreparedInputs);
+                state.Statistics.Set(entry.Creature, registration.Statistics);
+                state.Health.Set(entry.Creature, registration.Health);
+                state.Positions.Set(entry.Creature, registration.Position);
+                state.LandSpeeds.Set(entry.Creature, registration.LandSpeed);
+                foreach (SpellSlotState slot in registration.SpellSlots)
+                    state.SpellSlots.Set(slot.Id, slot);
+                foreach (ActiveRuleBinding binding in registration.RuleBindings)
+                {
+                    state.RuleBindings.Set(binding.Id, binding);
+                    if (!binding.EffectId.HasValue)
+                        StatelessBindingReduction.Record(state, binding);
+                }
                 state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
                 state.MultipleAttackPenalty.Set(entry.Creature, new MultipleAttackPenaltyState(0));
             }
+            state.Encounters.Set(updated.Id, updated);
+
+            ActiveEffectRegistration[] activeEffects = context
+                .Op.Additions.SelectMany(entry =>
+                    context.Op.Registrations[entry.Creature].ActiveEffects
+                )
+                .ToArray();
+            if (
+                !ActiveEffectAdoptionReduction.TryAdopt(
+                    registry,
+                    activeEffects,
+                    state,
+                    facts,
+                    out _,
+                    out rejection
+                )
+            )
+                return ReductionResult<EncounterJoinOutcome>.Reject(rejection);
             facts.Stage(new EncounterJoinedFact(updated));
             return ReductionResult<EncounterJoinOutcome>.Accept(new EncounterJoinOutcome(updated));
         }
@@ -431,6 +480,12 @@ namespace Game.Rules.Runtime
                     "At least one initiative assignment is required."
                 );
 
+            CreatureId[] assignments = context.Op.Entries.Select(entry => entry.Creature).ToArray();
+            if (assignments.Distinct().Count() != assignments.Length)
+                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
+                    "An initiative assignment batch cannot contain duplicate creatures."
+                );
+
             foreach (InitiativeEntry entry in context.Op.Entries)
             {
                 InitiativeEntry committed = encounter.Roster.SingleOrDefault(candidate =>
@@ -441,8 +496,26 @@ namespace Game.Rules.Runtime
                         $"Creature {entry.Creature.Value} has no matching committed initiative slot."
                     );
             }
+            int alreadyPublished = assignments.Count(creature =>
+                encounter.PublishedInitiativeAssignments.Contains(creature)
+            );
+            if (alreadyPublished == assignments.Length)
+                return ReductionResult<InitiativeAssignmentsOutcome>.Accept(
+                    new InitiativeAssignmentsOutcome(0)
+                );
+            if (alreadyPublished != 0)
+                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
+                    "The initiative assignment batch conflicts with a partially published checkpoint."
+                );
+
+            EncounterState updated = encounter.Replace(
+                publishedInitiativeAssignments: encounter.PublishedInitiativeAssignments.Concat(
+                    assignments
+                )
+            );
+            state.Encounters.Set(updated.Id, updated);
             foreach (InitiativeEntry entry in context.Op.Entries)
-                facts.Stage(new InitiativeAssignedFact(encounter.Id, entry));
+                facts.Stage(new InitiativeAssignedFact(updated.Id, entry));
             return ReductionResult<InitiativeAssignmentsOutcome>.Accept(
                 new InitiativeAssignmentsOutcome(context.Op.Entries.Count)
             );
@@ -471,6 +544,17 @@ namespace Game.Rules.Runtime
                 return ReductionResult<InitiativeBoundaryOutcome>.Reject(
                     "The current turn or pending initiative boundary must settle before initiative advances."
                 );
+            if (encounter.IsTurnStartPending)
+            {
+                InitiativeEntry pending = encounter.Roster[encounter.Cursor];
+                if (
+                    pending.EligibleFromRound.CompareTo(encounter.Round) <= 0
+                    && EncounterReduction.IsLiving(state, pending.Creature)
+                )
+                    return ReductionResult<InitiativeBoundaryOutcome>.Reject(
+                        "The published initiative boundary must begin its exact eligible turn before initiative advances."
+                    );
+            }
             int cursor = encounter.Cursor + 1;
             RoundNumber round = encounter.Round;
             if (cursor >= encounter.Roster.Count)
@@ -483,7 +567,8 @@ namespace Game.Rules.Runtime
                 round: round,
                 cursor: cursor,
                 clearCurrentTurn: true,
-                isInitiativeBoundaryPending: true
+                isInitiativeBoundaryPending: true,
+                isTurnStartPending: false
             );
             state.Encounters.Set(updated.Id, updated);
             List<ActiveEffectTimingState> due = new List<ActiveEffectTimingState>();
@@ -556,7 +641,11 @@ namespace Game.Rules.Runtime
                 return ReductionResult<EncounterAdvanceOutcome>.Reject(
                     "Only the exact pending initiative boundary can publish."
                 );
-            EncounterState updated = encounter.Replace(isInitiativeBoundaryPending: false);
+            EncounterState updated = encounter.Replace(
+                isInitiativeBoundaryPending: false,
+                isTurnStartPending: true,
+                turnStartAdapterProgress: TurnStartAdapterProgress.Initial
+            );
             state.Encounters.Set(updated.Id, updated);
             facts.Stage(
                 new InitiativeBoundaryReachedFact(updated.Id, updated.Round, context.Op.Actor)
@@ -588,6 +677,7 @@ namespace Game.Rules.Runtime
             if (
                 encounter.CurrentTurn.HasValue
                 || encounter.IsInitiativeBoundaryPending
+                || !encounter.IsTurnStartPending
                 || encounter.Roster[encounter.Cursor].Creature != context.Op.Actor
             )
                 return ReductionResult<EncounterAdvanceOutcome>.Reject(
@@ -606,15 +696,228 @@ namespace Game.Rules.Runtime
             );
             EncounterState updated = encounter.Replace(
                 currentTurn: turn,
-                nextTurnSequence: checked(encounter.NextTurnSequence + 1)
+                nextTurnSequence: checked(encounter.NextTurnSequence + 1),
+                isTurnStartPending: false
             );
             state.Encounters.Set(updated.Id, updated);
             state.ActionEconomy.Set(
                 context.Op.Actor,
-                new ActionEconomyState(context.Op.Actions, true)
+                new ActionEconomyState(context.Op.Actions, context.Op.ReactionAvailable)
             );
             state.MultipleAttackPenalty.Set(context.Op.Actor, new MultipleAttackPenaltyState(0));
             facts.Stage(new TurnBeganFact(turn));
+            return ReductionResult<EncounterAdvanceOutcome>.Accept(
+                new EncounterAdvanceOutcome(updated)
+            );
+        }
+    }
+
+    internal static class TurnStartAdapterProgressReduction
+    {
+        internal static bool TryAdvance(
+            RulesStateDraft state,
+            EncounterId encounterId,
+            RoundNumber round,
+            int slot,
+            CreatureId actor,
+            int expectedNextAdapterIndex,
+            TurnStartContribution priorContribution,
+            TurnStartContribution returnedContribution,
+            out EncounterState updated,
+            out TurnStartAdapterProgress advanced,
+            out string rejection
+        )
+        {
+            updated = null;
+            advanced = null;
+            if (
+                !EncounterReduction.TryGetActive(
+                    state,
+                    encounterId,
+                    out EncounterState encounter,
+                    out rejection
+                )
+            )
+                return false;
+            TurnStartAdapterProgress progress = encounter.TurnStartAdapterProgress;
+            if (
+                encounter.CurrentTurn.HasValue
+                || encounter.IsInitiativeBoundaryPending
+                || !encounter.IsTurnStartPending
+                || progress == null
+                || encounter.Round != round
+                || encounter.Cursor != slot
+                || encounter.Roster[encounter.Cursor].Creature != actor
+                || progress.NextAdapterIndex != expectedNextAdapterIndex
+                || progress.Contribution.Actions != priorContribution.Actions
+                || progress.Contribution.ReactionAvailable != priorContribution.ReactionAvailable
+                || expectedNextAdapterIndex == int.MaxValue
+            )
+            {
+                rejection = "Only the exact current turn-start adapter progress can advance.";
+                return false;
+            }
+            advanced = new TurnStartAdapterProgress(
+                checked(expectedNextAdapterIndex + 1),
+                returnedContribution
+            );
+            updated = encounter.Replace(turnStartAdapterProgress: advanced);
+            rejection = string.Empty;
+            return true;
+        }
+
+        internal static void Commit(
+            RulesStateDraft state,
+            FactSink facts,
+            EncounterState updated,
+            CreatureId actor,
+            TurnStartAdapterProgress advanced
+        )
+        {
+            state.Encounters.Set(updated.Id, updated);
+            facts.Stage(
+                new TurnStartAdapterProgressCommittedFact(
+                    updated.Id,
+                    updated.Round,
+                    updated.Cursor,
+                    actor,
+                    advanced
+                )
+            );
+        }
+    }
+
+    internal sealed class CommitTurnStartAdapterProgressReducer
+        : IOpReducer<CommitTurnStartAdapterProgressOp, TurnStartAdapterProgress>
+    {
+        public ReductionResult<TurnStartAdapterProgress> Reduce(
+            ReductionContext<CommitTurnStartAdapterProgressOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            if (
+                !TurnStartAdapterProgressReduction.TryAdvance(
+                    state,
+                    context.Op.Encounter,
+                    context.Op.Round,
+                    context.Op.Slot,
+                    context.Op.Actor,
+                    context.Op.ExpectedNextAdapterIndex,
+                    context.Op.PriorContribution,
+                    context.Op.ReturnedContribution,
+                    out EncounterState updated,
+                    out TurnStartAdapterProgress advanced,
+                    out string rejection
+                )
+            )
+                return ReductionResult<TurnStartAdapterProgress>.Reject(rejection);
+            TurnStartAdapterProgressReduction.Commit(
+                state,
+                facts,
+                updated,
+                context.Op.Actor,
+                advanced
+            );
+            return ReductionResult<TurnStartAdapterProgress>.Accept(advanced);
+        }
+    }
+
+    internal sealed class CommitTurnStartDamageBatchReducer
+        : IOpReducer<CommitTurnStartDamageBatchOp, CommitTurnStartDamageBatchOutcome>
+    {
+        public ReductionResult<CommitTurnStartDamageBatchOutcome> Reduce(
+            ReductionContext<CommitTurnStartDamageBatchOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            if (
+                !TurnStartAdapterProgressReduction.TryAdvance(
+                    state,
+                    context.Op.Encounter,
+                    context.Op.Round,
+                    context.Op.Slot,
+                    context.Op.Actor,
+                    context.Op.ExpectedNextAdapterIndex,
+                    context.Op.PriorContribution,
+                    context.Op.ReturnedContribution,
+                    out EncounterState updated,
+                    out TurnStartAdapterProgress advanced,
+                    out string rejection
+                )
+            )
+                return ReductionResult<CommitTurnStartDamageBatchOutcome>.Reject(rejection);
+
+            List<DamageOutcome> outcomes = new List<DamageOutcome>(context.Op.Changes.Count);
+            foreach (HealthBatchChange change in context.Op.Changes)
+            {
+                ReductionResult<DamageOutcome> result = DamageReduction.Commit(
+                    state,
+                    facts,
+                    change.Target,
+                    change.Amount,
+                    change.Origin
+                );
+                if (result.IsRejected)
+                    return ReductionResult<CommitTurnStartDamageBatchOutcome>.Reject(
+                        result.RejectionReason
+                    );
+                outcomes.Add(result.Value);
+            }
+            TurnStartAdapterProgressReduction.Commit(
+                state,
+                facts,
+                updated,
+                context.Op.Actor,
+                advanced
+            );
+            return ReductionResult<CommitTurnStartDamageBatchOutcome>.Accept(
+                new CommitTurnStartDamageBatchOutcome(advanced, outcomes)
+            );
+        }
+    }
+
+    internal sealed class CommitInitiativeTurnStartSkippedReducer
+        : IOpReducer<CommitInitiativeTurnStartSkippedOp, EncounterAdvanceOutcome>
+    {
+        public ReductionResult<EncounterAdvanceOutcome> Reduce(
+            ReductionContext<CommitInitiativeTurnStartSkippedOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            if (
+                !EncounterReduction.TryGetActive(
+                    state,
+                    context.Op.Encounter,
+                    out EncounterState encounter,
+                    out string rejection
+                )
+            )
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(rejection);
+            if (
+                encounter.CurrentTurn.HasValue
+                || encounter.IsInitiativeBoundaryPending
+                || !encounter.IsTurnStartPending
+                || encounter.Round != context.Op.Round
+                || encounter.Cursor != context.Op.Slot
+                || encounter.Roster[encounter.Cursor].Creature != context.Op.Actor
+                || EncounterReduction.IsLiving(state, context.Op.Actor)
+            )
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "Only the exact published zero-HP turn start can be skipped."
+                );
+            EncounterState updated = encounter.Replace(isTurnStartPending: false);
+            state.Encounters.Set(updated.Id, updated);
+            facts.Stage(
+                new InitiativeTurnStartSkippedFact(
+                    updated.Id,
+                    updated.Round,
+                    updated.Cursor,
+                    context.Op.Actor
+                )
+            );
             return ReductionResult<EncounterAdvanceOutcome>.Accept(
                 new EncounterAdvanceOutcome(updated)
             );
@@ -692,7 +995,8 @@ namespace Game.Rules.Runtime
             EncounterState updated = encounter.Replace(
                 phase: EncounterPhase.Suspended,
                 clearCurrentTurn: true,
-                isInitiativeBoundaryPending: false
+                isInitiativeBoundaryPending: false,
+                isTurnStartPending: false
             );
             state.Encounters.Set(updated.Id, updated);
             state.RuleBindings.Remove(EncounterRuleRuntime.OutcomeBindingId(updated.Id));
@@ -746,7 +1050,8 @@ namespace Game.Rules.Runtime
                 phase: EncounterPhase.Ended,
                 clearCurrentTurn: true,
                 outcome: actual,
-                isInitiativeBoundaryPending: false
+                isInitiativeBoundaryPending: false,
+                isTurnStartPending: false
             );
             state.Encounters.Set(updated.Id, updated);
             state.RuleBindings.Remove(EncounterRuleRuntime.OutcomeBindingId(updated.Id));

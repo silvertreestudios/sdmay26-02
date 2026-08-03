@@ -4,12 +4,15 @@ using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Spells;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
 using AdvanceMultipleAttackPenaltyOp = Game.Rules.Runtime.AdvanceMultipleAttackPenaltyOp;
 using CreatureId = Game.Rules.Runtime.CreatureId;
+using DegreeOfSuccess = Game.Creature.DegreeOfSuccess;
 using InvalidMapOpResult = Game.Rules.Runtime.InvalidOpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
 using MapOpResult = Game.Rules.Runtime.OpResult<Game.Rules.Runtime.MultipleAttackPenaltyState>;
 using MultipleAttackPenaltyState = Game.Rules.Runtime.MultipleAttackPenaltyState;
@@ -106,15 +109,83 @@ namespace Game.Combat.Spells
             bool spendActions = true
         )
         {
+            ActionController controller = caster?.GetComponent<ActionController>();
+            if (
+                controller != null
+                && controller.TryGetCombatRules(
+                    out UnityCombatRulesBridge bridge,
+                    out CreatureId actor
+                )
+            )
+                return CastEncounter(
+                    bridge,
+                    actor,
+                    controller,
+                    spell,
+                    actionCost,
+                    new SpellTargetSelection(targets, area),
+                    spendActions,
+                    CreateInvocationId("programmatic-cast")
+                );
             if (!SpellRegistry.TryGet(spell?.Slug, out ISpellDefinition definition))
                 return Fail(
                     new CastSpellResult(),
                     spell == null ? "Spell is not prepared." : spell.Name + " is not implemented.",
-                    caster != null ? caster.GetComponent<ActionController>() : null
+                    controller
                 );
 
             SpellCastContext context = new(caster, spell, actionCost, spendActions, definition);
             return Cast(context, new SpellTargetSelection(targets, area));
+        }
+
+        /// <summary>
+        /// Attempts one encounter-authoritative cast using a caller-owned identity that can be
+        /// supplied again after an uncertain post-commit failure.
+        /// </summary>
+        /// <param name="invocationId">The stable identity shared by every exact retry.</param>
+        /// <param name="caster">The rules-enrolled Unity caster.</param>
+        /// <param name="spell">The exact prepared spell and rank.</param>
+        /// <param name="actionCost">The definition-owned action variant.</param>
+        /// <param name="targets">Player-selected creatures for a targeted spell.</param>
+        /// <param name="area">The authoritative placement and affected set for an area spell.</param>
+        /// <returns>The structural cast result projected for existing Unity callers.</returns>
+        public static CastSpellResult CastEncounterAttempt(
+            ActionInvocationId invocationId,
+            GameObject caster,
+            PreparedSpell spell,
+            uint actionCost,
+            IReadOnlyList<GameObject> targets = null,
+            AreaTargetResult area = null
+        )
+        {
+            if (invocationId.IsEmpty)
+                throw new ArgumentException(
+                    "An encounter cast invocation identity is required.",
+                    nameof(invocationId)
+                );
+            ActionController controller = caster?.GetComponent<ActionController>();
+            if (
+                controller == null
+                || !controller.TryGetCombatRules(
+                    out UnityCombatRulesBridge bridge,
+                    out CreatureId actor
+                )
+            )
+                return Fail(
+                    new CastSpellResult(),
+                    "Encounter spellcasting requires active combat rules authority.",
+                    controller
+                );
+            return CastEncounter(
+                bridge,
+                actor,
+                controller,
+                spell,
+                actionCost,
+                new SpellTargetSelection(targets, area),
+                spendActions: true,
+                invocationId: invocationId
+            );
         }
 
         public static CastSpellResult Cast(SpellCastContext context, SpellTargetSelection selection)
@@ -123,9 +194,22 @@ namespace Game.Combat.Spells
             CreatureComponent creature = context.CasterCreature;
             ActionController controller = context.ActionController;
             SpellcastingState state = context.Spellcasting;
-            if (controller != null && controller.TryGetCombatRules(out _, out _))
-                throw new InvalidOperationException(
-                    "Legacy spell resolution cannot run during an encounter."
+            if (
+                controller != null
+                && controller.TryGetCombatRules(
+                    out UnityCombatRulesBridge bridge,
+                    out CreatureId actor
+                )
+            )
+                return CastEncounter(
+                    bridge,
+                    actor,
+                    controller,
+                    context.Spell,
+                    context.ActionCost,
+                    selection,
+                    context.SpendActions,
+                    CreateInvocationId("programmatic-cast")
                 );
             if (
                 context.Caster == null
@@ -157,13 +241,13 @@ namespace Game.Combat.Spells
                     {
                         if (
                             controller.TryGetCombatRules(
-                                out UnityCombatRulesBridge bridge,
-                                out CreatureId actor
+                                out UnityCombatRulesBridge mapBridge,
+                                out CreatureId mapActor
                             )
                         )
                         {
-                            MapOpResult map = bridge.Dispatch(
-                                new AdvanceMultipleAttackPenaltyOp(actor)
+                            MapOpResult map = mapBridge.Dispatch(
+                                new AdvanceMultipleAttackPenaltyOp(mapActor)
                             );
                             if (map is InvalidMapOpResult invalid)
                                 throw new InvalidOperationException(invalid.Reason);
@@ -188,6 +272,181 @@ namespace Game.Combat.Spells
             log?.Log("- " + context.Caster.name + " casts " + context.Spell.Name + ".");
             return result;
         }
+
+        internal static bool TryCreateRulesSelection(
+            UnityCombatRulesBridge bridge,
+            IEnumerable<GameObject> targets,
+            out SpellCastSelection selection,
+            out string reason
+        )
+        {
+            if (bridge == null)
+                throw new ArgumentNullException(nameof(bridge));
+            List<CreatureId> ids = new();
+            HashSet<CreatureId> selected = new();
+            foreach (GameObject target in targets ?? Array.Empty<GameObject>())
+            {
+                CreatureComponent creature = target?.GetComponent<CreatureComponent>();
+                if (creature == null || !bridge.TryGetCreatureId(creature, out CreatureId id))
+                {
+                    selection = SpellCastSelection.Empty;
+                    reason = "A selected spell target is not registered in the active encounter.";
+                    return false;
+                }
+                if (!selected.Add(id))
+                {
+                    selection = SpellCastSelection.Empty;
+                    reason = "A spell request cannot select the same creature more than once.";
+                    return false;
+                }
+                ids.Add(id);
+            }
+            selection = new SpellCastSelection(ids);
+            reason = string.Empty;
+            return true;
+        }
+
+        internal static bool TryCreateRulesAreaSelection(
+            UnityCombatRulesBridge bridge,
+            AreaTargetResult area,
+            out SpellCastSelection selection,
+            out string reason
+        )
+        {
+            if (bridge == null)
+                throw new ArgumentNullException(nameof(bridge));
+            if (area?.Placement == null)
+            {
+                selection = SpellCastSelection.Empty;
+                reason = "An authoritative area placement is required.";
+                return false;
+            }
+            if (
+                !TryCreateRulesSelection(
+                    bridge,
+                    area.Creatures.Where(value => value.IsAffected).Select(value => value.Creature),
+                    out SpellCastSelection targets,
+                    out reason
+                )
+            )
+            {
+                selection = SpellCastSelection.Empty;
+                return false;
+            }
+            SpellAreaPlacement rulesPlacement = UnitySpellAreaAdapter.ToRulesPlacement(
+                area.Placement
+            );
+            selection = new SpellCastSelection(
+                rulesPlacement,
+                targets.Creatures.OrderBy(id => id.Value, StringComparer.Ordinal)
+            );
+            reason = string.Empty;
+            return true;
+        }
+
+        private static CastSpellResult CastEncounter(
+            UnityCombatRulesBridge bridge,
+            CreatureId actor,
+            ActionController controller,
+            PreparedSpell spell,
+            uint actionCost,
+            SpellTargetSelection selection,
+            bool spendActions,
+            ActionInvocationId invocationId
+        )
+        {
+            CastSpellResult result = new();
+            if (!spendActions)
+                throw new InvalidOperationException(
+                    "Encounter spellcasting cannot bypass authoritative action costs."
+                );
+            if (spell == null || actionCost == 0 || actionCost > 3)
+                return Fail(result, "The encounter spell request is incomplete.", controller);
+            SpellTargetSelection requested = selection ?? SpellTargetSelection.None;
+            if (requested.Area != null && requested.Targets.Count != 0)
+                return Fail(
+                    result,
+                    "A spell request cannot combine creature targets with an area selection.",
+                    controller
+                );
+            GameObject[] targets =
+                requested.Area == null
+                    ? requested.Targets.ToArray()
+                    : requested
+                        .Area.Creatures.Where(creature => creature.IsAffected)
+                        .Select(creature => creature.Creature)
+                        .ToArray();
+            SpellCastSelection rules;
+            string reason;
+            bool selected =
+                requested.Area != null
+                    ? TryCreateRulesAreaSelection(bridge, requested.Area, out rules, out reason)
+                    : TryCreateRulesSelection(bridge, targets, out rules, out reason);
+            if (!selected)
+                return Fail(result, reason, controller);
+            CastSpellActionOp operation = new(
+                invocationId,
+                actor,
+                new SpellReference(new SpellId(spell.Slug), spell.Rank),
+                new SpellActionVariant((int)actionCost),
+                rules
+            );
+            OpResult<CastSpellOutcome> dispatched = bridge.Dispatch(operation);
+            if (dispatched is InvalidOpResult<CastSpellOutcome> invalid)
+                return Fail(result, invalid.Reason, controller);
+            if (dispatched is InterruptedOpResult<CastSpellOutcome>)
+                return Fail(result, "Cast a Spell was interrupted.", controller);
+            if (dispatched is CancelledOpResult<CastSpellOutcome>)
+                return Fail(result, "Cast a Spell was cancelled.", controller);
+            if (dispatched is not ResolvedOpResult<CastSpellOutcome> resolved)
+                throw new InvalidOperationException(
+                    "Cast a Spell returned an unknown structural result."
+                );
+
+            result.Success = true;
+            result.Targets.AddRange(targets);
+            foreach (SpellAttackResolution attack in resolved.Value.Attacks)
+            {
+                result.Amount += attack.FinalDamage;
+                result.Rolls.Add(
+                    new D20Result
+                    {
+                        roll = attack.AttackRoll.Values[0],
+                        total = checked(attack.AttackRoll.Total + attack.AttackModifier),
+                        degree = ToLegacyDegree(attack.Degree),
+                    }
+                );
+            }
+            foreach (SpellSaveResolution save in resolved.Value.Saves)
+            {
+                result.Amount += save.FinalDamage;
+                result.Rolls.Add(
+                    new D20Result
+                    {
+                        roll = save.Check.Roll.Values[0],
+                        total = save.Check.Total,
+                        degree = ToLegacyDegree(save.Check.Degree),
+                    }
+                );
+            }
+            if (controller != null)
+                controller.IsTakingAction = false;
+            return result;
+        }
+
+        private static ActionInvocationId CreateInvocationId(string prefix) =>
+            new($"{prefix}-{Guid.NewGuid():N}");
+
+        private static DegreeOfSuccess ToLegacyDegree(Game.Rules.Runtime.DegreeOfSuccess degree) =>
+            degree switch
+            {
+                Game.Rules.Runtime.DegreeOfSuccess.CriticalFailure => DegreeOfSuccess.CriticalFail,
+                Game.Rules.Runtime.DegreeOfSuccess.Failure => DegreeOfSuccess.Fail,
+                Game.Rules.Runtime.DegreeOfSuccess.Success => DegreeOfSuccess.Success,
+                Game.Rules.Runtime.DegreeOfSuccess.CriticalSuccess =>
+                    DegreeOfSuccess.CriticalSuccess,
+                _ => throw new ArgumentOutOfRangeException(nameof(degree)),
+            };
 
         public static int SpellAttackModifier(CreatureComponent caster)
         {
@@ -260,7 +519,6 @@ namespace Game.Combat.Spells
             GameObject target,
             Dice dice,
             CastSpellResult result,
-            bool applyDeafenedOnCriticalFailure,
             RuleSource source
         )
         {
@@ -274,7 +532,6 @@ namespace Game.Combat.Spells
                 target,
                 new DamageValue(dice.damageType, damage.TotalDamage),
                 result,
-                applyDeafenedOnCriticalFailure,
                 source
             );
         }
@@ -284,7 +541,6 @@ namespace Game.Combat.Spells
             GameObject target,
             DamageValue damage,
             CastSpellResult result,
-            bool applyDeafenedOnCriticalFailure,
             RuleSource source
         )
         {
@@ -297,11 +553,6 @@ namespace Game.Combat.Spells
             int amount = BasicSaveDamage(damage.DamageAmount, save.degree);
             if (amount > 0)
                 targetCreature.ApplyFinalDamage(amount, source);
-            if (applyDeafenedOnCriticalFailure && save.degree == DegreeOfSuccess.CriticalFail)
-                (target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>()).Add(
-                    "Deafened",
-                    new ConditionSource()
-                );
             result.Targets.Add(target);
             result.Amount += amount;
         }

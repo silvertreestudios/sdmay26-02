@@ -22,9 +22,9 @@ namespace Game.Rules.Runtime
             BoundMiddlewareRegistration right
         )
         {
-            // The first selected middleware is the outermost wrapper. Reverse phase nesting makes
-            // the returned result settle in semantic phase order, leaving Observation last so it
-            // sees every transformation and reaction applied by inner middleware.
+            // The first selected middleware is the outermost wrapper. Entry is Observation,
+            // Reaction, Transformation, Prevention; return is Prevention, Transformation,
+            // Reaction, Observation, so Observation sees the fully settled inner result.
             int phase = right.Registration.Phase.CompareTo(left.Registration.Phase);
             if (phase != 0)
                 return phase;

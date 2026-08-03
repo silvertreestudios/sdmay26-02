@@ -29,12 +29,13 @@ namespace Game.Rules.Runtime
             ActionRuntimeConfiguration.Unconfigured;
 
         /// <summary>
-        /// Initializes a dispatcher builder with production roll and sequential operation-ID sources.
+        /// Initializes a dispatcher builder with production rolls and operation IDs that rebase
+        /// against persisted binding and active-effect timing creation orders before each allocation.
         /// </summary>
         /// <param name="store">The store used for snapshots and reducer commits.</param>
         /// <exception cref="ArgumentNullException"><paramref name="store"/> is <see langword="null"/>.</exception>
         public RuleDispatcherBuilder(IRulesStore store)
-            : this(store, new RandomRollService(), new SequentialOpIdProvider()) { }
+            : this(store, new RandomRollService(), CreateDefaultOpIdProvider(store)) { }
 
         /// <summary>
         /// Initializes a dispatcher builder with an explicit operation-ID source and production rolls.
@@ -48,7 +49,9 @@ namespace Game.Rules.Runtime
             : this(store, new RandomRollService(), ids) { }
 
         /// <summary>
-        /// Initializes a dispatcher builder with an explicit roll source and sequential operation IDs.
+        /// Initializes a dispatcher builder with an explicit roll source and operation IDs that
+        /// rebase against persisted binding and active-effect timing creation orders before each
+        /// allocation.
         /// </summary>
         /// <param name="store">The store used for snapshots and reducer commits.</param>
         /// <param name="rollService">The required production, replay, or scripted roll source.</param>
@@ -56,7 +59,7 @@ namespace Game.Rules.Runtime
         /// <paramref name="store"/> or <paramref name="rollService"/> is <see langword="null"/>.
         /// </exception>
         public RuleDispatcherBuilder(IRulesStore store, IRollService rollService)
-            : this(store, rollService, new SequentialOpIdProvider()) { }
+            : this(store, rollService, CreateDefaultOpIdProvider(store)) { }
 
         /// <summary>
         /// Initializes a dispatcher builder with explicit roll and operation-ID sources.
@@ -70,6 +73,68 @@ namespace Game.Rules.Runtime
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
+        }
+
+        private static IOpIdProvider CreateDefaultOpIdProvider(IRulesStore store)
+        {
+            if (store == null)
+                throw new ArgumentNullException(nameof(store));
+            return new StoreRebasedOpIdProvider(store);
+        }
+
+        /// <summary>
+        /// Keeps default operation IDs above both prior allocations and creation orders adopted
+        /// into the store after dispatcher construction.
+        /// </summary>
+        private sealed class StoreRebasedOpIdProvider : IOpIdProvider
+        {
+            private readonly IRulesStore store;
+            private long next;
+            private bool isExhausted;
+
+            internal StoreRebasedOpIdProvider(IRulesStore store)
+            {
+                this.store = store;
+                next = NextAfterMaximumCreationOrder(store.Snapshot);
+            }
+
+            /// <inheritdoc/>
+            public OpId Next()
+            {
+                if (isExhausted)
+                    throw Exhausted();
+
+                long rebased = NextAfterMaximumCreationOrder(store.Snapshot);
+                long value = Math.Max(next, rebased);
+                if (value == long.MaxValue)
+                    isExhausted = true;
+                else
+                    next = value + 1;
+                return new OpId(value);
+            }
+
+            private static long NextAfterMaximumCreationOrder(RulesSnapshot snapshot)
+            {
+                long maximumCreationOrder = 0;
+                foreach (KeyValuePair<BindingId, ActiveRuleBinding> pair in snapshot.RuleBindings)
+                    maximumCreationOrder = Math.Max(maximumCreationOrder, pair.Value.CreationOrder);
+                foreach (
+                    KeyValuePair<
+                        ActiveEffectId,
+                        ActiveEffectTimingState
+                    > pair in snapshot.ActiveEffectTimings
+                )
+                    maximumCreationOrder = Math.Max(maximumCreationOrder, pair.Value.CreationOrder);
+
+                if (maximumCreationOrder == long.MaxValue)
+                    throw Exhausted();
+                return maximumCreationOrder + 1;
+            }
+
+            private static InvalidOperationException Exhausted() =>
+                new InvalidOperationException(
+                    "The persisted operation ID creation-order sequence is exhausted."
+                );
         }
 
         /// <summary>
@@ -98,12 +163,13 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Registers a transactional reducer as a nested-only resolver.
+        /// Registers a transactional reducer.
         /// </summary>
         /// <typeparam name="TOp">The operation reduced by <paramref name="reducer"/>.</typeparam>
         /// <typeparam name="TResult">The accepted value produced by the reducer.</typeparam>
         /// <param name="reducer">The reducer that validates and stages state changes and facts.</param>
         /// <param name="source">The rule source stamped onto facts committed by this reducer.</param>
+        /// <param name="policy">Whether the reducer may begin as a root dispatch.</param>
         /// <returns>This builder so registrations can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="reducer"/> is <see langword="null"/>.</exception>
         /// <exception cref="ArgumentException"><paramref name="source"/> is empty.</exception>
@@ -113,7 +179,8 @@ namespace Game.Rules.Runtime
         /// </exception>
         public RuleDispatcherBuilder RegisterReducer<TOp, TResult>(
             IOpReducer<TOp, TResult> reducer,
-            RuleSource source
+            RuleSource source,
+            InvocationPolicy policy = InvocationPolicy.NestedOnly
         )
             where TOp : IRuleOp<TResult>
         {
@@ -124,7 +191,7 @@ namespace Game.Rules.Runtime
                     "A reducer registration requires a rule source.",
                     nameof(source)
                 );
-            Add(new ReducerRegistration<TOp, TResult>(reducer, source));
+            Add(new ReducerRegistration<TOp, TResult>(reducer, source, policy));
             return this;
         }
 
@@ -145,6 +212,7 @@ namespace Game.Rules.Runtime
                 new ReducerRegistration<TOp, TResult>(
                     reducer,
                     source,
+                    InvocationPolicy.NestedOnly,
                     ResolverMiddlewarePolicy.Disabled
                 )
             );
@@ -270,6 +338,7 @@ namespace Game.Rules.Runtime
                 typeof(CollectSkillCheckModifiersOp),
                 typeof(CollectSavingThrowModifiersOp),
                 typeof(CollectAttackModifiersOp),
+                typeof(CollectDefenseModifiersOp),
             };
             foreach (Type reservedType in reservedTypes)
             {
@@ -314,6 +383,12 @@ namespace Game.Rules.Runtime
             Add(
                 new HandlerRegistration<CollectAttackModifiersOp, ModifierCollection>(
                     new CollectAttackModifiersHandler(selectors),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<CollectDefenseModifiersOp, ModifierCollection>(
+                    new CollectDefenseModifiersHandler(),
                     InvocationPolicy.NestedOnly
                 )
             );
@@ -447,6 +522,16 @@ namespace Game.Rules.Runtime
                     new ReducerRegistration<CommitActionCostsOp, ActionCostsOutcome>(
                         new CommitActionCostsReducer(),
                         RuleSource.FromSlug("action-lifecycle"),
+                        InvocationPolicy.NestedOnly,
+                        ResolverMiddlewarePolicy.Disabled
+                    )
+                );
+                AddLifecycleRegistration(
+                    completedRegistrations,
+                    new ReducerRegistration<InterruptReceiptedActionOp, ActionStartOutcome>(
+                        new InterruptReceiptedActionReducer(),
+                        RuleSource.FromSlug("action-lifecycle"),
+                        InvocationPolicy.NestedOnly,
                         ResolverMiddlewarePolicy.Disabled
                     )
                 );

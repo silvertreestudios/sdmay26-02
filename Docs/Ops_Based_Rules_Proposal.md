@@ -138,7 +138,9 @@ public abstract record ActionOp<TResult>(
     CreatureId Actor,
     ActionDefinitionId DefinitionId) : IRuleOp<TResult>
 {
-    public abstract ActionProfile GetBaseProfile(IActionCatalog catalog);
+    public abstract ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot);
 }
 ```
 
@@ -153,7 +155,9 @@ public sealed record StrikeActionOp(
     CreatureId Target)
     : ActionOp<StrikeResolution>(Actor, ActionIds.Strike)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot)
     {
         var weapon = catalog.GetWeaponDefinition(Weapon);
 
@@ -164,7 +168,7 @@ public sealed record StrikeActionOp(
 }
 ```
 
-`GetBaseProfile` does not read live combat state. It reads stable definition data captured by IDs in the Op. Live state is handled by the profile resolver described below.
+`GetBaseProfile` reads stable operation and catalog data plus the dispatcher-captured start snapshot. It must not query another rules-state authority. Most actions use only definition data; an actor-owned metadata adapter may use snapshot membership to decide whether a strict external binding is applicable. Further profile changes based on live rules state are handled by the profile resolver described below.
 
 ### 3.3 ActionProfile
 
@@ -186,7 +190,9 @@ The fields have different jobs:
 Traits do not determine reaction eligibility by themselves. A Step still has `Trait.Move`, but its profile sets `CanTriggerReactions` to `false`. Lifecycle Ops still occur for consistency and so non-reaction rules can observe what happened. Each reaction must inspect the originating action's frozen profile and return without prompting when `CanTriggerReactions` is `false`; it then matches its own trigger wording against the originating Op, its traits, and any needed geometry.
 
 ```csharp
-public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+public override ActionProfile GetBaseProfile(
+    IActionCatalog catalog,
+    RulesSnapshot snapshot) =>
     ActionProfile.OneAction(
         traits: [Trait.Move],
         canTriggerReactions: false); // Step triggers no reactions.
@@ -495,7 +501,7 @@ Middleware is appropriate when a rule needs to inspect or alter an in-progress o
 - a replacement effect around a damage lifecycle Op;
 - a reaction around `MovementLeavingSquareOp`.
 
-Middleware ordering is deterministic, using the fixed semantic phases `Prevention`, `Transformation`, `Reaction`, and `Observation`, followed by active binding creation order and binding ID. Middleware nests in reverse phase order so returned results settle through those semantic phases in the listed order: observation wrappers therefore see the result after transformation and reaction middleware has finished. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
+Middleware ordering is deterministic. Before ordinary resolution, wrappers enter in `Observation`, `Reaction`, `Transformation`, then `Prevention` order; the result returns through `Prevention`, `Transformation`, `Reaction`, then `Observation`. Observation is therefore outermost and sees the fully settled result after rules-changing inner phases finish. Within a phase, active bindings enter by creation order, binding ID, and registration order, then return in the reverse of that within-phase order. The first-pass design does not expose numeric priorities, which would create hard-to-see dependencies across unrelated rules. If two rules need meaningful ordering, represent that relationship with distinct lifecycle Ops or phases.
 
 Middleware may dispatch nested Ops and await their typed results. Its `next()` continuation and a
 nested dispatch share one callback-owned in-flight work slot: middleware must consume either result
@@ -625,13 +631,14 @@ private async ValueTask<OpResult<TResult>> DispatchAction<TResult>(
     DispatchRequest request)
 {
     var frame = CreateActionFrame(action, request);
+    var snapshot = store.Snapshot;
     var profile = profileResolver.Resolve(
         ActionOpInfo.From(frame),
-        action.GetBaseProfile(actionCatalog),
-        store.Snapshot);
+        action.GetBaseProfile(actionCatalog, snapshot),
+        snapshot);
     frame = frame with { ActionProfile = profile };
 
-    var validation = validators.Validate(frame, store.Snapshot);
+    var validation = validators.Validate(frame, snapshot);
     if (!validation.IsValid)
         return OpResult<TResult>.Invalid(validation.Reason);
 
@@ -1016,6 +1023,11 @@ A composition root is the narrow exception. It may name a feature module to regi
 handlers, listeners, or initial bindings. That reference selects installed behavior; it must not
 reimplement the feature's validation or workflow.
 
+In production Unity composition, additional modules that own static definitions implement an
+explicit stateless registry-contribution capability. The root materializes them once, invokes
+contributors in deterministic module order before the one registry build, and composes those exact
+same instances afterward. This is explicit wiring, not discovery or feature self-registration.
+
 For example, general encounter code can publish an `InitiativeRolledFact`. A Quick-Tempered binding
 can listen for that Fact and own the decision to start Rage. Likewise, a Rage action-bar adapter can
 construct `RageActionOp` and pass it through a generic dispatch boundary; the bridge does not need a
@@ -1050,7 +1062,9 @@ public sealed record StrikeActionOp(
     CreatureId Target)
     : ActionOp<StrikeResolution>(Actor, ActionIds.Strike)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot)
     {
         var weapon = catalog.GetWeaponDefinition(Weapon);
 
@@ -1268,7 +1282,9 @@ public sealed record ReactiveStrikeActionOp(
     BindingId AuthorizedBinding)
     : ActionOp<ReactiveStrikeOutcome>(Actor, ActionIds.ReactiveStrike)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot) =>
         ActionProfile.Reaction(
             traits: [Trait.Attack],
             canTriggerReactions: true);
@@ -1477,7 +1493,9 @@ public sealed record CastSpellActionOp(
     ISpellTargetSelection Targets)
     : ActionOp<CastSpellOutcome>(Actor, ActionIds.CastSpell)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot)
     {
         var variant = catalog.GetSpellVariant(Spell, Variant);
         return new ActionProfile(
@@ -1498,7 +1516,9 @@ public sealed record SustainBlessActionOp(
     ActiveEffectId BlessEffect)
     : ActionOp<SustainBlessOutcome>(Actor, ActionIds.SustainSpell)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot) =>
         ActionProfile.OneAction(
             traits: [Trait.Concentrate],
             canTriggerReactions: true);
@@ -1688,7 +1708,9 @@ public sealed record TumbleThroughActionOp(
     MovementMode Mode)
     : ActionOp<TumbleThroughOutcome>(Actor, ActionIds.TumbleThrough)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot) =>
         ActionProfile.OneAction(
             traits: [Trait.Move],
             canTriggerReactions: true);
@@ -1901,7 +1923,9 @@ public sealed record CranialDetonationActionOp(
         Actor,
         ActionIds.CranialDetonation)
 {
-    public override ActionProfile GetBaseProfile(IActionCatalog catalog) =>
+    public override ActionProfile GetBaseProfile(
+        IActionCatalog catalog,
+        RulesSnapshot snapshot) =>
         new(
             ActionCost.FreeAction,
             [RuleCost.OncePerRound(AuthorizedBinding)],
@@ -2307,14 +2331,14 @@ production composition and operational procedure.
 | Area | Status | Current production boundary or deferred work |
 | --- | --- | --- |
 | Runtime foundation | Implemented | `RulesState`, immutable snapshots, structural results, frames, nested/causal dispatch, reducers, middleware, typed Fact observers/listeners, active bindings, typed prompts, deterministic rolls, trace, and root/causal-tree settlement are in `Game.Rules.Runtime`. |
-| Encounter lifecycle | Implemented | Rules own roster, initiative, round/cursor, exact turns, action economy, reaction availability, MAP reset, outcome, reinforcement joins, defeat finalization, and active-effect clocks. Unity presentation waits for causal settlement. |
-| Explicit Unity composition and enrollment | Implemented | `UnityEncounterModuleSet`, capability-based `UnityEncounterComposition`, reversible `UnityCombatantEnrollmentPipeline`, initial seed, reinforcement `JoinEncounterOp`, exact attachments, and one `CompositeLifetime` cleanup boundary are production. |
+| Encounter lifecycle | Implemented | Rules own roster, initiative, round/cursor, exact turns, action economy, reaction availability, MAP reset, outcome, reinforcement joins, defeat finalization, and active-effect clocks. A durable checkpoint distinguishes an already published exact initiative slot whose turn has not begun; generic advancement resumes that slot, and Unity host recovery starts a new root after deferred notification failure without consuming another boundary. Unity presentation waits for causal settlement. |
+| Explicit Unity composition and enrollment | Implemented | `UnityEncounterModuleSet`, capability-based `UnityEncounterComposition`, deterministic pre-build registry contributions from exact module instances, reversible `UnityCombatantEnrollmentPipeline`, duplicate-rejecting initial seed, reinforcement `JoinEncounterOp` with atomic prepared active-effect adoption, exact replay receipts, exact attachments, and one `CompositeLifetime` cleanup boundary are production. |
 | Health | Implemented for encounter cutover | Reducer-backed damage, healing, temporary HP, immunity, zero-HP and defeat Facts are authoritative and project to `CreatureComponent`. Some upstream damage calculations outside migrated actions remain transitional. |
 | Strike and Reload | Implemented production slice | `StrikeActionOp`, `ResolveStrikeOp`, action costs, rules rolls/damage, ammunition/loaded state, MAP, validation, Unity action installation, and presentation are rules-backed. |
 | Movement and Stride | Implemented production slice | Authoritative positions, budgets, permissions, topology provider, movement timing Ops/Facts, relocation, selection, and Stride are rules-backed. Step and Tumble Through are not production actions. |
 | Checks and saves | Foundation implemented | Generic check, skill-check, saving-throw, modifier collection, deterministic roll, and degree-of-success paths exist. Additional action/content integrations remain vertical work. |
-| Active effects and bindings | Foundation implemented | Generic create/update/expire/remove state, encounter timing, restored finite spell-effect adoption, and typed binding selection exist. The conceptual Bless aura state and Sustain workflow do not. |
-| Rage | Implemented production slice | Rules own availability, costs, active effect/binding behavior, temporary HP interaction, and Quick-Tempered listener behavior; Unity prepared-character extraction remains an adapter. |
+| Active effects and bindings | Foundation implemented | Generic create/update/expire/remove state, encounter timing, restored finite spell-effect adoption, exact enabled-binding/active-effect selection, and centralized active-condition immunity validation exist. The conceptual Bless aura state and Sustain workflow do not. |
+| Rage | Implemented production slice | Rules own snapshot-derived availability, costs, active effect/binding behavior, actor-and-root-scoped temporary HP receipts, Quick-Tempered listener behavior, turn-start retry of expired cleanup before adapters, and Prevention cleanup before encounter end or suspension; Unity prepared-character extraction and action installation remain adapters. |
 | Spellcasting | Partially implemented production slice | Generic Cast a Spell lifecycle, spell slots, supported definitions/variants, spell attacks, selected effects, restored-effect timing, action installation, and presentation are rules-backed. The full spell catalog and every targeting/effect form are not migrated. |
 | Reactions | Runtime capability implemented; content deferred | Reaction costs and `ActionBegunOp` middleware timing exist. The Reactive Strike example is not implemented. |
 | Bless example | Deferred | The conceptual `BlessAuraState`, derived aura middleware, and Sustain Bless action are not production types. Existing imported/restored Bless presentation does not imply this example exists. |

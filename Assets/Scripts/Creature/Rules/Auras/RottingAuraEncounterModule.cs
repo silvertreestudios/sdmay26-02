@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Game.Rules.Runtime;
@@ -40,14 +41,22 @@ namespace Game.Creature.Rules
                     actor,
                     combatants,
                     owner.CurrentTiles,
-                    async (target, amount, source) =>
+                    async (target, results) =>
                     {
                         CreatureId targetId = owner.GetCreatureId(target);
-                        return await context.ApplyFinalDamage(
-                            targetId,
-                            amount,
-                            owner.AllocateHealthOrigin(source),
-                            source
+                        RuleSource source = RuleSource.FromSlug(RottingAuraRule.RuleSlug);
+                        List<HealthBatchChange> changes = results
+                            .Select(result => new HealthBatchChange(
+                                HealthBatchChangeKind.Damage,
+                                targetId,
+                                Math.Max(0, result.AppliedDamage),
+                                owner.AllocateHealthOrigin(source),
+                                source
+                            ))
+                            .ToList();
+                        return await context.CommitFinalDamageBatchAndCompleteAdapter(
+                            changes,
+                            current
                         );
                     },
                     target =>
@@ -57,7 +66,7 @@ namespace Game.Creature.Rules
                             throw new InvalidOperationException(
                                 "An aura target has no authoritative health state."
                             );
-                        return health.Current > 0;
+                        return health;
                     },
                     result =>
                     {

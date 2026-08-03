@@ -470,7 +470,8 @@ namespace Game.Combat.Encounters
                 catalog,
                 new JsonDungeonEncounterCreatureFactory(),
                 new UnityDungeonEncounterRuntimeRegistration(),
-                restoredCreatures
+                restoredCreatures,
+                document.Generation.Depth
             );
             DungeonEncounterDirector createdDirector = new(
                 lifecycle,

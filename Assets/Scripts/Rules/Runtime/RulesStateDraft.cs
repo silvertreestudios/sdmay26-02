@@ -2,6 +2,8 @@ namespace Game.Rules.Runtime
 {
     public sealed class RulesStateDraft
     {
+        private readonly HealthStateDraft health;
+
         public StateSliceDraft<CreatureId, CreatureState> Creatures { get; }
 
         /// <summary>Gets write access to immutable prepared inputs during registration only.</summary>
@@ -11,7 +13,12 @@ namespace Game.Rules.Runtime
         /// Gets transaction-scoped write access to creature statistics and modifier inputs.
         /// </summary>
         public StateSliceDraft<CreatureId, CreatureStatisticsState> Statistics { get; }
-        public StateSliceDraft<CreatureId, HealthState> Health { get; }
+
+        /// <summary>
+        /// Gets the health write boundary, which stamps temporary-Hit-Point pool mutations and
+        /// preserves exact revision continuity when entries are removed and later restored.
+        /// </summary>
+        public StateSliceDraft<CreatureId, HealthState> Health => health;
         public StateSliceDraft<CreatureId, GridPosition> Positions { get; }
 
         /// <summary>Gets transaction-scoped write access to authoritative land Speeds.</summary>
@@ -41,7 +48,6 @@ namespace Game.Rules.Runtime
             CreatureId,
             MultipleAttackPenaltyState
         > MultipleAttackPenalty { get; }
-        public StateSliceDraft<ConditionId, ConditionState> Conditions { get; }
         public StateSliceDraft<ItemId, EquipmentState> Equipment { get; }
 
         /// <summary>
@@ -67,6 +73,11 @@ namespace Game.Rules.Runtime
         /// <summary>Gets transaction-scoped access to active-effect schedules.</summary>
         public StateSliceDraft<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
 
+        internal StateSliceDraft<
+            ActionInvocationId,
+            ActionInvocationReceipt
+        > ActionReceipts { get; }
+
         internal RulesStateDraft(RulesStateData data)
         {
             Creatures = new StateSliceDraft<CreatureId, CreatureState>(
@@ -81,10 +92,7 @@ namespace Game.Rules.Runtime
                 data.Statistics,
                 (id, value) => !id.IsEmpty && value != null && id == value.Creature
             );
-            Health = new StateSliceDraft<CreatureId, HealthState>(
-                data.Health,
-                (id, value) => !id.IsEmpty
-            );
+            health = new HealthStateDraft(data.Health, data.TemporaryHitPointRevisionTombstones);
             Positions = new StateSliceDraft<CreatureId, GridPosition>(
                 data.Positions,
                 (id, value) => !id.IsEmpty
@@ -117,10 +125,6 @@ namespace Game.Rules.Runtime
                 data.MultipleAttackPenalty,
                 (id, value) => !id.IsEmpty
             );
-            Conditions = new StateSliceDraft<ConditionId, ConditionState>(
-                data.Conditions,
-                (id, value) => !id.IsEmpty && value != null && id == value.Id
-            );
             Equipment = new StateSliceDraft<ItemId, EquipmentState>(
                 data.Equipment,
                 (id, value) => !id.IsEmpty && value != null && id == value.Id
@@ -149,6 +153,10 @@ namespace Game.Rules.Runtime
                 data.ActiveEffectTimings,
                 (id, value) => !id.IsEmpty && value != null && id == value.Effect
             );
+            ActionReceipts = new StateSliceDraft<ActionInvocationId, ActionInvocationReceipt>(
+                data.ActionReceipts,
+                (id, value) => !id.IsEmpty && value != null && id == value.Operation.InvocationId
+            );
         }
 
         internal bool IsDirty =>
@@ -164,14 +172,14 @@ namespace Game.Rules.Runtime
             || FocusPoints.IsDirty
             || Ammunition.IsDirty
             || MultipleAttackPenalty.IsDirty
-            || Conditions.IsDirty
             || Equipment.IsDirty
             || ActiveEffects.IsDirty
             || RuleBindings.IsDirty
             || StatelessRuleBindingGenerations.IsDirty
             || Frequencies.IsDirty
             || Encounters.IsDirty
-            || ActiveEffectTimings.IsDirty;
+            || ActiveEffectTimings.IsDirty
+            || ActionReceipts.IsDirty;
 
         internal RulesStateData Build(long version)
         {
@@ -181,6 +189,7 @@ namespace Game.Rules.Runtime
                 PreparedInputs.BuildCommittedValues(),
                 Statistics.BuildCommittedValues(),
                 Health.BuildCommittedValues(),
+                health.BuildCommittedTemporaryHitPointRevisionTombstones(),
                 Positions.BuildCommittedValues(),
                 LandSpeeds.BuildCommittedValues(),
                 MovementBudgets.BuildCommittedValues(),
@@ -189,14 +198,14 @@ namespace Game.Rules.Runtime
                 FocusPoints.BuildCommittedValues(),
                 Ammunition.BuildCommittedValues(),
                 MultipleAttackPenalty.BuildCommittedValues(),
-                Conditions.BuildCommittedValues(),
                 Equipment.BuildCommittedValues(),
                 ActiveEffects.BuildCommittedValues(),
                 RuleBindings.BuildCommittedValues(),
                 StatelessRuleBindingGenerations.BuildCommittedValues(),
                 Frequencies.BuildCommittedValues(),
                 Encounters.BuildCommittedValues(),
-                ActiveEffectTimings.BuildCommittedValues()
+                ActiveEffectTimings.BuildCommittedValues(),
+                ActionReceipts.BuildCommittedValues()
             );
         }
     }

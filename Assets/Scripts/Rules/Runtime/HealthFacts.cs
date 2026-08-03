@@ -147,6 +147,57 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Records atomic compensation that replaced an abandoned feature-owned temporary-HP pool with
+    /// the exact pool displaced by that feature's committed grant.
+    /// </summary>
+    public sealed class TemporaryHitPointsPoolRestoredFact : HealthFact
+    {
+        /// <summary>Gets the source whose abandoned pool was replaced.</summary>
+        public RuleSource AbandonedSource { get; }
+
+        /// <summary>Gets the abandoned pool amount present immediately before compensation.</summary>
+        public int AbandonedAmount { get; }
+
+        /// <summary>Gets the source restored from the feature checkpoint.</summary>
+        public RuleSource RestoredSource { get; }
+
+        /// <summary>Gets the exact pool amount restored from the feature checkpoint.</summary>
+        public int RestoredAmount { get; }
+
+        /// <summary>Initializes an exact temporary-HP pool restoration record.</summary>
+        /// <param name="creature">The creature whose pool was restored.</param>
+        /// <param name="origin">The stable origin shared with the abandoned grant.</param>
+        /// <param name="abandonedSource">The source whose committed pool was compensated.</param>
+        /// <param name="abandonedAmount">The exact abandoned pool amount.</param>
+        /// <param name="restoredSource">The exact prior source, or empty for an empty/imported pool.</param>
+        /// <param name="restoredAmount">The exact prior pool amount.</param>
+        public TemporaryHitPointsPoolRestoredFact(
+            CreatureId creature,
+            HealthChangeOriginId origin,
+            RuleSource abandonedSource,
+            int abandonedAmount,
+            RuleSource restoredSource,
+            int restoredAmount
+        )
+            : base(creature, origin)
+        {
+            AbandonedSource = HealthOperationValidation.RequireSource(abandonedSource);
+            if (abandonedAmount < 0)
+                throw new ArgumentOutOfRangeException(nameof(abandonedAmount));
+            if (restoredAmount < 0)
+                throw new ArgumentOutOfRangeException(nameof(restoredAmount));
+            if (restoredAmount == 0 && !restoredSource.IsEmpty)
+                throw new ArgumentException(
+                    "An empty restored temporary Hit Point pool cannot retain a source.",
+                    nameof(restoredSource)
+                );
+            AbandonedAmount = abandonedAmount;
+            RestoredSource = restoredSource;
+            RestoredAmount = restoredAmount;
+        }
+    }
+
     /// <summary>Records that one source became unable to grant temporary Hit Points.</summary>
     public sealed class TemporaryHitPointImmunityAddedFact : HealthFact
     {

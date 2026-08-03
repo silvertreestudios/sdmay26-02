@@ -484,8 +484,10 @@ namespace Game.Rules.Runtime
         public CreatureId Target { get; }
 
         /// <inheritdoc/>
-        public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+        public override ActionProfile GetBaseProfile(IActionCatalog catalog, RulesSnapshot snapshot)
         {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
             if (catalog is not IStrikeActionCatalog strikeCatalog)
                 throw new InvalidOperationException(
                     "Strike requires an action catalog that exposes Strike definitions."
@@ -724,6 +726,18 @@ namespace Game.Rules.Runtime
                     "Every ammunition pool must belong to the registered actor.",
                     nameof(ammunition)
                 );
+            if (
+                copiedEquipment.Select(item => item.Id).Distinct().Count() != copiedEquipment.Length
+            )
+                throw new ArgumentException("Strike item IDs must be unique.", nameof(equipment));
+            if (
+                copiedAmmunition.Select(pool => pool.Item).Distinct().Count()
+                != copiedAmmunition.Length
+            )
+                throw new ArgumentException(
+                    "Strike ammunition pool IDs must be unique.",
+                    nameof(ammunition)
+                );
             Actor = actor;
             this.equipment = Array.AsReadOnly(copiedEquipment);
             this.ammunition = Array.AsReadOnly(copiedAmmunition);
@@ -775,8 +789,10 @@ namespace Game.Rules.Runtime
         public ItemId Item { get; }
 
         /// <inheritdoc/>
-        public override ActionProfile GetBaseProfile(IActionCatalog catalog)
+        public override ActionProfile GetBaseProfile(IActionCatalog catalog, RulesSnapshot snapshot)
         {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
             if (catalog is not IStrikeActionCatalog strikeCatalog)
                 throw new InvalidOperationException(
                     "Reload requires a catalog that exposes Strike definitions."
@@ -1050,9 +1066,11 @@ namespace Game.Rules.Runtime
                 )
             )
                 throw new InvalidOperationException("The Strike target has no prepared inputs.");
-            string[] targetConditions = targeting.OffGuard
-                ? new[] { "off-guard" }
-                : Array.Empty<string>();
+            IReadOnlyList<string> targetConditions = RuntimeOptionResolver.ResolveTargetConditions(
+                context.Snapshot,
+                frame.Op.Target,
+                targeting.OffGuard ? new[] { "off-guard" } : Array.Empty<string>()
+            );
             PreparedContributionContext baseContext = new(
                 item.Definition.Value,
                 item.Category,
@@ -1192,7 +1210,49 @@ namespace Game.Rules.Runtime
                 ),
             };
             attackCandidates.AddRange(data.AttackModifiers);
-            int armorClass = data.ArmorClass;
+            List<Modifier> defenseCandidates = new List<Modifier>
+            {
+                Modifier.Untyped(
+                    data.ArmorClass,
+                    RuleSource.FromSlug("base-armor-class"),
+                    Statistic.ArmorClass
+                ),
+            };
+            if (targeting.CoverBonus != 0)
+                defenseCandidates.Add(
+                    new Modifier(
+                        targeting.CoverBonus,
+                        ModifierType.Circumstance,
+                        RuleSource.FromSlug("cover"),
+                        Statistic.ArmorClass
+                    )
+                );
+            if (targeting.OffGuard)
+                defenseCandidates.Add(
+                    new Modifier(
+                        -2,
+                        ModifierType.Circumstance,
+                        RuleSource.FromSlug("flanking-off-guard"),
+                        Statistic.ArmorClass
+                    )
+                );
+            OpResult<ModifierCollection> defenseResult = await context.Dispatch(
+                new CollectDefenseModifiersOp(
+                    frame.Op.Target,
+                    defenseCandidates,
+                    CheckSource.From(frame.Id)
+                )
+            );
+            if (defenseResult is not ResolvedOpResult<ModifierCollection> resolvedDefense)
+                throw new InvalidOperationException("Strike defense collection did not resolve.");
+            int armorClass = Math.Max(1, resolvedDefense.Value.Total);
+            bool offGuard =
+                targeting.OffGuard
+                || ConditionSelectors.HasMarker(
+                    context.Snapshot,
+                    frame.Op.Target,
+                    ConditionRuleDefinitions.OffGuard
+                );
             OpResult<CheckOutcome> attackResult = await context.Dispatch(
                 new AttackCheckOp(
                     frame.Op.Actor,
@@ -1222,7 +1282,7 @@ namespace Game.Rules.Runtime
                 targeting.RangePenalty,
                 armorClass,
                 targeting.CoverBonus,
-                targeting.OffGuard,
+                offGuard,
                 degree,
                 damage,
                 finalDamage
@@ -1458,20 +1518,67 @@ namespace Game.Rules.Runtime
             StrikeCombatantRegistration registration = context.Op.Registration;
             if (!state.Creatures.Contains(registration.Actor))
                 return ReductionResult<bool>.Reject("The Strike combatant is not registered.");
+            MultipleAttackPenaltyState expectedPenalty = new MultipleAttackPenaltyState(0);
             if (
-                registration.Equipment.Any(item => state.Equipment.Contains(item.Id))
-                || registration.Ammunition.Any(pool => state.Ammunition.Contains(pool.Item))
+                !state.MultipleAttackPenalty.TryGet(
+                    registration.Actor,
+                    out MultipleAttackPenaltyState committedPenalty
+                ) || !committedPenalty.Equals(expectedPenalty)
             )
                 return ReductionResult<bool>.Reject(
-                    "Strike combatant state is already registered."
+                    "Strike combatant MAP conflicts with the committed registration."
+                );
+
+            EquipmentState[] committedEquipment = state
+                .Equipment.Select(pair => pair.Value)
+                .Where(item => item.Holder == registration.Actor)
+                .ToArray();
+            AmmunitionState[] committedAmmunition = state
+                .Ammunition.Select(pair => pair.Value)
+                .Where(pool => pool.Owner == registration.Actor)
+                .ToArray();
+            bool equipmentExact = CompleteCollectionMatches(
+                registration.Equipment,
+                committedEquipment,
+                item => item.Id
+            );
+            bool ammunitionExact = CompleteCollectionMatches(
+                registration.Ammunition,
+                committedAmmunition,
+                pool => pool.Item
+            );
+            if (equipmentExact && ammunitionExact)
+                return ReductionResult<bool>.Accept(false);
+            bool anyRegistered =
+                committedEquipment.Length > 0
+                || committedAmmunition.Length > 0
+                || registration.Equipment.Any(item => state.Equipment.Contains(item.Id))
+                || registration.Ammunition.Any(pool => state.Ammunition.Contains(pool.Item));
+            if (anyRegistered)
+                return ReductionResult<bool>.Reject(
+                    "Strike combatant state conflicts with the committed registration."
                 );
             foreach (EquipmentState item in registration.Equipment)
                 state.Equipment.Set(item.Id, item);
             foreach (AmmunitionState pool in registration.Ammunition)
                 state.Ammunition.Set(pool.Item, pool);
-            state.MultipleAttackPenalty.Set(registration.Actor, new MultipleAttackPenaltyState(0));
             facts.Stage(new StrikeCombatantRegisteredFact(registration.Actor));
             return ReductionResult<bool>.Accept(true);
+        }
+
+        private static bool CompleteCollectionMatches<TValue, TId>(
+            IEnumerable<TValue> expected,
+            IEnumerable<TValue> committed,
+            Func<TValue, TId> identify
+        )
+        {
+            Dictionary<TId, TValue> expectedById = expected.ToDictionary(identify);
+            Dictionary<TId, TValue> committedById = committed.ToDictionary(identify);
+            return expectedById.Count == committedById.Count
+                && expectedById.All(pair =>
+                    committedById.TryGetValue(pair.Key, out TValue value)
+                    && EqualityComparer<TValue>.Default.Equals(pair.Value, value)
+                );
         }
     }
 }

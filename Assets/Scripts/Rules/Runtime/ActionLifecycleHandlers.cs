@@ -21,6 +21,16 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
+            bool hasReceiptedAction = context.Op.ReceiptCheckpoint.TryGetOperation(
+                out IReceiptedActionOp receiptedAction
+            );
+            if (hasReceiptedAction && state.ActionReceipts.Contains(receiptedAction.InvocationId))
+            {
+                return ReductionResult<ActionCostsOutcome>.Reject(
+                    ActionReceiptReduction.AlreadyCheckpointedReason
+                );
+            }
+
             ActionValidationResult actionCost = SpendActionCost(context.Op, state, facts);
             if (
                 actionCost is ActionValidationResult.InvalidActionValidationResult invalidActionCost
@@ -37,6 +47,21 @@ namespace Game.Rules.Runtime
                 );
                 if (additionalCost is ActionValidationResult.InvalidActionValidationResult invalid)
                     return ReductionResult<ActionCostsOutcome>.Reject(invalid.Reason);
+            }
+
+            if (
+                hasReceiptedAction
+                && !ActionReceiptReduction.TryCheckpointCosts(
+                    state,
+                    facts,
+                    receiptedAction,
+                    context.Op.Profile
+                )
+            )
+            {
+                return ReductionResult<ActionCostsOutcome>.Reject(
+                    ActionReceiptReduction.AlreadyCheckpointedReason
+                );
             }
 
             return ReductionResult<ActionCostsOutcome>.Accept(default);
@@ -259,5 +284,20 @@ namespace Game.Rules.Runtime
             );
             return ActionValidationResult.Valid;
         }
+    }
+
+    internal sealed class InterruptReceiptedActionReducer
+        : IOpReducer<InterruptReceiptedActionOp, ActionStartOutcome>
+    {
+        public ReductionResult<ActionStartOutcome> Reduce(
+            ReductionContext<InterruptReceiptedActionOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        ) =>
+            ActionReceiptReduction.TryInterrupt(state, facts, context.Op.Operation)
+                ? ReductionResult<ActionStartOutcome>.Accept(ActionStartOutcome.Interrupted)
+                : ReductionResult<ActionStartOutcome>.Reject(
+                    ActionReceiptReduction.NotPendingReason
+                );
     }
 }

@@ -6,6 +6,7 @@ using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Attack;
 using Game.Rules.Unity.Composition;
 using UnityEngine;
 
@@ -59,7 +60,7 @@ namespace Game.Combat.Spells
             ISpellActionCatalog catalog
         )
         {
-            Prepare(controller, actor, catalog).Apply();
+            Prepare(controller, actor, catalog).Reconcile();
         }
 
         /// <summary>Prepares all spell action-list reads and action construction for later apply.</summary>
@@ -76,11 +77,22 @@ namespace Game.Combat.Spells
             );
             CreatureComponent creature = controller.GetComponent<CreatureComponent>();
             List<EntityAction> currentActions = controller.GetActions();
-            List<EntityAction> removals = currentActions
-                .Where(action => action is CastSpellAction || action is RulesCastSpellAction)
-                .ToList();
-            List<EntityAction> additions = new();
-            List<string> creatureActionNames = new();
+            Dictionary<
+                (SpellReference Spell, SpellActionVariant Variant),
+                RulesCastSpellAction
+            > retained = new();
+            foreach (RulesCastSpellAction action in currentActions.OfType<RulesCastSpellAction>())
+            {
+                var key = (action.Spell, action.Variant);
+                if (
+                    desired.Contains(key)
+                    && action.IsOwnedBy(catalog)
+                    && !retained.ContainsKey(key)
+                )
+                    retained.Add(key, action);
+            }
+            List<EntityAction> desiredActions = new();
+            List<string> desiredCreatureActionNames = new();
             foreach (
                 var key in desired
                     .OrderBy(key => key.Spell.Spell.Value, StringComparer.Ordinal)
@@ -88,22 +100,27 @@ namespace Game.Combat.Spells
                     .ThenBy(key => key.Variant.Actions)
             )
             {
-                RulesCastSpellAction action = new(
-                    key.Spell,
-                    key.Variant,
-                    new CastSpellActionDefinition(catalog),
-                    catalog
-                );
-                additions.Add(action);
-                if (creature != null && !creature.actions.Contains(action.ActionName))
-                    creatureActionNames.Add(action.ActionName);
+                RulesCastSpellAction action = retained.TryGetValue(
+                    key,
+                    out RulesCastSpellAction current
+                )
+                    ? current
+                    : new RulesCastSpellAction(key.Spell, key.Variant, catalog);
+                desiredActions.Add(action);
+                desiredCreatureActionNames.Add(action.ActionName);
             }
+            string[] managedCreatureActionNames = currentActions
+                .Where(action => action is CastSpellAction || action is RulesCastSpellAction)
+                .Select(action => action.ActionName)
+                .Concat(desiredCreatureActionNames)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
             return new UnitySpellActionInstallationPlan(
                 controller,
                 creature,
-                removals,
-                additions,
-                creatureActionNames
+                desiredActions,
+                managedCreatureActionNames,
+                desiredCreatureActionNames
             );
         }
 
@@ -145,9 +162,13 @@ namespace Game.Combat.Spells
                     throw new InvalidOperationException(
                         $"Prepared spell '{reference}' for encounter creature '{actor.Value}' has no catalog definition."
                     );
-                if (definition.Effects.Count == 0 && definition.Attacks.Count == 0)
+                if (
+                    definition.Effects.Count == 0
+                    && definition.Attacks.Count == 0
+                    && definition.Saves.Count == 0
+                )
                     throw new InvalidOperationException(
-                        $"Prepared rules-native spell '{reference}' has no supported effect or attack."
+                        $"Prepared rules-native spell '{reference}' has no supported effect, attack, or save."
                     );
                 foreach (SpellActionVariant variant in definition.Variants)
                     desired.Add((reference, variant));
@@ -161,33 +182,38 @@ namespace Game.Combat.Spells
     {
         private readonly ActionController controller;
         private readonly CreatureComponent creature;
-        private readonly IReadOnlyList<EntityAction> removals;
-        private readonly IReadOnlyList<EntityAction> additions;
-        private readonly IReadOnlyList<string> creatureActionNames;
+        private readonly IReadOnlyList<EntityAction> desiredActions;
+        private readonly IReadOnlyList<string> managedCreatureActionNames;
+        private readonly IReadOnlyList<string> desiredCreatureActionNames;
 
         internal UnitySpellActionInstallationPlan(
             ActionController controller,
             CreatureComponent creature,
-            IReadOnlyList<EntityAction> removals,
-            IReadOnlyList<EntityAction> additions,
-            IReadOnlyList<string> creatureActionNames
+            IReadOnlyList<EntityAction> desiredActions,
+            IReadOnlyList<string> managedCreatureActionNames,
+            IReadOnlyList<string> desiredCreatureActionNames
         )
         {
             this.controller = controller;
             this.creature = creature;
-            this.removals = removals;
-            this.additions = additions;
-            this.creatureActionNames = creatureActionNames;
+            this.desiredActions = desiredActions;
+            this.managedCreatureActionNames = managedCreatureActionNames;
+            this.desiredCreatureActionNames = desiredCreatureActionNames;
         }
 
         /// <inheritdoc/>
-        public void Apply()
+        public void Reconcile()
         {
-            foreach (EntityAction action in removals)
-                controller.RemoveAction(action);
-            foreach (EntityAction action in additions)
-                controller.AddAction(action);
-            foreach (string actionName in creatureActionNames)
+            controller.ReconcileActions(
+                action => action is CastSpellAction || action is RulesCastSpellAction,
+                desiredActions
+            );
+            if (creature == null)
+                return;
+            creature.actions.RemoveAll(actionName =>
+                managedCreatureActionNames.Contains(actionName, StringComparer.Ordinal)
+            );
+            foreach (string actionName in desiredCreatureActionNames)
             {
                 if (!creature.actions.Contains(actionName))
                     creature.actions.Add(actionName);
@@ -195,7 +221,9 @@ namespace Game.Combat.Spells
         }
     }
 
-    /// <summary>Projects every resolved generic cast exactly once into shared Unity presentation.</summary>
+    /// <summary>
+    /// Projects a resolved generic cast at most once per dispatcher into shared Unity presentation.
+    /// </summary>
     public sealed class UnityResolvedSpellCastPresentationObserver
         : IResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>
     {
@@ -260,7 +288,49 @@ namespace Game.Combat.Spells
                 },
                 actor
             );
+            if (result.Attacks.Count == 1)
+                PresentAttack(definition, result.Attacks[0], result.Actor, creature);
             return default;
+        }
+
+        private void PresentAttack(
+            Game.Rules.Runtime.SpellDefinition definition,
+            SpellAttackResolution attack,
+            CreatureId actor,
+            CreatureComponent attacker
+        )
+        {
+            if (attack.Actor != actor)
+                throw new InvalidOperationException(
+                    "Resolved spell-attack presentation actor does not match the cast."
+                );
+            if (
+                !creatures.TryGetValue(attack.Target, out CreatureComponent target)
+                || target == null
+            )
+                return;
+            UnityAttackResultPresentation.Present(
+                attacker.gameObject,
+                target.gameObject,
+                definition.DisplayName,
+                new UnityAttackResult(
+                    attack.AttackRoll,
+                    attack.AttackModifier,
+                    attack.ArmorClass,
+                    attack.Degree,
+                    ToDamage(attack),
+                    attack.FinalDamage,
+                    attack.MultipleAttackPenalty,
+                    0,
+                    0
+                )
+            );
+        }
+
+        private static IEnumerable<UnityAttackDamagePart> ToDamage(SpellAttackResolution resolution)
+        {
+            foreach (TypedDamagePart part in resolution.Damage)
+                yield return new UnityAttackDamagePart(part.DamageType, part.Amount);
         }
 
         private static void PresentSafely(Action presentation, UnityEngine.Object context)

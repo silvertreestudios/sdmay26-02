@@ -1,8 +1,10 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Spells;
 using GridPublic;
 using UnityEngine;
 
@@ -17,6 +19,8 @@ namespace Game.Combat.Spells
         private readonly SpellActionVariant variant;
         private readonly CastSpellActionDefinition actionDefinition;
         private readonly ISpellDefinitionCatalog catalog;
+        private readonly ISpellActionCatalog ownerCatalog;
+        private CastSpellActionOp pendingOperation;
 
         /// <summary>Creates one rules-native action-bar entry for an exact spell variant.</summary>
         /// <param name="spell">The exact installed spell identity and rank.</param>
@@ -29,6 +33,22 @@ namespace Game.Combat.Spells
             CastSpellActionDefinition actionDefinition,
             ISpellDefinitionCatalog catalog
         )
+            : this(spell, variant, actionDefinition, catalog, null) { }
+
+        internal RulesCastSpellAction(
+            SpellReference spell,
+            SpellActionVariant variant,
+            ISpellActionCatalog catalog
+        )
+            : this(spell, variant, new CastSpellActionDefinition(catalog), catalog, catalog) { }
+
+        private RulesCastSpellAction(
+            SpellReference spell,
+            SpellActionVariant variant,
+            CastSpellActionDefinition actionDefinition,
+            ISpellDefinitionCatalog catalog,
+            ISpellActionCatalog ownerCatalog
+        )
             : base((uint)variant.Actions)
         {
             this.spell = spell;
@@ -36,6 +56,7 @@ namespace Game.Combat.Spells
             this.actionDefinition =
                 actionDefinition ?? throw new ArgumentNullException(nameof(actionDefinition));
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            this.ownerCatalog = ownerCatalog;
         }
 
         /// <summary>Gets the exact installed spell identity and rank.</summary>
@@ -43,6 +64,9 @@ namespace Game.Combat.Spells
 
         /// <summary>Gets the installed definition-owned action variant.</summary>
         public SpellActionVariant Variant => variant;
+
+        internal bool IsOwnedBy(ISpellActionCatalog candidate) =>
+            ReferenceEquals(ownerCatalog, candidate);
 
         /// <inheritdoc/>
         public override string ActionName
@@ -70,6 +94,12 @@ namespace Game.Combat.Spells
                 )
             )
                 return false;
+            if (TryGetPendingOperation(out CastSpellActionOp pending))
+            {
+                return pending.Actor == actor
+                    && bridge.HasTurnAuthority(actor)
+                    && actionDefinition.HasExactReplayableReceipt(bridge.Snapshot, pending);
+            }
             return actionDefinition.GetAvailability(bridge.Snapshot, actor, spell, variant)
                 is AvailableActionAvailability;
         }
@@ -96,13 +126,60 @@ namespace Game.Combat.Spells
                     yield break;
                 }
 
+                if (TryGetPendingOperation(out _))
+                {
+                    try
+                    {
+                        Report(DispatchPending(bridge), caster);
+                    }
+                    catch (Exception exception)
+                    {
+                        Debug.LogException(exception, caster);
+                    }
+                    yield break;
+                }
+
                 if (!catalog.TryGetSpell(spell, out Game.Rules.Runtime.SpellDefinition definition))
                 {
                     Debug.LogWarning("The rules-native spell definition is unavailable.", caster);
                     yield break;
                 }
                 SpellCastSelection spellSelection = SpellCastSelection.Empty;
-                if (definition.Attacks.Count > 0)
+                if (definition.Saves.Count > 0)
+                {
+                    if (definition.Saves.Count != 1)
+                    {
+                        Debug.LogWarning(
+                            "The rules-native spell save target structure is unsupported.",
+                            caster
+                        );
+                        yield break;
+                    }
+                    SpellAreaTarget target = definition.Saves[0].Target;
+                    CoroutineResult<AreaTargetResult> selection = new();
+                    yield return GridAPI
+                        .GetInstance()
+                        .GetAreaTarget(
+                            caster,
+                            UnitySpellAreaAdapter.ToGridRequest(target),
+                            selection
+                        );
+                    if (selection.Value == null)
+                        yield break;
+                    if (
+                        !SpellcastingRuntime.TryCreateRulesAreaSelection(
+                            bridge,
+                            selection.Value,
+                            out spellSelection,
+                            out string reason
+                        )
+                    )
+                    {
+                        Debug.LogWarning($"Cast a Spell was rejected: {reason}", caster);
+                        yield break;
+                    }
+                }
+                else if (definition.Attacks.Count > 0)
                 {
                     if (
                         definition.Attacks.Count != 1
@@ -148,24 +225,8 @@ namespace Game.Combat.Spells
 
                 try
                 {
-                    CastSpellActionOp operation = actionDefinition.CreateOp(
-                        actor,
-                        spell,
-                        variant,
-                        spellSelection
-                    );
-                    OpResult<CastSpellOutcome> result = bridge.Dispatch(operation);
-                    if (result is InvalidOpResult<CastSpellOutcome> invalid)
-                        Debug.LogWarning($"Cast a Spell was rejected: {invalid.Reason}", caster);
-                    else if (result is InterruptedOpResult<CastSpellOutcome>)
-                        Debug.LogWarning("Cast a Spell was interrupted.", caster);
-                    else if (result is CancelledOpResult<CastSpellOutcome>)
-                        Debug.LogWarning("Cast a Spell was cancelled.", caster);
-                    else if (result is not ResolvedOpResult<CastSpellOutcome>)
-                        Debug.LogWarning(
-                            "Cast a Spell returned an unknown structural result.",
-                            caster
-                        );
+                    RetainPendingOperation(actor, spellSelection);
+                    Report(DispatchPending(bridge), caster);
                 }
                 catch (Exception exception)
                 {
@@ -179,6 +240,53 @@ namespace Game.Combat.Spells
                 OnActionComplete.Invoke();
             }
             yield break;
+        }
+
+        internal bool TryGetPendingOperation(out CastSpellActionOp operation)
+        {
+            operation = pendingOperation;
+            return operation != null;
+        }
+
+        internal CastSpellActionOp RetainPendingOperation(
+            CreatureId actor,
+            SpellCastSelection selection
+        )
+        {
+            if (pendingOperation != null)
+                return pendingOperation;
+            pendingOperation = actionDefinition.CreateOp(
+                new ActionInvocationId($"unity-cast-{Guid.NewGuid():N}"),
+                actor,
+                spell,
+                variant,
+                selection
+            );
+            return pendingOperation;
+        }
+
+        internal void ClearPendingOperation() => pendingOperation = null;
+
+        private OpResult<CastSpellOutcome> DispatchPending(UnityCombatRulesBridge bridge)
+        {
+            CastSpellActionOp operation =
+                pendingOperation
+                ?? throw new InvalidOperationException("There is no pending spell cast to replay.");
+            OpResult<CastSpellOutcome> result = bridge.Dispatch(operation);
+            ClearPendingOperation();
+            return result;
+        }
+
+        private static void Report(OpResult<CastSpellOutcome> result, GameObject caster)
+        {
+            if (result is InvalidOpResult<CastSpellOutcome> invalid)
+                Debug.LogWarning($"Cast a Spell was rejected: {invalid.Reason}", caster);
+            else if (result is InterruptedOpResult<CastSpellOutcome>)
+                Debug.LogWarning("Cast a Spell was interrupted.", caster);
+            else if (result is CancelledOpResult<CastSpellOutcome>)
+                Debug.LogWarning("Cast a Spell was cancelled.", caster);
+            else if (result is not ResolvedOpResult<CastSpellOutcome>)
+                Debug.LogWarning("Cast a Spell returned an unknown structural result.", caster);
         }
     }
 }

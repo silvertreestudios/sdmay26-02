@@ -14,6 +14,13 @@ namespace Game.Rules.Unity.Composition
     /// </remarks>
     internal interface IUnityEncounterModule { }
 
+    /// <summary>Contributes static definitions before the encounter's single registry build.</summary>
+    internal interface IUnityEncounterRegistryModule : IUnityEncounterModule
+    {
+        /// <summary>Adds feature definitions to the shared registry builder.</summary>
+        void ConfigureRegistry(RuleRegistryBuilder builder);
+    }
+
     /// <summary>Contributes feature-owned resolvers to the encounter dispatcher.</summary>
     internal interface IUnityEncounterDispatcherModule : IUnityEncounterModule
     {
@@ -49,20 +56,57 @@ namespace Game.Rules.Unity.Composition
         void PrepareCombatant(UnityCombatantEnrollmentBuilder builder);
     }
 
-    /// <summary>Applies one precomputed Unity installation after authoritative state commits.</summary>
+    /// <summary>Reconciles one precomputed Unity installation after state commits.</summary>
+    /// <remarks>
+    /// Enrollment may invoke <see cref="Reconcile"/> again when an earlier call changed Unity
+    /// state and then threw. Implementations must converge their feature-owned projection to the
+    /// prepared result on every call, without duplicating entries or disturbing other features.
+    /// </remarks>
     internal interface IUnityCombatantInstallationContribution
     {
-        /// <summary>Applies the contribution without repeating fallible preparation reads.</summary>
+        /// <summary>Idempotently reconciles the prepared projection without new Unity reads.</summary>
+        void Reconcile();
+    }
+
+    /// <summary>Projects final feature state immediately before Unity authority detaches.</summary>
+    /// <remarks>
+    /// Contributions run once during enrollment-lifetime cleanup while the exact controller and
+    /// rules bridge are still attached. Cleanup continues and aggregates failures if projection
+    /// fails; a feature must not retain the bridge or snapshot after this callback.
+    /// </remarks>
+    internal interface IUnityCombatantOwnershipReleaseContribution
+    {
+        /// <summary>Projects the final immutable feature state needed after detachment.</summary>
+        void ProjectBeforeDetach();
+    }
+
+    /// <summary>Completes one-shot enrollment input after the entire batch is installed.</summary>
+    /// <remarks>
+    /// <see cref="Validate"/> performs every fallible check for the contribution. After every
+    /// contribution in the batch validates, <see cref="Apply"/> must complete without throwing.
+    /// This keeps one-shot input available when attachment or installation fails earlier.
+    /// </remarks>
+    internal interface IUnityCombatantBatchFinalizationContribution
+    {
+        /// <summary>Validates that finalization can complete without changing state.</summary>
+        void Validate();
+
+        /// <summary>Applies the already validated, non-failing finalization.</summary>
         void Apply();
     }
 
     /// <summary>Provides feature state for initial seed or reinforcement registration.</summary>
+    /// <remarks>
+    /// A reinforcement <see cref="Register"/> call may commit and then surface an observer
+    /// failure. Retrying that call with the same prepared contribution must resolve as an exact
+    /// no-op with no new Facts or version; different committed state must still reject.
+    /// </remarks>
     internal interface IUnityCombatantStateContribution
     {
         /// <summary>Adds initial feature state to the store seed.</summary>
         void Seed(RulesStateSeed seed);
 
-        /// <summary>Registers the same feature state for a committed reinforcement.</summary>
+        /// <summary>Idempotently registers the same feature state for a reinforcement.</summary>
         void Register(UnityCombatRulesBridge bridge);
     }
 
@@ -71,13 +115,18 @@ namespace Game.Rules.Unity.Composition
     {
         private readonly List<IUnityCombatantStateContribution> stateContributions = new();
         private readonly List<IUnityCombatantInstallationContribution> installations = new();
+        private readonly List<IUnityCombatantOwnershipReleaseContribution> releaseContributions =
+            new();
+        private readonly List<IUnityCombatantBatchFinalizationContribution> finalizations = new();
         private readonly List<SpellSlotState> spellSlots = new();
         private readonly List<ActiveRuleBinding> ruleBindings = new();
+        private readonly List<ActiveEffectRegistration> activeEffects = new();
         private readonly CompositeLifetime preparationLifetime;
         private readonly CreatureState creatureState;
         private readonly HealthState health;
         private readonly GridPosition position;
         private readonly GridDistance landSpeed;
+        private readonly CreatureStatisticsState statistics;
         private PreparedCreatureInputs preparedInputs;
 
         internal UnityCombatantEnrollmentBuilder(
@@ -87,7 +136,9 @@ namespace Game.Rules.Unity.Composition
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
-            CompositeLifetime preparationLifetime
+            CreatureStatisticsState statistics,
+            CompositeLifetime preparationLifetime,
+            string durableActorId = ""
         )
         {
             Controller = controller ?? throw new ArgumentNullException(nameof(controller));
@@ -97,6 +148,9 @@ namespace Game.Rules.Unity.Composition
             this.health = health;
             this.position = position;
             this.landSpeed = landSpeed;
+            this.statistics = statistics ?? throw new ArgumentNullException(nameof(statistics));
+            DurableActorId =
+                durableActorId ?? throw new ArgumentNullException(nameof(durableActorId));
             this.preparationLifetime =
                 preparationLifetime ?? throw new ArgumentNullException(nameof(preparationLifetime));
         }
@@ -104,6 +158,7 @@ namespace Game.Rules.Unity.Composition
         internal ActionController Controller { get; }
         internal CreatureComponent Creature { get; }
         internal CreatureId CreatureId => creatureState.Id;
+        internal string DurableActorId { get; }
 
         /// <summary>Gets the compiled inputs after the prepared-rules module contributes them.</summary>
         internal PreparedCreatureInputs PreparedInputs =>
@@ -148,9 +203,53 @@ namespace Game.Rules.Unity.Composition
             ruleBindings.AddRange(bindings);
         }
 
+        /// <summary>Adds prepared active effects to the atomic combatant registration.</summary>
+        internal void AddActiveEffects(IEnumerable<ActiveEffectRegistration> registrations)
+        {
+            if (registrations == null)
+                throw new ArgumentNullException(nameof(registrations));
+            foreach (ActiveEffectRegistration registration in registrations)
+            {
+                if (registration == null)
+                    throw new ArgumentException(
+                        "Active-effect registrations cannot contain null.",
+                        nameof(registrations)
+                    );
+                ActiveEffectRegistration[] collisions = activeEffects
+                    .Where(existing =>
+                        existing.Effect.Id == registration.Effect.Id
+                        || existing.Binding.Id == registration.Binding.Id
+                    )
+                    .ToArray();
+                if (collisions.Length == 0)
+                {
+                    activeEffects.Add(registration);
+                    continue;
+                }
+                if (collisions.Length != 1 || !collisions[0].HasSameStructure(registration))
+                    throw new InvalidOperationException(
+                        "Prepared active-effect identities collide with different registration state."
+                    );
+            }
+        }
+
         /// <summary>Adds one fully prepared Unity installation.</summary>
         internal void AddInstallation(IUnityCombatantInstallationContribution contribution) =>
             installations.Add(
+                contribution ?? throw new ArgumentNullException(nameof(contribution))
+            );
+
+        /// <summary>Adds final projection that runs while exact rules authority is attached.</summary>
+        internal void AddOwnershipRelease(
+            IUnityCombatantOwnershipReleaseContribution contribution
+        ) =>
+            releaseContributions.Add(
+                contribution ?? throw new ArgumentNullException(nameof(contribution))
+            );
+
+        /// <summary>Adds one finalization that runs only after the complete batch is installed.</summary>
+        internal void AddFinalization(IUnityCombatantBatchFinalizationContribution contribution) =>
+            finalizations.Add(
                 contribution ?? throw new ArgumentNullException(nameof(contribution))
             );
 
@@ -158,6 +257,10 @@ namespace Game.Rules.Unity.Composition
             stateContributions;
         internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations =>
             installations;
+        internal IReadOnlyList<IUnityCombatantOwnershipReleaseContribution> ReleaseContributions =>
+            releaseContributions;
+        internal IReadOnlyList<IUnityCombatantBatchFinalizationContribution> Finalizations =>
+            finalizations;
 
         /// <summary>Freezes the prepared base and feature contributions into one immutable state.</summary>
         internal CombatantRulesState BuildState() =>
@@ -166,10 +269,61 @@ namespace Game.Rules.Unity.Composition
                 health,
                 position,
                 landSpeed,
+                statistics,
                 PreparedInputs,
                 spellSlots,
-                ruleBindings
+                ruleBindings,
+                activeEffects
             );
+    }
+
+    /// <summary>Captures raw Unity creature values without resolving live rule providers.</summary>
+    internal static class UnityCreatureStatisticsAdapter
+    {
+        private static readonly RuleSource AllSavesSource = RuleSource.FromSlug(
+            "creature-base-all-saves"
+        );
+
+        internal static CreatureStatisticsState Capture(
+            CreatureId creatureId,
+            CreatureComponent creature
+        )
+        {
+            if (creature == null)
+                throw new ArgumentNullException(nameof(creature));
+            Dictionary<Skill, int> skills = new();
+            foreach (SkillValue value in creature.skills)
+            {
+                Skill skill = Skill.FromName(value.skillName);
+                if (!skills.TryAdd(skill, value.skillMod))
+                    throw new InvalidOperationException(
+                        $"Creature '{creature.name}' defines base skill '{skill.Slug}' more than once."
+                    );
+            }
+            List<Modifier> modifiers = new();
+            if (creature.allSaves != 0)
+            {
+                modifiers.Add(
+                    Modifier.Untyped(creature.allSaves, AllSavesSource, Statistic.FortitudeSave)
+                );
+                modifiers.Add(
+                    Modifier.Untyped(creature.allSaves, AllSavesSource, Statistic.ReflexSave)
+                );
+                modifiers.Add(
+                    Modifier.Untyped(creature.allSaves, AllSavesSource, Statistic.WillSave)
+                );
+            }
+            return new CreatureStatisticsState(
+                creatureId,
+                creature.attackBonus,
+                Math.Max(0, creature.ac),
+                creature.fortitudeSave,
+                creature.reflexSave,
+                creature.willSave,
+                skills,
+                modifiers
+            );
+        }
     }
 
     /// <summary>Invokes explicitly supplied encounter modules without discovering features.</summary>

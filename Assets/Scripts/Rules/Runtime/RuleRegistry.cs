@@ -98,6 +98,18 @@ namespace Game.Rules.Runtime
         /// </summary>
         public IReadOnlyList<RuleDefinition> Definitions { get; }
 
+        /// <summary>Checks whether the registry contains a static rule definition.</summary>
+        /// <param name="id">The stable definition identity to query.</param>
+        /// <returns>
+        /// <see langword="true"/> when <paramref name="id"/> is registered; otherwise,
+        /// <see langword="false"/>.
+        /// </returns>
+        public bool ContainsDefinition(RuleDefinitionId id) => byId.ContainsKey(id);
+
+        /// <summary>Attempts to get the immutable definition registered under one stable ID.</summary>
+        public bool TryGetDefinition(RuleDefinitionId id, out RuleDefinition definition) =>
+            byId.TryGetValue(id, out definition);
+
         internal void ValidateResolvers(IReadOnlyDictionary<Type, IRegistration> resolvers)
         {
             foreach (RuleDefinition definition in Definitions)
@@ -228,9 +240,6 @@ namespace Game.Rules.Runtime
             snapshot.RuleBindings.TryGet(binding.Id, out ActiveRuleBinding current)
             && current.IsEnabled
             && current.Equals(binding);
-
-        internal bool TryGetDefinition(RuleDefinitionId id, out RuleDefinition definition) =>
-            byId.TryGetValue(id, out definition);
 
         private RuleDefinition RequireDefinition(RuleDefinitionId id)
         {

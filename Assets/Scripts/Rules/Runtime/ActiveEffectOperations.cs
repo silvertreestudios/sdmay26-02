@@ -1,7 +1,32 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Resolves exact active effect/binding pairs from one authoritative snapshot.</summary>
+    internal static class ActiveEffectAssociation
+    {
+        internal static bool TryGetActive(
+            RulesSnapshot snapshot,
+            ActiveRuleBinding binding,
+            out ActiveEffectInstance effect
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (binding == null)
+                throw new ArgumentNullException(nameof(binding));
+
+            effect = null;
+            return binding.IsEnabled
+                && binding.EffectId.HasValue
+                && snapshot.ActiveEffects.TryGet(binding.EffectId.Value, out effect)
+                && effect.Status == ActiveEffectStatus.Active
+                && ActiveEffectRegistration.BindingMatchesEffect(effect, binding);
+        }
+    }
+
     internal static class ActiveEffectOperationValidation
     {
         public static ActiveEffectId RequireEffect(ActiveEffectId value)
@@ -58,6 +83,163 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>
+    /// Pairs one prepared effect with its exact binding and optional finite-duration timing.
+    /// </summary>
+    public sealed class ActiveEffectRegistration
+    {
+        /// <summary>Creates one lifecycle-consistent registration pair without timing.</summary>
+        /// <param name="effect">The prepared active-effect instance.</param>
+        /// <param name="binding">The prepared binding associated with the effect.</param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="effect"/> or <paramref name="binding"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// The binding does not match the effect, or its enabled state does not match the effect's
+        /// lifecycle status.
+        /// </exception>
+        public ActiveEffectRegistration(ActiveEffectInstance effect, ActiveRuleBinding binding)
+            : this(effect, binding, null) { }
+
+        /// <summary>
+        /// Creates one lifecycle-consistent registration with optional exact finite timing.
+        /// </summary>
+        /// <param name="effect">The prepared active-effect instance.</param>
+        /// <param name="binding">The prepared binding associated with the effect.</param>
+        /// <param name="timing">
+        /// The prepared encounter timing, or <see langword="null"/> when timing must be derived or
+        /// the effect is not scheduled.
+        /// </param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="effect"/> or <paramref name="binding"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// The binding does not match the effect; its enabled state does not match the effect's
+        /// lifecycle status; or timing is supplied for an expired or indefinite effect, has
+        /// different stable identity, or disagrees with the effect's encounter duration.
+        /// </exception>
+        public ActiveEffectRegistration(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            ActiveEffectTimingState timing
+        )
+        {
+            Effect = effect ?? throw new ArgumentNullException(nameof(effect));
+            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            Timing = timing;
+            if (!BindingMatchesEffect(effect, binding))
+                throw new ArgumentException(
+                    "The binding does not match the active effect.",
+                    nameof(binding)
+                );
+            if ((effect.Status == ActiveEffectStatus.Active) != binding.IsEnabled)
+                throw new ArgumentException(
+                    "The binding enabled state must match the active effect lifecycle status.",
+                    nameof(binding)
+                );
+            if (timing != null && effect.Status != ActiveEffectStatus.Active)
+                throw new ArgumentException(
+                    "Timing is allowed only for an active effect.",
+                    nameof(timing)
+                );
+            if (timing != null && effect.Duration.Kind == EffectDurationKind.Indefinite)
+                throw new ArgumentException(
+                    "Timing is allowed only for a finite-duration effect.",
+                    nameof(timing)
+                );
+            if (
+                timing != null
+                && (
+                    timing.Effect != effect.Id
+                    || timing.Binding != binding.Id
+                    || timing.SourceCreature != effect.SourceCreature
+                    || timing.CreationOrder != binding.CreationOrder
+                )
+            )
+                throw new ArgumentException(
+                    "The timing does not match the active-effect registration.",
+                    nameof(timing)
+                );
+            if (
+                timing != null
+                && timing.ExpiresWithEncounter
+                    != (effect.Duration.Kind == EffectDurationKind.Encounter)
+            )
+                throw new ArgumentException(
+                    "The timing encounter-expiration flag does not match the effect duration.",
+                    nameof(timing)
+                );
+        }
+
+        /// <summary>Gets the prepared effect.</summary>
+        public ActiveEffectInstance Effect { get; }
+
+        /// <summary>Gets the prepared binding.</summary>
+        public ActiveRuleBinding Binding { get; }
+
+        /// <summary>
+        /// Gets exact prepared timing for this active finite-duration effect, when supplied.
+        /// </summary>
+        public ActiveEffectTimingState Timing { get; }
+
+        /// <summary>Compares every immutable effect, binding, and optional timing field.</summary>
+        public bool HasSameStructure(ActiveEffectRegistration other) =>
+            other != null
+            && ActiveEffectInstanceExactEquality.Equals(Effect, other.Effect)
+            && Binding.Equals(other.Binding)
+            && Equals(Timing, other.Timing);
+
+        internal static bool BindingMatchesEffect(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding
+        ) =>
+            binding.EffectId.HasValue
+            && binding.EffectId.Value == effect.Id
+            && binding.DefinitionId == effect.DefinitionId
+            && binding.Source == effect.Source;
+    }
+
+    /// <summary>Atomically adopts a deterministic batch of prepared active-effect pairs.</summary>
+    public sealed class AdoptActiveEffectRegistrationsOp
+        : IRuleOp<ActiveEffectAdoptionOutcome>,
+            IRuleSourcedOp
+    {
+        private readonly IReadOnlyList<ActiveEffectRegistration> registrations;
+
+        /// <summary>Creates one all-or-nothing adoption request.</summary>
+        public AdoptActiveEffectRegistrationsOp(
+            IEnumerable<ActiveEffectRegistration> registrations,
+            RuleSource source
+        )
+        {
+            if (registrations == null)
+                throw new ArgumentNullException(nameof(registrations));
+            ActiveEffectRegistration[] copied = registrations.ToArray();
+            if (copied.Any(registration => registration == null))
+                throw new ArgumentException(
+                    "Active-effect registrations cannot contain null.",
+                    nameof(registrations)
+                );
+            this.registrations = Array.AsReadOnly(copied);
+            Source = ActiveEffectOperationValidation.RequireSource(source);
+        }
+
+        /// <summary>Gets prepared pairs in deterministic adoption order.</summary>
+        public IReadOnlyList<ActiveEffectRegistration> Registrations => registrations;
+
+        /// <inheritdoc/>
+        public RuleSource Source { get; }
+    }
+
+    /// <summary>Reports the number of effect pairs committed by one adoption transaction.</summary>
+    public readonly struct ActiveEffectAdoptionOutcome
+    {
+        internal ActiveEffectAdoptionOutcome(int adopted) => Adopted = adopted;
+
+        /// <summary>Gets the number of newly adopted pairs.</summary>
+        public int Adopted { get; }
+    }
+
     /// <summary>Requests an optimistic typed-state replacement for one active effect.</summary>
     public sealed class UpdateActiveEffectStateOp
         : IRuleOp<ActiveEffectStateUpdateOutcome>,
@@ -79,7 +261,9 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to update.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
         /// <param name="state">The immutable replacement state.</param>
-        /// <param name="source">The rule source stamped onto a committed update Fact.</param>
+        /// <param name="source">
+        /// The stable owner of the effect. It must equal <see cref="ActiveEffectInstance.Source"/>.
+        /// </param>
         /// <exception cref="ArgumentException">A required ID or source is empty.</exception>
         /// <exception cref="ArgumentNullException"><paramref name="state"/> is <see langword="null"/>.</exception>
         public UpdateActiveEffectStateOp(
@@ -102,7 +286,9 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to update.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
         /// <param name="state">The immutable replacement state.</param>
-        /// <param name="source">The rule source stamped onto a committed update Fact.</param>
+        /// <param name="source">
+        /// The stable owner of the effect. It must equal <see cref="ActiveEffectInstance.Source"/>.
+        /// </param>
         /// <returns>A dispatchable update operation.</returns>
         public static UpdateActiveEffectStateOp Create<TState>(
             ActiveEffectId effectId,
@@ -137,7 +323,9 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to expire.</param>
         /// <param name="bindingId">The associated binding to deactivate.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
-        /// <param name="source">The rule source stamped onto a committed expiration Fact.</param>
+        /// <param name="source">
+        /// The stable owner of the effect. It must equal <see cref="ActiveEffectInstance.Source"/>.
+        /// </param>
         public ExpireActiveEffectOp(
             ActiveEffectId effectId,
             BindingId bindingId,
@@ -171,7 +359,9 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to remove.</param>
         /// <param name="bindingId">The associated binding to remove.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
-        /// <param name="source">The rule source stamped onto a committed removal Fact.</param>
+        /// <param name="source">
+        /// The stable owner of the effect. It must equal <see cref="ActiveEffectInstance.Source"/>.
+        /// </param>
         public RemoveActiveEffectOp(
             ActiveEffectId effectId,
             BindingId bindingId,

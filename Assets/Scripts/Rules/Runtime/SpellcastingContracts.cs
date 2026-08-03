@@ -260,10 +260,18 @@ namespace Game.Rules.Runtime
         /// <param name="definitionId">The definition registered in the active-rule registry.</param>
         /// <param name="duration">The lifecycle duration copied to each created effect.</param>
         /// <param name="target">The data-owned target selector, currently <c>self</c>.</param>
+        /// <param name="maximumActiveInstances">
+        /// The optional positive number of structurally matching instances one source creature may
+        /// keep active. Omit the value to allow unlimited instances.
+        /// </param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="maximumActiveInstances"/> is present but is not positive.
+        /// </exception>
         public SpellEffectDirective(
             RuleDefinitionId definitionId,
             EffectDuration duration,
-            string target
+            string target,
+            int? maximumActiveInstances = null
         )
         {
             if (definitionId.IsEmpty)
@@ -276,9 +284,15 @@ namespace Game.Rules.Runtime
                     "Only the self spell-effect target is currently supported.",
                     nameof(target)
                 );
+            if (maximumActiveInstances.HasValue && maximumActiveInstances.Value <= 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(maximumActiveInstances),
+                    "A maximum active-instance limit must be positive when supplied."
+                );
             DefinitionId = definitionId;
             Duration = duration;
             Target = target;
+            MaximumActiveInstances = maximumActiveInstances;
         }
 
         /// <summary>Gets the generic active-effect definition to instantiate.</summary>
@@ -291,6 +305,262 @@ namespace Game.Rules.Runtime
         /// Gets the definition-owned target selector used during rules resolution.
         /// </summary>
         public string Target { get; }
+
+        /// <summary>
+        /// Gets the per-source active-instance limit, or <see langword="null"/> when unlimited.
+        /// </summary>
+        /// <remarks>
+        /// Matching is based on exact active-effect structure, spell identity across ranks, source
+        /// creature and source provenance, and effect definition. Reaching the limit replaces the
+        /// ordinal-lowest matching active-effect identity.
+        /// </remarks>
+        public int? MaximumActiveInstances { get; }
+    }
+
+    /// <summary>Identifies a data-backed area shape without depending on Unity grid types.</summary>
+    public enum SpellAreaShape
+    {
+        /// <summary>A cone projected from the caster.</summary>
+        Cone,
+
+        /// <summary>A burst centered on a selected grid location.</summary>
+        Burst,
+
+        /// <summary>An emanation centered on the caster.</summary>
+        Emanation,
+
+        /// <summary>A line projected from the caster.</summary>
+        Line,
+    }
+
+    /// <summary>Defines one rules spell's area-selection geometry.</summary>
+    public sealed class SpellAreaTarget
+    {
+        /// <summary>Creates a positive-foot area target.</summary>
+        public SpellAreaTarget(SpellAreaShape shape, int sizeFeet, int rangeFeet = 0)
+        {
+            if (!Enum.IsDefined(typeof(SpellAreaShape), shape))
+                throw new ArgumentOutOfRangeException(nameof(shape));
+            if (sizeFeet <= 0)
+                throw new ArgumentOutOfRangeException(nameof(sizeFeet));
+            if (rangeFeet < 0)
+                throw new ArgumentOutOfRangeException(nameof(rangeFeet));
+            if (shape != SpellAreaShape.Burst && rangeFeet != 0)
+                throw new ArgumentException(
+                    "Only burst placements currently use a separate range.",
+                    nameof(rangeFeet)
+                );
+            Shape = shape;
+            SizeFeet = sizeFeet;
+            RangeFeet = rangeFeet;
+        }
+
+        /// <summary>Gets the grid-independent area shape.</summary>
+        public SpellAreaShape Shape { get; }
+
+        /// <summary>Gets the area's size in feet.</summary>
+        public int SizeFeet { get; }
+
+        /// <summary>Gets the caster-to-placement range for a burst, or zero for caster-origin areas.</summary>
+        public int RangeFeet { get; }
+    }
+
+    /// <summary>Identifies one of the eight authored horizontal area directions.</summary>
+    public enum SpellAreaDirection
+    {
+        /// <summary>Positive X.</summary>
+        East,
+
+        /// <summary>Positive X and positive Z.</summary>
+        NorthEast,
+
+        /// <summary>Positive Z.</summary>
+        North,
+
+        /// <summary>Negative X and positive Z.</summary>
+        NorthWest,
+
+        /// <summary>Negative X.</summary>
+        West,
+
+        /// <summary>Negative X and negative Z.</summary>
+        SouthWest,
+
+        /// <summary>Negative Z.</summary>
+        South,
+
+        /// <summary>Positive X and negative Z.</summary>
+        SouthEast,
+    }
+
+    /// <summary>Stores an immutable, Unity-free authored area placement.</summary>
+    public readonly struct SpellAreaPlacement : IEquatable<SpellAreaPlacement>
+    {
+        /// <summary>Creates one exact area placement from grid coordinates and direction.</summary>
+        public SpellAreaPlacement(
+            SpellAreaShape shape,
+            GridPosition originCell,
+            int originCornerX,
+            int originCornerZ,
+            SpellAreaDirection direction
+        )
+        {
+            if (!Enum.IsDefined(typeof(SpellAreaShape), shape))
+                throw new ArgumentOutOfRangeException(nameof(shape));
+            if (!Enum.IsDefined(typeof(SpellAreaDirection), direction))
+                throw new ArgumentOutOfRangeException(nameof(direction));
+            Shape = shape;
+            OriginCell = originCell;
+            OriginCornerX = originCornerX;
+            OriginCornerZ = originCornerZ;
+            Direction = direction;
+        }
+
+        /// <summary>Gets the authored shape copied from the selection.</summary>
+        public SpellAreaShape Shape { get; }
+
+        /// <summary>Gets the selected origin cell.</summary>
+        public GridPosition OriginCell { get; }
+
+        /// <summary>Gets the selected grid-corner X coordinate.</summary>
+        public int OriginCornerX { get; }
+
+        /// <summary>Gets the selected grid-corner Z coordinate.</summary>
+        public int OriginCornerZ { get; }
+
+        /// <summary>Gets the selected horizontal direction.</summary>
+        public SpellAreaDirection Direction { get; }
+
+        /// <inheritdoc/>
+        public bool Equals(SpellAreaPlacement other) =>
+            Shape == other.Shape
+            && OriginCell == other.OriginCell
+            && OriginCornerX == other.OriginCornerX
+            && OriginCornerZ == other.OriginCornerZ
+            && Direction == other.Direction;
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) => obj is SpellAreaPlacement other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            HashCode.Combine(Shape, OriginCell, OriginCornerX, OriginCornerZ, Direction);
+    }
+
+    /// <summary>Revalidates an exact area placement and affected creature set before costs.</summary>
+    public interface ISpellSaveTargetingProvider
+    {
+        /// <summary>
+        /// Checks authored geometry, live positions, topology, line of effect, and exact targets.
+        /// </summary>
+        ActionValidationResult Validate(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            SpellSaveDefinition save,
+            SpellAreaPlacement placement,
+            IReadOnlyList<CreatureId> selectedCreatures
+        );
+    }
+
+    /// <summary>Declares one condition applied on an exact saving-throw degree.</summary>
+    public sealed class SpellSaveConditionDirective
+    {
+        /// <summary>Creates a canonical condition directive with typed state.</summary>
+        public SpellSaveConditionDirective(
+            RuleDefinitionId definitionId,
+            DegreeOfSuccess degree,
+            EffectDuration duration,
+            IEffectState state
+        )
+        {
+            if (definitionId.IsEmpty)
+                throw new ArgumentException(
+                    "A condition definition is required.",
+                    nameof(definitionId)
+                );
+            if (!Enum.IsDefined(typeof(DegreeOfSuccess), degree))
+                throw new ArgumentOutOfRangeException(nameof(degree));
+            State = state ?? throw new ArgumentNullException(nameof(state));
+            if (!ConditionRuleDefinitions.Accepts(definitionId, State))
+                throw new ArgumentException(
+                    "The condition state does not match its canonical definition.",
+                    nameof(state)
+                );
+            DefinitionId = definitionId;
+            Degree = degree;
+            Duration = duration;
+        }
+
+        /// <summary>Gets the canonical condition definition.</summary>
+        public RuleDefinitionId DefinitionId { get; }
+
+        /// <summary>Gets the save degree that applies the condition.</summary>
+        public DegreeOfSuccess Degree { get; }
+
+        /// <summary>Gets the authored condition duration.</summary>
+        public EffectDuration Duration { get; }
+
+        /// <summary>Gets the immutable typed condition state.</summary>
+        public IEffectState State { get; }
+    }
+
+    /// <summary>Defines one generic area basic-save workflow owned by a spell definition.</summary>
+    public sealed class SpellSaveDefinition
+    {
+        private readonly IReadOnlyList<TypedDamageDice> damage;
+        private readonly IReadOnlyList<SpellSaveConditionDirective> conditions;
+
+        /// <summary>Creates an immutable basic-save definition.</summary>
+        public SpellSaveDefinition(
+            SaveKind save,
+            bool isBasic,
+            SpellAreaTarget target,
+            IEnumerable<TypedDamageDice> damage,
+            IEnumerable<SpellSaveConditionDirective> conditions
+        )
+        {
+            if (!Enum.IsDefined(typeof(SaveKind), save))
+                throw new ArgumentOutOfRangeException(nameof(save));
+            if (!isBasic)
+                throw new ArgumentException(
+                    "Only basic saving-throw spell damage is currently supported.",
+                    nameof(isBasic)
+                );
+            Save = save;
+            IsBasic = true;
+            Target = target ?? throw new ArgumentNullException(nameof(target));
+            this.damage = new ReadOnlyCollection<TypedDamageDice>(
+                (damage ?? throw new ArgumentNullException(nameof(damage))).ToArray()
+            );
+            if (this.damage.Count == 0 || this.damage.Any(value => value == null))
+                throw new ArgumentException(
+                    "A save definition requires non-null damage dice.",
+                    nameof(damage)
+                );
+            this.conditions = new ReadOnlyCollection<SpellSaveConditionDirective>(
+                (conditions ?? throw new ArgumentNullException(nameof(conditions))).ToArray()
+            );
+            if (this.conditions.Any(value => value == null))
+                throw new ArgumentException(
+                    "Save condition directives cannot contain null.",
+                    nameof(conditions)
+                );
+        }
+
+        /// <summary>Gets the saving throw rolled by each selected creature.</summary>
+        public SaveKind Save { get; }
+
+        /// <summary>Gets whether the definition uses PF2e basic-save damage scaling.</summary>
+        public bool IsBasic { get; }
+
+        /// <summary>Gets the area-selection contract.</summary>
+        public SpellAreaTarget Target { get; }
+
+        /// <summary>Gets the typed damage dice rolled once and shared by every target.</summary>
+        public IReadOnlyList<TypedDamageDice> Damage => damage;
+
+        /// <summary>Gets secondary conditions keyed to exact save degrees.</summary>
+        public IReadOnlyList<SpellSaveConditionDirective> Conditions => conditions;
     }
 
     /// <summary>Stores immutable data shared by rules and Unity spell presentation.</summary>
@@ -300,6 +570,7 @@ namespace Game.Rules.Runtime
         private readonly IReadOnlyList<Trait> traits;
         private readonly IReadOnlyList<SpellEffectDirective> effects;
         private readonly IReadOnlyList<SpellAttackDefinition> attacks;
+        private readonly IReadOnlyList<SpellSaveDefinition> saves;
 
         /// <summary>Creates an immutable, data-backed spell definition.</summary>
         /// <param name="id">The stable spell identity shared with prepared spellbooks.</param>
@@ -309,6 +580,7 @@ namespace Game.Rules.Runtime
         /// <param name="traits">The rules traits frozen into the action profile.</param>
         /// <param name="effects">Generic active effects created when the cast resolves.</param>
         /// <param name="attacks">Generic spell attacks resolved when the cast completes.</param>
+        /// <param name="saves">Generic area basic saves resolved when the cast completes.</param>
         public SpellDefinition(
             SpellId id,
             string displayName,
@@ -316,7 +588,8 @@ namespace Game.Rules.Runtime
             IEnumerable<SpellActionVariant> variants,
             IEnumerable<Trait> traits,
             IEnumerable<SpellEffectDirective> effects,
-            IEnumerable<SpellAttackDefinition> attacks
+            IEnumerable<SpellAttackDefinition> attacks,
+            IEnumerable<SpellSaveDefinition> saves
         )
         {
             if (id.IsEmpty)
@@ -355,6 +628,23 @@ namespace Game.Rules.Runtime
                     "Attack directives cannot contain null.",
                     nameof(attacks)
                 );
+            this.saves = new ReadOnlyCollection<SpellSaveDefinition>(
+                (saves ?? throw new ArgumentNullException(nameof(saves))).ToArray()
+            );
+            if (this.saves.Any(save => save == null))
+                throw new ArgumentException("Save directives cannot contain null.", nameof(saves));
+            if (this.attacks.Count > 0 && this.saves.Count > 0)
+                throw new ArgumentException(
+                    "A spell cannot combine the current attack and area-save target workflows."
+                );
+            int resolutionCategories =
+                (this.effects.Count > 0 ? 1 : 0)
+                + (this.attacks.Count > 0 ? 1 : 0)
+                + (this.saves.Count > 0 ? 1 : 0);
+            if (resolutionCategories != 1)
+                throw new ArgumentException(
+                    "A rules-ready spell requires exactly one modeled resolution category."
+                );
         }
 
         /// <summary>Gets the stable spell identity.</summary>
@@ -377,6 +667,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets generic spell attacks resolved by this definition.</summary>
         public IReadOnlyList<SpellAttackDefinition> Attacks => attacks;
+
+        /// <summary>Gets generic area basic saves resolved by this definition.</summary>
+        public IReadOnlyList<SpellSaveDefinition> Saves => saves;
     }
 
     /// <summary>Resolves generic spell definitions by exact cast reference.</summary>

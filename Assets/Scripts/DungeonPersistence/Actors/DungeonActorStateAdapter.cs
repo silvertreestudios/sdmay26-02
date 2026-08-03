@@ -34,6 +34,8 @@ namespace Game.DungeonPersistence.Actors
                 controller,
                 identifyActor
             );
+            IReadOnlyList<DungeonRulesSpellEffectSaveState> rulesSpellEffects =
+                CaptureRulesSpellEffects(controller);
             IReadOnlyList<DungeonPreparedEffectSaveState> preparedEffects =
                 creature.Prepared == null
                     ? Array.Empty<DungeonPreparedEffectSaveState>()
@@ -60,6 +62,7 @@ namespace Game.DungeonPersistence.Actors
                     ) && RageRules.IsRaging(bridge.Snapshot, creatureId),
                 Conditions = conditions.ToArray(),
                 TimedEffects = timedEffects.ToArray(),
+                RulesSpellEffects = rulesSpellEffects.ToArray(),
                 PreparedEffects = preparedEffects.ToArray(),
                 Equipment = CaptureEquipment(creature),
             };
@@ -109,6 +112,9 @@ namespace Game.DungeonPersistence.Actors
             );
 
             ConditionApplicationSnapshot[] conditions = PrepareConditions(saved.Conditions);
+            RulesSpellEffectSnapshot[] rulesSpellEffects = PrepareRulesSpellEffects(
+                saved.RulesSpellEffects
+            );
             ActiveSpellEffect[] timedEffects = saved
                 .TimedEffects.Select(effect => RestoreTimedEffect(effect, resolveActor))
                 .ToArray();
@@ -159,6 +165,11 @@ namespace Game.DungeonPersistence.Actors
                     ?? controller.gameObject.AddComponent<Conditions>();
                 conditionController.RestoreApplications(conditions);
 
+                RulesSpellEffectPersistence rulesPersistence =
+                    controller.GetComponent<RulesSpellEffectPersistence>()
+                    ?? controller.gameObject.AddComponent<RulesSpellEffectPersistence>();
+                rulesPersistence.RestoreEffects(rulesSpellEffects);
+
                 SpellEffectController spellEffects =
                     controller.GetComponent<SpellEffectController>();
                 if (spellEffects != null || timedEffects.Length > 0)
@@ -188,20 +199,37 @@ namespace Game.DungeonPersistence.Actors
             if (conditions == null)
                 return Array.Empty<DungeonConditionSaveState>();
 
-            Dictionary<ConditionSource, string> keys = new();
             List<DungeonConditionSaveState> captured = new();
             foreach (ConditionApplicationSnapshot application in conditions.CaptureApplications())
             {
-                if (!keys.TryGetValue(application.Source, out string sourceKey))
-                {
-                    sourceKey = $"source-{keys.Count + 1:D4}";
-                    keys.Add(application.Source, sourceKey);
-                }
+                string sourceActorId = application.SourceActorId;
+                if (!DurableActorSourceIdentity.IsCanonical(sourceActorId))
+                    throw new InvalidOperationException(
+                        $"Condition {application.EffectId.Value} has no canonical durable source actor provenance."
+                    );
+                DungeonConditionStateKind stateKind = GetConditionStateKind(application.State);
                 captured.Add(
                     new DungeonConditionSaveState
                     {
-                        ConditionId = application.ConditionId,
-                        SourceKey = sourceKey,
+                        EffectId = application.EffectId.Value,
+                        BindingId = application.BindingId.Value,
+                        DefinitionId = application.DefinitionId.Value,
+                        SourceActorId = sourceActorId,
+                        RuleSource = application.Source.Slug,
+                        DurationKind = application.Duration.Kind,
+                        DurationAmount = application.Duration.Amount,
+                        Version = application.Version.Value,
+                        Status = application.Status,
+                        CreationOrder = application.CreationOrder,
+                        BindingEnabled = application.BindingEnabled,
+                        StateKind = stateKind,
+                        Value = GetConditionValue(application.State),
+                        AllowedActionIds = application.State is QuickenedConditionState quickened
+                            ? quickened.AllowedActions.Select(action => action.Value).ToArray()
+                            : Array.Empty<string>(),
+                        HasTiming = application.Timing != null,
+                        RemainingBoundaries = application.Timing?.RemainingBoundaries ?? 0,
+                        ExpiresWithEncounter = application.Timing?.ExpiresWithEncounter ?? false,
                     }
                 );
             }
@@ -212,19 +240,82 @@ namespace Game.DungeonPersistence.Actors
             IReadOnlyList<DungeonConditionSaveState> saved
         )
         {
-            Dictionary<string, ConditionSource> sources = new(StringComparer.Ordinal);
             return saved
                 .Select(application =>
                 {
-                    if (!sources.TryGetValue(application.SourceKey, out ConditionSource source))
-                    {
-                        source = new ConditionSource();
-                        sources.Add(application.SourceKey, source);
-                    }
-                    return new ConditionApplicationSnapshot(application.ConditionId, source);
+                    return new ConditionApplicationSnapshot(
+                        new ActiveEffectId(application.EffectId),
+                        new BindingId(application.BindingId),
+                        new RuleDefinitionId(application.DefinitionId),
+                        application.SourceActorId,
+                        RuleSource.FromSlug(application.RuleSource),
+                        RestoreDuration(application),
+                        new EffectStateVersion(application.Version),
+                        RestoreConditionState(application),
+                        application.Status,
+                        application.CreationOrder,
+                        application.BindingEnabled,
+                        application.HasTiming
+                            ? new ConditionTimingSnapshot(
+                                application.RemainingBoundaries,
+                                application.ExpiresWithEncounter
+                            )
+                            : null
+                    );
                 })
                 .ToArray();
         }
+
+        private static DungeonConditionStateKind GetConditionStateKind(IEffectState state) =>
+            state switch
+            {
+                ConditionMarkerState => DungeonConditionStateKind.Marker,
+                SlowedConditionState => DungeonConditionStateKind.Slowed,
+                ValuedStunnedConditionState => DungeonConditionStateKind.StunnedValued,
+                DurationOnlyStunnedConditionState => DungeonConditionStateKind.StunnedDurationOnly,
+                QuickenedConditionState quickened when quickened.IsRestricted =>
+                    DungeonConditionStateKind.QuickenedRestricted,
+                QuickenedConditionState => DungeonConditionStateKind.QuickenedUnrestricted,
+                _ => throw new InvalidOperationException(
+                    $"Unsupported persisted condition state {state.GetType().Name}."
+                ),
+            };
+
+        private static int GetConditionValue(IEffectState state) =>
+            state switch
+            {
+                SlowedConditionState slowed => slowed.Value,
+                ValuedStunnedConditionState stunned => stunned.Value,
+                _ => 0,
+            };
+
+        private static EffectDuration RestoreDuration(DungeonConditionSaveState saved) =>
+            saved.DurationKind switch
+            {
+                EffectDurationKind.Indefinite => EffectDuration.Indefinite,
+                EffectDurationKind.Encounter => EffectDuration.Encounter,
+                EffectDurationKind.Rounds => EffectDuration.Rounds(saved.DurationAmount),
+                EffectDurationKind.Minutes => EffectDuration.Minutes(saved.DurationAmount),
+                _ => throw new InvalidOperationException("Unsupported condition duration kind."),
+            };
+
+        private static IEffectState RestoreConditionState(DungeonConditionSaveState saved) =>
+            saved.StateKind switch
+            {
+                DungeonConditionStateKind.Marker => ConditionMarkerState.Instance,
+                DungeonConditionStateKind.Slowed => new SlowedConditionState(saved.Value),
+                DungeonConditionStateKind.StunnedValued => new ValuedStunnedConditionState(
+                    saved.Value
+                ),
+                DungeonConditionStateKind.StunnedDurationOnly =>
+                    DurationOnlyStunnedConditionState.Instance,
+                DungeonConditionStateKind.QuickenedRestricted => new QuickenedConditionState(
+                    saved.AllowedActionIds.Select(action => new ActionDefinitionId(action))
+                ),
+                DungeonConditionStateKind.QuickenedUnrestricted =>
+                    QuickenedConditionState.Unrestricted,
+                _ => throw new InvalidOperationException("Unsupported condition state kind."),
+            };
 
         private static IReadOnlyList<DungeonTimedEffectSaveState> CaptureTimedEffects(
             ActionController controller,
@@ -258,6 +349,85 @@ namespace Game.DungeonPersistence.Actors
                 })
                 .ToArray();
         }
+
+        private static IReadOnlyList<DungeonRulesSpellEffectSaveState> CaptureRulesSpellEffects(
+            ActionController controller
+        )
+        {
+            RulesSpellEffectPersistence persistence =
+                controller.GetComponent<RulesSpellEffectPersistence>();
+            if (persistence == null)
+                return Array.Empty<DungeonRulesSpellEffectSaveState>();
+            UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+            return persistence
+                .CaptureEffects(catalog)
+                .Select(effect => new DungeonRulesSpellEffectSaveState
+                {
+                    EffectId = effect.EffectId.Value,
+                    BindingId = effect.BindingId.Value,
+                    DefinitionId = effect.DefinitionId.Value,
+                    SourceActorId = effect.SourceActorId,
+                    TargetActorId = effect.TargetActorId,
+                    RuleSource = effect.Source.Slug,
+                    DurationKind = effect.Duration.Kind,
+                    DurationAmount = effect.Duration.Amount,
+                    Version = effect.Version.Value,
+                    Status = effect.Status,
+                    CreationOrder = effect.CreationOrder,
+                    BindingEnabled = effect.BindingEnabled,
+                    SpellId = effect.Spell.Spell.Value,
+                    SpellRank = effect.Spell.Rank,
+                    HasTiming = effect.Timing != null,
+                    RemainingBoundaries = effect.Timing?.RemainingBoundaries ?? 0,
+                    ExpiresWithEncounter = effect.Timing?.ExpiresWithEncounter ?? false,
+                })
+                .ToArray();
+        }
+
+        private static RulesSpellEffectSnapshot[] PrepareRulesSpellEffects(
+            IReadOnlyList<DungeonRulesSpellEffectSaveState> saved
+        )
+        {
+            RulesSpellEffectSnapshot[] restored = saved
+                .Select(effect => new RulesSpellEffectSnapshot(
+                    new ActiveEffectId(effect.EffectId),
+                    new BindingId(effect.BindingId),
+                    new RuleDefinitionId(effect.DefinitionId),
+                    effect.SourceActorId,
+                    effect.TargetActorId,
+                    RuleSource.FromSlug(effect.RuleSource),
+                    RestoreRulesSpellEffectDuration(effect),
+                    new EffectStateVersion(effect.Version),
+                    effect.Status,
+                    effect.CreationOrder,
+                    effect.BindingEnabled,
+                    new SpellReference(new SpellId(effect.SpellId), effect.SpellRank),
+                    effect.HasTiming
+                        ? new RulesSpellEffectTimingSnapshot(
+                            effect.RemainingBoundaries,
+                            effect.ExpiresWithEncounter
+                        )
+                        : null
+                ))
+                .ToArray();
+            UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+            RulesSpellEffectSnapshot.ValidateCatalogBatch(restored, catalog);
+            return restored;
+        }
+
+        private static EffectDuration RestoreRulesSpellEffectDuration(
+            DungeonRulesSpellEffectSaveState saved
+        ) =>
+            saved.DurationKind switch
+            {
+                EffectDurationKind.Indefinite => EffectDuration.Indefinite,
+                EffectDurationKind.Encounter => EffectDuration.Encounter,
+                EffectDurationKind.Rounds => EffectDuration.Rounds(saved.DurationAmount),
+                EffectDurationKind.Minutes => EffectDuration.Minutes(saved.DurationAmount),
+                _ => throw new InvalidOperationException(
+                    "Unsupported rules-native spell-effect duration kind."
+                ),
+            };
 
         private static string GetEffectKind(ActiveSpellEffect effect)
         {

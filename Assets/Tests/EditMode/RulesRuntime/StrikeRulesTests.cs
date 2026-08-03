@@ -12,6 +12,33 @@ namespace Game.Rules.Runtime.Tests
         private static readonly CreatureId Target = new CreatureId("target");
         private static readonly ItemId Weapon = new ItemId("weapon");
         private static readonly ItemId Ammo = new ItemId("ammo");
+        private static readonly ItemId ExtraWeapon = new ItemId("extra-weapon");
+        private static readonly ItemId ExtraAmmo = new ItemId("extra-ammo");
+
+        /// <summary>Identifies one conflicting Strike registration replay state.</summary>
+        public enum StrikeRegistrationConflict
+        {
+            /// <summary>The actor owns an unrequested Strike item.</summary>
+            ExtraEquipment,
+
+            /// <summary>The actor owns an unrequested ammunition pool.</summary>
+            ExtraAmmunition,
+
+            /// <summary>One expected Strike item is absent.</summary>
+            MissingEquipment,
+
+            /// <summary>One expected Strike item has different state.</summary>
+            ChangedEquipment,
+
+            /// <summary>One expected ammunition pool has different state.</summary>
+            ChangedAmmunition,
+
+            /// <summary>The contribution-owned MAP state is absent.</summary>
+            MissingMap,
+
+            /// <summary>The contribution-owned MAP state has already advanced.</summary>
+            ChangedMap,
+        }
 
         [Test]
         public async Task ValidHitSpendsOneActionAdvancesMapAndMutatesHpOnce()
@@ -80,6 +107,42 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(observer.Outcome.Roll, Is.SameAs(resolution.AttackRoll));
             Assert.That(observer.Outcome.Modifiers.Total, Is.EqualTo(resolution.AttackModifier));
             Assert.That(observer.Outcome.Degree, Is.EqualTo(resolution.Degree));
+        }
+
+        [TestCase(2, false, 17, 2)]
+        [TestCase(0, true, 13, -2)]
+        public async Task ContextualDefenseAdjustmentIsCollectedExactlyOnce(
+            int coverBonus,
+            bool offGuard,
+            int expectedArmorClass,
+            int expectedCircumstanceValue
+        )
+        {
+            TestRuntime runtime = CreateRuntime(new ScriptedRollService(1));
+            runtime.Targeting.Result = StrikeTargetingOutcome.Legal(5, 0, coverBonus, offGuard);
+            CapturingDefenseCollectionObserver observer = new();
+            runtime.Dispatcher.RegisterResolvedOpObserver<
+                CollectDefenseModifiersOp,
+                ModifierCollection
+            >(observer);
+
+            StrikeResolution resolution = AssertResolved(
+                await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
+            ).Value;
+
+            Assert.That(resolution.ArmorClass, Is.EqualTo(expectedArmorClass));
+            Assert.That(observer.Collection, Is.Not.Null);
+            Modifier[] circumstance = observer
+                .Collection.Applied.Where(modifier => modifier.Type == ModifierType.Circumstance)
+                .ToArray();
+            Assert.That(circumstance.Length, Is.EqualTo(1));
+            Assert.That(circumstance[0].Value, Is.EqualTo(expectedCircumstanceValue));
+            Assert.That(
+                observer.Collection.Suppressed.Where(modifier =>
+                    modifier.Type == ModifierType.Circumstance
+                ),
+                Is.Empty
+            );
         }
 
         [Test]
@@ -362,6 +425,146 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.Facts, Is.Empty);
         }
 
+        [Test]
+        public async Task StrikeRegistrationExactReplayRequiresCompleteOwnedCollectionsAndMap()
+        {
+            StrikeCombatantRegistration registration = CreateStrikeRegistration();
+            RuleDispatcher dispatcher = CreateRegistrationDispatcher(registration);
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            ResolvedOpResult<bool> replay = AssertResolved(
+                await dispatcher.Dispatch(new RegisterStrikeCombatantOp(registration))
+            );
+
+            Assert.That(replay.Value, Is.False);
+            Assert.That(replay.Facts, Is.Empty);
+            Assert.That(dispatcher.Snapshot, Is.SameAs(before));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+        }
+
+        [TestCase(StrikeRegistrationConflict.ExtraEquipment)]
+        [TestCase(StrikeRegistrationConflict.ExtraAmmunition)]
+        [TestCase(StrikeRegistrationConflict.MissingEquipment)]
+        [TestCase(StrikeRegistrationConflict.ChangedEquipment)]
+        [TestCase(StrikeRegistrationConflict.ChangedAmmunition)]
+        [TestCase(StrikeRegistrationConflict.MissingMap)]
+        [TestCase(StrikeRegistrationConflict.ChangedMap)]
+        public void StrikeRegistrationRejectsIncompleteOrConflictingExactReplay(
+            StrikeRegistrationConflict conflict
+        )
+        {
+            StrikeCombatantRegistration registration = CreateStrikeRegistration();
+            RuleDispatcher dispatcher = CreateRegistrationDispatcher(registration, conflict);
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await dispatcher.Dispatch(new RegisterStrikeCombatantOp(registration))
+            );
+
+            Assert.That(dispatcher.Snapshot, Is.SameAs(before));
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void StrikeRegistrationRejectsDuplicateOwnedIdentifiers(bool equipment)
+        {
+            EquipmentState item = CreateEquipment();
+            AmmunitionState pool = new AmmunitionState(Ammo, Actor, 2);
+
+            Assert.Throws<ArgumentException>(() =>
+                new StrikeCombatantRegistration(
+                    Actor,
+                    equipment ? new[] { item, item } : new[] { item },
+                    equipment ? new[] { pool } : new[] { pool, pool }
+                )
+            );
+        }
+
+        private static StrikeCombatantRegistration CreateStrikeRegistration() =>
+            new StrikeCombatantRegistration(
+                Actor,
+                new[] { CreateEquipment() },
+                new[] { new AmmunitionState(Ammo, Actor, 2) }
+            );
+
+        private static EquipmentState CreateEquipment(bool loaded = true) =>
+            new EquipmentState(Weapon, new ItemDefinitionId("test-sword"), Actor, true, loaded);
+
+        private static RuleDispatcher CreateRegistrationDispatcher(
+            StrikeCombatantRegistration expected,
+            StrikeRegistrationConflict? conflict = null
+        )
+        {
+            RulesStateSeed seed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Actor, new PlayerId("players")))
+                .SeedCreature(new CreatureState(Target, new PlayerId("enemies")));
+            if (conflict != StrikeRegistrationConflict.MissingEquipment)
+            {
+                seed.SeedEquipment(
+                    conflict == StrikeRegistrationConflict.ChangedEquipment
+                        ? CreateEquipment(false)
+                        : expected.Equipment.Single()
+                );
+            }
+            seed.SeedAmmunition(
+                conflict == StrikeRegistrationConflict.ChangedAmmunition
+                    ? new AmmunitionState(Ammo, Actor, 1)
+                    : expected.Ammunition.Single()
+            );
+            if (conflict == StrikeRegistrationConflict.ExtraEquipment)
+            {
+                seed.SeedEquipment(
+                    new EquipmentState(
+                        ExtraWeapon,
+                        new ItemDefinitionId("extra-sword"),
+                        Actor,
+                        true,
+                        true
+                    )
+                );
+            }
+            if (conflict == StrikeRegistrationConflict.ExtraAmmunition)
+                seed.SeedAmmunition(new AmmunitionState(ExtraAmmo, Actor, 1));
+            if (conflict != StrikeRegistrationConflict.MissingMap)
+            {
+                seed.SeedMultipleAttackPenalty(
+                    Actor,
+                    new MultipleAttackPenaltyState(
+                        conflict == StrikeRegistrationConflict.ChangedMap ? 1 : 0
+                    )
+                );
+            }
+            StrikeItemDefinition definition = CreateItem(
+                reloadActions: 1,
+                ammunition: StrikeAmmunitionRequirement.Required(Ammo)
+            );
+            TestCatalog catalog = new TestCatalog(definition);
+            return new RuleDispatcherBuilder(
+                new InMemoryRulesStore(seed),
+                new ScriptedRollService()
+            )
+                .UseMultipleAttackPenaltyRules()
+                .UseActionLifecycle(catalog)
+                .UseCheckResolution()
+                .UseStrikeRules(
+                    catalog,
+                    new TestTargeting(),
+                    new FixedResolutionDataProvider(
+                        new StrikeResolutionData(
+                            15,
+                            Array.Empty<Modifier>(),
+                            Array.Empty<TypedDamageDice>(),
+                            Array.Empty<TypedFlatDamage>(),
+                            Array.Empty<TypedDamageImmunity>(),
+                            Array.Empty<TypedDefenseAdjustment>(),
+                            Array.Empty<TypedDefenseAdjustment>()
+                        )
+                    )
+                )
+                .Build();
+        }
+
         private static TestRuntime CreateRuntime(
             ScriptedRollService rolls,
             StrikeItemDefinition item = null,
@@ -479,6 +682,22 @@ namespace Game.Rules.Runtime.Tests
             {
                 Operation = operation;
                 Outcome = result;
+                return default;
+            }
+        }
+
+        private sealed class CapturingDefenseCollectionObserver
+            : IResolvedOpObserver<CollectDefenseModifiersOp, ModifierCollection>
+        {
+            public ModifierCollection Collection { get; private set; }
+
+            public ValueTask OnOperationResolved(
+                CollectDefenseModifiersOp operation,
+                ModifierCollection result,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Collection = result;
                 return default;
             }
         }

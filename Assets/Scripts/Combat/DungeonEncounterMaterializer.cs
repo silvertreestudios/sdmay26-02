@@ -283,20 +283,25 @@ namespace Game.Combat.Encounters
         private readonly IDungeonEncounterCreatureFactory factory;
         private readonly IDungeonEncounterRuntimeRegistration runtimeRegistration;
         private readonly IReadOnlyDictionary<string, DungeonCreatureRuntimeState> restoredCreatures;
+        private readonly int floorDepth;
 
         /// <summary>Creates a materializer with an injectable creature lifecycle boundary.</summary>
         /// <param name="catalog">The required runtime creature catalog.</param>
         /// <param name="factory">The required creator and rollback owner.</param>
+        /// <param name="floorDepth">The nonnegative dungeon floor that owns all materialized enemies.</param>
         /// <exception cref="ArgumentNullException">Either dependency is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="floorDepth"/> is negative.</exception>
         public DungeonEncounterMaterializer(
             DungeonEncounterCreatureCatalog catalog,
-            IDungeonEncounterCreatureFactory factory
+            IDungeonEncounterCreatureFactory factory,
+            int floorDepth
         )
             : this(
                 catalog,
                 factory,
                 new UnityDungeonEncounterRuntimeRegistration(),
-                Array.Empty<DungeonCreatureRuntimeState>()
+                Array.Empty<DungeonCreatureRuntimeState>(),
+                floorDepth
             ) { }
 
         /// <summary>Creates a materializer with injectable creature and registration boundaries.</summary>
@@ -305,17 +310,21 @@ namespace Game.Combat.Encounters
         /// <param name="runtimeRegistration">
         /// The required grid/combat validation and rollback boundary.
         /// </param>
+        /// <param name="floorDepth">The nonnegative dungeon floor that owns all materialized enemies.</param>
         /// <exception cref="ArgumentNullException">A dependency is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="floorDepth"/> is negative.</exception>
         public DungeonEncounterMaterializer(
             DungeonEncounterCreatureCatalog catalog,
             IDungeonEncounterCreatureFactory factory,
-            IDungeonEncounterRuntimeRegistration runtimeRegistration
+            IDungeonEncounterRuntimeRegistration runtimeRegistration,
+            int floorDepth
         )
             : this(
                 catalog,
                 factory,
                 runtimeRegistration,
-                Array.Empty<DungeonCreatureRuntimeState>()
+                Array.Empty<DungeonCreatureRuntimeState>(),
+                floorDepth
             ) { }
 
         /// <summary>Creates a materializer that can restore live creature cell, HP, and child state.</summary>
@@ -323,13 +332,16 @@ namespace Game.Combat.Encounters
         /// <param name="factory">The required creator and destruction owner.</param>
         /// <param name="runtimeRegistration">The required grid/combat registration boundary.</param>
         /// <param name="restoredCreatures">Unique persisted live creatures keyed by stable instance ID.</param>
+        /// <param name="floorDepth">The nonnegative dungeon floor that owns all materialized enemies.</param>
         /// <exception cref="ArgumentNullException">A dependency is null.</exception>
         /// <exception cref="ArgumentException">Restored creatures contain null or duplicate IDs.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="floorDepth"/> is negative.</exception>
         public DungeonEncounterMaterializer(
             DungeonEncounterCreatureCatalog catalog,
             IDungeonEncounterCreatureFactory factory,
             IDungeonEncounterRuntimeRegistration runtimeRegistration,
-            IEnumerable<DungeonCreatureRuntimeState> restoredCreatures
+            IEnumerable<DungeonCreatureRuntimeState> restoredCreatures,
+            int floorDepth
         )
         {
             this.catalog =
@@ -337,6 +349,12 @@ namespace Game.Combat.Encounters
             this.factory = factory ?? throw new ArgumentNullException(nameof(factory));
             this.runtimeRegistration =
                 runtimeRegistration ?? throw new ArgumentNullException(nameof(runtimeRegistration));
+            if (floorDepth < 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(floorDepth),
+                    "Dungeon encounter floor depth cannot be negative."
+                );
+            this.floorDepth = floorDepth;
             if (restoredCreatures == null)
                 throw new ArgumentNullException(nameof(restoredCreatures));
             DungeonCreatureRuntimeState[] copiedRestoredCreatures = restoredCreatures.ToArray();
@@ -582,6 +600,7 @@ namespace Game.Combat.Encounters
                     member.Configure(
                         plan.Id,
                         instanceId,
+                        floorDepth,
                         plan.CreatureIds[planIndex],
                         persistentState
                     );

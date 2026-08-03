@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Text;
 using System.Threading.Tasks;
+using Game.Combat.Encounters;
 using Game.Creature;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Composition;
 using GridPrivate;
@@ -12,6 +15,120 @@ using UnityEngine;
 
 namespace Game.Rules.Unity
 {
+    /// <summary>Resolves durable condition provenance to either a live or reserved rules identity.</summary>
+    internal readonly struct DurableActorSourceResolution
+    {
+        internal DurableActorSourceResolution(CreatureId sourceCreature, bool isPresent)
+        {
+            if (sourceCreature.IsEmpty)
+                throw new ArgumentException(
+                    "Durable source resolution requires a rules identity.",
+                    nameof(sourceCreature)
+                );
+            SourceCreature = sourceCreature;
+            IsPresent = isPresent;
+        }
+
+        internal CreatureId SourceCreature { get; }
+        internal bool IsPresent { get; }
+    }
+
+    /// <summary>
+    /// Provides an exact reversible encoding for historical dungeon actor provenance.
+    /// </summary>
+    internal static class DurableActorSourceIdentity
+    {
+        private const string ReservedPrefix = "condition-source-reserved-v1-";
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
+        internal static string RequireCanonical(string durableId, string parameterName)
+        {
+            if (
+                string.IsNullOrWhiteSpace(durableId)
+                || !string.Equals(durableId, durableId.Trim(), StringComparison.Ordinal)
+            )
+                throw new ArgumentException(
+                    "A durable actor identity must be nonempty and canonical.",
+                    parameterName
+                );
+            try
+            {
+                StrictUtf8.GetByteCount(durableId);
+            }
+            catch (EncoderFallbackException exception)
+            {
+                throw new ArgumentException(
+                    "A durable actor identity must contain valid Unicode.",
+                    parameterName,
+                    exception
+                );
+            }
+            return durableId;
+        }
+
+        internal static bool IsCanonical(string durableId)
+        {
+            try
+            {
+                RequireCanonical(durableId, nameof(durableId));
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        internal static CreatureId Reserve(string durableId)
+        {
+            string canonical = RequireCanonical(durableId, nameof(durableId));
+            string payload = Convert
+                .ToBase64String(StrictUtf8.GetBytes(canonical))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+            return new CreatureId(ReservedPrefix + payload);
+        }
+
+        internal static bool TryDecode(CreatureId creature, out string durableId)
+        {
+            durableId = string.Empty;
+            string value = creature.Value ?? string.Empty;
+            if (!value.StartsWith(ReservedPrefix, StringComparison.Ordinal))
+                return false;
+            string payload = value.Substring(ReservedPrefix.Length);
+            if (
+                payload.Length == 0
+                || payload.Any(character =>
+                    !(character >= 'A' && character <= 'Z')
+                    && !(character >= 'a' && character <= 'z')
+                    && !(character >= '0' && character <= '9')
+                    && character != '-'
+                    && character != '_'
+                )
+                || payload.Length % 4 == 1
+            )
+                return false;
+            try
+            {
+                string padded = payload
+                    .Replace('-', '+')
+                    .Replace('_', '/')
+                    .PadRight(payload.Length + ((4 - payload.Length % 4) % 4), '=');
+                string decoded = StrictUtf8.GetString(Convert.FromBase64String(padded));
+                if (!IsCanonical(decoded) || Reserve(decoded) != creature)
+                    return false;
+                durableId = decoded;
+                return true;
+            }
+            catch (Exception exception)
+                when (exception is FormatException || exception is DecoderFallbackException)
+            {
+                return false;
+            }
+        }
+    }
+
     /// <summary>
     /// Owns the authoritative rules store and Unity projections for one combat encounter.
     /// </summary>
@@ -25,6 +142,10 @@ namespace Game.Rules.Unity
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
         private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
         private readonly Dictionary<CreatureId, ActionController> controllers = new();
+        private readonly Dictionary<string, CreatureId> durableActorIds = new(
+            StringComparer.Ordinal
+        );
+        private readonly Dictionary<CreatureId, string> durableIdsByCreature = new();
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
@@ -47,6 +168,7 @@ namespace Game.Rules.Unity
         private bool releaseRequested;
         private bool ownershipReleased;
         private Action ownershipReleasedCallbacks = delegate { };
+        private UnityCombatantEnrollmentPlan pendingReinforcementEnrollment;
 
         /// <summary>Raised after an exact authoritative turn begins.</summary>
         public event Action<TurnIdentity> TurnBegan = delegate { };
@@ -64,7 +186,8 @@ namespace Game.Rules.Unity
             IReadOnlyList<ActionController> encounterControllers,
             Tile[,] tiles,
             bool attachControllers,
-            IRollService rollService
+            IRollService rollService,
+            IEnumerable<IUnityEncounterModule> additionalModules = null
         )
         {
             currentTiles = tiles;
@@ -79,12 +202,14 @@ namespace Game.Rules.Unity
                 controllers,
                 tiles,
                 strideDefinition,
-                attachControllers
+                attachControllers,
+                additionalModules
             );
             composition = modules.Composition;
             enrollmentPipeline = new UnityCombatantEnrollmentPipeline(
                 this,
                 composition,
+                modules.Registry,
                 attachControllers
             );
             UnityCombatantEnrollmentPlan enrollment = enrollmentPipeline.Prepare(
@@ -105,7 +230,7 @@ namespace Game.Rules.Unity
                     .UseActiveEffectRules(modules.Registry)
                     .UseStatelessRuleBindingRules(modules.Registry)
                     .UsePreparedContributions()
-                    .UseEncounterRules(composition.CreateTurnStartAdapters())
+                    .UseEncounterRules(composition.CreateTurnStartAdapters(), modules.Registry)
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)
                     .UseStrideRules(strideDefinition);
@@ -113,6 +238,7 @@ namespace Game.Rules.Unity
                 dispatcher = dispatcherBuilder.Build();
                 composition.RegisterRuntime(dispatcher, encounterLifetime);
                 enrollment.AttachAndInstall();
+                enrollment.FinalizeBatch();
                 enrollment.TransferTo(encounterLifetime);
             }
             catch (Exception constructionFailure)
@@ -151,6 +277,21 @@ namespace Game.Rules.Unity
             ActionController[] copied = encounterControllers.ToArray();
             ValidateTiles(tiles);
             return new UnityCombatRulesBridge(copied, tiles, true, rollService);
+        }
+
+        /// <summary>Creates a production composition with explicit test-only tail modules.</summary>
+        internal static UnityCombatRulesBridge CreateForTests(
+            IEnumerable<ActionController> encounterControllers,
+            Tile[,] tiles,
+            IRollService rollService,
+            IEnumerable<IUnityEncounterModule> additionalModules
+        )
+        {
+            if (encounterControllers == null)
+                throw new ArgumentNullException(nameof(encounterControllers));
+            ActionController[] copied = encounterControllers.ToArray();
+            ValidateTiles(tiles);
+            return new UnityCombatRulesBridge(copied, tiles, true, rollService, additionalModules);
         }
 
         /// <summary>
@@ -256,6 +397,37 @@ namespace Game.Rules.Unity
             return creatureIds.TryGetValue(creature, out id);
         }
 
+        /// <summary>
+        /// Gets the configured dungeon-persistence identity for an encounter creature, reverses a
+        /// reserved historical identity, or returns an empty string when neither form is available.
+        /// </summary>
+        internal string GetDurableActorId(CreatureId creature)
+        {
+            if (durableIdsByCreature.TryGetValue(creature, out string durableId))
+                return durableId;
+            return DurableActorSourceIdentity.TryDecode(creature, out durableId)
+                ? durableId
+                : string.Empty;
+        }
+
+        /// <summary>
+        /// Resolves a canonical durable dungeon actor identity to its current encounter identity,
+        /// or to a reversible reserved non-roster identity when the actor is absent.
+        /// </summary>
+        internal DurableActorSourceResolution ResolveDurableActorId(string durableId)
+        {
+            string canonical = DurableActorSourceIdentity.RequireCanonical(
+                durableId,
+                nameof(durableId)
+            );
+            return durableActorIds.TryGetValue(canonical, out CreatureId source)
+                ? new DurableActorSourceResolution(source, true)
+                : new DurableActorSourceResolution(
+                    DurableActorSourceIdentity.Reserve(canonical),
+                    false
+                );
+        }
+
         /// <summary>Gets the stable rules ID assigned to a registered controller.</summary>
         /// <param name="controller">The registered Unity action controller.</param>
         /// <returns>The encounter-stable rules identifier.</returns>
@@ -323,7 +495,10 @@ namespace Game.Rules.Unity
 
         /// <summary>Checks exact current-turn authority for one registered creature.</summary>
         public bool HasTurnAuthority(CreatureId creature) =>
-            Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter)
+            pendingReinforcementEnrollment == null
+            && !releaseRequested
+            && !ownershipReleased
+            && Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter)
             && encounter.Phase == EncounterPhase.Active
             && encounter.CurrentTurn.HasValue
             && encounter.CurrentTurn.Value.Actor == creature;
@@ -389,7 +564,30 @@ namespace Game.Rules.Unity
                 || encounter.CurrentTurn.Value.Actor != creature
             )
                 throw new InvalidOperationException("The creature does not own the active turn.");
-            DispatchNow(new EndTurnOp(encounter.CurrentTurn.Value));
+            TurnIdentity ending = encounter.CurrentTurn.Value;
+            try
+            {
+                DispatchNow(new EndTurnOp(ending));
+            }
+            catch (Exception failure)
+            {
+                EncounterState latest = GetEncounter();
+                if (latest.Phase != EncounterPhase.Active || latest.CurrentTurn.HasValue)
+                    ExceptionDispatchInfo.Capture(failure).Throw();
+                try
+                {
+                    DispatchNow(new AdvanceEncounterOp(ending.Encounter));
+                }
+                catch (Exception recoveryFailure)
+                {
+                    throw new AggregateException(
+                        "Turn end and authoritative encounter recovery both failed.",
+                        failure,
+                        recoveryFailure
+                    );
+                }
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            }
         }
 
         /// <summary>Spends authoritative actions for a Unity-hosted encounter action.</summary>
@@ -433,18 +631,53 @@ namespace Game.Rules.Unity
         /// <param name="reinforcements">New, unique controllers not already registered.</param>
         public void RegisterCombatants(IEnumerable<ActionController> reinforcements)
         {
-            UnityCombatantEnrollmentPlan enrollment = enrollmentPipeline.Prepare(
-                reinforcements,
-                nameof(reinforcements)
-            );
+            if (releaseRequested || ownershipReleased)
+                throw new InvalidOperationException(
+                    "Combatants cannot register after encounter ownership release begins."
+                );
+            if (reinforcements == null)
+                throw new ArgumentNullException(nameof(reinforcements));
+            ActionController[] copied = reinforcements.ToArray();
+            EnsureEnrollmentCanContinue();
+            UnityCombatantEnrollmentPlan enrollment;
+            if (pendingReinforcementEnrollment != null)
+            {
+                if (!pendingReinforcementEnrollment.Matches(copied))
+                    throw new InvalidOperationException(
+                        "A failed reinforcement batch must be retried before another batch can register."
+                    );
+                enrollment = pendingReinforcementEnrollment;
+            }
+            else
+            {
+                enrollment = enrollmentPipeline.Prepare(copied, nameof(reinforcements));
+                pendingReinforcementEnrollment = enrollment;
+            }
             try
             {
+                EnsureEnrollmentCanContinue();
                 enrollment.CommitReinforcements();
+                EnsureEnrollmentCanContinue();
                 enrollment.AttachAndInstall();
+                EnsureEnrollmentCanContinue();
+                enrollment.FinalizeBatch();
+                EnsureEnrollmentCanContinue();
                 enrollment.TransferTo(encounterLifetime);
+                pendingReinforcementEnrollment = null;
             }
             catch (Exception registrationFailure)
             {
+                if (
+                    enrollment.ReinforcementCommitStarted
+                    && !releaseRequested
+                    && !ownershipReleased
+                )
+                {
+                    pendingReinforcementEnrollment = enrollment;
+                    throw;
+                }
+                if (ReferenceEquals(pendingReinforcementEnrollment, enrollment))
+                    pendingReinforcementEnrollment = null;
                 try
                 {
                     enrollment.Dispose();
@@ -500,6 +733,19 @@ namespace Game.Rules.Unity
             Action callbacks = ownershipReleasedCallbacks;
             ownershipReleasedCallbacks = delegate { };
             List<Exception> failures = new();
+            UnityCombatantEnrollmentPlan pending = pendingReinforcementEnrollment;
+            pendingReinforcementEnrollment = null;
+            if (pending != null)
+            {
+                try
+                {
+                    pending.Dispose();
+                }
+                catch (Exception cleanupFailure)
+                {
+                    AppendCleanupFailures(failures, cleanupFailure);
+                }
+            }
             try
             {
                 encounterLifetime.Dispose();
@@ -582,18 +828,7 @@ namespace Game.Rules.Unity
         public async ValueTask<OpResult<MovePathOutcome>> DispatchStride(
             CreatureId creature,
             MovementPath path
-        )
-        {
-            BeginResolution();
-            try
-            {
-                return await dispatcher.Dispatch(new StrideActionOp(creature, path));
-            }
-            finally
-            {
-                EndResolution();
-            }
-        }
+        ) => await DispatchResult(new StrideActionOp(creature, path));
 
         /// <summary>
         /// Dispatches Stride while awaiting one Unity projection for each committed movement Fact.
@@ -657,7 +892,7 @@ namespace Game.Rules.Unity
             int finalDamage,
             RuleSource source
         ) =>
-            DispatchNow(
+            DispatchNow(() =>
                 new ApplyDamageOp(target, finalDamage, AllocateHealthOrigin(source), source)
             );
 
@@ -667,7 +902,9 @@ namespace Game.Rules.Unity
         /// <param name="source">The rule source responsible for the healing.</param>
         /// <returns>The exact committed healing outcome.</returns>
         public HealingOutcome ApplyHealing(CreatureId target, int healing, RuleSource source) =>
-            DispatchNow(new ApplyHealingOp(target, healing, AllocateHealthOrigin(source), source));
+            DispatchNow(() =>
+                new ApplyHealingOp(target, healing, AllocateHealthOrigin(source), source)
+            );
 
         /// <summary>Attempts a source-owned temporary Hit Point grant.</summary>
         /// <param name="target">The registered creature receiving the offer.</param>
@@ -679,7 +916,7 @@ namespace Game.Rules.Unity
             int amount,
             RuleSource source
         ) =>
-            DispatchNow(
+            DispatchNow(() =>
                 new GrantTemporaryHitPointsOp(target, amount, AllocateHealthOrigin(source), source)
             );
 
@@ -691,7 +928,7 @@ namespace Game.Rules.Unity
             CreatureId target,
             RuleSource source
         ) =>
-            DispatchNow(
+            DispatchNow(() =>
                 new RemoveTemporaryHitPointsOp(target, AllocateHealthOrigin(source), source)
             );
 
@@ -703,7 +940,7 @@ namespace Game.Rules.Unity
             CreatureId target,
             RuleSource source
         ) =>
-            DispatchNow(
+            DispatchNow(() =>
                 new AddTemporaryHitPointImmunityOp(target, AllocateHealthOrigin(source), source)
             );
 
@@ -717,18 +954,27 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException(
                     "Every combat controller requires a creature component."
                 );
+            string durableActorId = GetConfiguredDurableActorId(controller);
             CreatureId creatureId = AllocateCreatureId();
             PlayerId playerId = GetPlayerId(controller);
             Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
             int speedFeet = Mathf.Max(0, Mathf.RoundToInt(creature.speed));
+            GeneratedIdentityNamespace identityNamespace =
+                durableActorId.Length == 0
+                    ? GeneratedIdentityNamespace.ForCreature(creatureId)
+                    : new GeneratedIdentityNamespace(
+                        DurableActorSourceIdentity.Reserve(durableActorId).Value
+                    );
             return new UnityCombatantEnrollmentBuilder(
                 controller,
                 creature,
-                new CreatureState(creatureId, playerId),
+                new CreatureState(creatureId, playerId, identityNamespace),
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet),
-                preparationLifetime
+                UnityCreatureStatisticsAdapter.Capture(creatureId, creature),
+                preparationLifetime,
+                durableActorId
             );
         }
 
@@ -766,7 +1012,16 @@ namespace Game.Rules.Unity
 
         private TResult DispatchNow<TResult>(IRuleOp<TResult> operation)
         {
-            OpResult<TResult> result = DispatchResultNow(operation);
+            return RequireResolvedDispatch(DispatchResultNow(operation));
+        }
+
+        private TResult DispatchNow<TResult>(Func<IRuleOp<TResult>> operationFactory)
+        {
+            return RequireResolvedDispatch(DispatchResultNow(operationFactory));
+        }
+
+        private static TResult RequireResolvedDispatch<TResult>(OpResult<TResult> result)
+        {
             if (result is ResolvedOpResult<TResult> resolved)
                 return resolved.Value;
             if (result is InvalidOpResult<TResult> invalid)
@@ -776,13 +1031,45 @@ namespace Game.Rules.Unity
 
         /// <summary>Dispatches one prepared enrollment operation and requires resolution.</summary>
         internal TResult DispatchRequired<TResult>(IRuleOp<TResult> operation) =>
-            DispatchNow(operation);
+            DispatchEnrollmentRequired(operation);
 
-        private OpResult<TResult> DispatchResultNow<TResult>(IRuleOp<TResult> operation)
+        /// <summary>
+        /// Dispatches one retry-safe enrollment checkpoint while unrelated operations are closed.
+        /// </summary>
+        internal TResult DispatchEnrollmentRequired<TResult>(IRuleOp<TResult> operation)
         {
-            BeginResolution();
+            EnsureEnrollmentCanContinue();
+            OpResult<TResult> result = DispatchResultNow(operation, true);
+            EnsureEnrollmentCanContinue();
+            if (result is ResolvedOpResult<TResult> resolved)
+                return resolved.Value;
+            if (result is InvalidOpResult<TResult> invalid)
+                throw new InvalidOperationException(invalid.Reason);
+            throw new InvalidOperationException(
+                "The synchronous enrollment request did not resolve."
+            );
+        }
+
+        private OpResult<TResult> DispatchResultNow<TResult>(
+            IRuleOp<TResult> operation,
+            bool isEnrollmentCheckpoint = false
+        ) => DispatchResultNow(() => operation, isEnrollmentCheckpoint);
+
+        private OpResult<TResult> DispatchResultNow<TResult>(
+            Func<IRuleOp<TResult>> operationFactory,
+            bool isEnrollmentCheckpoint = false
+        )
+        {
+            if (operationFactory == null)
+                throw new ArgumentNullException(nameof(operationFactory));
+            BeginDispatch(isEnrollmentCheckpoint);
             try
             {
+                IRuleOp<TResult> operation =
+                    operationFactory()
+                    ?? throw new InvalidOperationException(
+                        "A guarded rules operation factory returned null."
+                    );
                 ValueTask<OpResult<TResult>> pending = dispatcher.Dispatch(operation);
                 if (!pending.IsCompleted)
                 {
@@ -794,17 +1081,36 @@ namespace Game.Rules.Unity
             }
             finally
             {
-                EndResolution();
+                EndDispatch();
             }
         }
 
-        private void BeginResolution()
+        private async ValueTask<OpResult<TResult>> DispatchResult<TResult>(
+            IRuleOp<TResult> operation
+        )
         {
+            BeginDispatch(false);
+            try
+            {
+                return await dispatcher.Dispatch(operation);
+            }
+            finally
+            {
+                EndDispatch();
+            }
+        }
+
+        private void BeginDispatch(bool isEnrollmentCheckpoint)
+        {
+            if (isEnrollmentCheckpoint)
+                EnsureEnrollmentCanContinue();
+            else
+                EnsureOperational();
             topologyProvider.BeginResolution();
             dispatchDepth++;
         }
 
-        private void EndResolution()
+        private void EndDispatch()
         {
             try
             {
@@ -816,6 +1122,26 @@ namespace Game.Rules.Unity
                 if (dispatchDepth == 0 && releaseRequested)
                     CompleteReleaseOwnership();
             }
+        }
+
+        private void EnsureOperational()
+        {
+            if (releaseRequested || ownershipReleased)
+                throw new InvalidOperationException(
+                    "Encounter ownership is no longer available for rules operations."
+                );
+            if (pendingReinforcementEnrollment != null)
+                throw new InvalidOperationException(
+                    "Rules operations are unavailable until the pending reinforcement batch completes."
+                );
+        }
+
+        internal void EnsureEnrollmentCanContinue()
+        {
+            if (releaseRequested || ownershipReleased)
+                throw new InvalidOperationException(
+                    "Reinforcement enrollment cannot continue after ownership release begins."
+                );
         }
 
         internal void EnqueueEncounterPresentation(RuleFact fact, Action presentation)
@@ -879,13 +1205,29 @@ namespace Game.Rules.Unity
         internal void AddRegistrationMaps(
             ActionController controller,
             CreatureComponent creature,
-            CreatureId id
+            CreatureId id,
+            string durableId
         )
         {
+            if (durableId == null)
+                throw new ArgumentNullException(nameof(durableId));
+            if (
+                durableId.Length > 0
+                && durableActorIds.TryGetValue(durableId, out CreatureId existing)
+                && existing != id
+            )
+                throw new InvalidOperationException(
+                    $"Dungeon actor identity '{durableId}' is already registered in this encounter."
+                );
             controllerIds.Add(controller, id);
             controllers.Add(id, controller);
             creatureIds.Add(creature, id);
             creatures.Add(id, creature);
+            if (durableId.Length > 0)
+            {
+                durableActorIds.Add(durableId, id);
+                durableIdsByCreature.Add(id, durableId);
+            }
         }
 
         internal void RemoveRegistrationMaps(
@@ -898,6 +1240,89 @@ namespace Game.Rules.Unity
             controllers.Remove(id);
             creatureIds.Remove(creature);
             creatures.Remove(id);
+            if (durableIdsByCreature.TryGetValue(id, out string durableId))
+            {
+                durableIdsByCreature.Remove(id);
+                if (durableActorIds.TryGetValue(durableId, out CreatureId mapped) && mapped == id)
+                    durableActorIds.Remove(durableId);
+            }
+        }
+
+        private static string GetConfiguredDurableActorId(ActionController controller)
+        {
+            DungeonPartyMemberIdentity party =
+                controller.GetComponent<DungeonPartyMemberIdentity>();
+            DungeonEncounterMember encounter = controller.GetComponent<DungeonEncounterMember>();
+            if (party != null && encounter != null)
+                throw new InvalidOperationException(
+                    $"Actor '{controller.name}' has both {nameof(DungeonPartyMemberIdentity)} and {nameof(DungeonEncounterMember)} components. Durable actor identity components are mutually exclusive, even when either component is unconfigured."
+                );
+            if (party != null)
+            {
+                if (!party.IsConfigured)
+                    throw new InvalidOperationException(
+                        $"Actor '{controller.name}' has an unconfigured {nameof(DungeonPartyMemberIdentity)} component. A present durable actor identity component must be completely configured."
+                    );
+                string durableId = RequireCanonicalComponentIdentity(
+                    controller,
+                    party.RosterSlotId,
+                    $"{nameof(DungeonPartyMemberIdentity)}.{nameof(DungeonPartyMemberIdentity.RosterSlotId)}"
+                );
+                if (DungeonEnemyDurableActorIdentity.IsReserved(durableId))
+                    throw new InvalidOperationException(
+                        $"Actor '{controller.name}' uses the enemy-only durable actor namespace in {nameof(DungeonPartyMemberIdentity)}.{nameof(DungeonPartyMemberIdentity.RosterSlotId)}."
+                    );
+                return durableId;
+            }
+            if (encounter != null)
+            {
+                if (!encounter.IsConfigured)
+                    throw new InvalidOperationException(
+                        $"Actor '{controller.name}' has an unconfigured {nameof(DungeonEncounterMember)} component. A present durable actor identity component must be completely configured."
+                    );
+                string instanceId = RequireCanonicalComponentIdentity(
+                    controller,
+                    encounter.InstanceId,
+                    $"{nameof(DungeonEncounterMember)}.{nameof(DungeonEncounterMember.InstanceId)}"
+                );
+                string durableId = RequireCanonicalComponentIdentity(
+                    controller,
+                    encounter.DurableActorId,
+                    $"{nameof(DungeonEncounterMember)}.{nameof(DungeonEncounterMember.DurableActorId)}"
+                );
+                string expected = DungeonEnemyDurableActorIdentity.Create(
+                    encounter.FloorDepth,
+                    instanceId
+                );
+                if (!string.Equals(durableId, expected, StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        $"Actor '{controller.name}' has inconsistent configured dungeon encounter identity."
+                    );
+                return durableId;
+            }
+            return string.Empty;
+        }
+
+        private static string RequireCanonicalComponentIdentity(
+            ActionController controller,
+            string serializedIdentity,
+            string serializedField
+        )
+        {
+            try
+            {
+                return DurableActorSourceIdentity.RequireCanonical(
+                    serializedIdentity,
+                    serializedField
+                );
+            }
+            catch (ArgumentException exception)
+            {
+                throw new InvalidOperationException(
+                    $"Actor '{controller.name}' has a noncanonical durable actor identity in {serializedField}. Serialized identity values must already be canonical and are never normalized during enrollment.",
+                    exception
+                );
+            }
         }
 
         internal static void Seed(RulesStateSeed seed, CombatantRulesState state)
@@ -905,6 +1330,7 @@ namespace Game.Rules.Unity
             CreatureId id = state.Creature.Id;
             seed.SeedCreature(state.Creature)
                 .SeedPreparedInputs(id, state.PreparedInputs)
+                .SeedStatistics(state.Statistics)
                 .SeedHealth(id, state.Health)
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)
@@ -913,7 +1339,14 @@ namespace Game.Rules.Unity
             foreach (SpellSlotState slot in state.SpellSlots)
                 seed.SeedSpellSlot(slot);
             foreach (ActiveRuleBinding binding in state.RuleBindings)
-                seed.SeedRuleBinding(binding);
+                seed.AddUniqueRuleBinding(binding);
+            foreach (ActiveEffectRegistration registration in state.ActiveEffects)
+            {
+                seed.AddUniqueActiveEffect(registration.Effect)
+                    .AddUniqueRuleBinding(registration.Binding);
+                if (registration.Timing != null)
+                    seed.AddUniqueActiveEffectTiming(registration.Timing);
+            }
         }
 
         internal static void ValidateControllers(

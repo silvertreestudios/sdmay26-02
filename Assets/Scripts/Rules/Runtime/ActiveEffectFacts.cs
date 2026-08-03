@@ -51,6 +51,44 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>Records exact adoption of an already existing effect and binding lifecycle.</summary>
+    /// <remarks>
+    /// Adoption is persistence or enrollment provenance, not gameplay creation. The immutable
+    /// effect and binding preserve exact active or expired status, source, owner, version, state,
+    /// duration, and creation order for listeners that need to distinguish those workflows. When
+    /// adoption commits inside an encounter join, the Fact envelope uses the encounter/join
+    /// operation provenance while this payload retains the feature's exact provenance.
+    /// </remarks>
+    public sealed class ActiveEffectAdoptedFact : ActiveEffectFact
+    {
+        /// <summary>Gets the exact adopted effect instance.</summary>
+        public ActiveEffectInstance Effect { get; }
+
+        /// <summary>Gets the exact adopted rule binding.</summary>
+        public ActiveRuleBinding Binding { get; }
+
+        /// <summary>Initializes one committed exact-status adoption record.</summary>
+        public ActiveEffectAdoptedFact(ActiveEffectInstance effect, ActiveRuleBinding binding)
+            : base(
+                effect?.Id ?? throw new ArgumentNullException(nameof(effect)),
+                effect.DefinitionId
+            )
+        {
+            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            if (
+                !binding.EffectId.HasValue
+                || binding.EffectId.Value != effect.Id
+                || binding.DefinitionId != effect.DefinitionId
+                || binding.Source != effect.Source
+            )
+                throw new ArgumentException(
+                    "The adopted binding does not match the adopted effect.",
+                    nameof(binding)
+                );
+            Effect = effect;
+        }
+    }
+
     /// <summary>Records an optimistic replacement of an active effect's typed state.</summary>
     public sealed class ActiveEffectStateUpdatedFact : ActiveEffectFact
     {

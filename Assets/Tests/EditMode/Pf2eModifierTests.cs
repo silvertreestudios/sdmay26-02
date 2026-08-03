@@ -120,36 +120,6 @@ namespace TestsCombat
         }
 
         /// <summary>
-        /// Confirms cover and off-guard can both affect AC because PF2e tracks bonuses and penalties separately.
-        /// </summary>
-        [Test]
-        public void CoverAndOffGuardBothApplyAsCircumstanceAcModifiers()
-        {
-            // Cover AC bonus: https://2e.aonprd.com/Rules.aspx?ID=2372
-            // Off-Guard AC penalty: https://2e.aonprd.com/Conditions.aspx?ID=58
-            GameObject target = new GameObject("target");
-            CreatureComponent creature = target.AddComponent<CreatureComponent>();
-            target.AddComponent<Conditions>().Add("Off-Guard", null);
-            creature.ac = 100;
-
-            Pf2eModifierResolution result = creature.ResolveArmorClass(
-                new[]
-                {
-                    new Pf2eModifier(
-                        2,
-                        Pf2eModifierType.Circumstance,
-                        "Cover",
-                        Pf2eStatistic.ArmorClass
-                    ),
-                }
-            );
-
-            Assert.AreEqual(100, result.Total);
-            AssertApplied(result, "Armor Class", "Cover", "Off-Guard");
-            UnityEngine.Object.DestroyImmediate(target);
-        }
-
-        /// <summary>
         /// Confirms a stronger circumstance AC bonus suppresses a weaker bonus from another provider.
         /// </summary>
         [Test]

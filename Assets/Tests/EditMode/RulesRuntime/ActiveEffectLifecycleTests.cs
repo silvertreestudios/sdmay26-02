@@ -67,6 +67,133 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void AdoptionUsesExactStatusFactAndIsIdempotentWithoutCreation()
+        {
+            ActiveEffectInstance active = CreateEffect(new AuraEffectState(3));
+            ActiveRuleBinding activeBinding = CreateBinding(active);
+            ActiveEffectInstance expired = new ActiveEffectInstance(
+                new ActiveEffectId("effect-expired"),
+                DefinitionId,
+                SourceCreature,
+                Source,
+                EffectDuration.Encounter,
+                new AuraEffectState(5),
+                new EffectStateVersion(6),
+                ActiveEffectStatus.Expired
+            );
+            ActiveRuleBinding expiredBinding = new ActiveRuleBinding(
+                new BindingId("binding-expired"),
+                DefinitionId,
+                Owner,
+                expired.Id,
+                Source,
+                2,
+                isEnabled: false
+            );
+            AdoptActiveEffectRegistrationsOp operation = new AdoptActiveEffectRegistrationsOp(
+                new[]
+                {
+                    new ActiveEffectRegistration(active, activeBinding),
+                    new ActiveEffectRegistration(expired, expiredBinding),
+                },
+                Source
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore(CreateActiveEncounterSeed());
+            AdoptActiveEffectRegistrationsReducer reducer =
+                new AdoptActiveEffectRegistrationsReducer(CreateRegistry());
+
+            ReductionResult<ActiveEffectAdoptionOutcome> first = store.Reduce(
+                Context(operation),
+                reducer
+            );
+            long committedVersion = store.Snapshot.Version;
+            ReductionResult<ActiveEffectAdoptionOutcome> retry = store.Reduce(
+                Context(operation),
+                reducer
+            );
+
+            Assert.That(first.IsAccepted, Is.True);
+            Assert.That(first.Value.Adopted, Is.EqualTo(2));
+            Assert.That(first.Facts.OfType<ActiveEffectCreatedFact>(), Is.Empty);
+            ActiveEffectAdoptedFact[] facts = first.Facts.Cast<ActiveEffectAdoptedFact>().ToArray();
+            Assert.That(facts.Select(fact => fact.Effect), Is.EqualTo(new[] { active, expired }));
+            Assert.That(
+                facts.Select(fact => fact.Binding),
+                Is.EqualTo(new[] { activeBinding, expiredBinding })
+            );
+            Assert.That(retry.IsAccepted, Is.True);
+            Assert.That(retry.Value.Adopted, Is.Zero);
+            Assert.That(retry.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
+        }
+
+        [TestCase("root")]
+        [TestCase("grant-pool")]
+        public void AdoptionUsesExactRageReceiptIdentity(string changedField)
+        {
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
+            registryBuilder.Define(RageActionDefinition.EffectDefinitionId);
+            InMemoryRulesStore store = new InMemoryRulesStore(CreateActiveEncounterSeed());
+            AdoptActiveEffectRegistrationsReducer reducer =
+                new AdoptActiveEffectRegistrationsReducer(registryBuilder.Build());
+            RageEffectState originalReceipt = CreateRageReceipt(new OpId(31), 3);
+            ActiveEffectInstance originalEffect = CreateRageEffect(originalReceipt);
+            ActiveRuleBinding originalBinding = CreateRageBinding(originalEffect);
+            ReductionResult<ActiveEffectAdoptionOutcome> first = store.Reduce(
+                Context(
+                    new AdoptActiveEffectRegistrationsOp(
+                        new[] { new ActiveEffectRegistration(originalEffect, originalBinding) },
+                        RageRules.Source
+                    )
+                ),
+                reducer
+            );
+            long committedVersion = store.Snapshot.Version;
+            RageEffectState recreatedReceipt = CreateRageReceipt(new OpId(31), 3);
+            ActiveEffectInstance recreatedEffect = CreateRageEffect(recreatedReceipt);
+            ActiveRuleBinding recreatedBinding = CreateRageBinding(recreatedEffect);
+            ReductionResult<ActiveEffectAdoptionOutcome> exactReplay = store.Reduce(
+                Context(
+                    new AdoptActiveEffectRegistrationsOp(
+                        new[] { new ActiveEffectRegistration(recreatedEffect, recreatedBinding) },
+                        RageRules.Source
+                    )
+                ),
+                reducer
+            );
+            RageEffectState changedReceipt =
+                changedField == "root"
+                    ? CreateRageReceipt(new OpId(32), 3)
+                    : CreateRageReceipt(new OpId(31), 4);
+            ActiveEffectInstance changedEffect = CreateRageEffect(changedReceipt);
+            ReductionResult<ActiveEffectAdoptionOutcome> changedReplay = store.Reduce(
+                Context(
+                    new AdoptActiveEffectRegistrationsOp(
+                        new[]
+                        {
+                            new ActiveEffectRegistration(
+                                changedEffect,
+                                CreateRageBinding(changedEffect)
+                            ),
+                        },
+                        RageRules.Source
+                    )
+                ),
+                reducer
+            );
+
+            Assert.That(first.IsAccepted, Is.True);
+            Assert.That(exactReplay.IsAccepted, Is.True);
+            Assert.That(exactReplay.Value.Adopted, Is.Zero);
+            Assert.That(exactReplay.Facts, Is.Empty);
+            Assert.That(changedEffect, Is.EqualTo(originalEffect));
+            Assert.That(changedReplay.IsRejected, Is.True);
+            Assert.That(changedReplay.DidCommit, Is.False);
+            Assert.That(changedReplay.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
+        }
+
+        [Test]
         public void CreateRejectsUnknownDefinitionWithoutPartialBindingWrite()
         {
             RuleDefinitionId unknownDefinition = new RuleDefinitionId("unknown-effect");
@@ -228,6 +355,84 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void UpdateRejectsARequestFromTheWrongSourceWithoutMutationOrFacts()
+        {
+            ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
+            InMemoryRulesStore store = CreateSeededStore(effect);
+            RulesSnapshot original = store.Snapshot;
+
+            ReductionResult<ActiveEffectStateUpdateOutcome> result = store.Reduce(
+                Context(
+                    UpdateActiveEffectStateOp.Create(
+                        EffectId,
+                        EffectStateVersion.Initial,
+                        new AuraEffectState(2),
+                        RuleSource.FromSlug("wrong-update-source")
+                    )
+                ),
+                new UpdateActiveEffectStateReducer()
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.RejectionReason, Does.Contain("does not own active effect"));
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot, Is.SameAs(original));
+        }
+
+        [Test]
+        public void ExpirationRejectsARequestFromTheWrongSourceWithoutMutationOrFacts()
+        {
+            ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
+            InMemoryRulesStore store = CreateSeededStore(effect);
+            RulesSnapshot original = store.Snapshot;
+
+            ReductionResult<ActiveEffectExpirationOutcome> result = store.Reduce(
+                Context(
+                    new ExpireActiveEffectOp(
+                        EffectId,
+                        BindingId,
+                        EffectStateVersion.Initial,
+                        RuleSource.FromSlug("wrong-expiration-source")
+                    )
+                ),
+                new ExpireActiveEffectReducer()
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.RejectionReason, Does.Contain("does not own active effect"));
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot, Is.SameAs(original));
+        }
+
+        [Test]
+        public void RemovalRejectsARequestFromTheWrongSourceWithoutMutationOrFacts()
+        {
+            ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
+            InMemoryRulesStore store = CreateSeededStore(effect);
+            RulesSnapshot original = store.Snapshot;
+
+            ReductionResult<ActiveEffectRemovalOutcome> result = store.Reduce(
+                Context(
+                    new RemoveActiveEffectOp(
+                        EffectId,
+                        BindingId,
+                        EffectStateVersion.Initial,
+                        RuleSource.FromSlug("wrong-removal-source")
+                    )
+                ),
+                new RemoveActiveEffectReducer()
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.RejectionReason, Does.Contain("does not own active effect"));
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Facts, Is.Empty);
+            Assert.That(store.Snapshot, Is.SameAs(original));
+        }
+
+        [Test]
         public void ExpireDisablesBindingAndRemoveDeletesBothInAtomicTransactions()
         {
             ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
@@ -386,6 +591,51 @@ namespace Game.Rules.Runtime.Tests
                 1
             );
 
+        private static RageEffectState CreateRageReceipt(OpId root, int committedTemporaryHitPoints)
+        {
+            HealthState before = new HealthState(10, 10);
+            HealthState after = new HealthState(
+                10,
+                10,
+                committedTemporaryHitPoints,
+                RageRules.Source
+            ).WithTemporaryHitPointRevision(1);
+            return RageEffectState
+                .CreatePending(SourceCreature, default, root, 3)
+                .WithGrantTransition(
+                    new TemporaryHitPointsGrantTransition(
+                        before,
+                        after,
+                        new TemporaryHitPointsGrantOutcome(
+                            true,
+                            false,
+                            0,
+                            committedTemporaryHitPoints
+                        )
+                    )
+                );
+        }
+
+        private static ActiveEffectInstance CreateRageEffect(RageEffectState receipt) =>
+            new ActiveEffectInstance(
+                EffectId,
+                RageActionDefinition.EffectDefinitionId,
+                SourceCreature,
+                RageRules.Source,
+                EffectDuration.OneMinute,
+                receipt
+            );
+
+        private static ActiveRuleBinding CreateRageBinding(ActiveEffectInstance effect) =>
+            new ActiveRuleBinding(
+                BindingId,
+                effect.DefinitionId,
+                Owner,
+                effect.Id,
+                effect.Source,
+                1
+            );
+
         private static InMemoryRulesStore CreateSeededStore(ActiveEffectInstance effect) =>
             CreateSeededStore(effect, CreateBinding(effect));
 
@@ -409,19 +659,21 @@ namespace Game.Rules.Runtime.Tests
                 0,
                 RoundNumber.First
             );
-            return new RulesStateSeed().SeedEncounter(
-                new EncounterState(
-                    encounter,
-                    EncounterPhase.Active,
-                    party,
-                    RoundNumber.First,
-                    new[] { participant },
-                    -1,
-                    null,
-                    1,
-                    null
-                )
-            );
+            return new RulesStateSeed()
+                .SeedCreature(new CreatureState(Owner, party))
+                .SeedEncounter(
+                    new EncounterState(
+                        encounter,
+                        EncounterPhase.Active,
+                        party,
+                        RoundNumber.First,
+                        new[] { participant },
+                        -1,
+                        null,
+                        1,
+                        null
+                    )
+                );
         }
 
         private static ReductionContext<TOp> Context<TOp>(TOp op) =>

@@ -4,23 +4,59 @@ using System.Linq;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Stores one creature's immutable authoritative identity and traits.</summary>
     public sealed class CreatureState : IEquatable<CreatureState>
     {
         private readonly IReadOnlyList<Trait> traits;
 
+        /// <summary>Gets the creature's store-local identity.</summary>
         public CreatureId Id { get; }
+
+        /// <summary>Gets the player or team that owns the creature.</summary>
         public PlayerId Player { get; }
+
+        /// <summary>Gets the namespace for stable identities generated for this creature.</summary>
+        public GeneratedIdentityNamespace IdentityNamespace { get; }
+
+        /// <summary>Gets the creature's distinct traits in their supplied order.</summary>
         public IReadOnlyList<Trait> Traits => traits;
 
+        /// <summary>
+        /// Initializes creature state with a deterministic store-local identity namespace.
+        /// </summary>
+        /// <param name="id">The creature's nonempty store-local identity.</param>
+        /// <param name="player">The creature's nonempty player or team identity.</param>
+        /// <param name="traits">Optional distinct creature traits.</param>
         public CreatureState(CreatureId id, PlayerId player, IEnumerable<Trait> traits = null)
+            : this(id, player, GeneratedIdentityNamespace.ForCreature(id), traits) { }
+
+        /// <summary>Initializes creature state with an explicit generated-identity namespace.</summary>
+        /// <param name="id">The creature's nonempty store-local identity.</param>
+        /// <param name="player">The creature's nonempty player or team identity.</param>
+        /// <param name="identityNamespace">
+        /// The stable namespace for identities generated on behalf of this creature.
+        /// </param>
+        /// <param name="traits">Optional distinct creature traits.</param>
+        public CreatureState(
+            CreatureId id,
+            PlayerId player,
+            GeneratedIdentityNamespace identityNamespace,
+            IEnumerable<Trait> traits = null
+        )
         {
             if (id.IsEmpty)
                 throw new ArgumentException("A creature ID is required.", nameof(id));
             if (player.IsEmpty)
                 throw new ArgumentException("A player ID is required.", nameof(player));
+            if (identityNamespace.IsEmpty)
+                throw new ArgumentException(
+                    "A generated identity namespace is required.",
+                    nameof(identityNamespace)
+                );
 
             Id = id;
             Player = player;
+            IdentityNamespace = identityNamespace;
             Trait[] copied = (traits ?? Array.Empty<Trait>()).Distinct().ToArray();
             if (copied.Any(trait => trait.IsEmpty))
                 throw new ArgumentException(
@@ -30,15 +66,28 @@ namespace Game.Rules.Runtime
             this.traits = Array.AsReadOnly(copied);
         }
 
+        /// <inheritdoc/>
         public bool Equals(CreatureState other) =>
             other != null
             && Id == other.Id
             && Player == other.Player
+            && IdentityNamespace == other.IdentityNamespace
             && traits.SequenceEqual(other.traits);
 
+        /// <inheritdoc/>
         public override bool Equals(object obj) => obj is CreatureState other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(Id, Player);
+        /// <inheritdoc/>
+        public override int GetHashCode()
+        {
+            HashCode hash = new HashCode();
+            hash.Add(Id);
+            hash.Add(Player);
+            hash.Add(IdentityNamespace);
+            foreach (Trait trait in traits)
+                hash.Add(trait);
+            return hash.ToHashCode();
+        }
     }
 
     /// <summary>
@@ -47,6 +96,7 @@ namespace Game.Rules.Runtime
     public readonly struct HealthState : IEquatable<HealthState>
     {
         private readonly RuleSource[] temporaryHitPointImmunities;
+        private readonly long temporaryHitPointRevision;
 
         /// <summary>Gets current Hit Points.</summary>
         public int Current { get; }
@@ -73,6 +123,16 @@ namespace Game.Rules.Runtime
             Array.AsReadOnly(temporaryHitPointImmunities ?? Array.Empty<RuleSource>());
 
         /// <summary>
+        /// Gets the internal write-boundary stamp for the current temporary-Hit-Point pool.
+        /// </summary>
+        /// <remarks>
+        /// This is deliberately not public state: it distinguishes identical-looking pools across
+        /// reducer transactions so exact compensation cannot overwrite an intervening mutation.
+        /// Public equality, hashing, Facts, operation outcomes, and persistence ignore the stamp.
+        /// </remarks>
+        internal long TemporaryHitPointRevision => temporaryHitPointRevision;
+
+        /// <summary>
         /// Initializes one creature's complete authoritative health state.
         /// </summary>
         /// <param name="current">The current Hit Points, from zero through <paramref name="maximum"/>.</param>
@@ -88,8 +148,15 @@ namespace Game.Rules.Runtime
             int temporary = 0,
             RuleSource temporarySource = default
         )
-            : this(current, maximum, temporary, temporarySource, Array.Empty<RuleSource>(), false)
-        { }
+            : this(
+                current,
+                maximum,
+                temporary,
+                temporarySource,
+                Array.Empty<RuleSource>(),
+                false,
+                0
+            ) { }
 
         /// <summary>
         /// Initializes authoritative health with source-specific temporary-HP immunities.
@@ -106,8 +173,15 @@ namespace Game.Rules.Runtime
             RuleSource temporarySource,
             IEnumerable<RuleSource> temporaryHitPointImmunities
         )
-            : this(current, maximum, temporary, temporarySource, temporaryHitPointImmunities, false)
-        { }
+            : this(
+                current,
+                maximum,
+                temporary,
+                temporarySource,
+                temporaryHitPointImmunities,
+                false,
+                0
+            ) { }
 
         private HealthState(
             int current,
@@ -115,7 +189,8 @@ namespace Game.Rules.Runtime
             int temporary,
             RuleSource temporarySource,
             IEnumerable<RuleSource> temporaryHitPointImmunities,
-            bool isCommittedDefeated
+            bool isCommittedDefeated,
+            long temporaryHitPointRevision
         )
         {
             if (maximum < 0)
@@ -124,6 +199,8 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(current));
             if (temporary < 0)
                 throw new ArgumentOutOfRangeException(nameof(temporary));
+            if (temporaryHitPointRevision < 0)
+                throw new ArgumentOutOfRangeException(nameof(temporaryHitPointRevision));
             if (temporary == 0 && !temporarySource.IsEmpty)
                 throw new ArgumentException(
                     "Health without temporary Hit Points cannot retain a temporary-HP source.",
@@ -149,6 +226,7 @@ namespace Game.Rules.Runtime
             Temporary = temporary;
             TemporarySource = temporarySource;
             IsCommittedDefeated = isCommittedDefeated;
+            this.temporaryHitPointRevision = temporaryHitPointRevision;
             this.temporaryHitPointImmunities = copiedImmunities;
         }
 
@@ -159,7 +237,8 @@ namespace Game.Rules.Runtime
                 temporary,
                 temporarySource,
                 TemporaryHitPointImmunities,
-                IsCommittedDefeated
+                IsCommittedDefeated,
+                TemporaryHitPointRevision
             );
 
         internal HealthState WithTemporaryHitPointImmunities(IEnumerable<RuleSource> immunities) =>
@@ -169,7 +248,19 @@ namespace Game.Rules.Runtime
                 Temporary,
                 TemporarySource,
                 immunities,
-                IsCommittedDefeated
+                IsCommittedDefeated,
+                TemporaryHitPointRevision
+            );
+
+        internal HealthState WithTemporaryHitPointRevision(long revision) =>
+            new HealthState(
+                Current,
+                Maximum,
+                Temporary,
+                TemporarySource,
+                TemporaryHitPointImmunities,
+                IsCommittedDefeated,
+                revision
             );
 
         internal HealthState CommitDefeat()
@@ -184,7 +275,8 @@ namespace Game.Rules.Runtime
                 Temporary,
                 TemporarySource,
                 TemporaryHitPointImmunities,
-                true
+                true,
+                TemporaryHitPointRevision
             );
         }
 
@@ -257,56 +349,6 @@ namespace Game.Rules.Runtime
 
         public static bool operator !=(ActionEconomyState left, ActionEconomyState right) =>
             !left.Equals(right);
-    }
-
-    public sealed class ConditionState : IEquatable<ConditionState>
-    {
-        public ConditionId Id { get; }
-        public RuleDefinitionId DefinitionId { get; }
-        public CreatureId Owner { get; }
-        public int Value { get; }
-        public RuleSource Source { get; }
-
-        public ConditionState(
-            ConditionId id,
-            RuleDefinitionId definitionId,
-            CreatureId owner,
-            int value,
-            RuleSource source
-        )
-        {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value));
-            if (id.IsEmpty)
-                throw new ArgumentException("A condition ID is required.", nameof(id));
-            if (definitionId.IsEmpty)
-                throw new ArgumentException(
-                    "A rule definition ID is required.",
-                    nameof(definitionId)
-                );
-            if (owner.IsEmpty)
-                throw new ArgumentException("An owner creature ID is required.", nameof(owner));
-            if (source.IsEmpty)
-                throw new ArgumentException("A rule source is required.", nameof(source));
-            Id = id;
-            DefinitionId = definitionId;
-            Owner = owner;
-            Value = value;
-            Source = source;
-        }
-
-        public bool Equals(ConditionState other) =>
-            other != null
-            && Id == other.Id
-            && DefinitionId == other.DefinitionId
-            && Owner == other.Owner
-            && Value == other.Value
-            && Source == other.Source;
-
-        public override bool Equals(object obj) => obj is ConditionState other && Equals(other);
-
-        public override int GetHashCode() =>
-            HashCode.Combine(Id, DefinitionId, Owner, Value, Source);
     }
 
     public sealed class EquipmentState : IEquatable<EquipmentState>

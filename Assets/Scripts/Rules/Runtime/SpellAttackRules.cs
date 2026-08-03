@@ -106,12 +106,31 @@ namespace Game.Rules.Runtime
                 ),
             };
             initialModifiers.AddRange(data.AttackModifiers);
+            OpResult<ModifierCollection> defenseResult = await context.Dispatch(
+                new CollectDefenseModifiersOp(
+                    operation.Target,
+                    new[]
+                    {
+                        Modifier.Untyped(
+                            data.ArmorClass,
+                            RuleSource.FromSlug("base-armor-class"),
+                            Statistic.ArmorClass
+                        ),
+                    },
+                    CheckSource.From(frame.Id)
+                )
+            );
+            if (defenseResult is not ResolvedOpResult<ModifierCollection> resolvedDefense)
+                throw new InvalidOperationException(
+                    "Spell attack defense collection did not resolve."
+                );
+            int armorClass = Math.Max(1, resolvedDefense.Value.Total);
             OpResult<CheckOutcome> attackResult = await context.Dispatch(
                 new AttackCheckOp(
                     operation.Actor,
                     operation.Target,
                     initialModifiers,
-                    data.ArmorClass,
+                    armorClass,
                     CheckSource.From(frame.Id)
                 )
             );
@@ -141,7 +160,7 @@ namespace Game.Rules.Runtime
                 operation.Target,
                 attackOutcome.Roll,
                 attackOutcome.Modifiers.Total,
-                data.ArmorClass,
+                armorClass,
                 degree,
                 mapPenalty,
                 damage
