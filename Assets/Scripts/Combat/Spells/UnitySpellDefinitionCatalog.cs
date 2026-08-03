@@ -116,7 +116,8 @@ namespace Game.Combat.Spells
                     new SpellEffectDirective(
                         new RuleDefinitionId(definition),
                         ParseDuration(name, system.SelectToken("duration.value")?.Value<string>()),
-                        rule.Value<string>("target")
+                        rule.Value<string>("target"),
+                        ParseMaximumActiveInstances(name, rule)
                     )
                 );
             }
@@ -408,6 +409,23 @@ namespace Game.Combat.Spells
             );
         }
 
+        private static int? ParseMaximumActiveInstances(string spellName, JObject rule)
+        {
+            JToken token = rule["maximumActiveInstances"];
+            if (token == null)
+                return null;
+            if (
+                token.Type != JTokenType.Integer
+                || !long.TryParse(token.ToString(), out long parsed)
+                || parsed <= 0
+                || parsed > int.MaxValue
+            )
+                throw new InvalidOperationException(
+                    $"Spell '{spellName}' requires maximumActiveInstances to be a positive integer when supplied."
+                );
+            return (int)parsed;
+        }
+
         private static bool Equivalent(RulesSpellDefinition left, RulesSpellDefinition right) =>
             left.DisplayName == right.DisplayName
             && left.MinimumRank == right.MinimumRank
@@ -419,6 +437,8 @@ namespace Game.Combat.Spells
                 .SequenceEqual(right.Effects.Select(effect => effect.Duration))
             && left.Effects.Select(effect => effect.Target)
                 .SequenceEqual(right.Effects.Select(effect => effect.Target))
+            && left.Effects.Select(effect => effect.MaximumActiveInstances)
+                .SequenceEqual(right.Effects.Select(effect => effect.MaximumActiveInstances))
             && left.Attacks.Count == right.Attacks.Count
             && left.Attacks.Zip(
                     right.Attacks,

@@ -35,6 +35,7 @@
             {
                 "key": "CreateActiveEffect",
                 "definition": "spell-effect-light",
+                "maximumActiveInstances": 4,
                 "target": "self"
             }
         ],

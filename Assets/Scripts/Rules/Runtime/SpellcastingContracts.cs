@@ -260,10 +260,18 @@ namespace Game.Rules.Runtime
         /// <param name="definitionId">The definition registered in the active-rule registry.</param>
         /// <param name="duration">The lifecycle duration copied to each created effect.</param>
         /// <param name="target">The data-owned target selector, currently <c>self</c>.</param>
+        /// <param name="maximumActiveInstances">
+        /// The optional positive number of structurally matching instances one source creature may
+        /// keep active. Omit the value to allow unlimited instances.
+        /// </param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="maximumActiveInstances"/> is present but is not positive.
+        /// </exception>
         public SpellEffectDirective(
             RuleDefinitionId definitionId,
             EffectDuration duration,
-            string target
+            string target,
+            int? maximumActiveInstances = null
         )
         {
             if (definitionId.IsEmpty)
@@ -276,9 +284,15 @@ namespace Game.Rules.Runtime
                     "Only the self spell-effect target is currently supported.",
                     nameof(target)
                 );
+            if (maximumActiveInstances.HasValue && maximumActiveInstances.Value <= 0)
+                throw new ArgumentOutOfRangeException(
+                    nameof(maximumActiveInstances),
+                    "A maximum active-instance limit must be positive when supplied."
+                );
             DefinitionId = definitionId;
             Duration = duration;
             Target = target;
+            MaximumActiveInstances = maximumActiveInstances;
         }
 
         /// <summary>Gets the generic active-effect definition to instantiate.</summary>
@@ -291,6 +305,16 @@ namespace Game.Rules.Runtime
         /// Gets the definition-owned target selector used during rules resolution.
         /// </summary>
         public string Target { get; }
+
+        /// <summary>
+        /// Gets the per-source active-instance limit, or <see langword="null"/> when unlimited.
+        /// </summary>
+        /// <remarks>
+        /// Matching is based on exact active-effect structure, spell identity across ranks, source
+        /// creature and source provenance, and effect definition. Reaching the limit replaces the
+        /// ordinal-lowest matching active-effect identity.
+        /// </remarks>
+        public int? MaximumActiveInstances { get; }
     }
 
     /// <summary>Identifies a data-backed area shape without depending on Unity grid types.</summary>

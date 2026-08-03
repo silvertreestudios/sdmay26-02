@@ -10,14 +10,21 @@ namespace Game.Rules.Runtime.Tests
     {
         private static readonly CreatureId Actor = new("spell-actor");
         private static readonly CreatureId StaleActor = new("stale-spell-actor");
+        private static readonly CreatureId OtherActor = new("other-spell-actor");
         private static readonly PlayerId Player = new("spell-player");
+        private static readonly PlayerId OtherPlayer = new("other-spell-player");
         private static readonly SpellReference Light = new(new SpellId("light"), 1);
+        private static readonly SpellReference HeightenedLight = new(new SpellId("light"), 4);
+        private static readonly SpellReference UnrelatedSpell = new(new SpellId("shield"), 1);
         private static readonly SpellActionVariant TwoActions = new(2);
         private static readonly SpellSlotPoolId RankedPool = new("spell-actor:rank-1");
         private static readonly SpellSlotPoolId AlternateRankedPool = new(
             "spell-actor:alternate-rank-1"
         );
         private static readonly RuleDefinitionId EffectDefinition = new("spell-effect-light");
+        private static readonly RuleDefinitionId UnrelatedEffectDefinition = new(
+            "spell-effect-unrelated"
+        );
         private static readonly RuleDefinitionId InterruptionDefinition = new(
             "spell-test-interruption"
         );
@@ -231,9 +238,57 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void CostCheckpointRetrySkipsProfileValidationAndDoubleSpend()
+        public async Task FifthMatchingCastReplacesOrdinalLowestAndResolvedRetryIsIdempotent()
         {
-            InMemoryRulesStore store = CreateStore(3, slotUses: 1);
+            ActiveEffectRegistration[] seeded = CreateFourMatchingLightRegistrations();
+            InMemoryRulesStore store = CreateStoreWithEffects(3, seeded);
+            RuleDispatcher dispatcher = CreateDispatcher(store, new TestBook(true));
+            CastSpellActionOp operation = new(
+                new ActionInvocationId("light-fifth"),
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
+
+            ResolvedOpResult<CastSpellOutcome> result = RequireResolved(
+                await dispatcher.Dispatch(operation)
+            );
+
+            ActiveEffectRemovedFact removed = result
+                .Facts.OfType<ActiveEffectRemovedFact>()
+                .Single();
+            ActiveEffectCreatedFact created = result
+                .Facts.OfType<ActiveEffectCreatedFact>()
+                .Single();
+            Assert.That(removed.EffectId, Is.EqualTo(new ActiveEffectId("effect-light-alpha")));
+            Assert.That(result.Value.CreatedEffects.Single(), Is.EqualTo(created.EffectId));
+            Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
+            Assert.That(store.Snapshot.ActiveEffects.Contains(removed.EffectId), Is.False);
+            Assert.That(
+                result.Facts.ToList().IndexOf(removed),
+                Is.LessThan(result.Facts.ToList().IndexOf(created))
+            );
+
+            long committedVersion = store.Snapshot.Version;
+            ResolvedOpResult<CastSpellOutcome> retry = RequireResolved(
+                await dispatcher.Dispatch(operation)
+            );
+
+            Assert.That(retry.Value, Is.SameAs(result.Value));
+            Assert.That(retry.Facts, Is.Empty);
+            Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
+            Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
+        }
+
+        [Test]
+        public void CostCheckpointRetryReplacesOnceWithoutProfileReplayOrDoubleSpend()
+        {
+            InMemoryRulesStore store = CreateStoreWithEffects(
+                3,
+                CreateFourMatchingLightRegistrations(),
+                slotUses: 1
+            );
             RuleRegistry registry = CreateRegistryBuilder().Build();
             TestCatalog catalog = new(new SlotTestBook());
             CountingProfileResolver resolver = new();
@@ -267,6 +322,7 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(resolver.Calls, Is.EqualTo(1));
             Assert.That(validator.Calls, Is.EqualTo(1));
+            Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
 
             OpResult<CastSpellOutcome> conflict = dispatcher
                 .Dispatch(
@@ -295,6 +351,8 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(retry.Value.CreatedEffects, Has.Count.EqualTo(1));
             Assert.That(retry.Facts.OfType<ActionCostsCommittedFact>(), Is.Empty);
+            Assert.That(retry.Facts.OfType<ActiveEffectRemovedFact>().Count(), Is.EqualTo(1));
+            Assert.That(retry.Facts.OfType<ActiveEffectCreatedFact>().Count(), Is.EqualTo(1));
             Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
             Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.Zero);
             Assert.That(
@@ -304,6 +362,159 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(resolver.Calls, Is.EqualTo(1));
             Assert.That(validator.Calls, Is.EqualTo(1));
             Assert.That(failure.Calls, Is.EqualTo(1));
+            Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
+            Assert.That(
+                store.Snapshot.ActiveEffects.Contains(new ActiveEffectId("effect-light-alpha")),
+                Is.False
+            );
+        }
+
+        [Test]
+        public void CreationIdentityCollisionRollsBackReplacementFactsAndLeavesReceiptPending()
+        {
+            ActionInvocationId invocation = new("light-collision");
+            ActiveEffectRegistration collision = CreateSpellEffectRegistration(
+                new ActiveEffectId($"spell-effect-{invocation.Value}-0"),
+                new BindingId("binding-unrelated-collision"),
+                Actor,
+                UnrelatedSpell,
+                UnrelatedEffectDefinition,
+                RuleSource.FromSlug(UnrelatedSpell.Spell.Value),
+                Actor,
+                ActiveEffectStatus.Active,
+                creationOrder: 5
+            );
+            InMemoryRulesStore store = CreateStoreWithEffects(
+                3,
+                CreateFourMatchingLightRegistrations().Append(collision)
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(store, new TestBook(true));
+            CountingFactObserver<ActiveEffectRemovedFact> removed = new();
+            CountingFactObserver<ActiveEffectCreatedFact> created = new();
+            dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(removed);
+            dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(created);
+            CastSpellActionOp operation = new(
+                invocation,
+                Actor,
+                Light,
+                TwoActions,
+                SpellCastSelection.Empty
+            );
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(operation)
+            );
+
+            Assert.That(error.Message, Does.Contain("already exists"));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                store.Snapshot.ActionReceipts[invocation],
+                Is.TypeOf<CostsCommittedActionReceipt>()
+            );
+            Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
+            Assert.That(
+                store.Snapshot.ActiveEffects.Contains(new ActiveEffectId("effect-light-alpha")),
+                Is.True
+            );
+            Assert.That(
+                store.Snapshot.ActiveEffects[collision.Effect.Id],
+                Is.SameAs(collision.Effect)
+            );
+            Assert.That(removed.Calls, Is.Zero);
+            Assert.That(created.Calls, Is.Zero);
+        }
+
+        [Test]
+        public async Task OtherCasterExpiredAndUnrelatedEffectsDoNotCountTowardLimit()
+        {
+            ActiveEffectRegistration[] matching = CreateFourMatchingLightRegistrations()
+                .Take(3)
+                .ToArray();
+            ActiveEffectRegistration otherCaster = CreateSpellEffectRegistration(
+                new ActiveEffectId("effect-other-caster"),
+                new BindingId("binding-other-caster"),
+                OtherActor,
+                Light,
+                EffectDefinition,
+                RuleSource.FromSlug(Light.Spell.Value),
+                OtherActor,
+                ActiveEffectStatus.Active,
+                creationOrder: 0
+            );
+            ActiveEffectRegistration expired = CreateSpellEffectRegistration(
+                new ActiveEffectId("effect-expired-light"),
+                new BindingId("binding-expired-light"),
+                Actor,
+                Light,
+                EffectDefinition,
+                RuleSource.FromSlug(Light.Spell.Value),
+                Actor,
+                ActiveEffectStatus.Expired,
+                creationOrder: 0
+            );
+            ActiveEffectRegistration unrelated = CreateSpellEffectRegistration(
+                new ActiveEffectId("effect-unrelated"),
+                new BindingId("binding-unrelated"),
+                Actor,
+                UnrelatedSpell,
+                UnrelatedEffectDefinition,
+                RuleSource.FromSlug(UnrelatedSpell.Spell.Value),
+                Actor,
+                ActiveEffectStatus.Active,
+                creationOrder: 0
+            );
+            InMemoryRulesStore store = CreateStoreWithEffects(
+                3,
+                matching.Concat(new[] { otherCaster, expired, unrelated }),
+                includeOtherActor: true
+            );
+
+            ResolvedOpResult<CastSpellOutcome> result = RequireResolved(
+                await CreateDispatcher(store, new TestBook(true)).Dispatch(Cast())
+            );
+
+            Assert.That(result.Facts.OfType<ActiveEffectRemovedFact>(), Is.Empty);
+            Assert.That(result.Facts.OfType<ActiveEffectCreatedFact>().Count(), Is.EqualTo(1));
+            Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(4));
+            Assert.That(MatchingLightEffects(store.Snapshot, OtherActor), Has.Count.EqualTo(1));
+            Assert.That(store.Snapshot.ActiveEffects.Contains(expired.Effect.Id), Is.True);
+            Assert.That(store.Snapshot.ActiveEffects.Contains(unrelated.Effect.Id), Is.True);
+        }
+
+        [Test]
+        public void OverCapInvariantFailsBeforeCosts()
+        {
+            InMemoryRulesStore store = CreateStoreWithEffects(
+                3,
+                CreateFourMatchingLightRegistrations()
+                    .Append(CreateMatchingLightRegistration("light-fifth-seeded", Light, 0)),
+                slotUses: 1
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(store, new SlotTestBook());
+            CountingFactObserver<ActionCostsCommittedFact> costs = new();
+            dispatcher.RegisterFactObserver<ActionCostsCommittedFact>(costs);
+            ActionInvocationId invocation = new("light-over-cap");
+
+            InvalidOperationException error = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(
+                        new CastSpellActionOp(
+                            invocation,
+                            Actor,
+                            Light,
+                            TwoActions,
+                            SpellCastSelection.Empty
+                        )
+                    )
+            );
+
+            Assert.That(error.Message, Does.Contain("active-instance invariant violated"));
+            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(store.Snapshot.SpellSlots[RankedPool].Remaining, Is.EqualTo(1));
+            Assert.That(store.Snapshot.ActionReceipts.Contains(invocation), Is.False);
+            Assert.That(MatchingLightEffects(store.Snapshot, Actor), Has.Count.EqualTo(5));
+            Assert.That(costs.Calls, Is.Zero);
         }
 
         [Test]
@@ -615,11 +826,7 @@ namespace Game.Rules.Runtime.Tests
             int? alternateSlotUses = null
         )
         {
-            RulesStateSeed seed = new RulesStateSeed()
-                .SeedCreature(new CreatureState(Actor, Player))
-                .SeedHealth(Actor, new HealthState(10, 10))
-                .SeedActionEconomy(Actor, new ActionEconomyState(actions, true))
-                .SeedStatistics(CreatureStatisticsState.Empty(Actor));
+            RulesStateSeed seed = CreateBaseSeed(actions);
             if (binding != null)
                 seed.SeedRuleBinding(binding);
             if (slotUses.HasValue)
@@ -631,10 +838,120 @@ namespace Game.Rules.Runtime.Tests
             return new InMemoryRulesStore(seed);
         }
 
+        private static InMemoryRulesStore CreateStoreWithEffects(
+            int actions,
+            IEnumerable<ActiveEffectRegistration> registrations,
+            int? slotUses = null,
+            bool includeOtherActor = false
+        )
+        {
+            RulesStateSeed seed = CreateBaseSeed(actions);
+            if (includeOtherActor)
+            {
+                seed.SeedCreature(new CreatureState(OtherActor, OtherPlayer))
+                    .SeedHealth(OtherActor, new HealthState(10, 10))
+                    .SeedActionEconomy(OtherActor, new ActionEconomyState(3, true))
+                    .SeedStatistics(CreatureStatisticsState.Empty(OtherActor));
+            }
+            foreach (
+                ActiveEffectRegistration registration in registrations
+                    ?? throw new ArgumentNullException(nameof(registrations))
+            )
+            {
+                seed.SeedActiveEffect(registration.Effect).SeedRuleBinding(registration.Binding);
+            }
+            if (slotUses.HasValue)
+                seed.SeedSpellSlot(new SpellSlotState(RankedPool, Actor, slotUses.Value, 1));
+            return new InMemoryRulesStore(seed);
+        }
+
+        private static RulesStateSeed CreateBaseSeed(int actions) =>
+            new RulesStateSeed()
+                .SeedCreature(new CreatureState(Actor, Player))
+                .SeedHealth(Actor, new HealthState(10, 10))
+                .SeedActionEconomy(Actor, new ActionEconomyState(actions, true))
+                .SeedStatistics(CreatureStatisticsState.Empty(Actor));
+
+        private static ActiveEffectRegistration[] CreateFourMatchingLightRegistrations() =>
+            new[]
+            {
+                CreateMatchingLightRegistration("light-zeta", Light, creationOrder: 0),
+                CreateMatchingLightRegistration("light-alpha", HeightenedLight, creationOrder: 99),
+                CreateMatchingLightRegistration("light-mike", Light, creationOrder: 1),
+                CreateMatchingLightRegistration("light-beta", Light, creationOrder: 50),
+            };
+
+        private static ActiveEffectRegistration CreateMatchingLightRegistration(
+            string key,
+            SpellReference spell,
+            long creationOrder
+        ) =>
+            CreateSpellEffectRegistration(
+                new ActiveEffectId($"effect-{key}"),
+                new BindingId($"binding-{key}"),
+                Actor,
+                spell,
+                EffectDefinition,
+                RuleSource.FromSlug(Light.Spell.Value),
+                Actor,
+                ActiveEffectStatus.Active,
+                creationOrder
+            );
+
+        private static ActiveEffectRegistration CreateSpellEffectRegistration(
+            ActiveEffectId effectId,
+            BindingId bindingId,
+            CreatureId sourceCreature,
+            SpellReference spell,
+            RuleDefinitionId definitionId,
+            RuleSource source,
+            CreatureId target,
+            ActiveEffectStatus status,
+            long creationOrder
+        )
+        {
+            ActiveEffectInstance effect = new(
+                effectId,
+                definitionId,
+                sourceCreature,
+                source,
+                EffectDuration.Indefinite,
+                new SpellEffectState(spell, target),
+                status: status
+            );
+            ActiveRuleBinding binding = new(
+                bindingId,
+                definitionId,
+                target,
+                effectId,
+                source,
+                creationOrder,
+                isEnabled: status == ActiveEffectStatus.Active
+            );
+            return new ActiveEffectRegistration(effect, binding);
+        }
+
+        private static List<ActiveEffectInstance> MatchingLightEffects(
+            RulesSnapshot snapshot,
+            CreatureId sourceCreature
+        ) =>
+            snapshot
+                .ActiveEffects.Select(pair => pair.Value)
+                .Where(effect =>
+                    effect.Status == ActiveEffectStatus.Active
+                    && effect.SourceCreature == sourceCreature
+                    && effect.Source == RuleSource.FromSlug(Light.Spell.Value)
+                    && effect.DefinitionId == EffectDefinition
+                    && effect.State.GetType() == typeof(SpellEffectState)
+                    && effect.GetState<SpellEffectState>().Spell.Spell == Light.Spell
+                )
+                .ToList();
+
         private static RuleRegistryBuilder CreateRegistryBuilder()
         {
             RuleRegistryBuilder builder = new();
             builder.Define(EffectDefinition);
+            builder.Define(UnrelatedEffectDefinition);
             return builder;
         }
 
@@ -730,7 +1047,12 @@ namespace Game.Rules.Runtime.Tests
                 },
                 new[]
                 {
-                    new SpellEffectDirective(EffectDefinition, EffectDuration.Indefinite, "self"),
+                    new SpellEffectDirective(
+                        EffectDefinition,
+                        EffectDuration.Indefinite,
+                        "self",
+                        maximumActiveInstances: 4
+                    ),
                 },
                 Array.Empty<SpellAttackDefinition>(),
                 Array.Empty<SpellSaveDefinition>()
@@ -871,6 +1193,18 @@ namespace Game.Rules.Runtime.Tests
                 CastSpellOutcome result,
                 RulesSnapshot currentSnapshot
             )
+            {
+                Calls++;
+                return default;
+            }
+        }
+
+        private sealed class CountingFactObserver<TFact> : IFactObserver<TFact>
+            where TFact : RuleFact
+        {
+            public int Calls { get; private set; }
+
+            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot)
             {
                 Calls++;
                 return default;

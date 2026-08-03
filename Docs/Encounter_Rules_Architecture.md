@@ -503,6 +503,20 @@ attack, and save casts use tagged prepared payloads through this same final redu
 therefore see the complete post-attack state even when one callback fails. Attack presentation is
 carried by the final `CastSpellOutcome` and runs only from the root cast observer after this commit.
 
+A `CreateActiveEffect` spell directive may declare an optional positive
+`maximumActiveInstances`; omission means unlimited. A capped directive counts only active effects
+with the same source creature, spell source, `SpellId` (independent of cast rank), and effect
+definition whose exact `SpellEffectState` has one enabled associated binding. An already over-cap
+population is an invariant violation rejected during action validation before costs. At the cap,
+preparation freezes the ordinal-lowest `ActiveEffectId` together with its exact binding and effect
+version; binding `CreationOrder` is not an instance-age contract because spell bindings currently
+reuse their directive index. The final prepared-spell reducer revalidates that exact selection,
+stages removal through `ActiveEffectReduction` before creation, and resolves the action receipt in
+the same transaction. A creation or receipt rejection therefore rolls back the removal and all
+staged Facts, while successful replacement publishes `ActiveEffectRemovedFact` before
+`ActiveEffectCreatedFact`. Cost-checkpoint retry prepares and commits the replacement once without
+spending costs again, and an exact resolved retry remains a no-op with no Facts.
+
 Every Cast a Spell invocation also supplies an `ActionInvocationId`. The final prepared-spell
 reducer stores an exact immutable `ActionInvocationReceipt` with the outcome in the same commit and
 publishes one generic `ActionReceiptCommittedFact`. The Fact identifies only the actor and action

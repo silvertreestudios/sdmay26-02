@@ -560,6 +560,20 @@ namespace Game.Rules.Runtime
                         $"Spell effect definition {effect.Value} is absent from the encounter registry."
                     );
             }
+            foreach (
+                SpellEffectDirective effect in spell.Effects.Where(value =>
+                    value.MaximumActiveInstances.HasValue
+                )
+            )
+            {
+                SpellEffectActiveInstanceLimit.ValidateCurrentCount(
+                    snapshot,
+                    frame.Op.Actor,
+                    frame.Op.Spell.Spell,
+                    effect.DefinitionId,
+                    effect.MaximumActiveInstances.Value
+                );
+            }
             if (spell.Saves.Count > 0)
             {
                 foreach (
@@ -677,6 +691,292 @@ namespace Game.Rules.Runtime
             );
     }
 
+    /// <summary>
+    /// Freezes the exact active-effect lifecycle identity selected for deterministic replacement.
+    /// </summary>
+    internal readonly struct PreparedActiveEffectReplacement
+        : IEquatable<PreparedActiveEffectReplacement>
+    {
+        internal PreparedActiveEffectReplacement(
+            ActiveEffectId effectId,
+            BindingId bindingId,
+            EffectStateVersion effectStateVersion
+        )
+        {
+            if (effectId.IsEmpty)
+                throw new ArgumentException(
+                    "A replacement effect ID is required.",
+                    nameof(effectId)
+                );
+            if (bindingId.IsEmpty)
+                throw new ArgumentException(
+                    "A replacement binding ID is required.",
+                    nameof(bindingId)
+                );
+            EffectId = effectId;
+            BindingId = bindingId;
+            EffectStateVersion = effectStateVersion;
+        }
+
+        internal ActiveEffectId EffectId { get; }
+        internal BindingId BindingId { get; }
+        internal EffectStateVersion EffectStateVersion { get; }
+
+        public bool Equals(PreparedActiveEffectReplacement other) =>
+            EffectId == other.EffectId
+            && BindingId == other.BindingId
+            && EffectStateVersion == other.EffectStateVersion;
+
+        public override bool Equals(object obj) =>
+            obj is PreparedActiveEffectReplacement other && Equals(other);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(EffectId, BindingId, EffectStateVersion);
+    }
+
+    /// <summary>
+    /// Selects only exact spell-effect registrations for a per-source active-instance limit.
+    /// </summary>
+    internal static class SpellEffectActiveInstanceLimit
+    {
+        internal static void ValidateCurrentCount(
+            RulesSnapshot snapshot,
+            CreatureId sourceCreature,
+            SpellId spell,
+            RuleDefinitionId definitionId,
+            int maximumActiveInstances
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            Selection selection = Select(
+                snapshot.ActiveEffects,
+                snapshot.RuleBindings,
+                sourceCreature,
+                spell,
+                definitionId
+            );
+            ThrowIfOverMaximum(
+                selection.Count,
+                sourceCreature,
+                spell,
+                definitionId,
+                maximumActiveInstances
+            );
+        }
+
+        internal static PreparedActiveEffectReplacement? PrepareReplacement(
+            RulesSnapshot snapshot,
+            CreatureId sourceCreature,
+            SpellId spell,
+            RuleDefinitionId definitionId,
+            int maximumActiveInstances
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            Selection selection = Select(
+                snapshot.ActiveEffects,
+                snapshot.RuleBindings,
+                sourceCreature,
+                spell,
+                definitionId
+            );
+            ThrowIfOverMaximum(
+                selection.Count,
+                sourceCreature,
+                spell,
+                definitionId,
+                maximumActiveInstances
+            );
+            return selection.Count == maximumActiveInstances ? selection.Replacement : null;
+        }
+
+        internal static bool TryRevalidateReplacement(
+            RulesStateDraft state,
+            CreatureId sourceCreature,
+            SpellId spell,
+            RuleDefinitionId definitionId,
+            int maximumActiveInstances,
+            PreparedActiveEffectReplacement? preparedReplacement,
+            out ActiveEffectInstance effect,
+            out ActiveRuleBinding binding,
+            out string rejection
+        )
+        {
+            if (state == null)
+                throw new ArgumentNullException(nameof(state));
+            Selection selection = Select(
+                state.ActiveEffects,
+                state.RuleBindings,
+                sourceCreature,
+                spell,
+                definitionId
+            );
+            if (selection.Count > maximumActiveInstances)
+            {
+                effect = null;
+                binding = null;
+                rejection = OverMaximumReason(
+                    selection.Count,
+                    sourceCreature,
+                    spell,
+                    definitionId,
+                    maximumActiveInstances
+                );
+                return false;
+            }
+
+            PreparedActiveEffectReplacement? currentReplacement =
+                selection.Count == maximumActiveInstances ? selection.Replacement : null;
+            if (!Nullable.Equals(currentReplacement, preparedReplacement))
+            {
+                effect = null;
+                binding = null;
+                rejection =
+                    "The prepared spell-effect replacement no longer matches authoritative state.";
+                return false;
+            }
+            if (!currentReplacement.HasValue)
+            {
+                effect = null;
+                binding = null;
+                rejection = string.Empty;
+                return true;
+            }
+
+            PreparedActiveEffectReplacement replacement = currentReplacement.Value;
+            if (
+                !ActiveEffectReduction.TryGetCurrent(
+                    state,
+                    replacement.EffectId,
+                    replacement.EffectStateVersion,
+                    requireActive: true,
+                    out effect,
+                    out rejection
+                )
+                || !ActiveEffectReduction.TryGetAssociatedBinding(
+                    state,
+                    effect,
+                    replacement.BindingId,
+                    requireEnabled: true,
+                    out binding,
+                    out rejection
+                )
+                || !ActiveEffectReduction.TryValidateSourceOwner(
+                    effect,
+                    RuleSource.FromSlug(spell.Value),
+                    out rejection
+                )
+            )
+            {
+                effect = null;
+                binding = null;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static Selection Select(
+            IEnumerable<KeyValuePair<ActiveEffectId, ActiveEffectInstance>> activeEffects,
+            IEnumerable<KeyValuePair<BindingId, ActiveRuleBinding>> ruleBindings,
+            CreatureId sourceCreature,
+            SpellId spell,
+            RuleDefinitionId definitionId
+        )
+        {
+            RuleSource source = RuleSource.FromSlug(spell.Value);
+            ActiveRuleBinding[] bindings = ruleBindings.Select(pair => pair.Value).ToArray();
+            List<PreparedActiveEffectReplacement> candidates = new();
+            foreach (ActiveEffectInstance effect in activeEffects.Select(pair => pair.Value))
+            {
+                if (
+                    effect.Status != ActiveEffectStatus.Active
+                    || effect.SourceCreature != sourceCreature
+                    || effect.Source != source
+                    || effect.DefinitionId != definitionId
+                    || effect.State.GetType() != typeof(SpellEffectState)
+                )
+                    continue;
+                SpellEffectState spellState = (SpellEffectState)effect.State;
+                if (spellState.Spell.Spell != spell)
+                    continue;
+                ActiveRuleBinding[] associated = bindings
+                    .Where(value =>
+                        value.IsEnabled
+                        && value.EffectId.HasValue
+                        && value.EffectId.Value == effect.Id
+                    )
+                    .ToArray();
+                if (
+                    associated.Length != 1
+                    || !ActiveEffectRegistration.BindingMatchesEffect(effect, associated[0])
+                    || associated[0].Owner != spellState.Target
+                )
+                    continue;
+                candidates.Add(
+                    new PreparedActiveEffectReplacement(
+                        effect.Id,
+                        associated[0].Id,
+                        effect.EffectStateVersion
+                    )
+                );
+            }
+
+            candidates.Sort(
+                (left, right) =>
+                    StringComparer.Ordinal.Compare(left.EffectId.Value, right.EffectId.Value)
+            );
+            return new Selection(candidates);
+        }
+
+        private static void ThrowIfOverMaximum(
+            int count,
+            CreatureId sourceCreature,
+            SpellId spell,
+            RuleDefinitionId definitionId,
+            int maximumActiveInstances
+        )
+        {
+            if (maximumActiveInstances <= 0)
+                throw new ArgumentOutOfRangeException(nameof(maximumActiveInstances));
+            if (count > maximumActiveInstances)
+                throw new InvalidOperationException(
+                    OverMaximumReason(
+                        count,
+                        sourceCreature,
+                        spell,
+                        definitionId,
+                        maximumActiveInstances
+                    )
+                );
+        }
+
+        private static string OverMaximumReason(
+            int count,
+            CreatureId sourceCreature,
+            SpellId spell,
+            RuleDefinitionId definitionId,
+            int maximumActiveInstances
+        ) =>
+            $"Spell effect active-instance invariant violated: source {sourceCreature.Value}, "
+            + $"spell {spell.Value}, and definition {definitionId.Value} have {count} valid active "
+            + $"instances, exceeding maximum {maximumActiveInstances}.";
+
+        private readonly struct Selection
+        {
+            internal Selection(IReadOnlyList<PreparedActiveEffectReplacement> candidates)
+            {
+                Count = candidates.Count;
+                Replacement = candidates.Count == 0 ? default : candidates[0];
+            }
+
+            internal int Count { get; }
+            internal PreparedActiveEffectReplacement Replacement { get; }
+        }
+    }
+
     internal abstract class PreparedSpellCast
     {
         protected PreparedSpellCast(CastSpellActionOp operation) =>
@@ -709,22 +1009,52 @@ namespace Game.Rules.Runtime
         internal SpellAttackResolution Resolution { get; }
     }
 
+    internal sealed class PreparedSpellEffectRegistration
+    {
+        internal PreparedSpellEffectRegistration(
+            ActiveEffectRegistration registration,
+            int? maximumActiveInstances,
+            PreparedActiveEffectReplacement? replacement
+        )
+        {
+            Registration = registration ?? throw new ArgumentNullException(nameof(registration));
+            if (maximumActiveInstances.HasValue && maximumActiveInstances.Value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(maximumActiveInstances));
+            if (replacement.HasValue && !maximumActiveInstances.HasValue)
+                throw new ArgumentException(
+                    "A prepared replacement requires an active-instance limit.",
+                    nameof(replacement)
+                );
+            MaximumActiveInstances = maximumActiveInstances;
+            Replacement = replacement;
+        }
+
+        internal ActiveEffectRegistration Registration { get; }
+        internal int? MaximumActiveInstances { get; }
+        internal PreparedActiveEffectReplacement? Replacement { get; }
+    }
+
     internal sealed class PreparedSpellEffectCast : PreparedSpellCast
     {
-        private readonly IReadOnlyList<ActiveEffectRegistration> registrations;
+        private readonly IReadOnlyList<PreparedSpellEffectRegistration> effects;
 
         internal PreparedSpellEffectCast(
             CastSpellActionOp operation,
-            IEnumerable<ActiveEffectRegistration> registrations
+            IEnumerable<PreparedSpellEffectRegistration> effects
         )
             : base(operation)
         {
-            this.registrations = Array.AsReadOnly(
-                (registrations ?? throw new ArgumentNullException(nameof(registrations))).ToArray()
-            );
+            PreparedSpellEffectRegistration[] copied =
+                effects?.ToArray() ?? throw new ArgumentNullException(nameof(effects));
+            if (copied.Any(effect => effect == null))
+                throw new ArgumentException(
+                    "Prepared spell effects cannot contain null.",
+                    nameof(effects)
+                );
+            this.effects = Array.AsReadOnly(copied);
         }
 
-        internal IReadOnlyList<ActiveEffectRegistration> Registrations => registrations;
+        internal IReadOnlyList<PreparedSpellEffectRegistration> Effects => effects;
     }
 
     internal sealed class PreparedSpellSaveTarget
@@ -880,9 +1210,42 @@ namespace Game.Rules.Runtime
             PreparedSpellEffectCast prepared
         )
         {
-            List<ActiveEffectId> created = new();
-            foreach (ActiveEffectRegistration registration in prepared.Registrations)
+            List<ActiveEffectRegistration> removals = new();
+            HashSet<ActiveEffectId> removalIds = new();
+            foreach (PreparedSpellEffectRegistration preparedEffect in prepared.Effects)
             {
+                if (!preparedEffect.MaximumActiveInstances.HasValue)
+                    continue;
+                ActiveEffectRegistration registration = preparedEffect.Registration;
+                if (
+                    !SpellEffectActiveInstanceLimit.TryRevalidateReplacement(
+                        state,
+                        prepared.Operation.Actor,
+                        prepared.Operation.Spell.Spell,
+                        registration.Effect.DefinitionId,
+                        preparedEffect.MaximumActiveInstances.Value,
+                        preparedEffect.Replacement,
+                        out ActiveEffectInstance effect,
+                        out ActiveRuleBinding binding,
+                        out string rejection
+                    )
+                )
+                    return ReductionResult<CastSpellOutcome>.Reject(rejection);
+                if (effect == null)
+                    continue;
+                if (!removalIds.Add(effect.Id))
+                    return ReductionResult<CastSpellOutcome>.Reject(
+                        $"Active effect {effect.Id.Value} was selected for replacement more than once."
+                    );
+                removals.Add(new ActiveEffectRegistration(effect, binding));
+            }
+            foreach (ActiveEffectRegistration removal in removals)
+                ActiveEffectReduction.CommitRemoval(state, removal.Effect, removal.Binding, facts);
+
+            List<ActiveEffectId> created = new();
+            foreach (PreparedSpellEffectRegistration preparedEffect in prepared.Effects)
+            {
+                ActiveEffectRegistration registration = preparedEffect.Registration;
                 if (
                     !ActiveEffectCreationReduction.TryCreate(
                         registry,
@@ -988,7 +1351,7 @@ namespace Game.Rules.Runtime
             if (!catalog.TryGetSpell(frame.Op.Spell, out SpellDefinition definition))
                 throw new InvalidOperationException("A validated spell definition disappeared.");
 
-            List<ActiveEffectRegistration> preparedEffects = new();
+            List<PreparedSpellEffectRegistration> preparedEffects = new();
             for (int index = 0; index < definition.Effects.Count; index++)
             {
                 SpellEffectDirective directive = definition.Effects[index];
@@ -1013,7 +1376,21 @@ namespace Game.Rules.Runtime
                     source,
                     index
                 );
-                preparedEffects.Add(new ActiveEffectRegistration(effect, binding));
+                preparedEffects.Add(
+                    new PreparedSpellEffectRegistration(
+                        new ActiveEffectRegistration(effect, binding),
+                        directive.MaximumActiveInstances,
+                        directive.MaximumActiveInstances.HasValue
+                            ? SpellEffectActiveInstanceLimit.PrepareReplacement(
+                                context.Snapshot,
+                                frame.Op.Actor,
+                                frame.Op.Spell.Spell,
+                                directive.DefinitionId,
+                                directive.MaximumActiveInstances.Value
+                            )
+                            : null
+                    )
+                );
             }
             if (preparedEffects.Count > 0)
                 return await CommitPreparedSpellCast(

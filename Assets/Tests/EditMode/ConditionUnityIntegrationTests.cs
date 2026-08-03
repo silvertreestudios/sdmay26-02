@@ -447,6 +447,7 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(light.Attacks, Is.Empty);
         Assert.That(light.Saves, Is.Empty);
         Assert.That(light.Effects, Has.Count.EqualTo(1));
+        Assert.That(light.Effects.Single().MaximumActiveInstances, Is.EqualTo(4));
     }
 
     [TestCase("attack")]
@@ -589,6 +590,59 @@ public sealed class ConditionUnityIntegrationTests
 
             Assert.That(definition.Effects.Single().Duration, Is.EqualTo(duration), authored);
         }
+    }
+
+    [Test]
+    public void SpellCatalogTreatsMissingMaximumActiveInstancesAsUnlimited()
+    {
+        Game.Rules.Runtime.SpellDefinition definition = UnitySpellDefinitionCatalog.Parse(
+            CreateCatalogEffectSpellJson("2", "1 minute")
+        );
+
+        Assert.That(definition.Effects.Single().MaximumActiveInstances, Is.Null);
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void SpellCatalogRejectsNonPositiveMaximumActiveInstances(int authored)
+    {
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellDefinitionCatalog.Parse(
+                CreateCatalogEffectSpellJson(
+                    "2",
+                    "1 minute",
+                    maximumActiveInstances: new JValue(authored)
+                )
+            )
+        );
+
+        Assert.That(
+            error.Message,
+            Is.EqualTo(
+                "Spell 'Catalog Audit Spell' requires maximumActiveInstances to be a positive integer when supplied."
+            )
+        );
+    }
+
+    [Test]
+    public void SpellCatalogRejectsNonIntegerMaximumActiveInstances()
+    {
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            UnitySpellDefinitionCatalog.Parse(
+                CreateCatalogEffectSpellJson(
+                    "2",
+                    "1 minute",
+                    maximumActiveInstances: new JValue("4")
+                )
+            )
+        );
+
+        Assert.That(
+            error.Message,
+            Is.EqualTo(
+                "Spell 'Catalog Audit Spell' requires maximumActiveInstances to be a positive integer when supplied."
+            )
+        );
     }
 
     [TestCase(null, false)]
@@ -2785,23 +2839,24 @@ public sealed class ConditionUnityIntegrationTests
         string castingTime,
         string duration,
         bool includeCastingTime = true,
-        bool includeDuration = true
+        bool includeDuration = true,
+        JToken maximumActiveInstances = null
     )
     {
+        JObject activeEffectRule = new()
+        {
+            ["key"] = "CreateActiveEffect",
+            ["definition"] = "spell-effect-catalog-audit",
+            ["target"] = "self",
+        };
+        if (maximumActiveInstances != null)
+            activeEffectRule["maximumActiveInstances"] = maximumActiveInstances;
         JObject system = new()
         {
             ["rulesNativeReady"] = true,
             ["level"] = new JObject { ["value"] = 1 },
             ["traits"] = new JObject { ["value"] = new JArray() },
-            ["rules"] = new JArray
-            {
-                new JObject
-                {
-                    ["key"] = "CreateActiveEffect",
-                    ["definition"] = "spell-effect-catalog-audit",
-                    ["target"] = "self",
-                },
-            },
+            ["rules"] = new JArray { activeEffectRule },
         };
         if (includeCastingTime)
             system["time"] = new JObject { ["value"] = castingTime };

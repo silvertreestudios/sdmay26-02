@@ -348,6 +348,57 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator FiveTurnRefreshedLightCastsLeaveFourRulesEffectsAndFourVisualLights()
+    {
+        CreatureComponent cleric = CreateCreature("Limited Light Cleric", 0, prepared: true);
+        InstallCoroutineRunner();
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Limited Light Opponent", 1, prepared: false);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10)
+        );
+        RulesCastSpellAction light = LightActions(controller).Single();
+        CreatureId actor = bridge.GetCreatureId(controller);
+
+        for (int cast = 0; cast < 5; cast++)
+        {
+            bridge.BeginTurn(actor, 3);
+            controller.IsTakingAction = true;
+            light.Invoke(cleric.gameObject);
+            for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+                yield return null;
+            Assert.That(controller.IsTakingAction, Is.False, $"Cast {cast + 1} did not finish.");
+        }
+
+        Assert.That(
+            bridge
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Count(effect =>
+                    effect.Status == ActiveEffectStatus.Active
+                    && effect.SourceCreature == actor
+                    && effect.Source == RuleSource.FromSlug("light")
+                    && effect.DefinitionId == new RuleDefinitionId("spell-effect-light")
+                    && effect.State.GetType() == typeof(SpellEffectState)
+                    && effect.GetState<SpellEffectState>().Spell.Spell == new SpellId("light")
+                ),
+            Is.EqualTo(4)
+        );
+        Assert.That(VisualLights(cleric), Has.Count.EqualTo(4));
+
+        bridge.ReleaseOwnership();
+        yield return null;
+        Assert.That(VisualLights(cleric), Is.Empty);
+    }
+
+    [UnityTest]
     public IEnumerator DivineLanceSelectionCancellationAndSuccessReleaseLockAndProjectOutcome()
     {
         InstallCoroutineRunner();
