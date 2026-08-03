@@ -81,7 +81,12 @@ namespace Game.Combat.Spells
                 .ToList();
             List<EntityAction> additions = new();
             List<string> creatureActionNames = new();
-            foreach (var key in desired)
+            foreach (
+                var key in desired
+                    .OrderBy(key => key.Spell.Spell.Value, StringComparer.Ordinal)
+                    .ThenBy(key => key.Spell.Rank)
+                    .ThenBy(key => key.Variant.Actions)
+            )
             {
                 RulesCastSpellAction action = new(
                     key.Spell,
