@@ -13,6 +13,18 @@ namespace Game.Rules.Runtime.Tests
         private static readonly RuleSource Source = RuleSource.FromSlug("test-source");
 
         [Test]
+        public void PreparedContributionCompositionRejectsNullBuilder()
+        {
+            RuleDispatcherBuilder builder = null;
+
+            ArgumentNullException error = Assert.Throws<ArgumentNullException>(() =>
+                builder.UsePreparedContributions()
+            );
+
+            Assert.That(error.ParamName, Is.EqualTo(nameof(builder)));
+        }
+
+        [Test]
         public void RegistryDeduplicatesIdenticalSpecsAndRejectsConflicts()
         {
             RuleRegistryBuilder builder = new();
