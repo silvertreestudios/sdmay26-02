@@ -411,8 +411,7 @@ namespace Game.DungeonPersistence.Actors
                 ))
                 .ToArray();
             UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
-            foreach (RulesSpellEffectSnapshot effect in restored)
-                effect.ValidateCatalog(catalog);
+            RulesSpellEffectSnapshot.ValidateCatalogBatch(restored, catalog);
             return restored;
         }
 

@@ -198,7 +198,7 @@ public sealed class RulesSpellEffectPersistenceTests
     }
 
     [Test]
-    public void ForeignSourceAppearanceCannotValidateSelfLightAndCorrectedInputCanRetry()
+    public void ForeignSourceSelfLightRejectsBeforeSourceLookupAndCorrectedInputCanRetry()
     {
         TestActionController owner = CreateActor(
             "Restored Light Owner",
@@ -213,7 +213,10 @@ public sealed class RulesSpellEffectPersistenceTests
             preparedCleric: false
         );
         UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
-        Assert.That(catalog.TryGetSpell(Light, out SpellDefinition definition), Is.True);
+        Assert.That(
+            catalog.TryGetSpell(Light, out Game.Rules.Runtime.SpellDefinition definition),
+            Is.True
+        );
         SpellEffectDirective directive = definition.Effects.Single();
         RulesSpellEffectPersistence persistence =
             owner.gameObject.AddComponent<RulesSpellEffectPersistence>();
@@ -238,15 +241,19 @@ public sealed class RulesSpellEffectPersistenceTests
             }
         );
 
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
-            UnityCombatRulesBridge.Create(
-                new ActionController[] { owner, opponent },
-                CreateTiles(2)
-            )
+        InvalidOperationException missingSourceFailure = Assert.Throws<InvalidOperationException>(
+            () =>
+                UnityCombatRulesBridge.Create(
+                    new ActionController[] { owner, opponent },
+                    CreateTiles(2)
+                )
         );
 
-        Assert.That(failure.Message, Does.Contain("missing-light-source"));
+        string targetContractFailure =
+            $"Rules-native spell effect {directive.DefinitionId.Value} does not exactly match the self-target catalog contract for {Light}: source durable actor 'missing-light-source' does not match target durable actor 'restored-light-owner'.";
+        Assert.That(missingSourceFailure.Message, Is.EqualTo(targetContractFailure));
         Assert.That(persistence.HasPendingRestore, Is.True);
+        Assert.That(owner.TryGetCombatRules(out _, out _), Is.False);
 
         TestActionController source = CreateActor(
             "Restored Light Source",
@@ -261,9 +268,9 @@ public sealed class RulesSpellEffectPersistenceTests
             )
         );
 
-        Assert.That(foreignFailure.Message, Does.Contain("source actor"));
-        Assert.That(foreignFailure.Message, Does.Contain("effect owner"));
+        Assert.That(foreignFailure.Message, Is.EqualTo(targetContractFailure));
         Assert.That(persistence.HasPendingRestore, Is.True);
+        Assert.That(owner.TryGetCombatRules(out _, out _), Is.False);
 
         persistence.RestoreEffects(
             new[]
@@ -300,6 +307,85 @@ public sealed class RulesSpellEffectPersistenceTests
             Is.EqualTo(retry.GetCreatureId(owner))
         );
         retry.ReleaseOwnership();
+    }
+
+    [Test]
+    public void OverCapPendingLightRestoreFailsBeforeEnrollmentAndPreservesInput()
+    {
+        TestActionController owner = CreateActor(
+            "Over-Cap Light Owner",
+            "over-cap-light-owner",
+            "Players",
+            preparedCleric: false
+        );
+        TestActionController opponent = CreateActor(
+            "Over-Cap Light Opponent",
+            "over-cap-light-opponent",
+            "Enemies",
+            preparedCleric: false
+        );
+        RulesSpellEffectPersistence persistence =
+            owner.gameObject.AddComponent<RulesSpellEffectPersistence>();
+        persistence.RestoreEffects(CreateLightSnapshots("over-cap-light-owner", 5));
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+            UnityCombatRulesBridge.Create(
+                new ActionController[] { owner, opponent },
+                CreateTiles(2)
+            )
+        );
+
+        Assert.That(failure.Message, Does.Contain("active-instance invariant violated"));
+        Assert.That(failure.Message, Does.Contain("found 5"));
+        Assert.That(failure.Message, Does.Contain("catalog maximum 4"));
+        Assert.That(persistence.HasPendingRestore, Is.True);
+        Assert.That(owner.TryGetCombatRules(out _, out _), Is.False);
+    }
+
+    [Test]
+    public void PendingLightRestoreAcceptsCatalogCapAcrossRanks()
+    {
+        TestActionController owner = CreateActor(
+            "At-Cap Light Owner",
+            "at-cap-light-owner",
+            "Players",
+            preparedCleric: false
+        );
+        TestActionController opponent = CreateActor(
+            "At-Cap Light Opponent",
+            "at-cap-light-opponent",
+            "Enemies",
+            preparedCleric: false
+        );
+        RulesSpellEffectPersistence persistence =
+            owner.gameObject.AddComponent<RulesSpellEffectPersistence>();
+        persistence.RestoreEffects(CreateLightSnapshots("at-cap-light-owner", 4));
+
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { owner, opponent },
+            CreateTiles(2)
+        );
+
+        CreatureId ownerId = bridge.GetCreatureId(owner);
+        Assert.That(persistence.HasPendingRestore, Is.False);
+        Assert.That(
+            bridge
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Count(effect =>
+                    effect.SourceCreature == ownerId
+                    && effect.GetState<SpellEffectState>().Spell.Spell == Light.Spell
+                ),
+            Is.EqualTo(4)
+        );
+        Assert.That(
+            bridge
+                .Snapshot.ActiveEffects.Select(pair =>
+                    pair.Value.GetState<SpellEffectState>().Spell.Rank
+                )
+                .Distinct(),
+            Is.EquivalentTo(new[] { 1, 2 })
+        );
+        bridge.ReleaseOwnership();
     }
 
     private TestActionController CreateActor(
@@ -346,6 +432,34 @@ public sealed class RulesSpellEffectPersistenceTests
             )
         );
         Assert.That(result.Status, Is.EqualTo(OpStatus.Resolved));
+    }
+
+    private static RulesSpellEffectSnapshot[] CreateLightSnapshots(string ownerId, int count)
+    {
+        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+        Assert.That(
+            catalog.TryGetSpell(Light, out Game.Rules.Runtime.SpellDefinition definition),
+            Is.True
+        );
+        SpellEffectDirective directive = definition.Effects.Single();
+        return Enumerable
+            .Range(0, count)
+            .Select(index => new RulesSpellEffectSnapshot(
+                new ActiveEffectId($"persisted-light-effect-{index}"),
+                new BindingId($"persisted-light-binding-{index}"),
+                directive.DefinitionId,
+                ownerId,
+                ownerId,
+                RuleSource.FromSlug("light"),
+                directive.Duration,
+                EffectStateVersion.Initial,
+                ActiveEffectStatus.Active,
+                index,
+                true,
+                new SpellReference(Light.Spell, (index % 2) + 1),
+                null
+            ))
+            .ToArray();
     }
 
     private static Tile[,] CreateTiles(int width)

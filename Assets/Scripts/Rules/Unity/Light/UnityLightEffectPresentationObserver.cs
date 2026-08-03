@@ -209,13 +209,14 @@ namespace Game.Rules.Unity.Light
                 || owner == null
             )
                 return false;
+            ActiveEffectInstance validatedEffect = effect;
             return snapshot.RuleBindings.Any(pair =>
                 pair.Value.IsEnabled
                 && pair.Value.EffectId.HasValue
-                && pair.Value.EffectId.Value == effect.Id
-                && pair.Value.DefinitionId == effect.DefinitionId
+                && pair.Value.EffectId.Value == validatedEffect.Id
+                && pair.Value.DefinitionId == validatedEffect.DefinitionId
                 && pair.Value.Owner == state.Target
-                && pair.Value.Source == effect.Source
+                && pair.Value.Source == validatedEffect.Source
             );
         }
 
@@ -223,6 +224,7 @@ namespace Game.Rules.Unity.Light
         {
             if (value == null)
                 return;
+            value.transform.SetParent(null, false);
             if (Application.isPlaying)
                 UnityEngine.Object.Destroy(value);
             else

@@ -91,7 +91,10 @@ public sealed class DungeonActorStateAdapterTests
         source.Creature.unloadedWeapons = new() { "Heavy Crossbow" };
         SpellReference light = new(new SpellId("light"), 1);
         UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
-        Assert.That(spellCatalog.TryGetSpell(light, out SpellDefinition lightDefinition), Is.True);
+        Assert.That(
+            spellCatalog.TryGetSpell(light, out Game.Rules.Runtime.SpellDefinition lightDefinition),
+            Is.True
+        );
         SpellEffectDirective lightEffect = lightDefinition.Effects.Single();
         sourceObject
             .AddComponent<RulesSpellEffectPersistence>()
@@ -680,6 +683,43 @@ public sealed class DungeonActorStateAdapterTests
         );
 
         Assert.That(error.Message, Does.Contain("catalog contract"));
+    }
+
+    [Test]
+    public void ActorRestoreRejectsOverCapRulesSpellEffectsBeforeUnityMutation()
+    {
+        SourceFixture fixture = CreateFixture("Over-Cap Catalog Validation", out sourceObject);
+        DungeonActorSaveState actor = ValidSavedActor();
+        actor.RulesSpellEffects = Enumerable
+            .Range(0, 5)
+            .Select(index =>
+            {
+                DungeonRulesSpellEffectSaveState effect = SavedRulesSpellEffect(
+                    $"spell-effect-over-cap-{index}",
+                    $"spell-binding-over-cap-{index}",
+                    index
+                );
+                effect.SpellRank = (index % 2) + 1;
+                return effect;
+            })
+            .ToArray();
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            DungeonActorStateAdapter.PrepareRestore(
+                fixture.Controller,
+                actor,
+                currentHitPoints: 7,
+                isDefeated: false,
+                _ => sourceObject
+            )
+        );
+
+        Assert.That(error.Message, Does.Contain("active-instance invariant violated"));
+        Assert.That(error.Message, Does.Contain("found 5"));
+        Assert.That(error.Message, Does.Contain("catalog maximum 4"));
+        Assert.That(actor.RulesSpellEffects, Has.Length.EqualTo(5));
+        Assert.That(fixture.Creature.Health.Current, Is.EqualTo(12));
+        Assert.That(fixture.Controller.GetComponent<RulesSpellEffectPersistence>(), Is.Null);
     }
 
     private static SourceFixture CreateFixture(string name, out GameObject gameObject)

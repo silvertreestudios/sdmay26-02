@@ -5,6 +5,7 @@ using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
 using UnityEngine;
+using RulesSpellDefinition = Game.Rules.Runtime.SpellDefinition;
 
 namespace Game.Combat.Spells
 {
@@ -33,8 +34,7 @@ namespace Game.Combat.Spells
             if (!TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner))
             {
                 IReadOnlyList<RulesSpellEffectSnapshot> captured = detached.ReadDetached();
-                foreach (RulesSpellEffectSnapshot effect in captured)
-                    effect.ValidateCatalog(catalog);
+                RulesSpellEffectSnapshot.ValidateCatalogBatch(captured, catalog);
                 return captured;
             }
             return CaptureAuthoritative(bridge, owner, catalog);
@@ -115,6 +115,7 @@ namespace Game.Combat.Spells
                 registrations = Array.Empty<ActiveEffectRegistration>();
                 return false;
             }
+            RulesSpellEffectSnapshot.ValidateCatalogBatch(lease.Value, catalog);
             registrations = Array.AsReadOnly(
                 lease
                     .Value.Select(effect =>
@@ -224,7 +225,9 @@ namespace Game.Combat.Spells
                     )
                 );
             }
-            return Array.AsReadOnly(captured.ToArray());
+            IReadOnlyList<RulesSpellEffectSnapshot> result = Array.AsReadOnly(captured.ToArray());
+            RulesSpellEffectSnapshot.ValidateCatalogBatch(result, catalog);
+            return result;
         }
 
         private bool TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner)
@@ -394,27 +397,72 @@ namespace Game.Combat.Spells
             return new ActiveEffectRegistration(effect, binding, timing);
         }
 
-        internal void ValidateCatalog(ISpellDefinitionCatalog catalog)
+        /// <summary>
+        /// Validates each snapshot against its exact authored directive, then enforces active
+        /// per-owner limits by spell identity across ranks and effect definition.
+        /// </summary>
+        internal static void ValidateCatalogBatch(
+            IEnumerable<RulesSpellEffectSnapshot> effects,
+            ISpellDefinitionCatalog catalog
+        )
         {
-            SpellDefinition definition = ValidateCatalogDefinition(
+            if (effects == null)
+                throw new ArgumentNullException(nameof(effects));
+            if (catalog == null)
+                throw new ArgumentNullException(nameof(catalog));
+            RulesSpellEffectSnapshot[] copied = effects.ToArray();
+            if (copied.Any(effect => effect == null))
+                throw new ArgumentException(
+                    "Rules-native spell-effect catalog validation cannot contain null.",
+                    nameof(effects)
+                );
+
+            var validated = copied
+                .Select(effect => new
+                {
+                    Snapshot = effect,
+                    Directive = effect.ValidateCatalogDirective(catalog),
+                })
+                .Where(value => value.Snapshot.Status == ActiveEffectStatus.Active)
+                .ToArray();
+            foreach (
+                var group in validated
+                    .GroupBy(value => (value.Snapshot.Spell.Spell, value.Snapshot.DefinitionId))
+                    .OrderBy(group => group.Key.Spell.Value, StringComparer.Ordinal)
+                    .ThenBy(group => group.Key.DefinitionId.Value, StringComparer.Ordinal)
+            )
+            {
+                int[] maximums = group
+                    .Where(value => value.Directive.MaximumActiveInstances.HasValue)
+                    .Select(value => value.Directive.MaximumActiveInstances.Value)
+                    .OrderBy(value => value)
+                    .ToArray();
+                int count = group.Count();
+                if (maximums.Length > 0 && count > maximums[0])
+                    throw new InvalidOperationException(
+                        $"Rules-native spell-effect active-instance invariant violated for {group.Key.Spell.Value} definition {group.Key.DefinitionId.Value}: found {count} active self-target instances, exceeding catalog maximum {maximums[0]}."
+                    );
+            }
+        }
+
+        private SpellEffectDirective ValidateCatalogDirective(ISpellDefinitionCatalog catalog)
+        {
+            SpellEffectDirective directive = ValidateCatalogDirective(
                 catalog,
                 DefinitionId,
                 Source,
                 Duration,
                 Spell
             );
-            int targets = definition.Effects.Count(directive =>
-                directive.DefinitionId == DefinitionId
-                && directive.Duration == Duration
-                && string.Equals(directive.Target, "self", StringComparison.Ordinal)
-            );
-            if (
-                targets != 1
-                || !string.Equals(SourceActorId, TargetActorId, StringComparison.Ordinal)
-            )
+            if (!string.Equals(directive.Target, "self", StringComparison.Ordinal))
                 throw new InvalidOperationException(
                     $"Rules-native spell effect {DefinitionId.Value} does not exactly match the catalog target contract for {Spell}."
                 );
+            if (!string.Equals(SourceActorId, TargetActorId, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Rules-native spell effect {DefinitionId.Value} does not exactly match the self-target catalog contract for {Spell}: source durable actor '{SourceActorId}' does not match target durable actor '{TargetActorId}'."
+                );
+            return directive;
         }
 
         internal static int CompareOrder(
@@ -444,27 +492,24 @@ namespace Game.Combat.Spells
             CreatureId owner
         )
         {
-            SpellDefinition definition = ValidateCatalogDefinition(
+            SpellEffectDirective directive = ValidateCatalogDirective(
                 catalog,
                 definitionId,
                 source,
                 duration,
                 state.Spell
             );
-            int targets = definition.Effects.Count(directive =>
-                directive.DefinitionId == definitionId
-                && directive.Duration == duration
-                && string.Equals(directive.Target, "self", StringComparison.Ordinal)
-                && sourceCreature == owner
-                && state.Target == owner
-            );
-            if (targets != 1)
+            if (
+                !string.Equals(directive.Target, "self", StringComparison.Ordinal)
+                || sourceCreature != owner
+                || state.Target != owner
+            )
                 throw new InvalidOperationException(
                     $"Rules-native spell effect {definitionId.Value} does not exactly match the catalog target contract for {state.Spell}."
                 );
         }
 
-        private static SpellDefinition ValidateCatalogDefinition(
+        private static SpellEffectDirective ValidateCatalogDirective(
             ISpellDefinitionCatalog catalog,
             RuleDefinitionId definitionId,
             RuleSource source,
@@ -474,14 +519,16 @@ namespace Game.Combat.Spells
         {
             if (catalog == null)
                 throw new ArgumentNullException(nameof(catalog));
-            if (!catalog.TryGetSpell(spell, out SpellDefinition definition))
+            if (!catalog.TryGetSpell(spell, out RulesSpellDefinition definition))
                 throw new InvalidOperationException(
                     $"Rules-native spell effect references unavailable spell {spell}."
                 );
-            int matches = definition.Effects.Count(directive =>
-                directive.DefinitionId == definitionId && directive.Duration == duration
-            );
-            if (matches != 1)
+            SpellEffectDirective[] matches = definition
+                .Effects.Where(directive =>
+                    directive.DefinitionId == definitionId && directive.Duration == duration
+                )
+                .ToArray();
+            if (matches.Length != 1)
                 throw new InvalidOperationException(
                     $"Rules-native spell effect {definitionId.Value} does not exactly match the catalog contract for {spell}."
                 );
@@ -490,7 +537,7 @@ namespace Game.Combat.Spells
                 throw new InvalidOperationException(
                     $"Rules-native spell effect {definitionId.Value} has noncanonical spell provenance."
                 );
-            return definition;
+            return matches[0];
         }
     }
 
