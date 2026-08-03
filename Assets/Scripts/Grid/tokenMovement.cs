@@ -8,6 +8,7 @@ namespace GridPrivate
     {
         private readonly Dictionary<Transform, ExplorationMovementChannel> explorationChannels =
             new();
+        private readonly List<Transform> completedExplorationChannels = new();
 
         // Jump points for the piece to move between
         [SerializeField]
@@ -155,10 +156,10 @@ namespace GridPrivate
         /// <param name="deltaTime">The non-negative presentation interval in seconds.</param>
         protected void AdvanceExplorationMovements(float deltaTime)
         {
+            completedExplorationChannels.Clear();
             if (explorationChannels.Count == 0)
                 return;
 
-            List<Transform> completedChannels = new();
             foreach (
                 KeyValuePair<Transform, ExplorationMovementChannel> entry in explorationChannels
             )
@@ -167,7 +168,7 @@ namespace GridPrivate
                 if (channel.Token == null)
                 {
                     channel.CancelAll();
-                    completedChannels.Add(entry.Key);
+                    completedExplorationChannels.Add(entry.Key);
                     continue;
                 }
 
@@ -179,11 +180,12 @@ namespace GridPrivate
                     YLerp
                 );
                 if (channel.IsEmpty)
-                    completedChannels.Add(entry.Key);
+                    completedExplorationChannels.Add(entry.Key);
             }
 
-            foreach (Transform token in completedChannels)
+            foreach (Transform token in completedExplorationChannels)
                 explorationChannels.Remove(token);
+            completedExplorationChannels.Clear();
         }
 
         private ExplorationMovementOperation QueueExplorationMovement(
