@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Linq;
 
 namespace Game.Rules.Runtime
 {
@@ -232,69 +230,43 @@ namespace Game.Rules.Runtime
     /// <summary>Stores an unrestricted or immutable restricted Quickened action allowance.</summary>
     public sealed class QuickenedConditionState : IEffectState, IEquatable<QuickenedConditionState>
     {
-        private readonly IReadOnlyList<ActionDefinitionId> allowedActions;
-        private readonly HashSet<ActionDefinitionId> allowedActionLookup;
-
         /// <summary>Creates a restricted Quickened source.</summary>
+        /// <param name="allowedActions">The nonempty definitions allowed by this source.</param>
         public QuickenedConditionState(IEnumerable<ActionDefinitionId> allowedActions)
+            : this(ActionAllowance.Restricted(allowedActions)) { }
+
+        private QuickenedConditionState(ActionAllowance allowance)
         {
-            if (allowedActions == null)
-                throw new ArgumentNullException(nameof(allowedActions));
-
-            ActionDefinitionId[] copied = allowedActions
-                .Distinct()
-                .OrderBy(action => action.Value, StringComparer.Ordinal)
-                .ToArray();
-            if (copied.Length == 0)
-                throw new ArgumentException(
-                    "Quickened must allow at least one action definition.",
-                    nameof(allowedActions)
-                );
-            if (copied.Any(action => action.IsEmpty))
-                throw new ArgumentException(
-                    "Quickened cannot allow an empty action definition.",
-                    nameof(allowedActions)
-                );
-
-            this.allowedActions = new ReadOnlyCollection<ActionDefinitionId>(copied);
-            allowedActionLookup = new HashSet<ActionDefinitionId>(copied);
-            IsRestricted = true;
-        }
-
-        private QuickenedConditionState()
-        {
-            allowedActions = Array.AsReadOnly(Array.Empty<ActionDefinitionId>());
-            allowedActionLookup = new HashSet<ActionDefinitionId>();
-            IsRestricted = false;
+            Allowance = allowance ?? throw new ArgumentNullException(nameof(allowance));
         }
 
         /// <summary>Gets the unrestricted Quickened state.</summary>
-        public static QuickenedConditionState Unrestricted { get; } = new QuickenedConditionState();
+        public static QuickenedConditionState Unrestricted { get; } =
+            new QuickenedConditionState(ActionAllowance.Unrestricted);
+
+        /// <summary>Gets the generic immutable allowance contributed by this source.</summary>
+        public ActionAllowance Allowance { get; }
 
         /// <summary>Gets whether this source restricts its additional action.</summary>
-        public bool IsRestricted { get; }
+        public bool IsRestricted => !Allowance.IsUnrestricted;
 
         /// <summary>Gets the canonical allowed definitions, empty only when unrestricted.</summary>
-        public IReadOnlyList<ActionDefinitionId> AllowedActions => allowedActions;
+        public IReadOnlyList<ActionDefinitionId> AllowedActions => Allowance.AllowedActions;
 
         /// <summary>Tests whether the source permits the supplied action.</summary>
-        public bool Allows(ActionDefinitionId action) =>
-            !IsRestricted || allowedActionLookup.Contains(action);
+        /// <param name="action">The valid exact action definition to inspect.</param>
+        /// <returns><see langword="true"/> when this source permits the definition.</returns>
+        public bool Allows(ActionDefinitionId action) => Allowance.Allows(action);
 
+        /// <inheritdoc/>
         public bool Equals(QuickenedConditionState other) =>
-            other != null
-            && IsRestricted == other.IsRestricted
-            && allowedActions.SequenceEqual(other.allowedActions);
+            other != null && Allowance.Equals(other.Allowance);
 
+        /// <inheritdoc/>
         public override bool Equals(object obj) =>
             obj is QuickenedConditionState other && Equals(other);
 
-        public override int GetHashCode()
-        {
-            int hash = 17;
-            foreach (ActionDefinitionId action in allowedActions)
-                hash = HashCode.Combine(hash, action);
-            return hash;
-        }
+        /// <inheritdoc/>
+        public override int GetHashCode() => Allowance.GetHashCode();
     }
 }

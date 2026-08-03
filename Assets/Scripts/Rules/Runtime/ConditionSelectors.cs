@@ -102,7 +102,13 @@ namespace Game.Rules.Runtime
             );
 
         /// <summary>Unions active Quickened allowances, with unrestricted sources dominating.</summary>
-        public static QuickenedAllowance GetQuickenedAllowance(
+        /// <param name="snapshot">The authoritative snapshot to inspect.</param>
+        /// <param name="owner">The creature whose active Quickened sources are selected.</param>
+        /// <returns>
+        /// <see cref="ActionAllowance.None"/> when no source is active; otherwise the canonical
+        /// union of every active source.
+        /// </returns>
+        public static ActionAllowance GetQuickenedAllowance(
             RulesSnapshot snapshot,
             CreatureId owner
         )
@@ -113,10 +119,9 @@ namespace Game.Rules.Runtime
                     owner,
                     ConditionRuleDefinitions.Quickened
                 );
-            if (sources.Any(source => !source.State.IsRestricted))
-                return QuickenedAllowance.Unrestricted;
-            return QuickenedAllowance.Restricted(
-                sources.SelectMany(source => source.State.AllowedActions)
+            return sources.Aggregate(
+                ActionAllowance.None,
+                (allowance, source) => allowance.Union(source.State.Allowance)
             );
         }
 
@@ -237,40 +242,5 @@ namespace Game.Rules.Runtime
 
             return new ConditionSelection<TState>(effect, binding, state);
         }
-    }
-
-    /// <summary>Represents the effective union of all active Quickened sources.</summary>
-    public sealed class QuickenedAllowance
-    {
-        private readonly IReadOnlyList<ActionDefinitionId> allowedActions;
-
-        private QuickenedAllowance(bool isUnrestricted, IEnumerable<ActionDefinitionId> actions)
-        {
-            IsUnrestricted = isUnrestricted;
-            allowedActions = Array.AsReadOnly(
-                actions.Distinct().OrderBy(action => action.Value, StringComparer.Ordinal).ToArray()
-            );
-        }
-
-        /// <summary>Gets the allowance produced by at least one unrestricted source.</summary>
-        public static QuickenedAllowance Unrestricted { get; } =
-            new QuickenedAllowance(true, Array.Empty<ActionDefinitionId>());
-
-        /// <summary>Creates the union of restricted sources, including an empty inactive union.</summary>
-        public static QuickenedAllowance Restricted(IEnumerable<ActionDefinitionId> actions) =>
-            new QuickenedAllowance(
-                false,
-                actions ?? throw new ArgumentNullException(nameof(actions))
-            );
-
-        /// <summary>Gets whether any active source is unrestricted.</summary>
-        public bool IsUnrestricted { get; }
-
-        /// <summary>Gets the canonical union of restricted action definitions.</summary>
-        public IReadOnlyList<ActionDefinitionId> AllowedActions => allowedActions;
-
-        /// <summary>Tests whether the effective allowance permits an action definition.</summary>
-        public bool Allows(ActionDefinitionId action) =>
-            IsUnrestricted || allowedActions.Contains(action);
     }
 }
