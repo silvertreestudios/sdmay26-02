@@ -72,4 +72,18 @@ namespace Game.Rules.Runtime
         /// <returns>A valid result or the first reason the action cannot legally begin.</returns>
         ActionValidationResult Validate(OpFrame<TOp> frame, RulesSnapshot snapshot);
     }
+
+    /// <summary>
+    /// Applies one feature-owned permission rule to every action, reaction, and free action at the
+    /// shared lifecycle boundary.
+    /// </summary>
+    public interface IActionPermission
+    {
+        /// <summary>Validates the trusted action identity and frozen profile without side effects.</summary>
+        ActionValidationResult Validate(
+            ActionOpInfo action,
+            ActionProfile profile,
+            RulesSnapshot snapshot
+        );
+    }
 }

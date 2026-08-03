@@ -6,6 +6,15 @@ using NUnit.Framework;
 /// <summary>Runs older Unity integration fixtures through exact encounter turn authority.</summary>
 internal static class EncounterLifecycleTestExtensions
 {
+    /// <summary>Commits the typed one-action Interact used to spend fixture resources.</summary>
+    internal static bool TryCommitInteract(this ActionController controller)
+    {
+        if (controller == null)
+            throw new ArgumentNullException(nameof(controller));
+        return controller.TryGetCombatRules(out UnityCombatRulesBridge bridge, out CreatureId actor)
+            && bridge.Dispatch(new InteractActionOp(actor)) is ResolvedOpResult<InteractOutcome>;
+    }
+
     /// <summary>Starts or advances a real encounter until the requested actor owns the turn.</summary>
     internal static void BeginTurn(
         this UnityCombatRulesBridge bridge,
@@ -20,7 +29,10 @@ internal static class EncounterLifecycleTestExtensions
             out _
         );
         if (startedNow)
-            bridge.StartEncounter(bridge.Snapshot.Creatures[actor].Player);
+            bridge.StartEncounter(
+                bridge.Snapshot.Creatures[actor].Player,
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
 
         int remaining = bridge.Snapshot.Creatures.Count + 1;
         EncounterState encounter = bridge.GetEncounter();
@@ -48,6 +60,6 @@ internal static class EncounterLifecycleTestExtensions
         Assert.That(encounter.Phase, Is.EqualTo(EncounterPhase.Active));
         Assert.That(encounter.CurrentTurn.HasValue, Is.True);
         Assert.That(encounter.CurrentTurn.Value.Actor, Is.EqualTo(actor));
-        Assert.That(bridge.GetActionsRemaining(actor), Is.EqualTo(expectedActions));
+        Assert.That(bridge.GetStandardActionsRemaining(actor), Is.EqualTo(expectedActions));
     }
 }

@@ -25,24 +25,25 @@ namespace Game.Rules.Runtime
         ) => health != null && health.TryGet(creature, out HealthState state) && state.Current > 0;
 
         /// <summary>
-        /// Determines whether a creature can pay a requested number of actions from current state.
+        /// Determines whether a creature can pay one exact action profile from current state.
         /// </summary>
         /// <param name="actionEconomy">The action-economy slice from an authoritative snapshot.</param>
         /// <param name="creature">The creature that would spend the actions.</param>
-        /// <param name="actions">The non-negative number of actions required.</param>
+        /// <param name="definitionId">The trusted top-level action definition.</param>
+        /// <param name="profile">The complete action profile being previewed.</param>
         /// <returns>
-        /// <see langword="true"/> when the request is non-negative, the creature has action-economy
-        /// state, and enough actions remain; otherwise, <see langword="false"/>.
+        /// <see langword="true"/> when the creature has action-economy state and the exact profile
+        /// can pay its standard, optional, reaction, or free-action cost.
         /// </returns>
-        public static bool CanSpendActions(
+        public static bool CanPayAction(
             this StateSliceSnapshot<CreatureId, ActionEconomyState> actionEconomy,
             CreatureId creature,
-            int actions
+            ActionDefinitionId definitionId,
+            ActionProfile profile
         ) =>
-            actions >= 0
-            && actionEconomy != null
+            actionEconomy != null
             && actionEconomy.TryGet(creature, out ActionEconomyState state)
-            && state.ActionsRemaining >= actions;
+            && ActionResourcePayment.CanPay(state, definitionId, profile);
     }
 
     public sealed class StateSliceSnapshot<TKey, TValue>

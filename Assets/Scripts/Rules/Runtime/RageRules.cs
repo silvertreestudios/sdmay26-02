@@ -368,6 +368,8 @@ namespace Game.Rules.Runtime
             QuickTemperedTraits
         );
 
+        internal static ActionProfile StandardProfile => RageProfile;
+
         /// <summary>Gets Rage's stable action-definition identity.</summary>
         public static ActionDefinitionId DefinitionId { get; } = new ActionDefinitionId("rage");
 
@@ -716,7 +718,11 @@ namespace Game.Rules.Runtime
                 return ActionAvailability.Unavailable(invalid.Reason);
             if (
                 !snapshot.ActionEconomy.TryGet(actor, out ActionEconomyState economy)
-                || economy.ActionsRemaining < ActionCost.One.Amount
+                || !ActionResourcePayment.CanPay(
+                    economy,
+                    RageActionDefinition.DefinitionId,
+                    RageActionDefinition.StandardProfile
+                )
             )
             {
                 return ActionAvailability.Unavailable("The actor does not have an action.");
@@ -813,7 +819,7 @@ namespace Game.Rules.Runtime
             builder.Define(RageActionDefinition.EffectDefinitionId);
             builder
                 .Define(LifecycleRuleDefinitionId)
-                .Middleware<TurnStartingOp, TurnStartContribution>(
+                .Middleware<TurnStartingOp, TurnStartCompletion>(
                     RuleLifecyclePhase.Prevention,
                     new RetryExpiredRageCleanupMiddleware()
                 )
@@ -1048,12 +1054,12 @@ namespace Game.Rules.Runtime
     /// runtime to recognize Rage-specific tombstones.
     /// </remarks>
     internal sealed class RetryExpiredRageCleanupMiddleware
-        : IOpMiddleware<TurnStartingOp, TurnStartContribution>
+        : IOpMiddleware<TurnStartingOp, TurnStartCompletion>
     {
-        public async ValueTask<OpResult<TurnStartContribution>> Invoke(
+        public async ValueTask<OpResult<TurnStartCompletion>> Invoke(
             OpFrame<TurnStartingOp> frame,
             OpMiddlewareContext context,
-            OpNext<TurnStartContribution> next
+            OpNext<TurnStartCompletion> next
         )
         {
             if (

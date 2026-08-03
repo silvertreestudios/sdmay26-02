@@ -6,6 +6,7 @@ using Game.Combat.Exploration;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
@@ -361,6 +362,8 @@ namespace Game.Combat.Encounters
             bool actorIsAlive = actorIsPartyMember && CanObserve(actor);
             if (
                 actor == null
+                || !actorIsPartyMember
+                || !actorIsAlive
                 || actor.IsTakingAction
                 || mode == DungeonDoorInteractionMode.Combat && !actor.HasTurnAuthority
             )
@@ -370,27 +373,41 @@ namespace Game.Combat.Encounters
             DungeonDoorInteractionDecision decision = DungeonDoorInteractionPolicy.Evaluate(
                 new DungeonDoorInteractionRequest(
                     mode,
-                    actorIsPartyMember,
-                    actorIsAlive,
                     new DungeonCell(actorPosition.x, actorPosition.z),
                     door.Cell,
-                    door.IsOpen,
-                    actor.ActionPoints
+                    door.IsOpen
                 )
             );
             if (!decision.IsAllowed)
                 return false;
+            if (!door.CanOpen())
+                return false;
 
-            interaction = new PreparedDoorInteraction(actor, door, decision);
+            interaction = new PreparedDoorInteraction(actor, door, mode);
             return true;
         }
 
         private bool ApplyDoorInteraction(PreparedDoorInteraction interaction)
         {
+            if (interaction.Mode == DungeonDoorInteractionMode.Combat)
+            {
+                if (
+                    !interaction.Actor.TryGetCombatRules(
+                        out UnityCombatRulesBridge bridge,
+                        out CreatureId creature
+                    )
+                    || bridge.Dispatch(new InteractActionOp(creature))
+                        is not ResolvedOpResult<InteractOutcome>
+                )
+                    return false;
+            }
             if (!interaction.Door.TryOpen())
-                return false;
-
-            interaction.Actor.SpendActions(interaction.Decision.ActionCost);
+            {
+                throw new InvalidOperationException(
+                    $"Door '{interaction.Door.StableId}' passed its mutation precondition but could not open. "
+                        + "Door mutation must remain synchronous on Unity's main thread."
+                );
+            }
             combatManager.RefreshRulesTopology();
             openDoorIds.Add(interaction.Door.StableId);
             EnterReachableEncounterRooms();
@@ -1068,19 +1085,19 @@ namespace Game.Combat.Encounters
             internal PreparedDoorInteraction(
                 ActionController actor,
                 DungeonDoorController door,
-                DungeonDoorInteractionDecision decision
+                DungeonDoorInteractionMode mode
             )
             {
                 Actor = actor;
                 Door = door;
-                Decision = decision;
+                Mode = mode;
             }
 
             internal ActionController Actor { get; }
 
             internal DungeonDoorController Door { get; }
 
-            internal DungeonDoorInteractionDecision Decision { get; }
+            internal DungeonDoorInteractionMode Mode { get; }
         }
 
         bool IExplorationStrideCoordinator.Handles(GameObject character) =>

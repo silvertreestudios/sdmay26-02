@@ -404,6 +404,7 @@ namespace Game.Rules.Runtime
         /// <param name="id">The stable encounter identity.</param>
         /// <param name="phase">The committed lifecycle phase.</param>
         /// <param name="protagonistTeam">The team used for player-relative outcomes.</param>
+        /// <param name="conclusionPolicy">The health outcomes that automatically end the encounter.</param>
         /// <param name="round">The current positive round.</param>
         /// <param name="roster">The immutable roster, including defeated entries.</param>
         /// <param name="cursor">The reached roster index, or -1 before the first boundary.</param>
@@ -425,6 +426,7 @@ namespace Game.Rules.Runtime
             EncounterId id,
             EncounterPhase phase,
             PlayerId protagonistTeam,
+            EncounterConclusionPolicy conclusionPolicy,
             RoundNumber round,
             IEnumerable<InitiativeEntry> roster,
             int cursor,
@@ -439,7 +441,7 @@ namespace Game.Rules.Runtime
                 id,
                 phase,
                 protagonistTeam,
-                EncounterConclusionPolicy.VictoryOrDefeat,
+                conclusionPolicy,
                 round,
                 roster,
                 cursor,
@@ -449,49 +451,6 @@ namespace Game.Rules.Runtime
                 isInitiativeBoundaryPending,
                 isTurnStartPending,
                 turnStartAdapterProgress,
-                Array.Empty<KeyValuePair<CreatureId, CombatantRulesState>>(),
-                Array.Empty<CreatureId>()
-            ) { }
-
-        /// <summary>Creates encounter state with an explicit automatic conclusion policy.</summary>
-        /// <param name="id">The stable encounter identity.</param>
-        /// <param name="phase">The committed lifecycle phase.</param>
-        /// <param name="protagonistTeam">The team used for player-relative outcomes.</param>
-        /// <param name="conclusionPolicy">The health outcomes that automatically end the encounter.</param>
-        /// <param name="round">The current positive round.</param>
-        /// <param name="roster">The immutable roster, including defeated entries.</param>
-        /// <param name="cursor">The reached roster index, or -1 before the first boundary.</param>
-        /// <param name="currentTurn">The exact open turn, when one exists.</param>
-        /// <param name="nextTurnSequence">The next positive turn sequence.</param>
-        /// <param name="outcome">The committed result for an ended encounter.</param>
-        /// <param name="isInitiativeBoundaryPending">Whether the reached boundary is awaiting effect expiration.</param>
-        public EncounterState(
-            EncounterId id,
-            EncounterPhase phase,
-            PlayerId protagonistTeam,
-            EncounterConclusionPolicy conclusionPolicy,
-            RoundNumber round,
-            IEnumerable<InitiativeEntry> roster,
-            int cursor,
-            TurnIdentity? currentTurn,
-            long nextTurnSequence,
-            EncounterOutcome? outcome,
-            bool isInitiativeBoundaryPending = false
-        )
-            : this(
-                id,
-                phase,
-                protagonistTeam,
-                conclusionPolicy,
-                round,
-                roster,
-                cursor,
-                currentTurn,
-                nextTurnSequence,
-                outcome,
-                isInitiativeBoundaryPending,
-                false,
-                null,
                 Array.Empty<KeyValuePair<CreatureId, CombatantRulesState>>(),
                 Array.Empty<CreatureId>()
             ) { }
@@ -717,11 +676,11 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Identifies the next ordered adapter and its current contribution at one published turn start.
+    /// Identifies the next ordered adapter at one published turn start.
     /// </summary>
     /// <remarks>
     /// The enclosing <see cref="EncounterState"/> supplies the exact encounter, round, roster slot,
-    /// and actor. This value carries only the portion that changes after each successfully returned
+    /// and actor. This value carries only the index that changes after each successfully completed
     /// adapter.
     /// </remarks>
     public sealed class TurnStartAdapterProgress : IEquatable<TurnStartAdapterProgress>
@@ -729,42 +688,28 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the first adapter index with work that has not committed.</summary>
         public int NextAdapterIndex { get; }
 
-        /// <summary>Gets the contribution returned by the immediately preceding adapter.</summary>
-        public TurnStartContribution Contribution { get; }
-
-        /// <summary>Gets the initial standard contribution before any adapter runs.</summary>
-        public static TurnStartAdapterProgress Initial =>
-            new TurnStartAdapterProgress(0, TurnStartContribution.Standard);
+        /// <summary>Gets progress before any adapter runs.</summary>
+        public static TurnStartAdapterProgress Initial => new TurnStartAdapterProgress(0);
 
         /// <summary>Creates immutable validated turn-start adapter progress.</summary>
         /// <param name="nextAdapterIndex">The non-negative next adapter index.</param>
-        /// <param name="contribution">The current action contribution.</param>
-        public TurnStartAdapterProgress(int nextAdapterIndex, TurnStartContribution contribution)
+        public TurnStartAdapterProgress(int nextAdapterIndex)
         {
             if (nextAdapterIndex < 0)
                 throw new ArgumentOutOfRangeException(nameof(nextAdapterIndex));
             NextAdapterIndex = nextAdapterIndex;
-            Contribution = contribution;
         }
 
         /// <inheritdoc/>
         public bool Equals(TurnStartAdapterProgress other) =>
-            other != null
-            && NextAdapterIndex == other.NextAdapterIndex
-            && Contribution.Actions == other.Contribution.Actions
-            && Contribution.ReactionAvailable == other.Contribution.ReactionAvailable;
+            other != null && NextAdapterIndex == other.NextAdapterIndex;
 
         /// <inheritdoc/>
         public override bool Equals(object obj) =>
             obj is TurnStartAdapterProgress other && Equals(other);
 
         /// <inheritdoc/>
-        public override int GetHashCode() =>
-            HashCode.Combine(
-                NextAdapterIndex,
-                Contribution.Actions,
-                Contribution.ReactionAvailable
-            );
+        public override int GetHashCode() => NextAdapterIndex;
     }
 
     /// <summary>

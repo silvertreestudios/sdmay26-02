@@ -390,6 +390,62 @@ namespace GridPrivate
         }
 
         /// <summary>
+        /// Determines whether one generated door state can be applied without changing grid state.
+        /// </summary>
+        /// <param name="cell">The generated door cell to inspect.</param>
+        /// <param name="isOpen">Whether the requested state is open.</param>
+        /// <returns>
+        /// <see langword="true"/> when <see cref="TrySetDoorState"/> can apply the requested state;
+        /// otherwise <see langword="false"/>.
+        /// </returns>
+        public bool CanSetDoorState(DungeonCell cell, bool isOpen) =>
+            CanSetDoorState(GridData, LineOfSightBlocks, Tiles, cell, isOpen);
+
+        /// <summary>
+        /// Evaluates the shared door mutation precondition against supplied topology data.
+        /// </summary>
+        /// <remarks>
+        /// This method must remain free of mutations because combat adapters may authorize and pay
+        /// for an action between this preflight and the synchronous mutation.
+        /// </remarks>
+        internal static bool CanSetDoorState(
+            TileType[,] gridData,
+            bool[,] lineOfSightBlocks,
+            Tile[,] tiles,
+            DungeonCell cell,
+            bool isOpen
+        )
+        {
+            if (
+                gridData == null
+                || lineOfSightBlocks == null
+                || cell.X < 0
+                || cell.Z < 0
+                || cell.X >= gridData.GetLength(0)
+                || cell.Z >= gridData.GetLength(1)
+                || cell.X >= lineOfSightBlocks.GetLength(0)
+                || cell.Z >= lineOfSightBlocks.GetLength(1)
+                || tiles != null && (cell.X >= tiles.GetLength(0) || cell.Z >= tiles.GetLength(1))
+            )
+            {
+                return false;
+            }
+
+            TileType current = gridData[cell.X, cell.Z];
+            if (current != TileType.Door && current != TileType.ClosedDoor)
+                return false;
+
+            if (tiles != null && !isOpen)
+            {
+                Tile tile = tiles[cell.X, cell.Z];
+                if (tile != null && tile.Occupants.Count > 0)
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Applies a generated door state to the shared navigation and line-of-sight arrays.
         /// </summary>
         /// <param name="cell">The validated generated door cell.</param>
@@ -400,28 +456,8 @@ namespace GridPrivate
         /// </returns>
         public bool TrySetDoorState(DungeonCell cell, bool isOpen)
         {
-            if (
-                GridData == null
-                || LineOfSightBlocks == null
-                || cell.X < 0
-                || cell.Z < 0
-                || cell.X >= GridData.GetLength(0)
-                || cell.Z >= GridData.GetLength(1)
-            )
-            {
+            if (!CanSetDoorState(cell, isOpen))
                 return false;
-            }
-
-            TileType current = GridData[cell.X, cell.Z];
-            if (current != TileType.Door && current != TileType.ClosedDoor)
-                return false;
-
-            if (Tiles != null && !isOpen)
-            {
-                Tile tile = Tiles[cell.X, cell.Z];
-                if (tile != null && tile.Occupants.Count > 0)
-                    return false;
-            }
 
             GridData[cell.X, cell.Z] = isOpen ? TileType.Door : TileType.ClosedDoor;
             LineOfSightBlocks[cell.X, cell.Z] = !isOpen;

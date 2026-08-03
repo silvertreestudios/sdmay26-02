@@ -264,7 +264,7 @@ namespace Game.Rules.Unity.Composition
                 {
                     seed.SeedActionEconomy(
                         combatant.Registration.State.Creature.Id,
-                        new ActionEconomyState(1, false)
+                        new ActionEconomyState(1, ActionAllowance.None, false)
                     );
                 }
                 foreach (IUnityCombatantStateContribution contribution in combatant.State)

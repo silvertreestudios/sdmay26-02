@@ -76,7 +76,10 @@ public sealed class ConditionUnityIntegrationTests
         );
         Assert.That(result.Amount, Is.EqualTo(8));
         Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(12));
-        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].StandardActionsRemaining,
+            Is.EqualTo(1)
+        );
         ConditionSelection<IEffectState> deafened = ConditionSelectors
             .GetActiveInstances(bridge.Snapshot, targetId, ConditionRuleDefinitions.Deafened)
             .Single();
@@ -152,7 +155,10 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(roll.roll, Is.EqualTo(attack.AttackRoll.Values.Single()));
         Assert.That(roll.total, Is.EqualTo(attack.AttackRoll.Total + attack.AttackModifier));
         Assert.That(roll.degree, Is.EqualTo(Game.Creature.DegreeOfSuccess.Success));
-        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].StandardActionsRemaining,
+            Is.EqualTo(1)
+        );
         Assert.That(bridge.Snapshot.MultipleAttackPenalty[casterId].AttackCount, Is.EqualTo(1));
         Assert.That(
             rolls.SpellRequests,
@@ -224,7 +230,10 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(result.Success, Is.True, result.Message);
         Assert.That(result.Amount, Is.EqualTo(8));
         Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(12));
-        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].StandardActionsRemaining,
+            Is.EqualTo(1)
+        );
         Assert.That(
             ConditionSelectors.GetActiveInstances(
                 bridge.Snapshot,
@@ -274,7 +283,10 @@ public sealed class ConditionUnityIntegrationTests
 
         Assert.That(actual, Is.SameAs(expected));
         Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(12));
-        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].StandardActionsRemaining,
+            Is.EqualTo(1)
+        );
         Assert.That(bridge.Snapshot.MultipleAttackPenalty[casterId].AttackCount, Is.Zero);
         long committedVersion = bridge.Snapshot.Version;
 
@@ -290,7 +302,10 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(retry.Amount, Is.EqualTo(8));
         Assert.That(bridge.Snapshot.Version, Is.EqualTo(committedVersion));
         Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(12));
-        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(1));
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].StandardActionsRemaining,
+            Is.EqualTo(1)
+        );
         Assert.That(observer.Count, Is.EqualTo(1));
         AssertSingleHauntingHymnResolution(retry, rolls, spellRolls);
         bridge.ReleaseOwnership();
@@ -324,7 +339,10 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(result.Success, Is.False);
         Assert.That(result.Message, Does.Contain("same creature more than once"));
         Assert.That(bridge.Snapshot.Version, Is.EqualTo(before.Version));
-        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(3));
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].StandardActionsRemaining,
+            Is.EqualTo(3)
+        );
         Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(20));
         bridge.ReleaseOwnership();
     }
@@ -358,7 +376,10 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(result.Success, Is.False);
         Assert.That(result.Message, Does.Contain("combine creature targets with an area"));
         Assert.That(bridge.Snapshot.Version, Is.EqualTo(before.Version));
-        Assert.That(bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining, Is.EqualTo(3));
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].StandardActionsRemaining,
+            Is.EqualTo(3)
+        );
         Assert.That(bridge.Snapshot.Health[targetId].Current, Is.EqualTo(20));
         bridge.ReleaseOwnership();
     }
@@ -938,9 +959,477 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(caster.Controller.ActionPoints, Is.EqualTo(actions));
     }
 
+    [Test]
+    public void QuickenedInteractSpendsOptionalResourceBeforeStandardActions()
+    {
+        CreatureFixture actor = CreateCreature("Quickened Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Quickened Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Quickened,
+                    "quickened-interact",
+                    new QuickenedConditionState(new[] { InteractActionDefinition.DefinitionId })
+                ),
+            }
+        );
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        bridge.BeginTurn(actorId, 3);
+
+        Assert.That(actor.Controller.OptionalActionAvailable, Is.True);
+        Assert.That(actor.Controller.TryCommitInteract(), Is.True);
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.EqualTo(3));
+        Assert.That(actor.Controller.OptionalActionAvailable, Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void MidTurnStunnedTwoLosesOptionalThenOneStandardAndPreservesReaction()
+    {
+        CreatureFixture actor = CreateCreature("Quickened Stunned Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Quickened Stunned Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Quickened,
+                    "quickened-midturn-stunned",
+                    new QuickenedConditionState(new[] { InteractActionDefinition.DefinitionId })
+                ),
+            }
+        );
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        bridge.BeginTurn(actorId, 3);
+
+        OpResult<ConditionApplicationOutcome> applied = bridge.Dispatch(
+            new ApplyConditionOp(
+                "Stunned",
+                actorId,
+                actorId,
+                RuleSource.FromSlug("midturn-stunned-two"),
+                EffectDuration.Indefinite,
+                new ValuedStunnedConditionState(2)
+            )
+        );
+
+        Assert.That(applied, Is.TypeOf<ResolvedOpResult<ConditionApplicationOutcome>>());
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.EqualTo(2));
+        Assert.That(actor.Controller.OptionalActionAvailable, Is.False);
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        Assert.That(ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out _), Is.False);
+        Assert.That(actor.Controller.TryCommitInteract(), Is.True);
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.EqualTo(1));
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void TurnStartStunnedOneAndSlowedTwoLoseTwoAndExpireOnlyStunned()
+    {
+        CreatureFixture actor = CreateCreature("Stunned Slowed Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Stunned Slowed Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Slowed,
+                    "start-slowed-two",
+                    new SlowedConditionState(2)
+                ),
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Stunned,
+                    "start-stunned-one",
+                    new ValuedStunnedConditionState(1)
+                ),
+            }
+        );
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        CountingFactObserver<ActionResourceLostFact> losses = new();
+        using IDisposable registration = GetDispatcher(bridge).RegisterFactObserver(losses);
+
+        bridge.BeginTurn(actorId, 1);
+
+        Assert.That(losses.Count, Is.EqualTo(1));
+        Assert.That(losses.Last.Resource, Is.EqualTo(ActionResourceKind.Standard));
+        Assert.That(losses.Last.Amount, Is.EqualTo(2));
+        Assert.That(ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out _), Is.False);
+        Assert.That(
+            ConditionSelectors.TryGetSlowed(bridge.Snapshot, actorId, out var slowed),
+            Is.True
+        );
+        Assert.That(slowed.State.Value, Is.EqualTo(2));
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void StunnedFourCarriesOneThenExpiresWithoutDoubleChargingNextRefresh()
+    {
+        CreatureFixture actor = CreateCreature("Stunned Four Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Stunned Four Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Stunned,
+                    "start-stunned-four",
+                    new ValuedStunnedConditionState(4)
+                ),
+            }
+        );
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+
+        bridge.BeginTurn(actorId, 0);
+
+        Assert.That(
+            ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out var remaining),
+            Is.True
+        );
+        Assert.That(((ValuedStunnedConditionState)remaining.State).Value, Is.EqualTo(1));
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.False);
+
+        bridge.BeginTurn(actorId, 2);
+
+        Assert.That(ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out _), Is.False);
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void StunnedTwoAndOneUseHighestLossAndBothAdjustWithoutSumming()
+    {
+        CreatureFixture actor = CreateCreature("Multiple Stunned Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Multiple Stunned Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Stunned,
+                    "stunned-two-source",
+                    new ValuedStunnedConditionState(2)
+                ),
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Stunned,
+                    "stunned-one-source",
+                    new ValuedStunnedConditionState(1)
+                ),
+            }
+        );
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        Assert.That(
+            ConditionSelectors
+                .GetActiveInstances(bridge.Snapshot, actorId, ConditionRuleDefinitions.Stunned)
+                .ToArray(),
+            Has.Length.EqualTo(2)
+        );
+
+        bridge.BeginTurn(actorId, 1);
+
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.EqualTo(1));
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        Assert.That(
+            ConditionSelectors.GetActiveInstances(
+                bridge.Snapshot,
+                actorId,
+                ConditionRuleDefinitions.Stunned
+            ),
+            Is.Empty
+        );
+        Assert.That(actor.Controller.TryCommitInteract(), Is.True);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void DurationOnlyStunnedLosesAllResourcesAndSuppressesReaction()
+    {
+        CreatureFixture actor = CreateCreature("Duration Stunned Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Duration Stunned Opponent", "Enemies", 0);
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Stunned,
+                    "duration-stunned",
+                    DurationOnlyStunnedConditionState.Instance
+                ),
+            }
+        );
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+
+        bridge.BeginTurn(actorId, 0);
+
+        Assert.That(
+            ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out var stunned),
+            Is.True
+        );
+        Assert.That(stunned.State, Is.TypeOf<DurationOnlyStunnedConditionState>());
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void DurationOnlyStunnedGainedMidTurnImmediatelySuppressesEveryResource()
+    {
+        CreatureFixture actor = CreateCreature("Midturn Duration Stunned Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature(
+            "Midturn Duration Stunned Opponent",
+            "Enemies",
+            0
+        );
+        actor.Conditions.RestoreApplications(
+            new[]
+            {
+                Persisted(
+                    actor.GameObject,
+                    ConditionRuleDefinitions.Quickened,
+                    "quickened-midturn-duration-stunned",
+                    QuickenedConditionState.Unrestricted
+                ),
+            }
+        );
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        bridge.BeginTurn(actorId, 3);
+        Assert.That(actor.Controller.OptionalActionAvailable, Is.True);
+
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "Stunned",
+                actorId,
+                actorId,
+                RuleSource.FromSlug("midturn-duration-stunned"),
+                EffectDuration.Indefinite,
+                DurationOnlyStunnedConditionState.Instance
+            )
+        );
+
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.Zero);
+        Assert.That(actor.Controller.OptionalActionAvailable, Is.False);
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.False);
+        Assert.That(
+            ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out var stunned),
+            Is.True
+        );
+        Assert.That(stunned.State, Is.TypeOf<DurationOnlyStunnedConditionState>());
+        Assert.That(actor.Controller.TryCommitInteract(), Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void SlowedGainedMidTurnChangesOnlyTheNextTurnRefresh()
+    {
+        CreatureFixture actor = CreateCreature("Delayed Slowed Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Delayed Slowed Opponent", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        bridge.BeginTurn(actorId, 3);
+
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "Slowed",
+                actorId,
+                actorId,
+                RuleSource.FromSlug("midturn-slowed-four"),
+                EffectDuration.Indefinite,
+                new SlowedConditionState(4)
+            )
+        );
+
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.EqualTo(3));
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        bridge.BeginTurn(actorId, 0);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void QuickenedGainedMidTurnGrantsItsOptionalResourceAtNextRefresh()
+    {
+        CreatureFixture actor = CreateCreature("Delayed Quickened Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Delayed Quickened Opponent", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        bridge.BeginTurn(actorId, 3);
+
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "Quickened",
+                actorId,
+                actorId,
+                RuleSource.FromSlug("midturn-quickened-interact"),
+                EffectDuration.Indefinite,
+                new QuickenedConditionState(new[] { InteractActionDefinition.DefinitionId })
+            )
+        );
+
+        Assert.That(actor.Controller.OptionalActionAvailable, Is.False);
+        bridge.BeginTurn(actorId, 3);
+        Assert.That(actor.Controller.OptionalActionAvailable, Is.True);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void MidTurnStunnedOneLosesOnlyOneRemainingResourceAndDoesNotChargeNextTurn()
+    {
+        CreatureFixture actor = CreateCreature("Midturn Stunned Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Midturn Stunned Opponent", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        bridge.BeginTurn(actorId, 3);
+        Assert.That(actor.Controller.TryCommitInteract(), Is.True);
+
+        OpResult<ConditionApplicationOutcome> applied = bridge.Dispatch(
+            new ApplyConditionOp(
+                "Stunned",
+                actorId,
+                actorId,
+                RuleSource.FromSlug("midturn-stunned-one"),
+                EffectDuration.Indefinite,
+                new ValuedStunnedConditionState(1)
+            )
+        );
+
+        Assert.That(applied, Is.TypeOf<ResolvedOpResult<ConditionApplicationOutcome>>());
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.EqualTo(1));
+        Assert.That(ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out _), Is.False);
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        bridge.BeginTurn(actorId, 3);
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.EqualTo(3));
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void MidTurnStunnedFourPersistsAndBlocksSubsequentTypedActions()
+    {
+        CreatureFixture actor = CreateCreature("Persistent Stunned Actor", "Heroes", 100);
+        CreatureFixture opponent = CreateCreature("Persistent Stunned Opponent", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { actor.Controller, opponent.Controller },
+            CreateTiles()
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        bridge.BeginTurn(actorId, 3);
+        Assert.That(actor.Controller.TryCommitInteract(), Is.True);
+
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "Stunned",
+                actorId,
+                actorId,
+                RuleSource.FromSlug("midturn-stunned-four"),
+                EffectDuration.Indefinite,
+                new ValuedStunnedConditionState(4)
+            )
+        );
+
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.Zero);
+        Assert.That(
+            ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out var stunned),
+            Is.True
+        );
+        Assert.That(((ValuedStunnedConditionState)stunned.State).Value, Is.EqualTo(2));
+        Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.False);
+        Assert.That(actor.Controller.TryCommitInteract(), Is.False);
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.Zero);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void DisabledOwnerListenerCannotBorrowAnotherActorsBindingToDrainStunned()
+    {
+        CreatureFixture actor = CreateCreature("Disabled Stunned Listener", "Heroes", 100);
+        CreatureFixture other = CreateCreature("Other Stunned Listener", "Enemies", 0);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateForTests(
+            new[] { actor.Controller, other.Controller },
+            CreateTiles(),
+            new RandomRollService(),
+            new IUnityEncounterModule[] { new StatelessBindingLifecycleRequestModule() }
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor.Creature);
+        bridge.BeginTurn(actorId, 3);
+        BindingId listenerId = new($"condition-turn-resources-{actorId.Value}");
+        ActiveRuleBinding listener = bridge.Snapshot.RuleBindings[listenerId];
+        CreatureId otherId = bridge.GetCreatureId(other.Creature);
+        BindingId otherListenerId = new($"condition-turn-resources-{otherId.Value}");
+        Assert.That(bridge.Snapshot.RuleBindings[otherListenerId].IsEnabled, Is.True);
+        Assert.That(
+            bridge.Dispatch(
+                new DisableStatelessBindingRequestOp(
+                    listener.Id,
+                    listener.CreationOrder,
+                    listener.Source
+                )
+            ),
+            Is.TypeOf<ResolvedOpResult<StatelessRuleBindingEnabledOutcome>>()
+        );
+
+        Assert.That(
+            bridge.Dispatch(
+                new ApplyConditionOp(
+                    "Stunned",
+                    actorId,
+                    actorId,
+                    RuleSource.FromSlug("disabled-owner-midturn-stunned"),
+                    EffectDuration.Indefinite,
+                    new ValuedStunnedConditionState(1)
+                )
+            ),
+            Is.TypeOf<ResolvedOpResult<ConditionApplicationOutcome>>()
+        );
+
+        Assert.That(bridge.GetStandardActionsRemaining(actorId), Is.EqualTo(3));
+        Assert.That(ConditionSelectors.TryGetStunned(bridge.Snapshot, actorId, out _), Is.True);
+        Assert.That(bridge.Snapshot.RuleBindings[otherListenerId].IsEnabled, Is.True);
+        bridge.ReleaseOwnership();
+    }
+
     [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler")]
     [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura")]
-    public void AuthoredZombieSlowImportsEnrollsReplaysAndSuppressesReactions(string path)
+    public void AuthoredZombieSlowEnrollsStableSlowedAndNoReactionRules(string path)
     {
         CreatureFixture zombie = CreateCreatureFromJson(path, "Enemies", 100);
         CreatureFixture opponent = CreateCreature("Zombie Opponent", "Heroes", 0);
@@ -978,6 +1467,7 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(authored.Effect.Duration, Is.EqualTo(EffectDuration.Indefinite));
         Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
         first.BeginTurn(zombieId, 2);
+        Assert.That(first.GetActionEconomy(zombieId).StandardActionsRemaining, Is.EqualTo(2));
         Assert.That(first.GetActionEconomy(zombieId).ReactionAvailable, Is.False);
         Assert.That(zombie.Controller.Reacted, Is.True);
 
@@ -999,12 +1489,13 @@ public sealed class ConditionUnityIntegrationTests
             Is.EqualTo($"{authoredIdentity}-effect")
         );
         replay.BeginTurn(replayId, 2);
+        Assert.That(replay.GetActionEconomy(replayId).StandardActionsRemaining, Is.EqualTo(2));
         Assert.That(replay.GetActionEconomy(replayId).ReactionAvailable, Is.False);
     }
 
     [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler")]
     [TestCase("DataFiles/pathfinder-monster-core/zombie-shambler-rotting-aura")]
-    public void ReinforcementZombieSlowUsesTheSameEnrollmentAndTurnAuthority(string path)
+    public void ReinforcementZombieSlowUsesTheSameAuthoritativeEnrollment(string path)
     {
         CreatureFixture initial = CreateCreature("Reinforcement Initial", "Heroes", 100);
         CreatureFixture opponent = CreateCreature("Reinforcement Opponent", "Enemies", 50);
@@ -1012,7 +1503,7 @@ public sealed class ConditionUnityIntegrationTests
             new ActionController[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture zombie = CreateCreatureFromJson(path, "Enemies", 0);
 
         bridge.RegisterCombatants(new[] { zombie.Controller });
@@ -1024,13 +1515,16 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(authored.Source, Is.EqualTo(RuleSource.FromSlug("authored-passive-slow")));
         Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
         bridge.BeginTurn(zombieId, 2);
+        Assert.That(bridge.GetActionEconomy(zombieId).StandardActionsRemaining, Is.EqualTo(2));
         Assert.That(bridge.GetActionEconomy(zombieId).ReactionAvailable, Is.False);
         Assert.That(zombie.Controller.Reacted, Is.True);
     }
 
     [TestCase("ordinary-slowed")]
     [TestCase("authored-passive-slow")]
-    public void OrdinaryOrFakeIdentitySlowedReducesActionsWithoutSuppressingReaction(string source)
+    public void EveryActiveSlowedSourceReducesStandardActionsWithoutSuppressingReaction(
+        string source
+    )
     {
         CreatureFixture actor = CreateCreature("Ordinary Slowed", "Heroes", 100);
         CreatureFixture opponent = CreateCreature("Ordinary Slowed Opponent", "Enemies", 0);
@@ -1054,7 +1548,7 @@ public sealed class ConditionUnityIntegrationTests
 
         bridge.BeginTurn(actorId, 2);
 
-        Assert.That(bridge.GetActionEconomy(actorId).ActionsRemaining, Is.EqualTo(2));
+        Assert.That(bridge.GetActionEconomy(actorId).StandardActionsRemaining, Is.EqualTo(2));
         Assert.That(bridge.GetActionEconomy(actorId).ReactionAvailable, Is.True);
         Assert.That(actor.Controller.Reacted, Is.False);
         bridge.ReleaseOwnership();
@@ -1111,7 +1605,7 @@ public sealed class ConditionUnityIntegrationTests
             new ActionController[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         long version = bridge.Snapshot.Version;
         int rosterCount = bridge.GetEncounter().Roster.Count;
 
@@ -1171,7 +1665,7 @@ public sealed class ConditionUnityIntegrationTests
             new ActionController[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureId initialId = bridge.GetCreatureId(initial.Creature);
 
         CreatureFixture reinforcement = CreateCreature("Reinforcement", "Enemies", -1);
@@ -1257,7 +1751,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Immune Join", "Enemies", -1);
         reinforcement.Creature.immunities.Add("Flat-Footed");
         reinforcement.Conditions.RestoreApplications(
@@ -1334,7 +1828,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { source.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Atomic Reinforcement", "Enemies", -1);
         ActiveEffectId conditionId = new ActiveEffectId("atomic-condition-effect");
         reinforcement.Conditions.RestoreApplications(
@@ -1499,7 +1993,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Collision Reinforcement", "Enemies", -1);
         ActiveEffectId incomingEffect =
             collision == "effect" || timed
@@ -1553,7 +2047,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture first = CreateCreature("Batch Collision One", "Enemies", -1);
         CreatureFixture second = CreateCreature("Batch Collision Two", "Enemies", -2);
         ActiveEffectId sharedEffect = new ActiveEffectId("incoming-batch-shared-effect");
@@ -1686,7 +2180,7 @@ public sealed class ConditionUnityIntegrationTests
             new RandomRollService(),
             new IUnityEncounterModule[] { installer }
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Retry Reinforcement", "Enemies", -1);
         reinforcement.Conditions.RestoreApplications(
             new[]
@@ -1765,7 +2259,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { source.Controller, target.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Rebase Reinforcement", "Enemies", -1);
         RuleSource restoredSource = RuleSource.FromSlug("restored-rebase-source");
         const long adoptedCreationOrder = 1000;
@@ -1911,7 +2405,7 @@ public sealed class ConditionUnityIntegrationTests
         CreatureId reservedSource = absent.Snapshot.ActiveEffects[durable.EffectId].SourceCreature;
         Assert.That(reservedSource, Is.Not.EqualTo(absentOwner));
         Assert.That(absent.Snapshot.Creatures.Contains(reservedSource), Is.False);
-        absent.StartEncounter("Heroes");
+        absent.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         Assert.That(
             absent.GetEncounter().Roster.Any(entry => entry.Creature == reservedSource),
             Is.False
@@ -2084,6 +2578,7 @@ public sealed class ConditionUnityIntegrationTests
         Assert.That(authored.Effect.GetState<SlowedConditionState>().Value, Is.EqualTo(1));
         Assert.That(actor.Conditions.ActiveConditionNames, Does.Contain("slowed"));
         first.BeginTurn(actorId, 2);
+        Assert.That(first.GetActionEconomy(actorId).StandardActionsRemaining, Is.EqualTo(2));
         Assert.That(first.GetActionEconomy(actorId).ReactionAvailable, Is.False);
         Assert.That(actor.Controller.Reacted, Is.True);
         Assert.That(actor.Conditions.CaptureApplications(), Is.Empty);
@@ -2101,7 +2596,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { anchor.Controller, opponent.Controller },
             CreateTiles()
         );
-        second.StartEncounter("Enemies");
+        second.StartEncounter("Enemies", EncounterConclusionPolicy.VictoryOrDefeat);
         second.RegisterCombatants(new[] { actor.Controller });
         CreatureId reinforcementId = second.GetCreatureId(actor.Creature);
         ConditionSelection<IEffectState> reenrolled = ConditionSelectors
@@ -2271,7 +2766,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture valid = CreateCreature("Rollback Valid", "Enemies", -1);
         CreatureFixture invalid = CreateCreatureWithoutDurableIdentity(
             "Rollback Invalid",
@@ -2312,7 +2807,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture valid = CreateCreature("Reserved Prefix Valid", "Enemies", -1);
         CreatureFixture invalid = CreateCreatureWithoutDurableIdentity(
             "Reserved Prefix Invalid",
@@ -2465,7 +2960,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { initial.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature("Finite Reinforcement", "Enemies", -1);
         ActiveEffectId effectId = new ActiveEffectId("finite-absent-effect");
         BindingId bindingId = new BindingId("finite-absent-binding");
@@ -2537,7 +3032,7 @@ public sealed class ConditionUnityIntegrationTests
             new[] { target.Controller, opponent.Controller },
             CreateTiles()
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureId targetId = bridge.GetCreatureId(target.Creature);
         CreatureId reservedSource = DurableActorSourceIdentity.Reserve(
             $"historical-new-{identity}-condition-source"
@@ -2808,7 +3303,7 @@ public sealed class ConditionUnityIntegrationTests
             CreateTiles(),
             rolls
         );
-        laterEncounter.StartEncounter("Heroes");
+        laterEncounter.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
 
         Assert.DoesNotThrow(() =>
             laterEncounter.RegisterCombatants(new[] { secondActor.Controller })
@@ -2869,7 +3364,7 @@ public sealed class ConditionUnityIntegrationTests
             CreateTiles(),
             rolls
         );
-        bridge.StartEncounter("Heroes");
+        bridge.StartEncounter("Heroes", EncounterConclusionPolicy.VictoryOrDefeat);
         CreatureFixture reinforcement = CreateCreature(
             "Adoption Retry Reinforcement",
             "Enemies",
@@ -3465,6 +3960,59 @@ public sealed class ConditionUnityIntegrationTests
                 owner.FailuresRemaining--;
                 throw new InvalidOperationException("Injected late installation failure.");
             }
+        }
+    }
+
+    private sealed class StatelessBindingLifecycleRequestModule : IUnityEncounterDispatcherModule
+    {
+        public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
+            builder.RegisterHandler<
+                DisableStatelessBindingRequestOp,
+                StatelessRuleBindingEnabledOutcome
+            >(new DisableStatelessBindingRequestHandler());
+    }
+
+    private sealed class DisableStatelessBindingRequestOp
+        : IRuleOp<StatelessRuleBindingEnabledOutcome>
+    {
+        internal DisableStatelessBindingRequestOp(
+            BindingId binding,
+            long expectedCreationOrder,
+            RuleSource source
+        )
+        {
+            Binding = binding;
+            ExpectedCreationOrder = expectedCreationOrder;
+            Source = source;
+        }
+
+        internal BindingId Binding { get; }
+        internal long ExpectedCreationOrder { get; }
+        internal RuleSource Source { get; }
+    }
+
+    private sealed class DisableStatelessBindingRequestHandler
+        : IOpHandler<DisableStatelessBindingRequestOp, StatelessRuleBindingEnabledOutcome>
+    {
+        public async ValueTask<StatelessRuleBindingEnabledOutcome> Handle(
+            OpFrame<DisableStatelessBindingRequestOp> frame,
+            OpHandlerContext context
+        )
+        {
+            OpResult<StatelessRuleBindingEnabledOutcome> result = await context.Dispatch(
+                new DisableStatelessRuleBindingOp(
+                    frame.Op.Binding,
+                    frame.Op.ExpectedCreationOrder,
+                    frame.Op.Source
+                )
+            );
+            if (result is ResolvedOpResult<StatelessRuleBindingEnabledOutcome> resolved)
+                return resolved.Value;
+            if (result is InvalidOpResult<StatelessRuleBindingEnabledOutcome> invalid)
+                throw new InvalidOperationException(invalid.Reason);
+            throw new InvalidOperationException(
+                "The stateless binding lifecycle request did not resolve."
+            );
         }
     }
 

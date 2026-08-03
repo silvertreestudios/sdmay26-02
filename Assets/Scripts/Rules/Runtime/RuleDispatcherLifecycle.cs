@@ -48,8 +48,19 @@ namespace Game.Rules.Runtime
 
                 CommitActionCostsOp commitCosts =
                     receiptedAction != null
-                        ? new CommitActionCostsOp(action.Id, action.Actor, profile, receiptedAction)
-                        : new CommitActionCostsOp(action.Id, action.Actor, profile);
+                        ? new CommitActionCostsOp(
+                            action.Id,
+                            action.Actor,
+                            action.DefinitionId,
+                            profile,
+                            receiptedAction
+                        )
+                        : new CommitActionCostsOp(
+                            action.Id,
+                            action.Actor,
+                            action.DefinitionId,
+                            profile
+                        );
                 OpResult<ActionCostsOutcome> costs = await DispatchNested(commitCosts, action.Id);
                 if (costs is InvalidOpResult<ActionCostsOutcome> invalidCosts)
                     return registration.CreateInvalidResult(invalidCosts.Reason);

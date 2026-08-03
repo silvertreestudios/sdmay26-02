@@ -56,17 +56,41 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void ActionEconomySnapshotRequiresPresentStateAndEnoughRemainingActions()
+        public void ActionEconomySnapshotRequiresPresentStateAndExactPayableProfile()
         {
             CreatureId missing = new CreatureId("missing-creature");
             RulesSnapshot snapshot = new InMemoryRulesStore(
-                new RulesStateSeed().SeedActionEconomy(Creature, new ActionEconomyState(2, true))
+                new RulesStateSeed().SeedActionEconomy(
+                    Creature,
+                    new ActionEconomyState(2, ActionAllowance.None, true)
+                )
             ).Snapshot;
 
-            Assert.That(snapshot.ActionEconomy.CanSpendActions(Creature, 2), Is.True);
-            Assert.That(snapshot.ActionEconomy.CanSpendActions(Creature, 3), Is.False);
-            Assert.That(snapshot.ActionEconomy.CanSpendActions(Creature, -1), Is.False);
-            Assert.That(snapshot.ActionEconomy.CanSpendActions(missing, 0), Is.False);
+            ActionDefinitionId definition = new("test-action");
+            Assert.That(
+                snapshot.ActionEconomy.CanPayAction(
+                    Creature,
+                    definition,
+                    ActionProfile.Create(ActionCost.Two, Array.Empty<Trait>())
+                ),
+                Is.True
+            );
+            Assert.That(
+                snapshot.ActionEconomy.CanPayAction(
+                    Creature,
+                    definition,
+                    ActionProfile.Create(ActionCost.Three, Array.Empty<Trait>())
+                ),
+                Is.False
+            );
+            Assert.That(
+                snapshot.ActionEconomy.CanPayAction(
+                    missing,
+                    definition,
+                    ActionProfile.OneAction(Array.Empty<Trait>())
+                ),
+                Is.False
+            );
         }
 
         [Test]
@@ -113,7 +137,7 @@ namespace Game.Rules.Runtime.Tests
                 .SeedCreature(new CreatureState(Creature, player, callerTraits))
                 .SeedHealth(Creature, new HealthState(20, 20))
                 .SeedPosition(Creature, new GridPosition(1, 0, 2))
-                .SeedActionEconomy(Creature, new ActionEconomyState(3, true))
+                .SeedActionEconomy(Creature, new ActionEconomyState(3, ActionAllowance.None, true))
                 .SeedSpellSlot(spellSlot)
                 .SeedFocusPoints(Creature, new FocusPointState(1, 3))
                 .SeedAmmunition(ammunition)
@@ -134,7 +158,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(snapshot.Creatures[Creature].Traits, Has.Count.EqualTo(1));
             Assert.That(snapshot.Health[Creature].Current, Is.EqualTo(20));
             Assert.That(snapshot.Positions[Creature], Is.EqualTo(new GridPosition(1, 0, 2)));
-            Assert.That(snapshot.ActionEconomy[Creature].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(snapshot.ActionEconomy[Creature].StandardActionsRemaining, Is.EqualTo(3));
             Assert.That(snapshot.SpellSlots[spellSlot.Id], Is.EqualTo(spellSlot));
             Assert.That(snapshot.FocusPoints[Creature], Is.EqualTo(new FocusPointState(1, 3)));
             Assert.That(snapshot.Ammunition[ammunition.Item], Is.EqualTo(ammunition));
@@ -525,7 +549,10 @@ namespace Game.Rules.Runtime.Tests
                 seed.SeedPosition(default, new GridPosition(0, 0, 0))
             );
             Assert.Throws<ArgumentException>(() =>
-                seed.SeedActionEconomy(default, new ActionEconomyState(3, true))
+                seed.SeedActionEconomy(
+                    default,
+                    new ActionEconomyState(3, ActionAllowance.None, true)
+                )
             );
             Assert.Throws<ArgumentException>(() => seed.SeedSpellSlot(default));
             Assert.Throws<ArgumentException>(() =>

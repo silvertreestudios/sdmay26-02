@@ -190,7 +190,16 @@ namespace Game.Rules.Runtime
                 return ActionAvailability.Unavailable("The spell reference is unknown.");
             if (!definition.Variants.Contains(variant))
                 return ActionAvailability.Unavailable("The spell action variant is unavailable.");
-            if (!snapshot.ActionEconomy.CanSpendActions(actor, variant.Actions))
+            if (
+                !snapshot.ActionEconomy.CanPayAction(
+                    actor,
+                    DefinitionId,
+                    ActionProfile.Create(
+                        ActionCost.FromActions(variant.Actions),
+                        Array.Empty<Trait>()
+                    )
+                )
+            )
                 return ActionAvailability.Unavailable("The caster does not have enough actions.");
             ISpellBook book = catalog.GetSpellBook(actor);
             SpellCastAuthorization binding = book.BindResource(actor, spell);

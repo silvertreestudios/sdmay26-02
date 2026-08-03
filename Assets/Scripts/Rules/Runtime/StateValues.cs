@@ -325,24 +325,49 @@ namespace Game.Rules.Runtime
 
     public readonly struct ActionEconomyState : IEquatable<ActionEconomyState>
     {
-        public int ActionsRemaining { get; }
+        private readonly ActionAllowance optionalAction;
+
+        /// <summary>Gets the ordinary actions remaining in the current turn.</summary>
+        public int StandardActionsRemaining { get; }
+
+        /// <summary>
+        /// Gets the optional one-action allowance, or <see cref="ActionAllowance.None"/> when it
+        /// is absent or has already been spent or lost.
+        /// </summary>
+        public ActionAllowance OptionalAction => optionalAction ?? ActionAllowance.None;
+
+        /// <summary>Gets whether the creature's reaction resource is currently available.</summary>
         public bool ReactionAvailable { get; }
 
-        public ActionEconomyState(int actionsRemaining, bool reactionAvailable)
+        /// <summary>Creates one authoritative action-economy value.</summary>
+        /// <param name="standardActionsRemaining">The ordinary actions currently available.</param>
+        /// <param name="optionalAction">
+        /// The optional one-action allowance, or <see cref="ActionAllowance.None"/>.
+        /// </param>
+        /// <param name="reactionAvailable">Whether the reaction resource is available.</param>
+        public ActionEconomyState(
+            int standardActionsRemaining,
+            ActionAllowance optionalAction,
+            bool reactionAvailable
+        )
         {
-            if (actionsRemaining < 0)
-                throw new ArgumentOutOfRangeException(nameof(actionsRemaining));
-            ActionsRemaining = actionsRemaining;
+            if (standardActionsRemaining < 0)
+                throw new ArgumentOutOfRangeException(nameof(standardActionsRemaining));
+            StandardActionsRemaining = standardActionsRemaining;
+            this.optionalAction =
+                optionalAction ?? throw new ArgumentNullException(nameof(optionalAction));
             ReactionAvailable = reactionAvailable;
         }
 
         public bool Equals(ActionEconomyState other) =>
-            ActionsRemaining == other.ActionsRemaining
+            StandardActionsRemaining == other.StandardActionsRemaining
+            && OptionalAction.Equals(other.OptionalAction)
             && ReactionAvailable == other.ReactionAvailable;
 
         public override bool Equals(object obj) => obj is ActionEconomyState other && Equals(other);
 
-        public override int GetHashCode() => HashCode.Combine(ActionsRemaining, ReactionAvailable);
+        public override int GetHashCode() =>
+            HashCode.Combine(StandardActionsRemaining, OptionalAction, ReactionAvailable);
 
         public static bool operator ==(ActionEconomyState left, ActionEconomyState right) =>
             left.Equals(right);

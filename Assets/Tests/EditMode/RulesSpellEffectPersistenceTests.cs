@@ -143,7 +143,7 @@ public sealed class RulesSpellEffectPersistenceTests
             new ActionController[] { host, anchor },
             CreateTiles(3)
         );
-        encounter.StartEncounter("Players");
+        encounter.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
         InvalidOperationException expectedFailure = new("injected adopted-fact failure");
         ThrowOnceAdoptedObserver observer = new(expectedFailure);
         using IDisposable registration = GetDispatcher(encounter)

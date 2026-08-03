@@ -62,7 +62,7 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(handler.WasCalled, Is.True);
             Assert.That(handler.Profile, Is.SameAs(profile));
-            Assert.That(handler.ActionsRemaining, Is.EqualTo(2));
+            Assert.That(handler.StandardActionsRemaining, Is.EqualTo(2));
             Assert.That(handler.SpellSlotsRemaining, Is.EqualTo(1));
             Assert.That(handler.FocusPointsRemaining, Is.EqualTo(1));
             Assert.That(handler.AmmunitionRemaining, Is.EqualTo(3));
@@ -74,6 +74,7 @@ namespace Game.Rules.Runtime.Tests
                     new[]
                     {
                         typeof(ActionCostSpentFact),
+                        typeof(ActionResourceSpentFact),
                         typeof(SpellSlotSpentFact),
                         typeof(FocusPointsSpentFact),
                         typeof(AmmunitionSpentFact),
@@ -91,6 +92,7 @@ namespace Game.Rules.Runtime.Tests
                         new FactId(3),
                         new FactId(4),
                         new FactId(5),
+                        new FactId(6),
                     }
                 )
             );
@@ -148,7 +150,10 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo("target is not legal")
             );
             Assert.That(result.Facts, Is.Empty);
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(store.Snapshot.Version, Is.Zero);
             Assert.That(handler.WasCalled, Is.False);
             Assert.That(middleware.Calls, Is.Zero);
@@ -170,7 +175,7 @@ namespace Game.Rules.Runtime.Tests
             );
             InMemoryRulesStore store = new InMemoryRulesStore(
                 new RulesStateSeed()
-                    .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
+                    .SeedActionEconomy(Actor, new ActionEconomyState(3, ActionAllowance.None, true))
                     .SeedSpellSlot(new SpellSlotState(SpellPool, Actor, 1, 1))
             );
             RecordingActionHandler handler = new RecordingActionHandler(true);
@@ -188,7 +193,7 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(result.Facts, Is.Empty);
             Assert.That(
-                store.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(3),
                 "An earlier draft action spend must roll back with the later slot rejection."
             );
@@ -245,9 +250,13 @@ namespace Game.Rules.Runtime.Tests
             OpResult<TestActionOutcome> result = await dispatcher.Dispatch(new TestActionOp());
 
             Assert.That(result, Is.TypeOf<InterruptedOpResult<TestActionOutcome>>());
-            Assert.That(result.Facts, Has.Count.EqualTo(1));
-            Assert.That(result.Facts.Single(), Is.TypeOf<ActionCostSpentFact>());
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(result.Facts, Has.Count.EqualTo(2));
+            Assert.That(result.Facts.OfType<ActionCostSpentFact>().Single(), Is.Not.Null);
+            Assert.That(result.Facts.OfType<ActionResourceSpentFact>().Single(), Is.Not.Null);
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
             Assert.That(store.Snapshot.Version, Is.EqualTo(1));
             Assert.That(handler.WasCalled, Is.False);
             Assert.That(middleware.Calls, Is.EqualTo(1));
@@ -288,7 +297,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(costsCommitted.DefinitionId, Is.EqualTo(ActionDefinition));
             Assert.That(first.Facts.OfType<ActionReceiptCommittedFact>().Count(), Is.EqualTo(1));
             Assert.That(handler.Calls, Is.EqualTo(1));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             long committedVersion = store.Snapshot.Version;
 
             ResolvedOpResult<TestActionOutcome> retry = RequireResolved(
@@ -298,7 +310,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(retry.Value.DomainSucceeded, Is.True);
             Assert.That(retry.Facts, Is.Empty);
             Assert.That(store.Snapshot.Version, Is.EqualTo(committedVersion));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(handler.Calls, Is.EqualTo(1));
         }
 
@@ -325,7 +340,7 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(result.Facts, Is.Empty);
             Assert.That(handler.WasCalled, Is.True);
-            Assert.That(handler.ActionsRemaining, Is.EqualTo(3));
+            Assert.That(handler.StandardActionsRemaining, Is.EqualTo(3));
         }
 
         [Test]
@@ -351,7 +366,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(resolver.StartingActions, Is.EqualTo(3));
             Assert.That(validator.Profile, Is.SameAs(effectiveProfile));
             Assert.That(handler.Profile, Is.SameAs(effectiveProfile));
-            Assert.That(handler.ActionsRemaining, Is.EqualTo(2));
+            Assert.That(handler.StandardActionsRemaining, Is.EqualTo(2));
         }
 
         [Test]
@@ -406,7 +421,10 @@ namespace Game.Rules.Runtime.Tests
             foreach (ActionCostExpectation expectation in cases)
             {
                 InMemoryRulesStore store = new InMemoryRulesStore(
-                    new RulesStateSeed().SeedActionEconomy(Actor, new ActionEconomyState(3, true))
+                    new RulesStateSeed().SeedActionEconomy(
+                        Actor,
+                        new ActionEconomyState(3, ActionAllowance.None, true)
+                    )
                 );
                 ActionProfile profile = ActionProfile.Create(
                     expectation.Cost,
@@ -427,8 +445,8 @@ namespace Game.Rules.Runtime.Tests
                     $"{expectation.Cost.Kind} should resolve."
                 );
                 Assert.That(
-                    store.Snapshot.ActionEconomy[Actor].ActionsRemaining,
-                    Is.EqualTo(expectation.ActionsRemaining)
+                    store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                    Is.EqualTo(expectation.StandardActionsRemaining)
                 );
                 Assert.That(
                     store.Snapshot.ActionEconomy[Actor].ReactionAvailable,
@@ -481,7 +499,7 @@ namespace Game.Rules.Runtime.Tests
             InvalidOperationException costsError = Assert.ThrowsAsync<InvalidOperationException>(
                 async () =>
                     await dispatcher.Dispatch(
-                        new CommitActionCostsOp(new OpId(500), Actor, profile)
+                        new CommitActionCostsOp(new OpId(500), Actor, ActionDefinition, profile)
                     )
             );
 
@@ -577,7 +595,10 @@ namespace Game.Rules.Runtime.Tests
             );
 
             Assert.That(error.Message, Does.Contain("cannot replace a begun action"));
-            Assert.That(store.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                store.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
             Assert.That(handler.WasCalled, Is.False);
             Assert.That(
                 listener.Calls,
@@ -598,7 +619,7 @@ namespace Game.Rules.Runtime.Tests
             );
             return new InMemoryRulesStore(
                 new RulesStateSeed()
-                    .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
+                    .SeedActionEconomy(Actor, new ActionEconomyState(3, ActionAllowance.None, true))
                     .SeedSpellSlot(new SpellSlotState(SpellPool, Actor, 2, 2))
                     .SeedFocusPoints(Actor, new FocusPointState(2, 3))
                     .SeedAmmunition(new AmmunitionState(Ammunition, Actor, 5))
@@ -612,6 +633,7 @@ namespace Game.Rules.Runtime.Tests
                             new EncounterId("action-encounter"),
                             EncounterPhase.Active,
                             new PlayerId("players"),
+                            EncounterConclusionPolicy.VictoryOrDefeat,
                             new RoundNumber(4),
                             new[]
                             {
@@ -676,13 +698,13 @@ namespace Game.Rules.Runtime.Tests
             )
             {
                 Cost = cost;
-                ActionsRemaining = actionsRemaining;
+                StandardActionsRemaining = actionsRemaining;
                 ReactionAvailable = reactionAvailable;
                 EmitsFact = emitsFact;
             }
 
             public ActionCost Cost { get; }
-            public int ActionsRemaining { get; }
+            public int StandardActionsRemaining { get; }
             public bool ReactionAvailable { get; }
             public bool EmitsFact { get; }
         }
@@ -799,7 +821,7 @@ namespace Game.Rules.Runtime.Tests
             )
             {
                 Calls++;
-                StartingActions = snapshot.ActionEconomy[action.Actor].ActionsRemaining;
+                StartingActions = snapshot.ActionEconomy[action.Actor].StandardActionsRemaining;
                 return effectiveProfile;
             }
         }
@@ -861,7 +883,7 @@ namespace Game.Rules.Runtime.Tests
 
             public bool WasCalled { get; private set; }
             public ActionProfile Profile { get; private set; }
-            public int ActionsRemaining { get; private set; }
+            public int StandardActionsRemaining { get; private set; }
             public int SpellSlotsRemaining { get; private set; }
             public int FocusPointsRemaining { get; private set; }
             public int AmmunitionRemaining { get; private set; }
@@ -874,11 +896,11 @@ namespace Game.Rules.Runtime.Tests
             {
                 WasCalled = true;
                 Profile = frame.ActionProfile;
-                ActionsRemaining = context.Snapshot.ActionEconomy.TryGet(
+                StandardActionsRemaining = context.Snapshot.ActionEconomy.TryGet(
                     Actor,
                     out ActionEconomyState economy
                 )
-                    ? economy.ActionsRemaining
+                    ? economy.StandardActionsRemaining
                     : -1;
                 SpellSlotsRemaining = context.Snapshot.SpellSlots.TryGet(
                     SpellPool,

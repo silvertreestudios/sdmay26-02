@@ -18,15 +18,15 @@ controller and creature are attached to that exact bridge, the following state i
 | Slice | Authoritative rules state and boundary |
 | --- | --- |
 | Turn ownership | `EncounterState.CurrentTurn` and exact `TurnIdentity`; `ActionController.HasTurnAuthority` is a read projection. |
-| Actions and reactions | `ActionEconomyState`; `ActionController.ActionPoints` and `Reacted` project it. |
+| Actions and reactions | `ActionEconomyState` owns ordinary actions, an explicit optional `ActionAllowance`, and reaction availability. `ActionController.ActionPoints` is a standard-only legacy projection; the HUD reads standard and optional availability separately. |
 | Multiple attack penalty | `MultipleAttackPenaltyState`; `ActionController.StrikePenalty` projects its attack count. |
 | Health | `HealthState`; `CreatureComponent.Health`, `hp`, `maxHp`, and `tempHp` read it while attached. Health Facts project committed values and presentation back to Unity. A private temporary-Hit-Point pool revision distinguishes exact internal mutations for rollback safety but is deliberately absent from public equality, Facts, outcomes, and persistence. |
 | Position and movement | `RulesSnapshot.Positions`, movement budgets, permissions, and movement reducers. Token movement is a committed-Fact projection. |
-| Encounter roster, initiative, round, and outcome | `EncounterState`, its roster, cursor, `EncounterConclusionPolicy`, durable published-boundary turn-start checkpoint, and encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
+| Encounter roster, initiative, round, policy, and outcome | `EncounterState`, its roster, cursor, `EncounterConclusionPolicy`, durable published-boundary turn-start checkpoint, and encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
 | Active-effect timing | `ActiveEffectInstance` and `ActiveEffectTimingState`, advanced at encounter initiative boundaries. |
 | Base statistics | `RulesSnapshot.Statistics` owns immutable base attack, Armor Class, saves, skills, and normalized snapshot modifiers captured at enrollment. Unity adapters must read base fields, not `Resolve*` totals that already include active rules. |
 | Prepared rule participation | `RulesSnapshot.PreparedInputs` owns normalized creature facts and `RulesSnapshot.RuleBindings` alone controls whether definition-owned compiled behavior participates. `PreparedRulePackage` is only the ephemeral compiler result used to seed those slices. |
-| Migrated action slices | Stride, Strike, Reload, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
+| Migrated action slices | Stride, Strike, Reload, Interact, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
 
 Cutover never means “try rules, then fall back.” A detached `ActionController` exposes deliberately
 unavailable read projections (`HasTurnAuthority == false`, zero action points, `Reacted == false`,
@@ -56,12 +56,13 @@ constructs the only production module sequence:
 2. `RottingAuraEncounterModule`
 3. `ConditionEncounterModule`
 4. `SlowedEncounterModule`
-5. `UnityRageEncounterModule`
-6. `UnityStrikeEncounterModule`
-7. `UnitySpellcastingEncounterModule`
-8. `UnityLightEncounterModule`
-9. `UnityHealthProjectionModule`
-10. `UnityEncounterProjectionModule`
+5. `UnityInteractEncounterModule`
+6. `UnityRageEncounterModule`
+7. `UnityStrikeEncounterModule`
+8. `UnitySpellcastingEncounterModule`
+9. `UnityLightEncounterModule`
+10. `UnityHealthProjectionModule`
+11. `UnityEncounterProjectionModule`
 
 Before registry construction, `UnityEncounterModuleSet.Create` materializes and validates every
 additional module exactly once, preserving the caller-supplied extension order. It then performs a
@@ -74,7 +75,9 @@ separate, explicit static-composition pass that cannot be deferred to `Configure
   `PreparedRuleDefinitionSpec`, `RageRules.DefineRuleBindings(registryBuilder)`,
   `registryBuilder.AddOutcomeRule()`,
   `registryBuilder.Define(UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId)`, and
-  each distinct spell-effect `DefinitionId` from `spellCatalog.Definitions`.
+  each distinct spell-effect `DefinitionId` from `spellCatalog.Definitions`. It then defines the
+  complete condition registry through `ConditionRuleDefinitions.DefineAll(registryBuilder)` and the
+  No Reactions binding through `SlowedEncounterModule.DefineRules(registryBuilder)`.
 - It invokes `ConfigureRegistry` for each additional module that implements the stateless
   `IUnityEncounterRegistryModule` capability, in that same extension order, and only then calls the
   single `registryBuilder.Build()`.
@@ -87,7 +90,8 @@ inspect combatants, self-register, retain the builder, or construct a second reg
 `RuleRegistry` is immutable. `CombatActionCatalog` is instead a stable composed interface over
 encounter-live adapters. Both are constructed before `UnityCombatRulesBridge` supplies them to
 `UseActionLifecycle(modules.ActionCatalog)`, `UseActiveEffectRules(modules.Registry)`, and
-`UseEncounterRules(..., modules.Registry)`, and before any module's `ConfigureDispatcher` pass.
+`UseEncounterRules(composition.CreateTurnStartAdapters(), modules.Registry,
+composition.CreateTurnResourceStrategy())`, and before any module's `ConfigureDispatcher` pass.
 The shared registry instance keeps Unity enrollment and encounter join reducers under the same
 definition authority. The catalog's composed capabilities are stable, but
 combatant-specific data remains encounter-live:
@@ -116,10 +120,16 @@ Each pass filters the same sequence by capability, preserving supplied order:
 | --- | --- |
 | `IUnityEncounterRegistryModule.ConfigureRegistry` | Contribute stateless effect and binding definitions before the encounter's single registry build. Additional modules are invoked in their explicit supplied order. |
 | `IUnityEncounterDispatcherModule.ConfigureDispatcher` | Register feature-owned handlers, reducers, validators, and engine composition with `RuleDispatcherBuilder`. |
-| `IUnityEncounterTurnStartModule.CreateTurnStartAdapter` | Supply a transitional `IEncounterTurnStartAdapter`. Adapters run sequentially in module order. |
+| `IUnityEncounterTurnResourceModule.CreateTurnResourceProvider` | Contribute feature-owned turn-resource inputs to the one generic deterministic refresh strategy. Providers run in module order. |
+| `IUnityEncounterTurnStartModule.CreateTurnStartAdapter` | Supply a completion-only transitional `IEncounterTurnStartAdapter`. Rotting Aura is the only production adapter; adapters run sequentially in module order. |
 | `IUnityEncounterRuntimeModule.RegisterRuntime` | Register observers and other encounter-scoped resources into the supplied `CompositeLifetime`. |
 | `IUnityEncounterTopologyModule.RefreshTopology` | Refresh a feature-owned Unity topology adapter after a live grid change. |
 | `IUnityCombatantEnrollmentModule.PrepareCombatant` | Precompute state and Unity installation contributions for every enrolled combatant. |
+
+The production turn-resource strategy therefore receives the condition module's Quickened,
+Slowed, and Stunned provider first, followed by the Slowed module's No Reactions provider. This
+ordered provider set is the only production source for turn-start action, optional-action, and
+reaction availability.
 
 Implement only the capabilities a module needs. Ordering dependencies must be visible in the module
 list or expressed through rules lifecycle phases and causal operations; do not invent priorities or
@@ -459,17 +469,17 @@ encounter handlers and engine reducers. Its current division of responsibility i
   or ineligible roster slots, and effect timing in deterministic order. When
   `EncounterState.IsTurnStartPending` is set, advancement resumes `BeginInitiativeTurnOp` for the
   exact already published actor, round, and roster slot instead of consuming another boundary.
-- `BeginInitiativeTurnHandler`: reset movement budget, run ordered turn-start adapters, stop if the
-  actor is defeated, then commit the exact turn and final action contribution. The published-boundary
-  checkpoint stores the next adapter index and current contribution; each adapter result commits
-  before the next adapter runs, so a fresh-root recovery resumes only unfinished adapters. The engine
-  checkpoints a successfully returned adapter, not partial internal work: an adapter with multiple
-  commits must itself be transactional or exact-replay-safe on internal failure. The narrow
+- `BeginInitiativeTurnHandler`: reset movement budget, run ordered completion-only turn-start
+  adapters, stop if the actor is defeated, resolve the composed turn-resource strategy from the
+  post-adapter snapshot, then atomically commit the exact turn and any elected Stunned
+  update or expiration. Resource gained/lost Facts are staged before `TurnBeganFact`. The
+  published-boundary checkpoint stores only the next
+  adapter index; each adapter completion commits before the next adapter runs, so a fresh-root
+  recovery resumes only unfinished adapters. The narrow
   `CommitFinalDamageBatchAndCompleteAdapter` boundary lets a transitional adapter atomically commit
   an ordered same-actor damage batch and its completion checkpoint before fallible presentation;
-  an adapter using it may perform only presentation before returning the checkpointed contribution.
-  A completed
-  zero-HP turn-start attempt atomically clears the published-boundary checkpoint with
+  an adapter using it may perform only presentation before returning. A completed zero-HP
+  turn-start attempt atomically clears the published-boundary checkpoint with
   `InitiativeTurnStartSkippedFact` before deferred defeat reactions run, so rescuing the actor does
   not replay adapters for the already resolved slot.
 - `EndTurnHandler`: require the exact current `TurnIdentity`, run turn-end work, reset movement,
@@ -499,6 +509,27 @@ or resolving the profile, validating, or committing costs again; a conflicting i
 Disruption advances that checkpoint to `Interrupted`, and a feature's final atomic reducer advances it to
 `Resolved` with the outcome. Feature code must not spend the same costs or publish a parallel
 action-begun event.
+
+The lifecycle validates generic feature-owned permissions before concrete validators. Stunned uses
+that boundary to reject actions, reactions, and free actions while any source remains. Cost
+commitment receives the trusted parent definition ID and the frozen profile, and the same pure
+payment helper drives availability. Only an exact eligible one-action invocation may spend its
+optional allowance, before ordinary actions; multi-action activities never use it. There is no
+untyped or parallel action-cost commitment API.
+
+Condition modules supply Quickened, Slowed, and elected Stunned inputs to the generic turn-resource
+strategy. Quickened sources union to at most one allowance, unrestricted dominance is preserved,
+and the greatest Slowed value and elected Stunned value use one maximum loss rather than summing.
+Loss removes the optional allowance before only as many ordinary actions as remain necessary.
+Valued Stunned is decremented only by the resources the elected highest value caused to be lost;
+that same decrement is applied independently to every active valued Stunned source so separate
+sources remain separate without becoming additive. Exact multi-effect updates and expirations
+share the turn-begin transaction. A persistent owner-scoped condition listener handles either
+valued or duration-only Stunned gained or updated during the actor's current turn by causally
+dispatching an exact-version reducer after the current activity commits. Valued Stunned drains at
+most the actor's remaining optional and standard resources, preserving the reaction when fully
+consumed and disabling it while Stunned remains. Duration-only Stunned immediately drains all
+remaining action resources and disables the reaction without consuming the condition.
 
 Cast a Spell uses snapshot membership as the boundary for actor-owned metadata. An actor absent
 from the captured snapshot receives the selected definition and variant profile without a
@@ -625,7 +656,7 @@ framework.
 6. **Add topology or turn-start capabilities only if required.** Implement
    `IUnityEncounterTopologyModule` for a live geometry adapter. Use
    `IUnityEncounterTurnStartModule` only for a transitional Unity-owned calculation that cannot yet
-   be a rules feature; Rotting Aura and Slowed are current seams, not templates for new rules.
+   be a rules feature; Rotting Aura is the current seam, not a template for new rules.
 7. **Complete static composition, then add the module once.** Every `RuleDefinitionId` used by an
    `ActiveRuleBinding` or `ActiveEffectInstance` must be defined before the production registry's
    single `Build`. A built-in module may be wired explicitly in `UnityEncounterModuleSet.Create`.
@@ -691,8 +722,12 @@ shrink them through vertical migrations:
   every applicable aura before mutation, then atomically commits the ordered final-damage batch and
   adapter checkpoint through encounter rules before presentation, so post-commit failure cannot
   replay any aura damage.
-- `SlowedEncounterModule` projects authoritative active-condition state into the transitional
-  turn-start contribution; it does not read or write a second Unity condition authority.
+- `SlowedEncounterModule` enrolls the authored zombie passive as two durable rules identities:
+  indefinite Slowed 1 and a separate stateless no-reactions binding. Both initial enrollment and
+  reinforcement replay converge on those identities. The module projects authoritative
+  active-condition state into the generic turn-resource strategy without reading or writing a
+  second Unity condition authority. Only the separate binding suppresses reaction refresh and
+  typed reaction use.
 - `UnityStrikeContext` and `UnitySpellAttackContext` adapt current creature/equipment/team/grid data
   into rule definitions and validation. They are feature-owned adapters, not alternate authorities.
 - Strike reinforcement replay compares the complete actor-owned equipment and ammunition

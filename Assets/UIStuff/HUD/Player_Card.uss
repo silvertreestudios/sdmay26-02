@@ -62,10 +62,10 @@
     flex-wrap: nowrap;
     flex-grow: 0;
     flex-shrink: 0;
-    width: 192px;
+    width: 220px;
     height: 96px;
-    min-width: 192px;
-    max-width: 192px;
+    min-width: 220px;
+    max-width: 220px;
     min-height: 96px;
     max-height: 96px;
 }
@@ -126,4 +126,29 @@
 .action-medallion--empty > .action-medallion-core {
     background-color: rgba(18, 16, 15, 0.72);
     border-color: rgb(83, 60, 42);
+}
+
+.action-medallion--quickened.action-medallion--filled {
+    background-color: rgb(54, 133, 163);
+    border-color: rgb(166, 235, 255);
+}
+
+.action-medallion--quickened {
+    margin-left: 4px;
+    margin-right: 4px;
+}
+
+.action-medallion--quickened.action-medallion--filled > .action-medallion-core {
+    background-color: rgb(190, 242, 255);
+    border-color: rgb(18, 62, 84);
+}
+
+.action-medallion--quickened.action-medallion--empty {
+    background-color: rgba(19, 31, 38, 0.82);
+    border-color: rgb(61, 112, 128);
+}
+
+.action-medallion--quickened.action-medallion--empty > .action-medallion-core {
+    background-color: rgba(15, 25, 30, 0.72);
+    border-color: rgb(42, 77, 89);
 }

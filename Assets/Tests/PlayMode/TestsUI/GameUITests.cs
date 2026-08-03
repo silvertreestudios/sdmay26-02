@@ -124,19 +124,30 @@ namespace TestsUI
 
             VisualElement card = cardHolder.ElementAt(playerCardIndex);
             List<VisualElement> medallions = null;
+            List<VisualElement> standardMedallions = null;
+            VisualElement quickenedMedallion = null;
             yield return WaitUntilWithTimeout(
                 timeout,
                 () =>
                 {
                     medallions = card.Query<VisualElement>(className: "action-medallion").ToList();
-                    return medallions.Count == 3;
+                    standardMedallions = card.Query<VisualElement>(
+                            className: "action-medallion--standard"
+                        )
+                        .ToList();
+                    quickenedMedallion = card.Q<VisualElement>(
+                        className: "action-medallion--quickened"
+                    );
+                    return medallions.Count == 4
+                        && standardMedallions.Count == 3
+                        && quickenedMedallion != null;
                 }
             );
 
             Assert.AreEqual(
-                3,
+                4,
                 medallions.Count,
-                "Player card should show exactly three action medallions."
+                "Player card should show three standard medallions and one Quickened medallion."
             );
             Assert.IsNull(
                 card.Q<Label>("DESC"),
@@ -156,35 +167,48 @@ namespace TestsUI
             ).resolvedStyle.height;
 
             uint[] actionPointStates = { 3, 2, 1, 0 };
-            uint previousActionPoints = actionController.ActionPoints;
             foreach (uint actionPoints in actionPointStates)
             {
-                if (previousActionPoints > actionPoints)
-                    actionController.SpendActions(previousActionPoints - actionPoints);
-                previousActionPoints = actionPoints;
+                while (actionController.ActionPoints > actionPoints)
+                    Assert.IsTrue(actionController.TryCommitInteract());
 
                 yield return WaitUntilWithTimeout(
                     timeout,
                     () =>
                     {
-                        medallions = card.Query<VisualElement>(className: "action-medallion")
+                        standardMedallions = card.Query<VisualElement>(
+                                className: "action-medallion--standard"
+                            )
                             .ToList();
-                        return CountMedallionsWithClass(medallions, "action-medallion--filled")
-                            == (int)actionPoints;
+                        return CountMedallionsWithClass(
+                                standardMedallions,
+                                "action-medallion--filled"
+                            ) == (int)actionPoints
+                            && quickenedMedallion.ClassListContains("action-medallion--empty");
                     }
                 );
 
-                int filledCount = CountMedallionsWithClass(medallions, "action-medallion--filled");
-                int emptyCount = CountMedallionsWithClass(medallions, "action-medallion--empty");
+                int filledCount = CountMedallionsWithClass(
+                    standardMedallions,
+                    "action-medallion--filled"
+                );
+                int emptyCount = CountMedallionsWithClass(
+                    standardMedallions,
+                    "action-medallion--empty"
+                );
                 Assert.AreEqual(
                     (int)actionPoints,
                     filledCount,
                     $"Expected {actionPoints} filled action medallions."
                 );
                 Assert.AreEqual(
-                    3 - (int)actionPoints,
+                    ActionMedallionPresenter.StandardMedallionCount - (int)actionPoints,
                     emptyCount,
-                    $"Expected {3 - (int)actionPoints} empty action medallions."
+                    $"Expected {ActionMedallionPresenter.StandardMedallionCount - (int)actionPoints} empty standard action medallions."
+                );
+                Assert.IsFalse(
+                    quickenedMedallion.ClassListContains("action-medallion--filled"),
+                    "The integration placeholder must not fill the Quickened medallion."
                 );
                 Assert.AreEqual(
                     containerWidth,
@@ -197,6 +221,75 @@ namespace TestsUI
                     "Action medallion container height should not shift as AP changes."
                 );
             }
+        }
+
+        [UnityTest]
+        public IEnumerator QuickenedMedallionProjectsBridgeRefreshAndTypedSpend()
+        {
+            VisualElement cardHolder = null;
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                {
+                    cardHolder = root.Q<VisualElement>("CardHolder");
+                    player = CombatManagerInterface.GetInstance().WhosTurn();
+                    return cardHolder != null && cardHolder.childCount > 0 && player != null;
+                }
+            );
+            ActionController controller = player.GetComponent<ActionController>();
+            Assert.IsNotNull(controller);
+            Assert.IsTrue(
+                controller.TryGetCombatRules(
+                    out UnityCombatRulesBridge bridge,
+                    out CreatureId actor
+                )
+            );
+            int cardIndex = CombatManagerInterface.GetInstance().GetCombatants().IndexOf(player);
+            Assert.GreaterOrEqual(cardIndex, 0);
+            Assert.Less(cardIndex, cardHolder.childCount);
+            VisualElement quickened = cardHolder
+                .ElementAt(cardIndex)
+                .Q<VisualElement>(className: "action-medallion--quickened");
+            Assert.IsNotNull(quickened);
+
+            Assert.That(
+                bridge.Dispatch(
+                    new ApplyConditionOp(
+                        "Quickened",
+                        actor,
+                        actor,
+                        RuleSource.FromSlug("hud-quickened-interact"),
+                        EffectDuration.Indefinite,
+                        new QuickenedConditionState(new[] { InteractActionDefinition.DefinitionId })
+                    )
+                ),
+                Is.TypeOf<ResolvedOpResult<ConditionApplicationOutcome>>()
+            );
+            CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
+            int remainingTurns = combatManager.GetCombatants().Count + 1;
+            do
+            {
+                combatManager.NextTurn();
+            } while (combatManager.WhosTurn() != player && remainingTurns-- > 0);
+            Assert.AreSame(player, combatManager.WhosTurn());
+
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                    controller.OptionalActionAvailable
+                    && quickened.ClassListContains("action-medallion--filled")
+            );
+            Assert.AreEqual(3u, controller.ActionPoints);
+
+            Assert.IsTrue(controller.TryCommitInteract());
+
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () =>
+                    !controller.OptionalActionAvailable
+                    && quickened.ClassListContains("action-medallion--empty")
+            );
+            Assert.AreEqual(3u, controller.ActionPoints);
         }
 
         [UnityTest]
@@ -665,7 +758,7 @@ namespace TestsUI
             {
                 List<VisualElement> medallions = cardHolder
                     .ElementAt(i)
-                    .Query<VisualElement>(className: "action-medallion")
+                    .Query<VisualElement>(className: "action-medallion--standard")
                     .ToList();
                 if (
                     medallions.Count == 3
@@ -722,7 +815,8 @@ namespace TestsUI
             ActionController actionController = player.GetComponent<ActionController>();
             Assert.IsNotNull(actionController, "Current player has no ActionController.");
 
-            actionController.SpendActions(actionController.ActionPoints);
+            while (actionController.ActionPoints > 0)
+                Assert.IsTrue(actionController.TryCommitInteract());
             yield return null;
 
             Assert.AreEqual(
@@ -762,7 +856,8 @@ namespace TestsUI
             {
                 combatManager.NextTurn();
             } while (combatManager.WhosTurn() != player && remainingTurns-- > 0);
-            actionController.SpendActions(2);
+            Assert.IsTrue(actionController.TryCommitInteract());
+            Assert.IsTrue(actionController.TryCommitInteract());
             yield return null;
 
             Assert.IsTrue(

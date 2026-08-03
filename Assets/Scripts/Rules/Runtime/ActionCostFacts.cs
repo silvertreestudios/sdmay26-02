@@ -2,6 +2,104 @@ using System;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Records one standard or optional action-resource grant at turn refresh.</summary>
+    public sealed class ActionResourceGainedFact : RuleFact
+    {
+        /// <summary>Creates an immutable resource-grant fact.</summary>
+        public ActionResourceGainedFact(CreatureId actor, ActionResourceKind resource, int amount)
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("An actor is required.", nameof(actor));
+            if (amount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(amount));
+            Actor = actor;
+            Resource = resource;
+            Amount = amount;
+        }
+
+        /// <summary>Gets the creature receiving the resource.</summary>
+        public CreatureId Actor { get; }
+
+        /// <summary>Gets whether ordinary or optional actions were granted.</summary>
+        public ActionResourceKind Resource { get; }
+
+        /// <summary>Gets the number of resources granted.</summary>
+        public int Amount { get; }
+    }
+
+    /// <summary>Records one standard or optional action-resource loss without expenditure.</summary>
+    public sealed class ActionResourceLostFact : RuleFact
+    {
+        /// <summary>Creates an immutable resource-loss fact.</summary>
+        public ActionResourceLostFact(CreatureId actor, ActionResourceKind resource, int amount)
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("An actor is required.", nameof(actor));
+            if (amount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(amount));
+            Actor = actor;
+            Resource = resource;
+            Amount = amount;
+        }
+
+        /// <summary>Gets the creature losing the resource.</summary>
+        public CreatureId Actor { get; }
+
+        /// <summary>Gets whether ordinary or optional actions were lost.</summary>
+        public ActionResourceKind Resource { get; }
+
+        /// <summary>Gets the number of resources lost.</summary>
+        public int Amount { get; }
+    }
+
+    /// <summary>Records one standard or optional action-resource expenditure.</summary>
+    public sealed class ActionResourceSpentFact : RuleFact
+    {
+        /// <summary>Creates an immutable resource-spend fact.</summary>
+        public ActionResourceSpentFact(
+            OpId actionOpId,
+            CreatureId actor,
+            ActionResourceKind resource,
+            int amount,
+            int standardActionsRemaining,
+            bool optionalActionAvailable
+        )
+        {
+            if (actionOpId.IsEmpty)
+                throw new ArgumentException("An action Op ID is required.", nameof(actionOpId));
+            if (actor.IsEmpty)
+                throw new ArgumentException("An actor is required.", nameof(actor));
+            if (amount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(amount));
+            if (standardActionsRemaining < 0)
+                throw new ArgumentOutOfRangeException(nameof(standardActionsRemaining));
+            ActionOpId = actionOpId;
+            Actor = actor;
+            Resource = resource;
+            Amount = amount;
+            StandardActionsRemaining = standardActionsRemaining;
+            OptionalActionAvailable = optionalActionAvailable;
+        }
+
+        /// <summary>Gets the action frame paying the resource.</summary>
+        public OpId ActionOpId { get; }
+
+        /// <summary>Gets the creature spending the resource.</summary>
+        public CreatureId Actor { get; }
+
+        /// <summary>Gets whether ordinary or optional actions were spent.</summary>
+        public ActionResourceKind Resource { get; }
+
+        /// <summary>Gets the number of resources spent.</summary>
+        public int Amount { get; }
+
+        /// <summary>Gets the committed ordinary actions remaining.</summary>
+        public int StandardActionsRemaining { get; }
+
+        /// <summary>Gets whether the optional allowance remains available.</summary>
+        public bool OptionalActionAvailable { get; }
+    }
+
     /// <summary>
     /// Proves that an action or reaction resource was spent for one action invocation.
     /// </summary>

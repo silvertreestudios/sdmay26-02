@@ -1003,6 +1003,23 @@ public class Map : MonoBehaviour
     }
 
     /// <summary>
+    /// Determines whether one generated door state can be applied without changing map state.
+    /// </summary>
+    /// <param name="cell">The generated door cell to inspect.</param>
+    /// <param name="isOpen">Whether the requested state is open.</param>
+    /// <returns>
+    /// <see langword="true"/> when the current map or live grid data accepts the requested state;
+    /// otherwise <see langword="false"/>.
+    /// </returns>
+    public bool CanSetDoorState(DungeonCell cell, bool isOpen)
+    {
+        GridBase grid = GetComponent<GridBase>();
+        return grid != null && grid.IsInitialized
+            ? grid.CanSetDoorState(cell, isOpen)
+            : GridBase.CanSetDoorState(GridData, LineOfSightBlocks, null, cell, isOpen);
+    }
+
+    /// <summary>
     /// Updates one generated door's semantic grid state without rebuilding owned geometry.
     /// </summary>
     /// <param name="cell">The generated door cell.</param>
@@ -1014,20 +1031,7 @@ public class Map : MonoBehaviour
         GridBase grid = GetComponent<GridBase>();
         if (grid != null && grid.IsInitialized)
             return grid.TrySetDoorState(cell, isOpen);
-        if (
-            GridData == null
-            || LineOfSightBlocks == null
-            || cell.X < 0
-            || cell.Z < 0
-            || cell.X >= GridData.GetLength(0)
-            || cell.Z >= GridData.GetLength(1)
-        )
-        {
-            return false;
-        }
-
-        TileType current = GridData[cell.X, cell.Z];
-        if (current != TileType.Door && current != TileType.ClosedDoor)
+        if (!GridBase.CanSetDoorState(GridData, LineOfSightBlocks, null, cell, isOpen))
             return false;
         GridData[cell.X, cell.Z] = isOpen ? TileType.Door : TileType.ClosedDoor;
         LineOfSightBlocks[cell.X, cell.Z] = !isOpen;

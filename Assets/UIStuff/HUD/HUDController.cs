@@ -72,10 +72,6 @@ public class HUDController
     private const float SlideDuration = 0.4f;
     private const float LogHiddenPercent = 80f;
     private const float PanelHiddenPercent = 80f;
-    private const int MaxActionMedallions = 3;
-    private const string ActionMedallionClass = "action-medallion";
-    private const string ActionMedallionFilledClass = "action-medallion--filled";
-    private const string ActionMedallionEmptyClass = "action-medallion--empty";
     public const string DisabledHudButtonClass = "btn-hud-disabled";
 
     //####Player Queue Card Variables####
@@ -528,7 +524,12 @@ public class HUDController
                     if (isDungeonExploration)
                         SelectExplorationController(captured.GetComponent<ActionController>());
                 });
-            UpdateActionPointMedallions(cardInstance, Players[i].GetComponent<ActionController>());
+            ActionController actionController = Players[i].GetComponent<ActionController>();
+            UpdateActionPointMedallions(
+                cardInstance,
+                GetStandardActionsRemaining(actionController),
+                GetOptionalActionAvailable(actionController)
+            );
         }
     }
 
@@ -1286,7 +1287,12 @@ public class HUDController
                     // card.style.opacity = 0.5f;
                     cardVE.AddToClassList("card-inactive");
                 }
-                UpdateActionPointMedallions(card, p.GetComponent<ActionController>());
+                ActionController actionController = p.GetComponent<ActionController>();
+                UpdateActionPointMedallions(
+                    card,
+                    GetStandardActionsRemaining(actionController),
+                    GetOptionalActionAvailable(actionController)
+                );
                 if (p.hp <= 0)
                 {
                     continue;
@@ -1340,23 +1346,85 @@ public class HUDController
         }
     }
 
-    private void UpdateActionPointMedallions(VisualElement card, ActionController actionController)
+    private static int GetStandardActionsRemaining(ActionController actionController)
+    {
+        return actionController == null ? 0 : checked((int)actionController.ActionPoints);
+    }
+
+    private static bool GetOptionalActionAvailable(ActionController actionController) =>
+        actionController != null && actionController.OptionalActionAvailable;
+
+    private void UpdateActionPointMedallions(
+        VisualElement card,
+        int standardActionsRemaining,
+        bool quickenedResourceAvailable
+    )
     {
         VisualElement container = card.Q<VisualElement>("ActionPointContainer");
         if (container != null)
             container.style.display = isDungeonExploration ? DisplayStyle.None : DisplayStyle.Flex;
-        List<VisualElement> medallions = card.Query<VisualElement>(className: ActionMedallionClass)
-            .ToList();
-        int actionPoints =
-            actionController != null
-                ? Mathf.Clamp((int)actionController.ActionPoints, 0, MaxActionMedallions)
-                : 0;
 
-        for (int i = 0; i < medallions.Count; i++)
+        ActionMedallionPresenter.Render(card, standardActionsRemaining, quickenedResourceAvailable);
+    }
+}
+
+/// <summary>
+/// Projects independently supplied action resources onto the fixed player-card medallion slots.
+/// </summary>
+internal static class ActionMedallionPresenter
+{
+    internal const int StandardMedallionCount = 3;
+    internal const string StandardMedallionClass = "action-medallion--standard";
+    internal const string QuickenedMedallionClass = "action-medallion--quickened";
+    internal const string FilledClass = "action-medallion--filled";
+    internal const string EmptyClass = "action-medallion--empty";
+
+    /// <summary>
+    /// Renders ordinary actions and the separate Quickened resource without combining their counts.
+    /// </summary>
+    /// <param name="card">The instantiated player-card visual tree.</param>
+    /// <param name="standardActionsRemaining">The projected number of ordinary actions remaining.</param>
+    /// <param name="quickenedResourceAvailable">
+    /// Whether the separately projected Quickened action resource remains available.
+    /// </param>
+    internal static void Render(
+        VisualElement card,
+        int standardActionsRemaining,
+        bool quickenedResourceAvailable
+    )
+    {
+        if (card == null)
+            throw new ArgumentNullException(nameof(card));
+
+        List<VisualElement> standardMedallions = card.Query<VisualElement>(
+                className: StandardMedallionClass
+            )
+            .ToList();
+        if (standardMedallions.Count != StandardMedallionCount)
         {
-            bool filled = i < actionPoints;
-            medallions[i].EnableInClassList(ActionMedallionFilledClass, filled);
-            medallions[i].EnableInClassList(ActionMedallionEmptyClass, !filled);
+            throw new InvalidOperationException(
+                $"A player card must contain exactly {StandardMedallionCount} standard action medallions."
+            );
         }
+
+        VisualElement quickenedMedallion = card.Q<VisualElement>(
+            className: QuickenedMedallionClass
+        );
+        if (quickenedMedallion == null)
+            throw new InvalidOperationException(
+                "A player card must contain a Quickened medallion."
+            );
+
+        int filledStandardCount = Mathf.Clamp(standardActionsRemaining, 0, StandardMedallionCount);
+        for (int i = 0; i < standardMedallions.Count; i++)
+            SetFilled(standardMedallions[i], i < filledStandardCount);
+
+        SetFilled(quickenedMedallion, quickenedResourceAvailable);
+    }
+
+    private static void SetFilled(VisualElement medallion, bool filled)
+    {
+        medallion.EnableInClassList(FilledClass, filled);
+        medallion.EnableInClassList(EmptyClass, !filled);
     }
 }

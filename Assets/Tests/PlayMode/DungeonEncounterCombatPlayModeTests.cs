@@ -957,6 +957,128 @@ public sealed class DungeonEncounterCombatPlayModeTests
         );
     }
 
+    [UnityTest]
+    public IEnumerator MindlessController_OptionalSpendCountsAsProgressBeforeStandards()
+    {
+        GameObject aiObject = Create("Quickened Progress AI");
+        CreatureComponent aiCreature = aiObject.AddComponent<CreatureComponent>();
+        aiCreature.name = "Quickened Progress AI";
+        aiCreature.speed = 25;
+        aiCreature.InitializeHealthBeforeEncounter(10, 10);
+        Team aiTeam = aiObject.AddComponent<Team>();
+        aiTeam.Name = "Enemies";
+        SequencedMindlessController ai = aiObject.AddComponent<SequencedMindlessController>();
+        CombatantFixture opponent = CreateCombatant("Quickened Progress Opponent", "Players", 0);
+        Tile[,] tiles = CreateMindlessTiles(2);
+        ai.RebindGrid(new MindlessTestGridBinding(tiles));
+        TestEntityAction interact = new(
+            "Typed Interact",
+            1,
+            () => Assert.That(ai.TryCommitInteract(), Is.True)
+        );
+        ai.ConfigureDecisions(interact, null);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { ai, opponent.Controller },
+            tiles,
+            new ScriptedRollService(20, 10)
+        );
+        CreatureId actor = bridge.GetCreatureId(aiCreature);
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "Quickened",
+                actor,
+                actor,
+                RuleSource.FromSlug("mindless-quickened-interact"),
+                EffectDuration.Indefinite,
+                new QuickenedConditionState(new[] { InteractActionDefinition.DefinitionId })
+            )
+        );
+        ai.enabled = false;
+        bridge.BeginTurn(actor, 3);
+        ai.enabled = true;
+
+        ai.StartTurn();
+        yield return new WaitUntil(() => ai.EndTurnCount == 1);
+
+        Assert.That(ai.DecisionCount, Is.EqualTo(2));
+        Assert.That(bridge.GetStandardActionsRemaining(actor), Is.EqualTo(3));
+        Assert.That(bridge.GetOptionalActionAvailable(actor), Is.False);
+        bridge.ReleaseOwnership();
+    }
+
+    [UnityTest]
+    public IEnumerator MindlessController_AvailableOptionalResourceDrivesSelectionAtZeroStandards()
+    {
+        GameObject aiObject = Create("Quickened Only AI");
+        CreatureComponent aiCreature = aiObject.AddComponent<CreatureComponent>();
+        aiCreature.name = "Quickened Only AI";
+        aiCreature.speed = 25;
+        aiCreature.InitializeHealthBeforeEncounter(10, 10);
+        Team aiTeam = aiObject.AddComponent<Team>();
+        aiTeam.Name = "Enemies";
+        SequencedMindlessController ai = aiObject.AddComponent<SequencedMindlessController>();
+        CombatantFixture opponent = CreateCombatant("Quickened Only Opponent", "Players", 0);
+        Tile[,] tiles = CreateMindlessTiles(2);
+        ai.RebindGrid(new MindlessTestGridBinding(tiles));
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { ai, opponent.Controller },
+            tiles,
+            new ScriptedRollService(20, 10)
+        );
+        CreatureId actor = bridge.GetCreatureId(aiCreature);
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                "Quickened",
+                actor,
+                actor,
+                RuleSource.FromSlug("mindless-quickened-stride"),
+                EffectDuration.Indefinite,
+                new QuickenedConditionState(new[] { StrideActionDefinition.DefinitionId })
+            )
+        );
+        ai.enabled = false;
+        bridge.BeginTurn(actor, 3);
+        Assert.That(ai.TryCommitInteract(), Is.True);
+        Assert.That(ai.TryCommitInteract(), Is.True);
+        Assert.That(ai.TryCommitInteract(), Is.True);
+        Assert.That(bridge.GetStandardActionsRemaining(actor), Is.Zero);
+        Assert.That(bridge.GetOptionalActionAvailable(actor), Is.True);
+        TestEntityAction stride = new(
+            "Typed Stride",
+            1,
+            () =>
+                Assert.That(
+                    bridge.Dispatch(
+                        new StrideActionOp(
+                            actor,
+                            new MovementPath(
+                                new GridPosition(0, 0, 0),
+                                new[] { new GridPosition(1, 0, 0) }
+                            )
+                        )
+                    ),
+                    Is.TypeOf<ResolvedOpResult<MovePathOutcome>>()
+                ),
+            false,
+            controller =>
+                controller.TryGetCombatRules(
+                    out UnityCombatRulesBridge activeBridge,
+                    out CreatureId activeActor
+                )
+                && activeBridge.GetStrideAvailability(activeActor) is AvailableActionAvailability
+        );
+        ai.ConfigureDecisions(stride);
+        ai.enabled = true;
+
+        ai.StartTurn();
+        yield return new WaitUntil(() => ai.EndTurnCount == 1);
+
+        Assert.That(ai.DecisionCount, Is.EqualTo(1));
+        Assert.That(bridge.GetOptionalActionAvailable(actor), Is.False);
+        Assert.That(bridge.Snapshot.Positions[actor], Is.EqualTo(new GridPosition(1, 0, 0)));
+        bridge.ReleaseOwnership();
+    }
+
     /// <summary>
     /// Verifies active encounter AI preserves directional TeamRules friendship for distinct teams.
     /// </summary>
@@ -1021,6 +1143,14 @@ public sealed class DungeonEncounterCombatPlayModeTests
         team.Name = teamName;
         manager.AddCombatant(controller);
         return new CombatantFixture(gameObject, creature, conditions, controller);
+    }
+
+    private static Tile[,] CreateMindlessTiles(int width)
+    {
+        Tile[,] tiles = new Tile[width, 1];
+        for (int x = 0; x < width; x++)
+            tiles[x, 0] = new Tile();
+        return tiles;
     }
 
     private GameObject Create(string name)
@@ -1134,6 +1264,32 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
+    private sealed class SequencedMindlessController : MindlessController
+    {
+        private readonly Queue<EntityAction> decisions = new();
+
+        public int DecisionCount { get; private set; }
+        public int EndTurnCount { get; private set; }
+
+        public void ConfigureDecisions(params EntityAction[] nextDecisions)
+        {
+            decisions.Clear();
+            foreach (EntityAction decision in nextDecisions)
+                decisions.Enqueue(decision);
+        }
+
+        protected override EntityAction SelectNextAction()
+        {
+            DecisionCount++;
+            return decisions.Count == 0 ? null : decisions.Dequeue();
+        }
+
+        public override void EndTurn()
+        {
+            EndTurnCount++;
+        }
+    }
+
     private sealed class TestGridBinding : GridAPIPrivate
     {
         private readonly Tile[,] tiles =
@@ -1187,30 +1343,35 @@ public sealed class DungeonEncounterCombatPlayModeTests
     {
         private readonly Action invocation;
         private readonly bool isExplorationAction;
+        private readonly Func<ActionController, bool> availability;
 
         public TestEntityAction(
             string name,
             uint cost,
             Action invocation,
-            bool isExplorationAction = false
+            bool isExplorationAction = false,
+            Func<ActionController, bool> availability = null
         )
             : base(cost)
         {
             ActionName = name;
             this.invocation = invocation;
             this.isExplorationAction = isExplorationAction;
+            this.availability = availability;
         }
 
         public override string ActionName { get; }
 
         public override bool IsExplorationAction => isExplorationAction;
 
+        public override bool IsAvailable(ActionController controller) =>
+            availability?.Invoke(controller) ?? base.IsAvailable(controller);
+
         /// <inheritdoc/>
         public override void Invoke(GameObject target)
         {
             ActionController controller = target.GetComponent<ActionController>();
             invocation();
-            PayCost(controller);
             controller.IsTakingAction = false;
         }
     }

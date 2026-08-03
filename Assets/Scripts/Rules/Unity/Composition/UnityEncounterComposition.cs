@@ -28,11 +28,18 @@ namespace Game.Rules.Unity.Composition
         void ConfigureDispatcher(RuleDispatcherBuilder builder);
     }
 
-    /// <summary>Contributes one transitional turn-start adapter owned by its feature.</summary>
+    /// <summary>Contributes one completion-only transitional turn-start adapter.</summary>
     internal interface IUnityEncounterTurnStartModule : IUnityEncounterModule
     {
         /// <summary>Creates the adapter installed at this module's deterministic position.</summary>
         IEncounterTurnStartAdapter CreateTurnStartAdapter();
+    }
+
+    /// <summary>Contributes feature-owned inputs to the generic authoritative turn refresh.</summary>
+    internal interface IUnityEncounterTurnResourceModule : IUnityEncounterModule
+    {
+        /// <summary>Creates this module's stateless snapshot contribution provider.</summary>
+        ITurnResourceContributionProvider CreateTurnResourceProvider();
     }
 
     /// <summary>Registers encounter-owned observers or disposable runtime adapters.</summary>
@@ -349,6 +356,14 @@ namespace Game.Rules.Unity.Composition
                 .OfType<IUnityEncounterTurnStartModule>()
                 .Select(module => module.CreateTurnStartAdapter())
                 .ToArray();
+
+        /// <summary>Builds the generic strategy from providers in exact module order.</summary>
+        internal TurnResourceStrategy CreateTurnResourceStrategy() =>
+            new(
+                modules
+                    .OfType<IUnityEncounterTurnResourceModule>()
+                    .Select(module => module.CreateTurnResourceProvider())
+            );
 
         /// <summary>Configures dispatcher modules in exact module order.</summary>
         internal void ConfigureDispatcher(RuleDispatcherBuilder builder)

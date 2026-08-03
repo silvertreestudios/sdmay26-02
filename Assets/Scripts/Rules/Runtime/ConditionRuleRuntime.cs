@@ -30,6 +30,11 @@ namespace Game.Rules.Runtime
                     new CleanupConditionsFromSourceReducer(),
                     LifecycleSource,
                     InvocationPolicy.ExternalAllowed
+                )
+                .RegisterReducer<CommitMidTurnStunnedLossOp, MidTurnStunnedLossOutcome>(
+                    new CommitMidTurnStunnedLossReducer(),
+                    ConditionTurnResourceRules.Source,
+                    InvocationPolicy.ExternalAllowed
                 );
         }
     }

@@ -89,7 +89,7 @@ namespace Game.Rules.Runtime
             }
             if (
                 !snapshot.ActionEconomy.TryGet(actor, out ActionEconomyState economy)
-                || economy.ActionsRemaining < ActionCost.One.Amount
+                || !ActionResourcePayment.CanPay(economy, DefinitionId, Profile)
             )
             {
                 return ActionAvailability.Unavailable("The actor does not have an action.");

@@ -826,6 +826,69 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void QuickenedAllowanceSelectorUnionsSourcesAndUnrestrictedDominates()
+        {
+            ActiveEffectRegistration stride = Registration(
+                "quickened-stride",
+                Owner,
+                ConditionRuleDefinitions.Quickened,
+                RuleSource.FromSlug("stride-source"),
+                new QuickenedConditionState(new[] { new ActionDefinitionId("stride") }),
+                2
+            );
+            ActiveEffectRegistration strike = Registration(
+                "quickened-strike",
+                Owner,
+                ConditionRuleDefinitions.Quickened,
+                RuleSource.FromSlug("strike-source"),
+                new QuickenedConditionState(new[] { new ActionDefinitionId("strike") }),
+                1
+            );
+            ActiveEffectRegistration unrestricted = Registration(
+                "quickened-unrestricted",
+                Owner,
+                ConditionRuleDefinitions.Quickened,
+                RuleSource.FromSlug("unrestricted-source"),
+                QuickenedConditionState.Unrestricted,
+                3
+            );
+            RulesStateSeed restrictedSeed = new RulesStateSeed()
+                .SeedCreature(new CreatureState(Owner, new PlayerId("condition-owner-player")))
+                .SeedPreparedInputs(Owner, PreparedCreatureInputs.Empty)
+                .SeedActiveEffect(stride.Effect)
+                .SeedRuleBinding(stride.Binding)
+                .SeedActiveEffect(strike.Effect)
+                .SeedRuleBinding(strike.Binding);
+
+            Assert.That(
+                ConditionSelectors.GetQuickenedAllowance(new InMemoryRulesStore().Snapshot, Owner),
+                Is.SameAs(ActionAllowance.None)
+            );
+            Assert.That(
+                ConditionSelectors.GetQuickenedAllowance(
+                    new InMemoryRulesStore(restrictedSeed).Snapshot,
+                    Owner
+                ),
+                Is.EqualTo(
+                    ActionAllowance.Restricted(
+                        new[] { new ActionDefinitionId("stride"), new ActionDefinitionId("strike") }
+                    )
+                )
+            );
+
+            restrictedSeed
+                .SeedActiveEffect(unrestricted.Effect)
+                .SeedRuleBinding(unrestricted.Binding);
+            Assert.That(
+                ConditionSelectors.GetQuickenedAllowance(
+                    new InMemoryRulesStore(restrictedSeed).Snapshot,
+                    Owner
+                ),
+                Is.SameAs(ActionAllowance.Unrestricted)
+            );
+        }
+
+        [Test]
         public async Task StunnedQuickenedAndMarkerSelectorsComposeActiveSources()
         {
             InMemoryRulesStore store = CreateStoreWithRegisteredCreatures();
@@ -869,7 +932,7 @@ namespace Game.Rules.Runtime.Tests
             );
 
             ConditionSelectors.TryGetStunned(store.Snapshot, Owner, out stunned);
-            QuickenedAllowance restricted = ConditionSelectors.GetQuickenedAllowance(
+            ActionAllowance restricted = ConditionSelectors.GetQuickenedAllowance(
                 store.Snapshot,
                 Owner
             );

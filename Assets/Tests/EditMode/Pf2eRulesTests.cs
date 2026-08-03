@@ -969,28 +969,36 @@ public class Pf2eRulesTests
     )
     {
         RulesStateSeed seed = new RulesStateSeed().SeedPreparedInputs(actor, package.Inputs);
-        foreach (KeyValuePair<BindingId, ActiveRuleBinding> binding in sourceSnapshot.RuleBindings)
+        ActiveRuleBinding[] actorBindings = sourceSnapshot
+            .RuleBindings.Select(pair => pair.Value)
+            .Where(binding => binding.Owner == actor)
+            .Select(mapBinding)
+            .ToArray();
+        foreach (ActiveRuleBinding binding in actorBindings)
         {
-            if (binding.Value.Owner == actor)
-            {
-                seed.SeedRuleBinding(mapBinding(binding.Value));
-                if (
-                    binding.Value.EffectId.HasValue
-                    && sourceSnapshot.ActiveEffects.TryGet(
-                        binding.Value.EffectId.Value,
-                        out ActiveEffectInstance effect
-                    )
+            seed.SeedRuleBinding(binding);
+            if (
+                binding.EffectId.HasValue
+                && sourceSnapshot.ActiveEffects.TryGet(
+                    binding.EffectId.Value,
+                    out ActiveEffectInstance effect
                 )
-                    seed.SeedActiveEffect(effect);
+            )
+            {
+                seed.SeedActiveEffect(effect);
             }
         }
         RuleRegistryBuilder registryBuilder = new();
+        HashSet<RuleDefinitionId> registeredDefinitions = new();
         foreach (PreparedRuleDefinitionSpec definition in package.Definitions)
-            registryBuilder.Define(definition);
-        foreach (KeyValuePair<BindingId, ActiveRuleBinding> binding in sourceSnapshot.RuleBindings)
         {
-            if (!package.Definitions.Any(value => value.Id == binding.Value.DefinitionId))
-                registryBuilder.Define(binding.Value.DefinitionId);
+            if (registeredDefinitions.Add(definition.Id))
+                registryBuilder.Define(definition);
+        }
+        foreach (ActiveRuleBinding binding in actorBindings)
+        {
+            if (registeredDefinitions.Add(binding.DefinitionId))
+                registryBuilder.Define(binding.DefinitionId);
         }
         RuleRegistry registry = registryBuilder.Build();
         return new RuleDispatcherBuilder(new InMemoryRulesStore(seed))

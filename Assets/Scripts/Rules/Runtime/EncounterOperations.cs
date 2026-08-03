@@ -25,20 +25,6 @@ namespace Game.Rules.Runtime
                 );
             return Array.AsReadOnly(copied);
         }
-
-        public static IReadOnlyList<CreatureId> CopyRequiredLivingTargets(
-            IEnumerable<CreatureId> targets
-        )
-        {
-            CreatureId[] copied =
-                targets?.Distinct().ToArray() ?? throw new ArgumentNullException(nameof(targets));
-            if (copied.Any(target => target.IsEmpty))
-                throw new ArgumentException(
-                    "Required living targets cannot contain an empty creature identity.",
-                    nameof(targets)
-                );
-            return Array.AsReadOnly(copied);
-        }
     }
 
     /// <summary>Requests a new encounter, initiative rolls, and its first eligible turn.</summary>
@@ -69,7 +55,7 @@ namespace Game.Rules.Runtime
             EncounterId encounter,
             PlayerId protagonistTeam,
             IEnumerable<EncounterParticipant> participants,
-            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
+            EncounterConclusionPolicy conclusionPolicy
         )
         {
             if (encounter.IsEmpty || protagonistTeam.IsEmpty)
@@ -203,8 +189,8 @@ namespace Game.Rules.Runtime
                 : encounter;
     }
 
-    /// <summary>Opens the narrow turn-start extension point before final resource regain.</summary>
-    public sealed class TurnStartingOp : IRuleOp<TurnStartContribution>
+    /// <summary>Opens the narrow completion-only turn-start extension point.</summary>
+    public sealed class TurnStartingOp : IRuleOp<TurnStartCompletion>
     {
         /// <summary>Gets the encounter whose reached boundary owns the hook.</summary>
         public EncounterId Encounter { get; }
@@ -223,24 +209,19 @@ namespace Game.Rules.Runtime
     /// Adapts one unmigrated turn-start behavior into the authoritative encounter dispatch.
     /// </summary>
     /// <remarks>
-    /// Adapters run sequentially in registration order before resource regain. They may commit
-    /// health changes only through the supplied <see cref="EncounterTurnStartContext"/>, keeping
-    /// the work inside the active dispatcher root. The returned contribution becomes the input to
-    /// the next adapter; the final value is the action count committed with <see cref="TurnBeganFact"/>.
+    /// Adapters run sequentially in registration order before resource regain. They may commit an
+    /// ordered final-damage batch only through the supplied
+    /// <see cref="EncounterTurnStartContext"/>, keeping the work inside the active dispatcher root.
     /// The engine checkpoints only after <see cref="Apply"/> returns successfully. An adapter that
-    /// performs multiple internal commits must make those commits transactional or safe for exact
-    /// replay if one of them fails; this checkpoint does not roll back partial adapter work.
+    /// requires fallible post-damage presentation must use the context's atomic damage-and-
+    /// completion boundary so recovery cannot replay its damage.
     /// </remarks>
     public interface IEncounterTurnStartAdapter
     {
-        /// <summary>Runs one awaited turn-start contribution for the reached living actor.</summary>
+        /// <summary>Runs one awaited turn-start adapter for the reached living actor.</summary>
         /// <param name="context">The narrow same-dispatcher services for this boundary.</param>
-        /// <param name="current">The action contribution produced so far.</param>
-        /// <returns>The contribution to pass to the next adapter or final turn-begin reducer.</returns>
-        ValueTask<TurnStartContribution> Apply(
-            EncounterTurnStartContext context,
-            TurnStartContribution current
-        );
+        /// <returns>A task that completes after the adapter's work finishes.</returns>
+        ValueTask Apply(EncounterTurnStartContext context);
     }
 
     /// <summary>
@@ -252,7 +233,6 @@ namespace Game.Rules.Runtime
         private readonly RoundNumber round;
         private readonly int slot;
         private readonly int adapterIndex;
-        private readonly TurnStartContribution priorContribution;
 
         internal bool HasCommittedCompletion { get; private set; }
 
@@ -262,7 +242,6 @@ namespace Game.Rules.Runtime
             RoundNumber round,
             int slot,
             int adapterIndex,
-            TurnStartContribution priorContribution,
             OpHandlerContext context
         )
         {
@@ -271,7 +250,6 @@ namespace Game.Rules.Runtime
             this.round = round;
             this.slot = slot;
             this.adapterIndex = adapterIndex;
-            this.priorContribution = priorContribution;
             this.context = context ?? throw new ArgumentNullException(nameof(context));
         }
 
@@ -284,32 +262,6 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the latest committed snapshot after all previously awaited adapters.</summary>
         public RulesSnapshot Snapshot => context.Snapshot;
 
-        /// <summary>Commits already-final damage as a nested child of the active encounter root.</summary>
-        /// <param name="target">The creature receiving the final damage.</param>
-        /// <param name="amount">The non-negative damage remaining after upstream calculations.</param>
-        /// <param name="origin">The stable Unity health-request identity.</param>
-        /// <param name="source">The rule source responsible for the damage.</param>
-        /// <returns>The exact health changes committed before this method completes.</returns>
-        /// <exception cref="ArgumentException"><paramref name="target"/> is not <see cref="Actor"/>.</exception>
-        /// <exception cref="InvalidOperationException">The nested health request is rejected.</exception>
-        public async ValueTask<DamageOutcome> ApplyFinalDamage(
-            CreatureId target,
-            int amount,
-            HealthChangeOriginId origin,
-            RuleSource source
-        )
-        {
-            if (target != Actor)
-                throw new ArgumentException(
-                    "A turn-start adapter may damage only its reached actor.",
-                    nameof(target)
-                );
-            return EncounterHandlerResults.Require(
-                await context.Dispatch(new ApplyDamageOp(target, amount, origin, source)),
-                "turn-start damage"
-            );
-        }
-
         /// <summary>
         /// Atomically commits an ordered final-damage batch and this adapter's completion receipt.
         /// </summary>
@@ -317,26 +269,20 @@ namespace Game.Rules.Runtime
         /// Non-empty, same-source damage entries for the reached actor. Repeated targets are
         /// allowed, but each entry requires a distinct health-change origin.
         /// </param>
-        /// <param name="returnedContribution">
-        /// The contribution that recovery must pass to the next adapter.
-        /// </param>
         /// <returns>The exact damage outcomes in request order.</returns>
         /// <remarks>
         /// Use this boundary when an adapter must perform fallible presentation after damage has
         /// committed. The damage and adapter checkpoint share one reducer transaction, so a later
         /// observer or presentation failure resumes at the next adapter without replaying damage.
         /// After this method resolves, the adapter may perform presentation but must not attempt
-        /// another authoritative mutation before returning <paramref name="returnedContribution"/>.
+        /// another authoritative mutation before returning.
         /// </remarks>
         /// <exception cref="InvalidOperationException">
         /// The batch does not match the exact current adapter progress or its reducer rejects.
         /// </exception>
         public async ValueTask<
             IReadOnlyList<DamageOutcome>
-        > CommitFinalDamageBatchAndCompleteAdapter(
-            IEnumerable<HealthBatchChange> changes,
-            TurnStartContribution returnedContribution
-        )
+        > CommitFinalDamageBatchAndCompleteAdapter(IEnumerable<HealthBatchChange> changes)
         {
             CommitTurnStartDamageBatchOutcome outcome = EncounterHandlerResults.Require(
                 await context.Dispatch(
@@ -346,8 +292,6 @@ namespace Game.Rules.Runtime
                         slot,
                         Actor,
                         adapterIndex,
-                        priorContribution,
-                        returnedContribution,
                         changes
                     )
                 ),
@@ -365,69 +309,6 @@ namespace Game.Rules.Runtime
         public TurnIdentity Turn { get; }
 
         internal TurnEndingOp(TurnIdentity turn) => Turn = turn;
-    }
-
-    /// <summary>Requests exact-turn authorization with an optional authoritative action spend.</summary>
-    public sealed class SpendEncounterActionsOp : IRuleOp<EncounterActionSpendOutcome>
-    {
-        /// <summary>Gets the creature whose reducer-owned actions are spent.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the non-negative action cost; zero validates authority without mutation.</summary>
-        public int Amount { get; }
-
-        /// <summary>
-        /// Gets the encounter participants that must still be living when the spend commits.
-        /// </summary>
-        public IReadOnlyList<CreatureId> RequiredLivingTargets { get; }
-
-        /// <summary>Creates an authoritative encounter action authorization/spend request.</summary>
-        /// <param name="actor">The creature paying the action cost.</param>
-        /// <param name="amount">The non-negative number of actions to spend.</param>
-        public SpendEncounterActionsOp(CreatureId actor, int amount)
-            : this(actor, amount, Array.Empty<CreatureId>()) { }
-
-        /// <summary>
-        /// Creates an action spend that atomically requires one current living encounter target.
-        /// </summary>
-        /// <param name="actor">The creature paying the action cost.</param>
-        /// <param name="amount">The non-negative number of actions to spend.</param>
-        /// <param name="requiredLivingTarget">
-        /// The selected participant that must remain living in the actor's encounter.
-        /// </param>
-        public SpendEncounterActionsOp(
-            CreatureId actor,
-            int amount,
-            CreatureId requiredLivingTarget
-        )
-            : this(actor, amount, new[] { requiredLivingTarget }) { }
-
-        /// <summary>
-        /// Creates an action spend that atomically requires every selected encounter target to
-        /// remain living.
-        /// </summary>
-        /// <param name="actor">The creature paying the action cost.</param>
-        /// <param name="amount">The non-negative number of actions to spend.</param>
-        /// <param name="requiredLivingTargets">
-        /// The selected participants that must remain living in the actor's encounter. The
-        /// operation copies and de-duplicates this sequence before dispatch.
-        /// </param>
-        public SpendEncounterActionsOp(
-            CreatureId actor,
-            int amount,
-            IEnumerable<CreatureId> requiredLivingTargets
-        )
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("An actor is required.", nameof(actor));
-            if (amount < 0)
-                throw new ArgumentOutOfRangeException(nameof(amount));
-            Actor = actor;
-            Amount = amount;
-            RequiredLivingTargets = EncounterOperationValues.CopyRequiredLivingTargets(
-                requiredLivingTargets
-            );
-        }
     }
 
     /// <summary>Returns the encounter snapshot produced by a successful start.</summary>
@@ -529,28 +410,11 @@ namespace Game.Rules.Runtime
         ) => new EncounterEvaluationOutcome(snapshot.Encounters[State.Id]);
     }
 
-    /// <summary>Carries final action and reaction regain through ordered turn-start adapters.</summary>
-    public readonly struct TurnStartContribution
+    /// <summary>Marks successful completion of all ordered turn-start adapters.</summary>
+    public readonly struct TurnStartCompletion
     {
-        /// <summary>Gets the non-negative actions to grant if the actor remains eligible.</summary>
-        public int Actions { get; }
-
-        /// <summary>Gets whether the actor regains a reaction for the reached initiative turn.</summary>
-        public bool ReactionAvailable { get; }
-
-        /// <summary>Creates a validated contribution for final resource regain.</summary>
-        /// <param name="actions">The non-negative derived action count.</param>
-        /// <param name="reactionAvailable">Whether the reached turn restores a reaction.</param>
-        public TurnStartContribution(int actions, bool reactionAvailable = true)
-        {
-            if (actions < 0)
-                throw new ArgumentOutOfRangeException(nameof(actions));
-            Actions = actions;
-            ReactionAvailable = reactionAvailable;
-        }
-
-        /// <summary>Gets the normal unmodified three-action contribution.</summary>
-        public static TurnStartContribution Standard => new TurnStartContribution(3);
+        /// <summary>Gets the completed hook marker.</summary>
+        public static TurnStartCompletion Complete => default;
     }
 
     /// <summary>Marks successful completion of the narrow turn-end hook.</summary>
@@ -560,29 +424,12 @@ namespace Game.Rules.Runtime
         public static TurnEndContribution Complete => default;
     }
 
-    /// <summary>Returns remaining actions after exact-turn authorization and any requested spend.</summary>
-    public readonly struct EncounterActionSpendOutcome
-    {
-        /// <summary>Gets the actor's committed action count.</summary>
-        public int Remaining { get; }
-
-        internal EncounterActionSpendOutcome(int remaining) => Remaining = remaining;
-    }
-
     internal sealed class CommitEncounterStartOp : IRuleOp<EncounterStartOutcome>
     {
         public EncounterId Encounter { get; }
         public PlayerId ProtagonistTeam { get; }
         public EncounterConclusionPolicy ConclusionPolicy { get; }
         public IReadOnlyList<InitiativeEntry> Roster { get; }
-
-        public CommitEncounterStartOp(
-            EncounterId encounter,
-            PlayerId protagonistTeam,
-            IReadOnlyList<InitiativeEntry> roster
-        )
-            : this(encounter, protagonistTeam, EncounterConclusionPolicy.VictoryOrDefeat, roster)
-        { }
 
         public CommitEncounterStartOp(
             EncounterId encounter,
@@ -692,25 +539,22 @@ namespace Game.Rules.Runtime
     {
         public EncounterId Encounter { get; }
         public CreatureId Actor { get; }
-        public int Actions { get; }
-        public bool ReactionAvailable { get; }
+        public TurnResourceCommitPlan Resources { get; }
 
         public CommitTurnBeginOp(
             EncounterId encounter,
             CreatureId actor,
-            int actions,
-            bool reactionAvailable
+            TurnResourceCommitPlan resources
         )
         {
             Encounter = encounter;
             Actor = actor;
-            Actions = actions;
-            ReactionAvailable = reactionAvailable;
+            Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         }
     }
 
     /// <summary>
-    /// Commits one successfully returned turn-start adapter result at the exact published boundary.
+    /// Commits one successfully completed turn-start adapter at the exact published boundary.
     /// </summary>
     internal sealed class CommitTurnStartAdapterProgressOp : IRuleOp<TurnStartAdapterProgress>
     {
@@ -719,17 +563,13 @@ namespace Game.Rules.Runtime
         public int Slot { get; }
         public CreatureId Actor { get; }
         public int ExpectedNextAdapterIndex { get; }
-        public TurnStartContribution PriorContribution { get; }
-        public TurnStartContribution ReturnedContribution { get; }
 
         public CommitTurnStartAdapterProgressOp(
             EncounterId encounter,
             RoundNumber round,
             int slot,
             CreatureId actor,
-            int expectedNextAdapterIndex,
-            TurnStartContribution priorContribution,
-            TurnStartContribution returnedContribution
+            int expectedNextAdapterIndex
         )
         {
             Encounter = encounter;
@@ -737,8 +577,6 @@ namespace Game.Rules.Runtime
             Slot = slot;
             Actor = actor;
             ExpectedNextAdapterIndex = expectedNextAdapterIndex;
-            PriorContribution = priorContribution;
-            ReturnedContribution = returnedContribution;
         }
     }
 
@@ -772,8 +610,6 @@ namespace Game.Rules.Runtime
             int slot,
             CreatureId actor,
             int expectedNextAdapterIndex,
-            TurnStartContribution priorContribution,
-            TurnStartContribution returnedContribution,
             IEnumerable<HealthBatchChange> changes
         )
         {
@@ -806,8 +642,6 @@ namespace Game.Rules.Runtime
             Slot = slot;
             Actor = actor;
             ExpectedNextAdapterIndex = expectedNextAdapterIndex;
-            PriorContribution = priorContribution;
-            ReturnedContribution = returnedContribution;
             Changes = Array.AsReadOnly(copied);
             Source = copied[0].Source;
         }
@@ -817,8 +651,6 @@ namespace Game.Rules.Runtime
         public int Slot { get; }
         public CreatureId Actor { get; }
         public int ExpectedNextAdapterIndex { get; }
-        public TurnStartContribution PriorContribution { get; }
-        public TurnStartContribution ReturnedContribution { get; }
         public IReadOnlyList<HealthBatchChange> Changes { get; }
         public RuleSource Source { get; }
     }
@@ -867,24 +699,6 @@ namespace Game.Rules.Runtime
         {
             Encounter = encounter;
             Outcome = outcome;
-        }
-    }
-
-    internal sealed class CommitEncounterActionsOp : IRuleOp<EncounterActionSpendOutcome>
-    {
-        public CreatureId Actor { get; }
-        public int Amount { get; }
-        public IReadOnlyList<CreatureId> RequiredLivingTargets { get; }
-
-        public CommitEncounterActionsOp(
-            CreatureId actor,
-            int amount,
-            IReadOnlyList<CreatureId> requiredLivingTargets
-        )
-        {
-            Actor = actor;
-            Amount = amount;
-            RequiredLivingTargets = requiredLivingTargets;
         }
     }
 

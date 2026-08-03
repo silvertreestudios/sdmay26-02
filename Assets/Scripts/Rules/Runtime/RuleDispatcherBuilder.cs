@@ -17,6 +17,7 @@ namespace Game.Rules.Runtime
             new Dictionary<Type, IRegistration>();
         private readonly Dictionary<Type, List<IActionValidatorRegistration>> actionValidators =
             new Dictionary<Type, List<IActionValidatorRegistration>>();
+        private readonly List<IActionPermission> actionPermissions = new List<IActionPermission>();
         private readonly HashSet<string> engineCompositions = new HashSet<string>(
             StringComparer.Ordinal
         );
@@ -304,6 +305,15 @@ namespace Game.Rules.Runtime
             return this;
         }
 
+        /// <summary>Registers one pure permission rule applied to every action lifecycle.</summary>
+        public RuleDispatcherBuilder RegisterActionPermission(IActionPermission permission)
+        {
+            actionPermissions.Add(
+                permission ?? throw new ArgumentNullException(nameof(permission))
+            );
+            return this;
+        }
+
         /// <summary>
         /// Registers the engine-owned attack, check, save, and modifier-collection handlers with
         /// the standard pure snapshot selectors.
@@ -463,7 +473,7 @@ namespace Game.Rules.Runtime
                 typeof(IActionOpMetadata).IsAssignableFrom(registration.OpType)
             );
             if (
-                (hasActionHandler || actionValidators.Count > 0)
+                (hasActionHandler || actionValidators.Count > 0 || actionPermissions.Count > 0)
                 && !actionRuntimeConfiguration.IsConfigured
             )
             {
@@ -538,7 +548,8 @@ namespace Game.Rules.Runtime
             }
 
             ActionRuntime actionRuntime = actionRuntimeConfiguration.CreateRuntime(
-                actionValidators
+                actionValidators,
+                actionPermissions
             );
             ruleRegistry.ValidateResolvers(completedRegistrations);
             return new RuleDispatcher(

@@ -54,7 +54,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(resolved.Value.FinalDamage, Is.EqualTo(6));
             Assert.That(runtime.Dispatcher.Snapshot.Health[Target].Current, Is.EqualTo(14));
             Assert.That(
-                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(2)
             );
             Assert.That(
@@ -157,7 +157,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.Value.Hit, Is.False);
             Assert.That(runtime.Dispatcher.Snapshot.Health[Target].Current, Is.EqualTo(20));
             Assert.That(
-                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(2)
             );
             Assert.That(
@@ -240,7 +240,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
             Assert.That(
-                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(
@@ -289,7 +289,7 @@ namespace Game.Rules.Runtime.Tests
                 Does.Contain("Armor Class")
             );
             Assert.That(
-                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Dispatcher.Snapshot.Ammunition[Ammo].Remaining, Is.EqualTo(2));
@@ -345,7 +345,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(blocked, Is.TypeOf<InvalidOpResult<StrikeResolution>>());
             Assert.That(runtime.Dispatcher.Snapshot.Ammunition[Ammo].Remaining, Is.EqualTo(1));
             Assert.That(
-                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(2)
             );
 
@@ -358,7 +358,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(runtime.Dispatcher.Snapshot.Equipment[Weapon].IsLoaded, Is.True);
             Assert.That(runtime.Dispatcher.Snapshot.Ammunition[Ammo].Remaining, Is.EqualTo(1));
             Assert.That(
-                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(1)
             );
         }
@@ -383,7 +383,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<EquipmentState>>());
             Assert.That(
-                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Dispatcher.Snapshot.Equipment[Weapon].IsLoaded, Is.False);
@@ -417,7 +417,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result, Is.TypeOf<InvalidOpResult<EquipmentState>>());
             Assert.That(((InvalidOpResult<EquipmentState>)result).Reason, Does.Contain(reason));
             Assert.That(
-                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].ActionsRemaining,
+                runtime.Dispatcher.Snapshot.ActionEconomy[Actor].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Dispatcher.Snapshot.Equipment[Weapon].IsLoaded, Is.False);
@@ -586,8 +586,8 @@ namespace Game.Rules.Runtime.Tests
             seed.SeedCreature(new CreatureState(Target, new PlayerId("enemies")))
                 .SeedHealth(Actor, new HealthState(actorHp, 20))
                 .SeedHealth(Target, new HealthState(targetHp, targetHp))
-                .SeedActionEconomy(Actor, new ActionEconomyState(3, true))
-                .SeedActionEconomy(Target, new ActionEconomyState(0, true))
+                .SeedActionEconomy(Actor, new ActionEconomyState(3, ActionAllowance.None, true))
+                .SeedActionEconomy(Target, new ActionEconomyState(0, ActionAllowance.None, true))
                 .SeedEquipment(new EquipmentState(item.Item, item.Definition, Actor, true, loaded));
             if (seedMap)
                 seed.SeedMultipleAttackPenalty(Actor, new MultipleAttackPenaltyState(0));

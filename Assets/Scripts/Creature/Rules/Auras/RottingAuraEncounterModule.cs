@@ -26,10 +26,7 @@ namespace Game.Creature.Rules
             internal TurnStartAdapter(UnityCombatRulesBridge owner) => this.owner = owner;
 
             /// <inheritdoc/>
-            public async ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public async ValueTask Apply(EncounterTurnStartContext context)
             {
                 EncounterState encounter = context.Snapshot.Encounters[context.Encounter];
                 ActionController actor = owner.GetController(context.Actor);
@@ -54,10 +51,7 @@ namespace Game.Creature.Rules
                                 source
                             ))
                             .ToList();
-                        return await context.CommitFinalDamageBatchAndCompleteAdapter(
-                            changes,
-                            current
-                        );
+                        return await context.CommitFinalDamageBatchAndCompleteAdapter(changes);
                     },
                     target =>
                     {
@@ -74,7 +68,6 @@ namespace Game.Creature.Rules
                         return default;
                     }
                 );
-                return current;
             }
         }
     }

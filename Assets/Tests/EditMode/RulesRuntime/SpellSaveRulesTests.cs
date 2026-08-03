@@ -102,7 +102,7 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(runtime.Store.Snapshot.Health[Target].Current, Is.EqualTo(12));
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(1)
             );
             Assert.That(resolved.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
@@ -139,7 +139,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(condition.BlockedReason, Does.Contain("immune to deafened"));
             Assert.That(runtime.Store.Snapshot.Health[Target].Current, Is.EqualTo(12));
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(1)
             );
             Assert.That(runtime.Store.Snapshot.ActiveEffects, Is.Empty);
@@ -313,7 +313,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(actual, Is.SameAs(expected));
             Assert.That(runtime.Store.Snapshot.Health[Target].Current, Is.EqualTo(12));
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(1)
             );
             Assert.That(runtime.Store.Snapshot.ActiveEffects, Has.Count.EqualTo(1));
@@ -346,7 +346,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(failure.Message, Does.Contain("absent from the encounter registry"));
             Assert.That(runtime.Store.Snapshot.Health[Target].Current, Is.EqualTo(20));
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Store.Snapshot.ActiveEffects, Is.Empty);
@@ -374,7 +374,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(runtime.Store.Snapshot.ActiveEffects, Is.Empty);
             Assert.That(runtime.Store.Snapshot.RuleBindings, Is.Empty);
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Rolls.Remaining, Is.EqualTo(2));
@@ -397,7 +397,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Rolls.Remaining, Is.EqualTo(2));
@@ -420,7 +420,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Rolls.Remaining, Is.EqualTo(2));
@@ -450,7 +450,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Rolls.Remaining, Is.EqualTo(2));
@@ -515,7 +515,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(invalid, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
             Assert.That(corrected.Value.Saves.Single().FinalDamage, Is.EqualTo(8));
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(1)
             );
         }
@@ -543,7 +543,7 @@ namespace Game.Rules.Runtime.Tests
                 Does.Contain("no authoritative statistics")
             );
             Assert.That(
-                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                runtime.Store.Snapshot.ActionEconomy[Caster].StandardActionsRemaining,
                 Is.EqualTo(3)
             );
             Assert.That(runtime.Rolls.Remaining, Is.EqualTo(2));
@@ -643,7 +643,7 @@ namespace Game.Rules.Runtime.Tests
                     )
                 )
                 .SeedHealth(OtherTarget, new HealthState(20, 20))
-                .SeedActionEconomy(Caster, new ActionEconomyState(3, true))
+                .SeedActionEconomy(Caster, new ActionEconomyState(3, ActionAllowance.None, true))
                 .SeedStatistics(
                     new CreatureStatisticsState(
                         Target,

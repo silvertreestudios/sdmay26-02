@@ -263,7 +263,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new ActionController[] { initial, anchor },
                 CreateTiles(3)
             );
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
 
             bridge.RegisterCombatants(new ActionController[] { reinforcement });
 
@@ -310,7 +310,7 @@ public sealed class UnityCombatRulesBridgeTests
                 CreateTiles(2),
                 new ScriptedRollService(20, 1)
             );
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
 
             ActiveEffectInstance adopted = bridge
                 .Snapshot.ActiveEffects.Select(pair => pair.Value)
@@ -372,7 +372,10 @@ public sealed class UnityCombatRulesBridgeTests
                 new ScriptedRollService(20, 10),
                 new IUnityEncounterModule[] { failureModule }
             );
-            EncounterState heroTurn = bridge.StartEncounter("Players");
+            EncounterState heroTurn = bridge.StartEncounter(
+                "Players",
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
             TurnIdentity expected = new TurnIdentity(
                 heroTurn.Id,
                 new TurnId(2),
@@ -477,7 +480,7 @@ public sealed class UnityCombatRulesBridgeTests
                 })
             );
 
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
 
             Assert.That(damageFacts, Has.Count.EqualTo(1));
             Assert.That(damageFacts[0].Requested, Is.GreaterThanOrEqualTo(1));
@@ -569,7 +572,7 @@ public sealed class UnityCombatRulesBridgeTests
             );
 
             InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
-                bridge.StartEncounter("Players")
+                bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat)
             );
 
             Assert.That(failure, Is.SameAs(expected));
@@ -642,7 +645,10 @@ public sealed class UnityCombatRulesBridgeTests
                 new ScriptedRollService(20, 10),
                 new IUnityEncounterModule[] { failureModule }
             );
-            EncounterState heroTurn = bridge.StartEncounter("Players");
+            EncounterState heroTurn = bridge.StartEncounter(
+                "Players",
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
             InvalidOperationException original = new InvalidOperationException(
                 "Injected original turn-start failure."
             );
@@ -708,7 +714,10 @@ public sealed class UnityCombatRulesBridgeTests
                 new ScriptedRollService(20, 10),
                 new IUnityEncounterModule[] { failureModule }
             );
-            EncounterState heroTurn = bridge.StartEncounter("Players");
+            EncounterState heroTurn = bridge.StartEncounter(
+                "Players",
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
             InvalidOperationException expected = new InvalidOperationException(
                 "Injected TurnBegan Fact failure."
             );
@@ -937,7 +946,7 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
-    public void DetachedControllerProjectsNeutralCombatStateAndRejectsPositiveAuthority()
+    public void DetachedControllerProjectsNeutralCombatStateAndRejectsTurnStartup()
     {
         GameObject creatureObject = new GameObject("detached-controller");
         try
@@ -952,8 +961,6 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(controller.ActionPoints, Is.Zero);
             Assert.That(controller.Reacted, Is.False);
             Assert.That(controller.StrikePenalty, Is.Zero);
-            Assert.DoesNotThrow(() => controller.SpendActions(0));
-            Assert.Throws<InvalidOperationException>(() => controller.SpendActions(1));
             Assert.Throws<InvalidOperationException>(() => controller.StartTurn());
         }
         finally
@@ -989,7 +996,10 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(bridge.HasTurnAuthority(firstId), Is.False);
             Assert.That(bridge.HasTurnAuthority(secondId), Is.False);
 
-            EncounterState encounter = bridge.StartEncounter("Players");
+            EncounterState encounter = bridge.StartEncounter(
+                "Players",
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
 
             Assert.That(encounter.CurrentTurn.HasValue, Is.True);
             Assert.That(
@@ -1180,7 +1190,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new ActionController[] { host, anchor },
                 CreateTiles(3)
             );
-            encounter.StartEncounter("Players");
+            encounter.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             UnityCombatRulesBridge competing = UnityCombatRulesBridge.Create(
                 new ActionController[] { reinforcement },
                 CreateTiles(2)
@@ -1246,7 +1256,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new ActionController[] { host, anchor },
                 CreateTiles(3)
             );
-            encounter.StartEncounter("Players");
+            encounter.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             RulesSnapshot before = encounter.Snapshot;
             reinforcement.GetActionsEvent.AddListener(_ =>
                 throw new InvalidOperationException("Injected reinforcement installation failure.")
@@ -1358,7 +1368,7 @@ public sealed class UnityCombatRulesBridgeTests
             );
             try
             {
-                bridge.StartEncounter("Players");
+                bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
                 CreatureId casterId = bridge.GetCreatureId(
                     casterObject.GetComponent<CreatureComponent>()
                 );
@@ -1532,7 +1542,7 @@ public sealed class UnityCombatRulesBridgeTests
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>());
             Assert.That(bridge.Snapshot.Positions[id], Is.EqualTo(new GridPosition(2, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[id].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(bridge.Snapshot.ActionEconomy[id].StandardActionsRemaining, Is.EqualTo(2));
             Assert.That(controller.ActionPoints, Is.EqualTo(2));
         }
         finally
@@ -1567,7 +1577,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new ScriptedRollService(20, 10, 1),
                 new IUnityEncounterModule[] { installation }
             );
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             BridgeTestActionController reinforcement = ConfigureCombatant(
                 reinforcementObject,
                 "Enemies",
@@ -1630,7 +1640,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new ScriptedRollService(20, 10)
             );
             CreatureId moverId = bridge.GetCreatureId(mover);
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             bool callbackReturned = false;
             using (
                 GetDispatcher(bridge)
@@ -1698,7 +1708,7 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(observer.Facts[1].From, Is.EqualTo(new GridPosition(1, 0, 0)));
             Assert.That(observer.Facts[1].To, Is.EqualTo(new GridPosition(2, 0, 0)));
             Assert.That(bridge.Snapshot.Positions[id], Is.EqualTo(new GridPosition(2, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[id].ActionsRemaining, Is.Zero);
+            Assert.That(bridge.Snapshot.ActionEconomy[id].StandardActionsRemaining, Is.Zero);
             Assert.That(
                 controller.ActionPoints,
                 Is.Zero,
@@ -1865,7 +1875,10 @@ public sealed class UnityCombatRulesBridgeTests
                 : string.Empty;
             Assert.That(forward, Is.TypeOf<ResolvedOpResult<MovePathOutcome>>(), forwardFailure);
             Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(2, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(2));
+            Assert.That(
+                bridge.Snapshot.ActionEconomy[moverId].StandardActionsRemaining,
+                Is.EqualTo(2)
+            );
 
             bridge.BeginTurn(moverId, 3);
             OpResult<MovePathOutcome> occupiedDestination = await bridge.DispatchStride(
@@ -1879,7 +1892,10 @@ public sealed class UnityCombatRulesBridgeTests
                 "Tactics must permit crossing an ally without permitting destination swaps."
             );
             Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(2, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                bridge.Snapshot.ActionEconomy[moverId].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
 
             bridge.BeginTurn(occupantId, 3);
             OpResult<MovePathOutcome> reverse = await bridge.DispatchStride(
@@ -1895,7 +1911,10 @@ public sealed class UnityCombatRulesBridgeTests
                 bridge.Snapshot.Positions[occupantId],
                 Is.EqualTo(new GridPosition(1, 0, 0))
             );
-            Assert.That(bridge.Snapshot.ActionEconomy[occupantId].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                bridge.Snapshot.ActionEconomy[occupantId].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(occupant.ActionPoints, Is.EqualTo(3));
         }
         finally
@@ -1961,7 +1980,10 @@ public sealed class UnityCombatRulesBridgeTests
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<MovePathOutcome>>());
             Assert.That(bridge.Snapshot.Positions[moverId], Is.EqualTo(new GridPosition(0, 0, 0)));
-            Assert.That(bridge.Snapshot.ActionEconomy[moverId].ActionsRemaining, Is.EqualTo(3));
+            Assert.That(
+                bridge.Snapshot.ActionEconomy[moverId].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(mover.ActionPoints, Is.EqualTo(3));
             Assert.That(result.Facts, Is.Empty);
         }
@@ -2020,7 +2042,7 @@ public sealed class UnityCombatRulesBridgeTests
                 CreateTiles(3),
                 rolls
             );
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             RuleDispatcher dispatcher = GetDispatcher(bridge);
             InvalidOperationException expected = new InvalidOperationException(
                 $"Injected {checkpoint} post-commit failure."
@@ -2154,7 +2176,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new ScriptedRollService(20, 10, 1),
                 new IUnityEncounterModule[] { installation }
             );
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             BridgeTestActionController reinforcement = ConfigureCombatant(
                 reinforcementObject,
                 "Enemies",
@@ -2311,7 +2333,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new IUnityEncounterModule[] { module }
             );
             Assert.That(bridge.Snapshot.ActiveEffects, Is.Empty);
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             BridgeTestActionController reinforcement = ConfigureCombatant(
                 reinforcementObject,
                 "Enemies",
@@ -2366,7 +2388,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new RandomRollService(),
                 new IUnityEncounterModule[] { module }
             );
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             BridgeTestActionController reinforcement = ConfigureCombatant(
                 reinforcementObject,
                 "Enemies",
@@ -2585,7 +2607,7 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(effect.SourceCreature, Is.EqualTo(bridge.GetCreatureId(source)));
             Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(effect.Id), Is.False);
 
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
 
             ActiveEffectTimingState timing = bridge.Snapshot.ActiveEffectTimings[effect.Id];
             Assert.That(timing.Encounter, Is.EqualTo(bridge.EncounterId));
@@ -2819,7 +2841,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new ScriptedRollService(20, 10, 1),
                 new IUnityEncounterModule[] { installation }
             );
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             BridgeTestActionController reinforcement = ConfigureCombatant(
                 reinforcementObject,
                 "Enemies",
@@ -2913,7 +2935,7 @@ public sealed class UnityCombatRulesBridgeTests
                 new ScriptedRollService(20, 10, 1),
                 new IUnityEncounterModule[] { module }
             );
-            bridge.StartEncounter("Players");
+            bridge.StartEncounter("Players", EncounterConclusionPolicy.VictoryOrDefeat);
             BridgeTestActionController reinforcement = ConfigureCombatant(
                 reinforcementObject,
                 "Enemies",
@@ -3537,15 +3559,12 @@ public sealed class UnityCombatRulesBridgeTests
 
         internal void FailNextTurnBeganFact(Exception failure) => turnBeganFailure = failure;
 
-        public ValueTask<TurnStartContribution> Apply(
-            EncounterTurnStartContext context,
-            TurnStartContribution current
-        )
+        public ValueTask Apply(EncounterTurnStartContext context)
         {
             AdapterCalls++;
             if (adapterFailures.Count > 0)
                 throw adapterFailures.Dequeue();
-            return new ValueTask<TurnStartContribution>(current);
+            return default;
         }
 
         public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot currentSnapshot)
@@ -3618,10 +3637,7 @@ public sealed class UnityCombatRulesBridgeTests
 
     private sealed class RecordingTurnStartAdapter : IEncounterTurnStartAdapter
     {
-        public ValueTask<TurnStartContribution> Apply(
-            EncounterTurnStartContext context,
-            TurnStartContribution current
-        ) => new ValueTask<TurnStartContribution>(current);
+        public ValueTask Apply(EncounterTurnStartContext context) => default;
     }
 
     private sealed class BridgeTestActionController : ActionController

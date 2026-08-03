@@ -146,7 +146,10 @@ public sealed class RulesRageUnityTests
             new ScriptedRollService(20, 10)
         );
         CreatureId actor = bridge.GetCreatureId(creature);
-        EncounterState encounter = bridge.StartEncounter("players");
+        EncounterState encounter = bridge.StartEncounter(
+            "players",
+            EncounterConclusionPolicy.VictoryOrDefeat
+        );
 
         Assert.That(encounter.CurrentTurn.Value.Actor, Is.EqualTo(actor));
         Assert.That(RageRules.IsRaging(bridge.Snapshot, actor), Is.True);
@@ -210,7 +213,7 @@ public sealed class RulesRageUnityTests
                 ConditionMarkerState.Instance
             )
         );
-        bridge.StartEncounter("players");
+        bridge.StartEncounter("players", EncounterConclusionPolicy.VictoryOrDefeat);
 
         Assert.That(
             bridge

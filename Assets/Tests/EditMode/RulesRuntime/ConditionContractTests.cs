@@ -7,6 +7,113 @@ namespace Game.Rules.Runtime.Tests
 {
     public sealed class ConditionContractTests
     {
+        [Test]
+        public void ActionAllowanceRequiresValidRestrictedDefinitionsAndCopiesInput()
+        {
+            ActionDefinitionId stride = new ActionDefinitionId("stride");
+            List<ActionDefinitionId> input = new List<ActionDefinitionId> { stride };
+
+            ActionAllowance allowance = ActionAllowance.Restricted(input);
+            input.Clear();
+
+            Assert.That(allowance.AllowedActions, Is.EqualTo(new[] { stride }));
+            Assert.That(allowance.IsRestricted, Is.True);
+            Assert.That(allowance.Allows(stride), Is.True);
+            Assert.That(allowance.Allows(new ActionDefinitionId("strike")), Is.False);
+            Assert.That(ActionAllowance.None.IsNone, Is.True);
+            Assert.That(ActionAllowance.None.Allows(stride), Is.False);
+            Assert.That(ActionAllowance.Unrestricted.Allows(stride), Is.True);
+            Assert.Throws<ArgumentNullException>(() => ActionAllowance.Restricted(null));
+            Assert.Throws<ArgumentException>(() =>
+                ActionAllowance.Restricted(Array.Empty<ActionDefinitionId>())
+            );
+            Assert.Throws<ArgumentException>(() =>
+                ActionAllowance.Restricted(new[] { default(ActionDefinitionId) })
+            );
+            Assert.Throws<ArgumentException>(() => allowance.Allows(default));
+            Assert.Throws<ArgumentNullException>(() => allowance.Allows(stride, null));
+            Assert.Throws<NotSupportedException>(() =>
+                ((IList<ActionDefinitionId>)allowance.AllowedActions).Add(
+                    new ActionDefinitionId("step")
+                )
+            );
+        }
+
+        [Test]
+        public void RestrictedActionAllowancePaysOnlyAnAllowedSingleAction()
+        {
+            ActionDefinitionId stride = new ActionDefinitionId("stride");
+            ActionAllowance allowance = ActionAllowance.Restricted(new[] { stride });
+
+            Assert.That(
+                allowance.Allows(stride, ActionProfile.OneAction(Array.Empty<Trait>())),
+                Is.True
+            );
+            Assert.That(
+                allowance.Allows(
+                    stride,
+                    ActionProfile.Create(ActionCost.Two, Array.Empty<Trait>())
+                ),
+                Is.False
+            );
+            Assert.That(
+                allowance.Allows(
+                    stride,
+                    ActionProfile.Create(ActionCost.Three, Array.Empty<Trait>())
+                ),
+                Is.False
+            );
+            Assert.That(
+                allowance.Allows(
+                    new ActionDefinitionId("activity-containing-stride"),
+                    ActionProfile.OneAction(Array.Empty<Trait>())
+                ),
+                Is.False
+            );
+        }
+
+        [Test]
+        public void ActionAllowanceCanonicalOrderingDefinesEqualityAndHashing()
+        {
+            ActionDefinitionId stride = new ActionDefinitionId("stride");
+            ActionDefinitionId strike = new ActionDefinitionId("strike");
+            ActionAllowance first = ActionAllowance.Restricted(new[] { strike, stride, strike });
+            ActionAllowance second = ActionAllowance.Restricted(new[] { stride, strike });
+
+            Assert.That(first.AllowedActions, Is.EqualTo(new[] { stride, strike }));
+            Assert.That(first, Is.EqualTo(second));
+            Assert.That(first.GetHashCode(), Is.EqualTo(second.GetHashCode()));
+            Assert.That(first == second, Is.True);
+            Assert.That(first, Is.Not.EqualTo(ActionAllowance.None));
+            Assert.That(ActionAllowance.None, Is.Not.EqualTo(ActionAllowance.Unrestricted));
+        }
+
+        [Test]
+        public void ActionAllowanceUnionCombinesRestrictionsAndUnrestrictedDominates()
+        {
+            ActionAllowance stride = ActionAllowance.Restricted(
+                new[] { new ActionDefinitionId("stride") }
+            );
+            ActionAllowance strike = ActionAllowance.Restricted(
+                new[] { new ActionDefinitionId("strike") }
+            );
+            ActionAllowance combined = stride.Union(strike);
+
+            Assert.That(
+                combined.AllowedActions,
+                Is.EqualTo(
+                    new[] { new ActionDefinitionId("stride"), new ActionDefinitionId("strike") }
+                )
+            );
+            Assert.That(ActionAllowance.None.Union(stride), Is.SameAs(stride));
+            Assert.That(stride.Union(ActionAllowance.None), Is.SameAs(stride));
+            Assert.That(
+                combined.Union(ActionAllowance.Unrestricted),
+                Is.SameAs(ActionAllowance.Unrestricted)
+            );
+            Assert.Throws<ArgumentNullException>(() => stride.Union(null));
+        }
+
         [TestCase("Off-Guard", "condition-off-guard")]
         [TestCase("off guard", "condition-off-guard")]
         [TestCase("Flat-Footed", "condition-off-guard")]
@@ -122,6 +229,10 @@ namespace Game.Rules.Runtime.Tests
             QuickenedConditionState state = new QuickenedConditionState(input);
             input.Clear();
 
+            Assert.That(
+                state.Allowance,
+                Is.EqualTo(ActionAllowance.Restricted(new[] { strike, stride }))
+            );
             Assert.That(state.AllowedActions, Is.EqualTo(new[] { stride, strike }));
             Assert.That(state.Allows(stride), Is.True);
             Assert.That(state.Allows(new ActionDefinitionId("cast-spell")), Is.False);

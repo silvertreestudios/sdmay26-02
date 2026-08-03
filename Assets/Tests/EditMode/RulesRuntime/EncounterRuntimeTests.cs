@@ -60,7 +60,8 @@ namespace Game.Rules.Runtime.Tests
                 new StartEncounterOp(
                     Encounter,
                     Players,
-                    new[] { new EncounterParticipant(Enemy, Enemies, 0) }
+                    new[] { new EncounterParticipant(Enemy, Enemies, 0) },
+                    EncounterConclusionPolicy.VictoryOrDefeat
                 )
             );
 
@@ -74,14 +75,16 @@ namespace Game.Rules.Runtime.Tests
                     {
                         new EncounterParticipant(Hero, Players, 0),
                         new EncounterParticipant(Enemy, Enemies, 0),
-                    }
+                    },
+                    EncounterConclusionPolicy.VictoryOrDefeat
                 )
             );
             Assert.DoesNotThrow(() =>
                 new StartEncounterOp(
                     Encounter,
                     Players,
-                    new[] { new EncounterParticipant(Hero, Players, 0) }
+                    new[] { new EncounterParticipant(Hero, Players, 0) },
+                    EncounterConclusionPolicy.VictoryOrDefeat
                 )
             );
         }
@@ -94,6 +97,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 roster,
                 0,
@@ -106,6 +110,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 roster,
                 0,
@@ -118,6 +123,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 roster,
                 0,
@@ -129,6 +135,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 roster,
                 0,
@@ -136,10 +143,7 @@ namespace Game.Rules.Runtime.Tests
                 1,
                 null,
                 isTurnStartPending: true,
-                turnStartAdapterProgress: new TurnStartAdapterProgress(
-                    1,
-                    new TurnStartContribution(2)
-                )
+                turnStartAdapterProgress: new TurnStartAdapterProgress(1)
             );
 
             RulesSnapshot snapshot = new InMemoryRulesStore(
@@ -160,6 +164,7 @@ namespace Game.Rules.Runtime.Tests
                     Encounter,
                     EncounterPhase.Active,
                     Players,
+                    EncounterConclusionPolicy.VictoryOrDefeat,
                     RoundNumber.First,
                     roster,
                     -1,
@@ -174,6 +179,7 @@ namespace Game.Rules.Runtime.Tests
                     Encounter,
                     EncounterPhase.Active,
                     Players,
+                    EncounterConclusionPolicy.VictoryOrDefeat,
                     RoundNumber.First,
                     roster,
                     0,
@@ -189,6 +195,7 @@ namespace Game.Rules.Runtime.Tests
                     Encounter,
                     EncounterPhase.Suspended,
                     Players,
+                    EncounterConclusionPolicy.VictoryOrDefeat,
                     RoundNumber.First,
                     roster,
                     0,
@@ -208,6 +215,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 new RoundNumber(3),
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 1,
@@ -243,6 +251,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -251,13 +260,9 @@ namespace Game.Rules.Runtime.Tests
                 null,
                 isTurnStartPending: true
             );
-            DamageAndContributionTurnStartAdapter first = new DamageAndContributionTurnStartAdapter(
-                Hero,
-                1,
-                2
-            );
+            DamageTurnStartAdapter first = new DamageTurnStartAdapter(Hero, 1);
             ThrowOnceTurnStartAdapter second = new ThrowOnceTurnStartAdapter();
-            RecordingTurnStartAdapter third = new RecordingTurnStartAdapter("third", actions: 1);
+            RecordingTurnStartAdapter third = new RecordingTurnStartAdapter("third");
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(),
                 BaseSeed().SeedEncounter(pending),
@@ -274,7 +279,6 @@ namespace Game.Rules.Runtime.Tests
             EncounterState checkpoint = dispatcher.Snapshot.Encounters[Encounter];
             Assert.That(checkpoint.IsTurnStartPending, Is.True);
             Assert.That(checkpoint.TurnStartAdapterProgress.NextAdapterIndex, Is.EqualTo(1));
-            Assert.That(checkpoint.TurnStartAdapterProgress.Contribution.Actions, Is.EqualTo(2));
             Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.EqualTo(9));
             Assert.That(first.Calls, Is.EqualTo(1));
             Assert.That(second.Calls, Is.EqualTo(1));
@@ -288,7 +292,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(begun.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
             Assert.That(begun.IsTurnStartPending, Is.False);
             Assert.That(begun.TurnStartAdapterProgress, Is.Null);
-            Assert.That(dispatcher.Snapshot.ActionEconomy[Hero].ActionsRemaining, Is.EqualTo(1));
+            Assert.That(
+                dispatcher.Snapshot.ActionEconomy[Hero].StandardActionsRemaining,
+                Is.EqualTo(3)
+            );
             Assert.That(first.Calls, Is.EqualTo(1));
             Assert.That(second.Calls, Is.EqualTo(2));
             Assert.That(third.Actors, Is.EqualTo(new[] { Hero }));
@@ -302,6 +309,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -346,7 +354,6 @@ namespace Game.Rules.Runtime.Tests
         [TestCase("slot")]
         [TestCase("actor")]
         [TestCase("index")]
-        [TestCase("contribution")]
         public async Task TurnStartProgressReducerRejectsEveryExactMismatchWithoutMutation(
             string mismatch
         )
@@ -355,6 +362,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -373,11 +381,7 @@ namespace Game.Rules.Runtime.Tests
                 mismatch == "round" ? RoundNumber.First.Next() : RoundNumber.First,
                 mismatch == "slot" ? 1 : 0,
                 mismatch == "actor" ? Enemy : Hero,
-                mismatch == "index" ? 1 : 0,
-                mismatch == "contribution"
-                    ? new TurnStartContribution(2)
-                    : TurnStartContribution.Standard,
-                new TurnStartContribution(2)
+                mismatch == "index" ? 1 : 0
             );
 
             OpResult<TurnStartAdapterProgress> result = Resolved(
@@ -398,7 +402,12 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
                 new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+                    new CommitEncounterStartOp(
+                        Encounter,
+                        Players,
+                        EncounterConclusionPolicy.VictoryOrDefeat,
+                        Array.AsReadOnly(roster)
+                    )
                 )
             );
             OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
@@ -422,7 +431,12 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
                 new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+                    new CommitEncounterStartOp(
+                        Encounter,
+                        Players,
+                        EncounterConclusionPolicy.VictoryOrDefeat,
+                        Array.AsReadOnly(roster)
+                    )
                 )
             );
             OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
@@ -453,7 +467,12 @@ namespace Game.Rules.Runtime.Tests
 
             OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
                 new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+                    new CommitEncounterStartOp(
+                        Encounter,
+                        Players,
+                        EncounterConclusionPolicy.VictoryOrDefeat,
+                        Array.AsReadOnly(roster)
+                    )
                 )
             );
             OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
@@ -529,7 +548,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task TurnStartClearsStaleMovementThenEndTurnResetsActionsMapAndWrapsRoundOnce()
+        public async Task TurnStartClearsStaleMovementThenEndTurnResetsMapAndWrapsRoundOnce()
         {
             MovementBudgetState budget = new MovementBudgetState(
                 new MovementBudgetId(new OpId(99)),
@@ -557,7 +576,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
             Assert.That(movementResets.Calls, Is.EqualTo(1));
             await dispatcher.Dispatch(new AdvanceMultipleAttackPenaltyOp(Hero));
-            await dispatcher.Dispatch(new SpendEncounterActionsOp(Hero, 1));
 
             EncounterState enemyTurn = Resolved(
                 await dispatcher.Dispatch(new EndTurnOp(started.CurrentTurn.Value))
@@ -570,7 +588,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(secondHeroTurn.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
             Assert.That(
                 dispatcher.Snapshot.ActionEconomy[Hero],
-                Is.EqualTo(new ActionEconomyState(3, true))
+                Is.EqualTo(new ActionEconomyState(3, ActionAllowance.None, true))
             );
             Assert.That(dispatcher.Snapshot.MultipleAttackPenalty[Hero].AttackCount, Is.Zero);
             Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
@@ -589,7 +607,7 @@ namespace Game.Rules.Runtime.Tests
             );
             RulesStateSeed seed = BaseSeed()
                 .SeedEncounter(active)
-                .SeedActionEconomy(Hero, new ActionEconomyState(3, true))
+                .SeedActionEconomy(Hero, new ActionEconomyState(3, ActionAllowance.None, true))
                 .SeedMultipleAttackPenalty(Hero, new MultipleAttackPenaltyState(1))
                 .SeedMovementBudget(Hero, budget);
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
@@ -601,96 +619,6 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(dispatcher.Snapshot.MovementBudgets.Contains(Hero), Is.False);
             Assert.That(movementResets.Calls, Is.EqualTo(1));
-        }
-
-        [Test]
-        public async Task ZeroCostActionAuthorizationRequiresExactTurnWithoutSpendMutation()
-        {
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
-            CountingFactObserver<EncounterActionsSpentFact> spends =
-                new CountingFactObserver<EncounterActionsSpentFact>();
-            dispatcher.RegisterFactObserver<EncounterActionsSpentFact>(spends);
-            EncounterState started = Resolved(
-                await dispatcher.Dispatch(
-                    Start(
-                        new EncounterParticipant(Hero, Players, 0),
-                        new EncounterParticipant(Enemy, Enemies, 0)
-                    )
-                )
-            ).Value.State;
-
-            EncounterActionSpendOutcome authorized = Resolved(
-                await dispatcher.Dispatch(new SpendEncounterActionsOp(Hero, 0))
-            ).Value;
-
-            Assert.That(authorized.Remaining, Is.EqualTo(3));
-            Assert.That(
-                dispatcher.Snapshot.ActionEconomy[Hero],
-                Is.EqualTo(new ActionEconomyState(3, true))
-            );
-            Assert.That(spends.Calls, Is.Zero);
-
-            EncounterState advanced = Resolved(
-                await dispatcher.Dispatch(new EndTurnOp(started.CurrentTurn.Value))
-            ).Value.State;
-            InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
-                async () =>
-                    await dispatcher.Dispatch(new SpendEncounterActionsOp(Hero, 0))
-            );
-
-            Assert.That(rejected.Message, Does.Contain("does not own an active current turn"));
-            Assert.That(advanced.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
-            Assert.That(spends.Calls, Is.Zero);
-        }
-
-        [Test]
-        public async Task TargetAwareActionSpendRejectsAnyCommittedDefeatAtomically()
-        {
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10, 5));
-            CountingFactObserver<EncounterActionsSpentFact> spends =
-                new CountingFactObserver<EncounterActionsSpentFact>();
-            dispatcher.RegisterFactObserver<EncounterActionsSpentFact>(spends);
-            await dispatcher.Dispatch(
-                Start(
-                    new EncounterParticipant(Hero, Players, 0),
-                    new EncounterParticipant(Enemy, Enemies, 0),
-                    new EncounterParticipant(Reinforcement, Enemies, 0)
-                )
-            );
-            await dispatcher.Dispatch(
-                new ApplyDamageOp(
-                    Enemy,
-                    10,
-                    new HealthChangeOriginId("target-aware-defeat"),
-                    Source
-                )
-            );
-
-            InvalidOperationException rejected = Assert.ThrowsAsync<InvalidOperationException>(
-                async () =>
-                    await dispatcher.Dispatch(
-                        new SpendEncounterActionsOp(
-                            Hero,
-                            1,
-                            new[] { Reinforcement, Enemy, Reinforcement }
-                        )
-                    )
-            );
-
-            Assert.That(rejected.Message, Does.Contain("no longer a living participant"));
-            Assert.That(
-                dispatcher.Snapshot.ActionEconomy[Hero],
-                Is.EqualTo(new ActionEconomyState(3, true))
-            );
-            Assert.That(spends.Calls, Is.Zero);
-
-            EncounterActionSpendOutcome livingTargetSpend = Resolved(
-                await dispatcher.Dispatch(
-                    new SpendEncounterActionsOp(Hero, 1, new[] { Reinforcement })
-                )
-            ).Value;
-            Assert.That(livingTargetSpend.Remaining, Is.EqualTo(2));
-            Assert.That(spends.Calls, Is.EqualTo(1));
         }
 
         [Test]
@@ -764,7 +692,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task OrderedStartAdaptersSetFinalActionsBeforeTurnBeganFact()
+        public async Task OrderedStartAdaptersCompleteBeforeStandardTurnBeganFact()
         {
             List<string> order = new List<string>();
             RuleDispatcher dispatcher = CreateDispatcher(
@@ -773,7 +701,7 @@ namespace Game.Rules.Runtime.Tests
                 {
                     new RecordingTurnStartAdapter("spell", order),
                     new RecordingTurnStartAdapter("aura", order),
-                    new RecordingTurnStartAdapter("slowed", order, 2),
+                    new RecordingTurnStartAdapter("last", order),
                 }
             );
             TurnBeganSnapshotObserver observer = new TurnBeganSnapshotObserver(order);
@@ -786,11 +714,11 @@ namespace Game.Rules.Runtime.Tests
                 )
             );
 
-            Assert.That(order, Is.EqualTo(new[] { "spell", "aura", "slowed", "fact" }));
-            Assert.That(observer.ActionsAtFact, Is.EqualTo(2));
+            Assert.That(order, Is.EqualTo(new[] { "spell", "aura", "last", "fact" }));
+            Assert.That(observer.ActionsAtFact, Is.EqualTo(3));
             Assert.That(
                 dispatcher.Snapshot.ActionEconomy[Hero],
-                Is.EqualTo(new ActionEconomyState(2, true))
+                Is.EqualTo(new ActionEconomyState(3, ActionAllowance.None, true))
             );
         }
 
@@ -939,7 +867,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(dispatcher.Snapshot.Health[Hero].Current, Is.EqualTo(1));
             Assert.That(
                 dispatcher.Snapshot.ActionEconomy[Hero],
-                Is.EqualTo(new ActionEconomyState(0, false))
+                Is.EqualTo(new ActionEconomyState(0, ActionAllowance.None, false))
             );
             Assert.That(state.Phase, Is.EqualTo(EncounterPhase.Active));
             Assert.That(state.Outcome, Is.Null);
@@ -1133,7 +1061,10 @@ namespace Game.Rules.Runtime.Tests
                     seed.SeedLandSpeed(Reinforcement, new GridDistance(30));
                     break;
                 case JoinRegistrationCollision.ActionEconomy:
-                    seed.SeedActionEconomy(Reinforcement, new ActionEconomyState(2, true));
+                    seed.SeedActionEconomy(
+                        Reinforcement,
+                        new ActionEconomyState(2, ActionAllowance.None, true)
+                    );
                     break;
                 case JoinRegistrationCollision.MultipleAttackPenalty:
                     seed.SeedMultipleAttackPenalty(
@@ -1239,6 +1170,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { hero },
                 0,
@@ -2319,6 +2251,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -2329,7 +2262,7 @@ namespace Game.Rules.Runtime.Tests
             RulesStateSeed seed = BaseSeed()
                 .SeedHealth(Hero, new HealthState(0, 10))
                 .SeedHealth(Enemy, new HealthState(0, 10))
-                .SeedActionEconomy(Hero, new ActionEconomyState(0, false))
+                .SeedActionEconomy(Hero, new ActionEconomyState(0, ActionAllowance.None, false))
                 .SeedMultipleAttackPenalty(Hero, new MultipleAttackPenaltyState(0))
                 .SeedEncounter(active);
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
@@ -2371,7 +2304,7 @@ namespace Game.Rules.Runtime.Tests
             if (omitActionEconomy)
                 seed.SeedMultipleAttackPenalty(Hero, new MultipleAttackPenaltyState(0));
             else
-                seed.SeedActionEconomy(Hero, new ActionEconomyState(3, true));
+                seed.SeedActionEconomy(Hero, new ActionEconomyState(3, ActionAllowance.None, true));
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
             RulesSnapshot before = dispatcher.Snapshot;
 
@@ -2931,6 +2864,7 @@ namespace Game.Rules.Runtime.Tests
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 -1,
@@ -3123,7 +3057,8 @@ namespace Game.Rules.Runtime.Tests
                             {
                                 new EncounterParticipant(Hero, Players, 0),
                                 new EncounterParticipant(Enemy, Enemies, 0),
-                            }
+                            },
+                            EncounterConclusionPolicy.VictoryOrDefeat
                         )
                     )
                 );
@@ -3160,13 +3095,19 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private static StartEncounterOp Start(params EncounterParticipant[] participants) =>
-            new StartEncounterOp(Encounter, Players, participants);
+            new StartEncounterOp(
+                Encounter,
+                Players,
+                participants,
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
 
         private static EncounterState ActiveTurnEncounter() =>
             new EncounterState(
                 Encounter,
                 EncounterPhase.Active,
                 Players,
+                EncounterConclusionPolicy.VictoryOrDefeat,
                 RoundNumber.First,
                 new[] { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) },
                 0,
@@ -3489,32 +3430,21 @@ namespace Game.Rules.Runtime.Tests
         {
             private readonly string label;
             private readonly IList<string> order;
-            private readonly int? actions;
             private readonly List<CreatureId> actors = new List<CreatureId>();
 
-            public RecordingTurnStartAdapter(
-                string label,
-                IList<string> order = null,
-                int? actions = null
-            )
+            public RecordingTurnStartAdapter(string label, IList<string> order = null)
             {
                 this.label = label;
                 this.order = order;
-                this.actions = actions;
             }
 
             public IReadOnlyList<CreatureId> Actors => actors;
 
-            public ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public ValueTask Apply(EncounterTurnStartContext context)
             {
                 actors.Add(context.Actor);
                 order?.Add(label);
-                return new ValueTask<TurnStartContribution>(
-                    actions.HasValue ? new TurnStartContribution(actions.Value) : current
-                );
+                return default;
             }
         }
 
@@ -3526,55 +3456,57 @@ namespace Game.Rules.Runtime.Tests
 
             public int Calls { get; private set; }
 
-            public async ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public async ValueTask Apply(EncounterTurnStartContext context)
             {
                 if (context.Actor != target)
-                    return current;
+                    return;
                 Calls++;
                 HealthState health = context.Snapshot.Health[context.Actor];
-                await context.ApplyFinalDamage(
-                    context.Actor,
-                    health.Current + health.Temporary,
-                    new HealthChangeOriginId("lethal-turn-start"),
-                    Source
+                await context.CommitFinalDamageBatchAndCompleteAdapter(
+                    new[]
+                    {
+                        new HealthBatchChange(
+                            HealthBatchChangeKind.Damage,
+                            context.Actor,
+                            health.Current + health.Temporary,
+                            new HealthChangeOriginId("lethal-turn-start"),
+                            Source
+                        ),
+                    }
                 );
-                return current;
             }
         }
 
-        private sealed class DamageAndContributionTurnStartAdapter : IEncounterTurnStartAdapter
+        private sealed class DamageTurnStartAdapter : IEncounterTurnStartAdapter
         {
             private readonly CreatureId actor;
             private readonly int damage;
-            private readonly int actions;
 
-            public DamageAndContributionTurnStartAdapter(CreatureId actor, int damage, int actions)
+            public DamageTurnStartAdapter(CreatureId actor, int damage)
             {
                 this.actor = actor;
                 this.damage = damage;
-                this.actions = actions;
             }
 
             public int Calls { get; private set; }
 
-            public async ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public async ValueTask Apply(EncounterTurnStartContext context)
             {
                 if (context.Actor != actor)
-                    return current;
+                    return;
                 Calls++;
-                await context.ApplyFinalDamage(
-                    actor,
-                    damage,
-                    new HealthChangeOriginId("turn-start-progress-damage"),
-                    Source
+                await context.CommitFinalDamageBatchAndCompleteAdapter(
+                    new[]
+                    {
+                        new HealthBatchChange(
+                            HealthBatchChangeKind.Damage,
+                            actor,
+                            damage,
+                            new HealthChangeOriginId("turn-start-progress-damage"),
+                            Source
+                        ),
+                    }
                 );
-                return new TurnStartContribution(actions);
             }
         }
 
@@ -3582,15 +3514,12 @@ namespace Game.Rules.Runtime.Tests
         {
             public int Calls { get; private set; }
 
-            public ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public ValueTask Apply(EncounterTurnStartContext context)
             {
                 Calls++;
                 if (Calls == 1)
                     throw new InvalidOperationException("Injected turn-start adapter failure.");
-                return new ValueTask<TurnStartContribution>(current);
+                return default;
             }
         }
 
@@ -3695,7 +3624,7 @@ namespace Game.Rules.Runtime.Tests
 
             public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
             {
-                ActionsAtFact = snapshot.ActionEconomy[fact.Turn.Actor].ActionsRemaining;
+                ActionsAtFact = snapshot.ActionEconomy[fact.Turn.Actor].StandardActionsRemaining;
                 order.Add("fact");
                 return default;
             }
