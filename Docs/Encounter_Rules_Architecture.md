@@ -332,6 +332,14 @@ best-effort and aggregates projection and detachment failures. A detached explor
 composition neither adopts nor consumes this input because it does not own Unity combat authority
 and cannot project an encounter snapshot during release.
 
+Conditions and catalog-backed rules-native spell effects share the feature-neutral
+`PendingImmutableValue<TValue>` generation/lease primitive for this boundary. Spellcasting owns a
+separate detached `SpellEffectState` registration projection; it never copies those effects into
+`SpellEffectController`. Owning enrollment prepares pending registrations through
+`AddActiveEffects` for initial participants and reinforcements, and release projects them while the
+exact bridge remains attached. Exploration composition neither creates, captures, adopts, nor
+consumes that detached spell-effect value.
+
 Each detached condition also retains its immutable dungeon `SourceActorId`. The bridge maintains a
 scoped, one-to-one mapping between configured dungeon identity components and encounter
 `CreatureId` values. An actor with neither `DungeonPartyMemberIdentity` nor
@@ -371,7 +379,16 @@ and persistence types out of the generic rules runtime.
 ### Restored-effect adoption
 
 `UnitySpellcastingEncounterModule` is the production example of state that crosses both enrollment
-routes. During preparation it converts supported `SpellEffectController` entries into
+routes. Its rules-native path restores exact catalog-backed `SpellEffectState` effect, binding, and
+timing registrations from the feature-owned detached value. Persistence retains exact spell
+reference, lifecycle version/status, creation order, duration/timing, and canonical durable source
+and target provenance. The current catalog supports only self-targeted active effects, so both the
+durable source and target must resolve to the exact effect owner in the owning encounter; source
+appearance cannot turn foreign persisted provenance into a valid self effect. The feature never
+reserves an absent source, infers provenance, synthesizes state, or falls back to the owner. An
+intentionally nondurable owner captures canonical empty without enumerating effects.
+
+The transitional path separately converts supported `SpellEffectController` entries into
 `RestoredSpellEffectContribution` objects with stable `ActiveEffectId` and `BindingId` values.
 The contribution retains projection lifetime ownership and adds its generic registrations to
 `CombatantRulesState.ActiveEffects`. Initial participants seed those registrations directly;

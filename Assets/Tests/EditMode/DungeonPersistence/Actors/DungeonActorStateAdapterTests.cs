@@ -89,6 +89,32 @@ public sealed class DungeonActorStateAdapterTests
             new AmmoCount { ammoName = "bolt", quantity = 3 },
         };
         source.Creature.unloadedWeapons = new() { "Heavy Crossbow" };
+        SpellReference light = new(new SpellId("light"), 1);
+        UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
+        Assert.That(spellCatalog.TryGetSpell(light, out SpellDefinition lightDefinition), Is.True);
+        SpellEffectDirective lightEffect = lightDefinition.Effects.Single();
+        sourceObject
+            .AddComponent<RulesSpellEffectPersistence>()
+            .RestoreEffects(
+                new[]
+                {
+                    new RulesSpellEffectSnapshot(
+                        new ActiveEffectId("saved-rules-light"),
+                        new BindingId("saved-rules-light-binding"),
+                        lightEffect.DefinitionId,
+                        "owner-slot",
+                        "owner-slot",
+                        RuleSource.FromSlug("light"),
+                        lightEffect.Duration,
+                        new EffectStateVersion(3),
+                        ActiveEffectStatus.Active,
+                        7,
+                        true,
+                        light,
+                        null
+                    ),
+                }
+            );
         UnityCombatRulesBridge sourceBridge = UnityCombatRulesBridge.Create(
             new[] { source.Controller, effectSource },
             CreateTiles()
@@ -102,6 +128,11 @@ public sealed class DungeonActorStateAdapterTests
                 : throw new InvalidOperationException()
         );
         sourceBridge.ReleaseOwnership();
+        Assert.That(captured.RulesSpellEffects, Has.Length.EqualTo(1));
+        Assert.That(captured.RulesSpellEffects[0].SpellId, Is.EqualTo("light"));
+        Assert.That(captured.RulesSpellEffects[0].SpellRank, Is.EqualTo(1));
+        Assert.That(captured.RulesSpellEffects[0].Version, Is.EqualTo(3));
+        Assert.That(captured.RulesSpellEffects[0].CreationOrder, Is.EqualTo(7));
         SourceFixture restored = CreateFixture("Restored", out restoredObject);
         restored.Creature.Build = new CharacterBuild();
         restored.Creature.Prepared = null;
@@ -160,6 +191,12 @@ public sealed class DungeonActorStateAdapterTests
         Assert.That(restored.Creature.equippedRightHand, Is.SameAs(restored.Weapons[1]));
         Assert.That(restored.Creature.GetAmmoQuantity("bolt"), Is.EqualTo(3));
         Assert.That(restored.Creature.IsWeaponLoaded(restored.Weapons[1]), Is.False);
+        ActiveEffectInstance restoredLight = restoredBridge
+            .Snapshot.ActiveEffects.Select(pair => pair.Value)
+            .Single(effect => effect.Id == new ActiveEffectId("saved-rules-light"));
+        Assert.That(restoredLight.DefinitionId, Is.EqualTo(lightEffect.DefinitionId));
+        Assert.That(restoredLight.EffectStateVersion, Is.EqualTo(new EffectStateVersion(3)));
+        Assert.That(restoredLight.GetState<SpellEffectState>().Spell, Is.EqualTo(light));
     }
 
     [Test]
@@ -431,6 +468,7 @@ public sealed class DungeonActorStateAdapterTests
                     TemporaryHitPointImmunities = captured.TemporaryHitPointImmunities,
                     Conditions = captured.Conditions,
                     TimedEffects = captured.TimedEffects,
+                    RulesSpellEffects = captured.RulesSpellEffects,
                     PreparedEffects = captured.PreparedEffects,
                     Equipment = new DungeonEquipmentSaveState
                     {
@@ -550,6 +588,100 @@ public sealed class DungeonActorStateAdapterTests
         Assert.That(DungeonSaveJson.ParseActor(JsonUtility.ToJson(actor)).IsSuccess, Is.False);
     }
 
+    [Test]
+    public void ActorParserStrictlyValidatesRulesSpellEffectIdentityOrderAndTiming()
+    {
+        DungeonActorSaveState valid = ValidSavedActor();
+        valid.RulesSpellEffects = new[]
+        {
+            SavedRulesSpellEffect("spell-effect-a", "spell-binding-a", 1),
+            SavedRulesSpellEffect("spell-effect-b", "spell-binding-b", 2),
+        };
+        Assert.That(DungeonSaveJson.ParseActor(JsonUtility.ToJson(valid)).IsSuccess, Is.True);
+
+        DungeonActorSaveState duplicate = ValidSavedActor();
+        duplicate.RulesSpellEffects = new[]
+        {
+            SavedRulesSpellEffect("spell-effect-a", "spell-binding-a", 1),
+            SavedRulesSpellEffect("spell-effect-a", "spell-binding-b", 2),
+        };
+        Assert.That(DungeonSaveJson.ParseActor(JsonUtility.ToJson(duplicate)).IsSuccess, Is.False);
+
+        DungeonActorSaveState unordered = ValidSavedActor();
+        unordered.RulesSpellEffects = new[]
+        {
+            SavedRulesSpellEffect("spell-effect-b", "spell-binding-b", 2),
+            SavedRulesSpellEffect("spell-effect-a", "spell-binding-a", 1),
+        };
+        Assert.That(DungeonSaveJson.ParseActor(JsonUtility.ToJson(unordered)).IsSuccess, Is.False);
+
+        DungeonActorSaveState invalidTiming = ValidSavedActor();
+        DungeonRulesSpellEffectSaveState finite = SavedRulesSpellEffect(
+            "spell-effect-finite",
+            "spell-binding-finite",
+            1
+        );
+        finite.DurationKind = EffectDurationKind.Rounds;
+        finite.DurationAmount = 2;
+        invalidTiming.RulesSpellEffects = new[] { finite };
+        Assert.That(
+            DungeonSaveJson.ParseActor(JsonUtility.ToJson(invalidTiming)).IsSuccess,
+            Is.False
+        );
+
+        DungeonActorSaveState invalidRank = ValidSavedActor();
+        DungeonRulesSpellEffectSaveState rank = SavedRulesSpellEffect(
+            "spell-effect-rank",
+            "spell-binding-rank",
+            1
+        );
+        rank.SpellRank = 0;
+        invalidRank.RulesSpellEffects = new[] { rank };
+        Assert.That(
+            DungeonSaveJson.ParseActor(JsonUtility.ToJson(invalidRank)).IsSuccess,
+            Is.False
+        );
+
+        DungeonActorSaveState foreignSource = ValidSavedActor();
+        DungeonRulesSpellEffectSaveState foreign = SavedRulesSpellEffect(
+            "spell-effect-foreign",
+            "spell-binding-foreign",
+            1
+        );
+        foreign.SourceActorId = "other-actor";
+        foreignSource.RulesSpellEffects = new[] { foreign };
+        Assert.That(
+            DungeonSaveJson.ParseActor(JsonUtility.ToJson(foreignSource)).IsSuccess,
+            Is.False
+        );
+    }
+
+    [Test]
+    public void ActorRestoreRejectsRulesSpellEffectOutsideTheActualSpellCatalog()
+    {
+        SourceFixture fixture = CreateFixture("Catalog Validation", out sourceObject);
+        DungeonActorSaveState actor = ValidSavedActor();
+        DungeonRulesSpellEffectSaveState effect = SavedRulesSpellEffect(
+            "spell-effect-unknown",
+            "spell-binding-unknown",
+            0
+        );
+        effect.DefinitionId = "spell-effect-not-in-light";
+        actor.RulesSpellEffects = new[] { effect };
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            DungeonActorStateAdapter.PrepareRestore(
+                fixture.Controller,
+                actor,
+                currentHitPoints: 12,
+                isDefeated: false,
+                _ => sourceObject
+            )
+        );
+
+        Assert.That(error.Message, Does.Contain("catalog contract"));
+    }
+
     private static SourceFixture CreateFixture(string name, out GameObject gameObject)
     {
         gameObject = new GameObject(name);
@@ -595,6 +727,7 @@ public sealed class DungeonActorStateAdapterTests
             TemporaryHitPointImmunities = Array.Empty<string>(),
             Conditions = conditions,
             TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            RulesSpellEffects = Array.Empty<DungeonRulesSpellEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {
@@ -647,6 +780,32 @@ public sealed class DungeonActorStateAdapterTests
         condition.AllowedActionIds = actionIds;
         return condition;
     }
+
+    private static DungeonRulesSpellEffectSaveState SavedRulesSpellEffect(
+        string effectId,
+        string bindingId,
+        long creationOrder
+    ) =>
+        new()
+        {
+            EffectId = effectId,
+            BindingId = bindingId,
+            DefinitionId = "spell-effect-light",
+            SourceActorId = "owner-slot",
+            TargetActorId = "owner-slot",
+            RuleSource = "light",
+            DurationKind = EffectDurationKind.Indefinite,
+            DurationAmount = 0,
+            Version = 0,
+            Status = ActiveEffectStatus.Active,
+            CreationOrder = creationOrder,
+            BindingEnabled = true,
+            SpellId = "light",
+            SpellRank = 1,
+            HasTiming = false,
+            RemainingBoundaries = 0,
+            ExpiresWithEncounter = false,
+        };
 
     private static ConditionApplicationSnapshot PersistedCondition(
         string identity,

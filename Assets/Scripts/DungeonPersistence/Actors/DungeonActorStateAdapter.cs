@@ -34,6 +34,8 @@ namespace Game.DungeonPersistence.Actors
                 controller,
                 identifyActor
             );
+            IReadOnlyList<DungeonRulesSpellEffectSaveState> rulesSpellEffects =
+                CaptureRulesSpellEffects(controller);
             IReadOnlyList<DungeonPreparedEffectSaveState> preparedEffects =
                 creature.Prepared == null
                     ? Array.Empty<DungeonPreparedEffectSaveState>()
@@ -60,6 +62,7 @@ namespace Game.DungeonPersistence.Actors
                     ) && RageRules.IsRaging(bridge.Snapshot, creatureId),
                 Conditions = conditions.ToArray(),
                 TimedEffects = timedEffects.ToArray(),
+                RulesSpellEffects = rulesSpellEffects.ToArray(),
                 PreparedEffects = preparedEffects.ToArray(),
                 Equipment = CaptureEquipment(creature),
             };
@@ -109,6 +112,9 @@ namespace Game.DungeonPersistence.Actors
             );
 
             ConditionApplicationSnapshot[] conditions = PrepareConditions(saved.Conditions);
+            RulesSpellEffectSnapshot[] rulesSpellEffects = PrepareRulesSpellEffects(
+                saved.RulesSpellEffects
+            );
             ActiveSpellEffect[] timedEffects = saved
                 .TimedEffects.Select(effect => RestoreTimedEffect(effect, resolveActor))
                 .ToArray();
@@ -158,6 +164,11 @@ namespace Game.DungeonPersistence.Actors
                     controller.GetComponent<Conditions>()
                     ?? controller.gameObject.AddComponent<Conditions>();
                 conditionController.RestoreApplications(conditions);
+
+                RulesSpellEffectPersistence rulesPersistence =
+                    controller.GetComponent<RulesSpellEffectPersistence>()
+                    ?? controller.gameObject.AddComponent<RulesSpellEffectPersistence>();
+                rulesPersistence.RestoreEffects(rulesSpellEffects);
 
                 SpellEffectController spellEffects =
                     controller.GetComponent<SpellEffectController>();
@@ -338,6 +349,86 @@ namespace Game.DungeonPersistence.Actors
                 })
                 .ToArray();
         }
+
+        private static IReadOnlyList<DungeonRulesSpellEffectSaveState> CaptureRulesSpellEffects(
+            ActionController controller
+        )
+        {
+            RulesSpellEffectPersistence persistence =
+                controller.GetComponent<RulesSpellEffectPersistence>();
+            if (persistence == null)
+                return Array.Empty<DungeonRulesSpellEffectSaveState>();
+            UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+            return persistence
+                .CaptureEffects(catalog)
+                .Select(effect => new DungeonRulesSpellEffectSaveState
+                {
+                    EffectId = effect.EffectId.Value,
+                    BindingId = effect.BindingId.Value,
+                    DefinitionId = effect.DefinitionId.Value,
+                    SourceActorId = effect.SourceActorId,
+                    TargetActorId = effect.TargetActorId,
+                    RuleSource = effect.Source.Slug,
+                    DurationKind = effect.Duration.Kind,
+                    DurationAmount = effect.Duration.Amount,
+                    Version = effect.Version.Value,
+                    Status = effect.Status,
+                    CreationOrder = effect.CreationOrder,
+                    BindingEnabled = effect.BindingEnabled,
+                    SpellId = effect.Spell.Spell.Value,
+                    SpellRank = effect.Spell.Rank,
+                    HasTiming = effect.Timing != null,
+                    RemainingBoundaries = effect.Timing?.RemainingBoundaries ?? 0,
+                    ExpiresWithEncounter = effect.Timing?.ExpiresWithEncounter ?? false,
+                })
+                .ToArray();
+        }
+
+        private static RulesSpellEffectSnapshot[] PrepareRulesSpellEffects(
+            IReadOnlyList<DungeonRulesSpellEffectSaveState> saved
+        )
+        {
+            RulesSpellEffectSnapshot[] restored = saved
+                .Select(effect => new RulesSpellEffectSnapshot(
+                    new ActiveEffectId(effect.EffectId),
+                    new BindingId(effect.BindingId),
+                    new RuleDefinitionId(effect.DefinitionId),
+                    effect.SourceActorId,
+                    effect.TargetActorId,
+                    RuleSource.FromSlug(effect.RuleSource),
+                    RestoreRulesSpellEffectDuration(effect),
+                    new EffectStateVersion(effect.Version),
+                    effect.Status,
+                    effect.CreationOrder,
+                    effect.BindingEnabled,
+                    new SpellReference(new SpellId(effect.SpellId), effect.SpellRank),
+                    effect.HasTiming
+                        ? new RulesSpellEffectTimingSnapshot(
+                            effect.RemainingBoundaries,
+                            effect.ExpiresWithEncounter
+                        )
+                        : null
+                ))
+                .ToArray();
+            UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+            foreach (RulesSpellEffectSnapshot effect in restored)
+                effect.ValidateCatalog(catalog);
+            return restored;
+        }
+
+        private static EffectDuration RestoreRulesSpellEffectDuration(
+            DungeonRulesSpellEffectSaveState saved
+        ) =>
+            saved.DurationKind switch
+            {
+                EffectDurationKind.Indefinite => EffectDuration.Indefinite,
+                EffectDurationKind.Encounter => EffectDuration.Encounter,
+                EffectDurationKind.Rounds => EffectDuration.Rounds(saved.DurationAmount),
+                EffectDurationKind.Minutes => EffectDuration.Minutes(saved.DurationAmount),
+                _ => throw new InvalidOperationException(
+                    "Unsupported rules-native spell-effect duration kind."
+                ),
+            };
 
         private static string GetEffectKind(ActiveSpellEffect effect)
         {

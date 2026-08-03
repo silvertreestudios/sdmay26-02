@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using UnityEngine;
 
 /// <summary>Owns one-shot condition input and read-only live or detached persistence projection.</summary>
@@ -15,10 +16,8 @@ public sealed class Conditions : MonoBehaviour
 {
     private static readonly IReadOnlyList<ConditionApplicationSnapshot> EmptyApplications =
         Array.AsReadOnly(Array.Empty<ConditionApplicationSnapshot>());
-    private IReadOnlyList<ConditionApplicationSnapshot> pending = EmptyApplications;
-    private long pendingGeneration;
-    private bool hasPending;
-    private bool wasEnrolled;
+    private readonly PendingImmutableValue<IReadOnlyList<ConditionApplicationSnapshot>> detached =
+        new(EmptyApplications, "Condition");
 
     /// <summary>Gets canonical active condition slugs from the attached authoritative store.</summary>
     public IReadOnlyCollection<string> ActiveConditionNames
@@ -34,15 +33,7 @@ public sealed class Conditions : MonoBehaviour
     internal IReadOnlyList<ConditionApplicationSnapshot> CaptureApplications()
     {
         if (!TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner))
-        {
-            if (hasPending)
-                return pending;
-            if (!wasEnrolled && !hasPending)
-                return EmptyApplications;
-            throw new InvalidOperationException(
-                "Condition persistence capture requires attached authoritative combat rules."
-            );
-        }
+            return detached.ReadDetached();
 
         return CaptureAuthoritative(bridge, owner);
     }
@@ -60,7 +51,7 @@ public sealed class Conditions : MonoBehaviour
             throw new InvalidOperationException(
                 "Condition detachment projection requires the exact attached combat rules."
             );
-        ReplacePending(CaptureAuthoritative(bridge, owner));
+        detached.Replace(CaptureAuthoritative(bridge, owner));
     }
 
     private static IReadOnlyList<ConditionApplicationSnapshot> CaptureAuthoritative(
@@ -163,66 +154,45 @@ public sealed class Conditions : MonoBehaviour
                 "Restored condition applications require unique stable identities.",
                 nameof(applications)
             );
-        ReplacePending(Array.AsReadOnly(copied));
+        detached.Replace(Array.AsReadOnly(copied));
     }
 
     internal bool TryPrepareRestore(
         CreatureId owner,
         EncounterId encounter,
         Func<string, DurableActorSourceResolution> resolveSource,
-        out ConditionRestoreLease lease
+        out PendingImmutableValueLease<IReadOnlyList<ConditionApplicationSnapshot>> lease,
+        out IReadOnlyList<ActiveEffectRegistration> registrations
     )
     {
         if (owner.IsEmpty || encounter.IsEmpty)
             throw new ArgumentException("Condition enrollment requires complete stable identity.");
         if (resolveSource == null)
             throw new ArgumentNullException(nameof(resolveSource));
-        if (!hasPending)
+        if (!detached.TryLease(out lease))
         {
-            lease = null;
+            registrations = Array.Empty<ActiveEffectRegistration>();
             return false;
         }
 
-        ActiveEffectRegistration[] registrations = pending
-            .Select(application =>
-                application.CreateRegistration(
-                    owner,
-                    resolveSource(application.SourceActorId),
-                    encounter
+        registrations = Array.AsReadOnly(
+            lease
+                .Value.Select(application =>
+                    application.CreateRegistration(
+                        owner,
+                        resolveSource(application.SourceActorId),
+                        encounter
+                    )
                 )
-            )
-            .ToArray();
-        lease = new ConditionRestoreLease(this, pendingGeneration, registrations);
+                .ToArray()
+        );
         return true;
     }
 
-    private void ConsumePending()
-    {
-        pending = EmptyApplications;
-        hasPending = false;
-    }
+    internal IUnityCombatantBatchFinalizationContribution CreateEnrollmentFinalization() =>
+        detached.CreateEnrollmentFinalization();
 
-    private void ReplacePending(IReadOnlyList<ConditionApplicationSnapshot> applications)
-    {
-        pending = applications;
-        pendingGeneration = checked(pendingGeneration + 1);
-        hasPending = true;
-    }
-
-    private void ValidatePending(long generation)
-    {
-        if (!hasPending || generation != pendingGeneration)
-            throw new InvalidOperationException(
-                "Condition restore input changed during enrollment."
-            );
-    }
-
-    internal void CompleteEnrollment()
-    {
-        wasEnrolled = true;
-    }
-
-    internal bool HasPendingRestore => hasPending;
+    internal bool HasPendingRestore => detached.HasPending;
 
     private bool TryGetAuthority(out UnityCombatRulesBridge bridge, out CreatureId owner)
     {
@@ -232,29 +202,6 @@ public sealed class Conditions : MonoBehaviour
         bridge = null;
         owner = default;
         return false;
-    }
-
-    internal sealed class ConditionRestoreLease
-    {
-        private readonly Conditions owner;
-        private readonly long generation;
-
-        internal ConditionRestoreLease(
-            Conditions owner,
-            long generation,
-            IReadOnlyList<ActiveEffectRegistration> registrations
-        )
-        {
-            this.owner = owner;
-            this.generation = generation;
-            Registrations = registrations;
-        }
-
-        internal IReadOnlyList<ActiveEffectRegistration> Registrations { get; }
-
-        internal void Validate() => owner.ValidatePending(generation);
-
-        internal void ConsumeValidated() => owner.ConsumePending();
     }
 }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -11,7 +12,9 @@ namespace Game.Rules.Unity.Light
     /// Projects one data-selected spell effect into child point lights and removes them idempotently.
     /// </summary>
     public sealed class UnityLightEffectPresentationObserver
-        : IFactObserver<ActiveEffectCreatedFact>,
+        : IFactObserver<EncounterStartedFact>,
+            IFactObserver<ActiveEffectCreatedFact>,
+            IFactObserver<ActiveEffectAdoptedFact>,
             IFactObserver<ActiveEffectExpiredFact>,
             IFactObserver<ActiveEffectRemovedFact>,
             IFactObserver<EncounterOutcomeCommittedFact>,
@@ -36,6 +39,7 @@ namespace Game.Rules.Unity.Light
             if (
                 !catalog.TryGetSpell(light, out SpellDefinition definition)
                 || definition.Effects.Count != 1
+                || !string.Equals(definition.Effects[0].Target, "self", StringComparison.Ordinal)
             )
                 throw new InvalidOperationException(
                     "Light requires exactly one active-effect directive for presentation."
@@ -62,27 +66,62 @@ namespace Game.Rules.Unity.Light
         }
 
         /// <inheritdoc/>
+        public ValueTask OnFactCommitted(EncounterStartedFact fact, RulesSnapshot currentSnapshot)
+        {
+            HashSet<ActiveEffectId> authoritative = new();
+            foreach (
+                ActiveEffectInstance effect in currentSnapshot.ActiveEffects.Select(pair =>
+                    pair.Value
+                )
+            )
+            {
+                if (!TryGetPresentable(effect.Id, currentSnapshot, out _, out _))
+                    continue;
+                authoritative.Add(effect.Id);
+                Reconcile(effect.Id, currentSnapshot);
+            }
+            foreach (
+                ActiveEffectId stale in visuals
+                    .Keys.Where(id => !authoritative.Contains(id))
+                    .ToArray()
+            )
+                Remove(stale);
+            return default;
+        }
+
+        /// <inheritdoc/>
         public ValueTask OnFactCommitted(
             ActiveEffectCreatedFact fact,
             RulesSnapshot currentSnapshot
         )
         {
+            Reconcile(fact.EffectId, currentSnapshot);
+            return default;
+        }
+
+        /// <inheritdoc/>
+        public ValueTask OnFactCommitted(
+            ActiveEffectAdoptedFact fact,
+            RulesSnapshot currentSnapshot
+        )
+        {
+            Reconcile(fact.EffectId, currentSnapshot);
+            return default;
+        }
+
+        private void Reconcile(ActiveEffectId effectId, RulesSnapshot currentSnapshot)
+        {
+            if (visuals.ContainsKey(effectId))
+                return;
             if (
-                !currentSnapshot.ActiveEffects.TryGet(
-                    fact.EffectId,
-                    out ActiveEffectInstance effect
+                !TryGetPresentable(
+                    effectId,
+                    currentSnapshot,
+                    out ActiveEffectInstance effect,
+                    out CreatureComponent owner
                 )
             )
-                return default;
-            if (
-                effect.DefinitionId != presentedDefinition
-                || visuals.ContainsKey(effect.Id)
-                || effect.State is not SpellEffectState state
-                || !creatures.TryGetValue(state.Target, out CreatureComponent owner)
-                || owner == null
-            )
-                return default;
-
+                return;
             GameObject visual = null;
             try
             {
@@ -102,7 +141,6 @@ namespace Game.Rules.Unity.Light
                 Destroy(visual);
                 Debug.LogException(exception);
             }
-            return default;
         }
 
         /// <inheritdoc/>
@@ -151,6 +189,34 @@ namespace Game.Rules.Unity.Light
                 return;
             visuals.Remove(effect);
             Destroy(visual);
+        }
+
+        private bool TryGetPresentable(
+            ActiveEffectId effectId,
+            RulesSnapshot snapshot,
+            out ActiveEffectInstance effect,
+            out CreatureComponent owner
+        )
+        {
+            owner = null;
+            if (
+                !snapshot.ActiveEffects.TryGet(effectId, out effect)
+                || effect.DefinitionId != presentedDefinition
+                || effect.Status != ActiveEffectStatus.Active
+                || effect.State is not SpellEffectState state
+                || effect.SourceCreature != state.Target
+                || !creatures.TryGetValue(state.Target, out owner)
+                || owner == null
+            )
+                return false;
+            return snapshot.RuleBindings.Any(pair =>
+                pair.Value.IsEnabled
+                && pair.Value.EffectId.HasValue
+                && pair.Value.EffectId.Value == effect.Id
+                && pair.Value.DefinitionId == effect.DefinitionId
+                && pair.Value.Owner == state.Target
+                && pair.Value.Source == effect.Source
+            );
         }
 
         private static void Destroy(GameObject value)

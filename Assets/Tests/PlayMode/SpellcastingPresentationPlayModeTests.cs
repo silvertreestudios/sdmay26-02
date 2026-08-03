@@ -580,7 +580,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator GenericExpirationThenRemovalAndDisposeAreIdempotentAndIsolated()
+    public IEnumerator InitialAdoptedCreatedAndRemovalPresentationAreIdempotentAndIsolated()
     {
         CreatureComponent owner = CreateCreature("Effect Owner", 0, prepared: false);
         CreatureId ownerId = new("effect-owner");
@@ -590,11 +590,61 @@ public sealed class SpellcastingPresentationPlayModeTests
             lightDefinition,
             ownerId
         );
+        ActiveRuleBinding binding = new(
+            new BindingId("binding-light"),
+            lightDefinition,
+            ownerId,
+            effect.Id,
+            effect.Source,
+            1
+        );
         RulesSnapshot snapshot = new InMemoryRulesStore(
-            new RulesStateSeed().SeedActiveEffect(effect)
+            new RulesStateSeed().SeedActiveEffect(effect).SeedRuleBinding(binding)
+        ).Snapshot;
+        ActiveEffectInstance foreignSourceEffect = CreateEffect(
+            new ActiveEffectId("effect-light-foreign-source"),
+            lightDefinition,
+            ownerId,
+            new CreatureId("foreign-source")
+        );
+        ActiveRuleBinding foreignSourceBinding = new(
+            new BindingId("binding-light-foreign-source"),
+            lightDefinition,
+            ownerId,
+            foreignSourceEffect.Id,
+            foreignSourceEffect.Source,
+            1
+        );
+        RulesSnapshot foreignSourceSnapshot = new InMemoryRulesStore(
+            new RulesStateSeed()
+                .SeedActiveEffect(foreignSourceEffect)
+                .SeedRuleBinding(foreignSourceBinding)
         ).Snapshot;
         Dictionary<CreatureId, CreatureComponent> creatures = new() { [ownerId] = owner };
         UnityLightEffectPresentationObserver observer = new(lightDefinition, creatures);
+        PlayerId team = new("light-presentation-team");
+        EncounterState encounter = new(
+            new EncounterId("light-presentation-encounter"),
+            EncounterPhase.Active,
+            team,
+            RoundNumber.First,
+            new[] { new InitiativeEntry(ownerId, team, 10, 0, 0, RoundNumber.First) },
+            -1,
+            null,
+            1,
+            null
+        );
+
+        observer.OnFactCommitted(new EncounterStartedFact(encounter), foreignSourceSnapshot);
+        Assert.That(VisualLights(owner), Is.Empty);
+
+        observer.OnFactCommitted(new EncounterStartedFact(encounter), snapshot);
+        observer.OnFactCommitted(new EncounterStartedFact(encounter), snapshot);
+        Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
+
+        observer.OnFactCommitted(new ActiveEffectAdoptedFact(effect, binding), snapshot);
+        observer.OnFactCommitted(new ActiveEffectAdoptedFact(effect, binding), snapshot);
+        Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
@@ -686,11 +736,18 @@ public sealed class SpellcastingPresentationPlayModeTests
         ActiveEffectId id,
         RuleDefinitionId definition,
         CreatureId owner
+    ) => CreateEffect(id, definition, owner, owner);
+
+    private static ActiveEffectInstance CreateEffect(
+        ActiveEffectId id,
+        RuleDefinitionId definition,
+        CreatureId owner,
+        CreatureId source
     ) =>
         new(
             id,
             definition,
-            owner,
+            source,
             RuleSource.FromSlug("test-spell"),
             EffectDuration.Indefinite,
             new SpellEffectState(Reference("light"), owner)

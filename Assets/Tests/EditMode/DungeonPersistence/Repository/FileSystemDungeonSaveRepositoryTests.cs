@@ -257,6 +257,43 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
+    public void LoadRejectsRulesSpellEffectOwnedByAnotherAvailableActor()
+    {
+        DungeonRunSave valid = CreateRun(0, 2);
+        DungeonActorSaveState actor = ActorState(1, "floor-0");
+        actor.RulesSpellEffects = new[]
+        {
+            new DungeonRulesSpellEffectSaveState
+            {
+                EffectId = "saved-light-effect",
+                BindingId = "saved-light-binding",
+                DefinitionId = "spell-effect-light",
+                SourceActorId = "party-slot",
+                TargetActorId = "party-slot",
+                RuleSource = "light",
+                DurationKind = EffectDurationKind.Indefinite,
+                DurationAmount = 0,
+                Version = 0,
+                Status = ActiveEffectStatus.Active,
+                CreationOrder = 0,
+                BindingEnabled = true,
+                SpellId = "light",
+                SpellRank = 1,
+            },
+        };
+        DungeonFloorSavePayload[] payloads = valid.FloorPayloads.ToArray();
+        payloads[0].FloorJson = DungeonLevelJsonSerializer.Serialize(
+            CreateFloor(0, embeddedActorState: DungeonSaveJson.SerializeActor(actor))
+        );
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(valid.Manifest, payloads);
+
+        Assert.That(result.IsSuccess, Is.False);
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain("owning actor"));
+        Assert.That(result.Diagnostics.Single().Message, Does.Contain("floors/0.json"));
+    }
+
+    [Test]
     public void LoadAcceptsConditionWhoseDurableSourceIsARecordedDefeatedActor()
     {
         DungeonRunSave valid = CreateRun(0, 2);
@@ -354,7 +391,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         Assert.That(repository.Save(CreateRun(0, 2)).IsSuccess, Is.True);
         string json = File.ReadAllText(repository.AutosavePath);
         string outdated = json.Replace(
-            "\"DocumentVersion\":2",
+            "\"DocumentVersion\":3",
             "\"DocumentVersion\":1",
             StringComparison.Ordinal
         );
@@ -563,6 +600,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             TemporaryHitPointImmunities = Array.Empty<string>(),
             Conditions = Array.Empty<DungeonConditionSaveState>(),
             TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            RulesSpellEffects = Array.Empty<DungeonRulesSpellEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {

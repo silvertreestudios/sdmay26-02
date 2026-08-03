@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
@@ -47,24 +48,23 @@ namespace Game.Creature.Rules
                 )
             );
 
-            Conditions.ConditionRestoreLease lease = null;
+            PendingImmutableValueLease<IReadOnlyList<ConditionApplicationSnapshot>> lease;
             if (
                 persistence.TryPrepareRestore(
                     builder.CreatureId,
                     owner.EncounterId,
                     owner.ResolveDurableActorId,
-                    out lease
+                    out lease,
+                    out IReadOnlyList<ActiveEffectRegistration> registrations
                 )
             )
             {
-                if (lease.Registrations.Count > 0)
-                    builder.AddActiveEffects(lease.Registrations);
-                builder.AddFinalization(
-                    new CompleteRestoredConditionEnrollmentContribution(persistence, lease)
-                );
+                if (registrations.Count > 0)
+                    builder.AddActiveEffects(registrations);
+                builder.AddFinalization(lease);
             }
             else
-                builder.AddFinalization(new CompleteConditionEnrollmentContribution(persistence));
+                builder.AddFinalization(persistence.CreateEnrollmentFinalization());
         }
     }
 
@@ -88,46 +88,5 @@ namespace Game.Creature.Rules
 
         /// <inheritdoc/>
         public void ProjectBeforeDetach() => conditions.ProjectDetachedApplications(bridge, owner);
-    }
-
-    internal sealed class CompleteConditionEnrollmentContribution
-        : IUnityCombatantBatchFinalizationContribution
-    {
-        private readonly Conditions conditions;
-
-        internal CompleteConditionEnrollmentContribution(Conditions conditions) =>
-            this.conditions = conditions ?? throw new ArgumentNullException(nameof(conditions));
-
-        /// <inheritdoc/>
-        public void Validate() { }
-
-        /// <inheritdoc/>
-        public void Apply() => conditions.CompleteEnrollment();
-    }
-
-    internal sealed class CompleteRestoredConditionEnrollmentContribution
-        : IUnityCombatantBatchFinalizationContribution
-    {
-        private readonly Conditions conditions;
-        private readonly Conditions.ConditionRestoreLease lease;
-
-        internal CompleteRestoredConditionEnrollmentContribution(
-            Conditions conditions,
-            Conditions.ConditionRestoreLease lease
-        )
-        {
-            this.conditions = conditions ?? throw new ArgumentNullException(nameof(conditions));
-            this.lease = lease ?? throw new ArgumentNullException(nameof(lease));
-        }
-
-        /// <inheritdoc/>
-        public void Validate() => lease.Validate();
-
-        /// <inheritdoc/>
-        public void Apply()
-        {
-            conditions.CompleteEnrollment();
-            lease.ConsumeValidated();
-        }
     }
 }

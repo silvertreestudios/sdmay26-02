@@ -73,29 +73,46 @@ namespace Game.Combat.Spells
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
-            SpellEffectController controller =
-                builder.Controller.GetComponent<SpellEffectController>();
-            if (installUnityAuthority && controller != null)
+            if (installUnityAuthority)
             {
-                RestoredSpellEffectProjection[] projections = controller
-                    .Effects.Select(
-                        (effect, index) =>
-                            RestoredSpellEffectProjection.TryCreate(
-                                controller,
-                                builder.CreatureId,
-                                effect,
-                                index
-                            )
+                RulesSpellEffectPersistenceInstallation persistenceInstallation = new(
+                    builder.Controller
+                );
+                builder.AddOwnershipRelease(
+                    new ProjectDetachedRulesSpellEffectsContribution(
+                        persistenceInstallation,
+                        owner,
+                        builder.CreatureId,
+                        catalog
                     )
-                    .Where(projection => projection != null)
-                    .ToArray();
-                if (projections.Length > 0)
+                );
+                builder.AddInstallation(persistenceInstallation);
+                RulesSpellEffectPersistence persistence =
+                    persistenceInstallation.PreparedPersistence;
+                if (
+                    persistence != null
+                    && persistence.TryPrepareRestore(
+                        builder.CreatureId,
+                        owner.EncounterId,
+                        owner.ResolveDurableActorId,
+                        catalog,
+                        out PendingImmutableValueLease<
+                            IReadOnlyList<RulesSpellEffectSnapshot>
+                        > lease,
+                        out IReadOnlyList<ActiveEffectRegistration> registrations
+                    )
+                )
                 {
-                    RestoredSpellEffectContribution contribution = builder.Own(
-                        new RestoredSpellEffectContribution(owner, restoredEffects, projections)
-                    );
-                    builder.AddActiveEffects(contribution.Registrations);
+                    if (registrations.Count > 0)
+                        builder.AddActiveEffects(registrations);
+                    builder.AddFinalization(lease);
                 }
+                else if (persistence != null)
+                    builder.AddFinalization(persistence.CreateEnrollmentFinalization());
+                else
+                    builder.AddFinalization(persistenceInstallation.CreateEnrollmentFinalization());
+
+                PrepareLegacyRestoredEffects(builder);
             }
             builder.AddSpellSlots(
                 catalog.GetSpellBook(builder.CreatureId).CreateInitialSlotStates(builder.CreatureId)
@@ -105,6 +122,65 @@ namespace Game.Combat.Spells
             builder.AddInstallation(
                 UnitySpellActionInstaller.Prepare(builder.Controller, builder.CreatureId, catalog)
             );
+        }
+
+        private void PrepareLegacyRestoredEffects(UnityCombatantEnrollmentBuilder builder)
+        {
+            SpellEffectController controller =
+                builder.Controller.GetComponent<SpellEffectController>();
+            if (controller == null)
+                return;
+            RestoredSpellEffectProjection[] projections = controller
+                .Effects.Select(
+                    (effect, index) =>
+                        RestoredSpellEffectProjection.TryCreate(
+                            controller,
+                            builder.CreatureId,
+                            effect,
+                            index
+                        )
+                )
+                .Where(projection => projection != null)
+                .ToArray();
+            if (projections.Length == 0)
+                return;
+            RestoredSpellEffectContribution contribution = builder.Own(
+                new RestoredSpellEffectContribution(owner, restoredEffects, projections)
+            );
+            builder.AddActiveEffects(contribution.Registrations);
+        }
+    }
+
+    /// <summary>Projects exact rules-native spell effects while encounter authority is attached.</summary>
+    internal sealed class ProjectDetachedRulesSpellEffectsContribution
+        : IUnityCombatantOwnershipReleaseContribution
+    {
+        private readonly RulesSpellEffectPersistenceInstallation persistenceInstallation;
+        private readonly UnityCombatRulesBridge bridge;
+        private readonly CreatureId owner;
+        private readonly ISpellDefinitionCatalog catalog;
+
+        internal ProjectDetachedRulesSpellEffectsContribution(
+            RulesSpellEffectPersistenceInstallation persistenceInstallation,
+            UnityCombatRulesBridge bridge,
+            CreatureId owner,
+            ISpellDefinitionCatalog catalog
+        )
+        {
+            this.persistenceInstallation =
+                persistenceInstallation
+                ?? throw new ArgumentNullException(nameof(persistenceInstallation));
+            this.bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
+            this.owner = owner;
+            this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        }
+
+        /// <inheritdoc/>
+        public void ProjectBeforeDetach()
+        {
+            RulesSpellEffectPersistence persistence = persistenceInstallation.Persistence;
+            if (persistence != null)
+                persistence.ProjectDetachedEffects(bridge, owner, catalog);
         }
     }
 
