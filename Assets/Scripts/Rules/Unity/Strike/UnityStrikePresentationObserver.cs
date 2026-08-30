@@ -51,7 +51,8 @@ namespace Game.Rules.Unity.Strike
                     operation.Actor,
                     operation.Target,
                     out GameObject attacker,
-                    out GameObject target
+                    out GameObject target,
+                    out CreatureComponent defender
                 )
             )
                 return;
@@ -95,7 +96,7 @@ namespace Game.Rules.Unity.Strike
             );
             if (currentSnapshot.Health.TryGet(operation.Target, out HealthState health))
                 UnityAttackResultPresentation.PresentTargetReaction(
-                    creatures[operation.Target],
+                    defender,
                     result.FinalDamage,
                     health
                 );
@@ -105,13 +106,14 @@ namespace Game.Rules.Unity.Strike
             CreatureId actor,
             CreatureId target,
             out GameObject attackerObject,
-            out GameObject targetObject
+            out GameObject targetObject,
+            out CreatureComponent defender
         )
         {
             if (
                 controllers.TryGetValue(actor, out ActionController attacker)
                 && attacker != null
-                && creatures.TryGetValue(target, out CreatureComponent defender)
+                && creatures.TryGetValue(target, out defender)
                 && defender != null
             )
             {
@@ -122,6 +124,7 @@ namespace Game.Rules.Unity.Strike
 
             attackerObject = null;
             targetObject = null;
+            defender = null;
             return false;
         }
 

@@ -101,6 +101,73 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator StrikeReactionUsesDefenderValidatedBeforeDamageCallbackChangesMappings()
+    {
+        InstallCombatManager();
+        InstallCombatLog();
+        InstallTeamRules();
+        CreatureComponent actor = LoadPrefabCreature(
+            "DataFiles/playerCharacters/Lena",
+            "Assets/Prefabs/Creatures/Lena.prefab"
+        );
+        actor.GetComponent<Team>().Name = "presentation-heroes";
+        ActionController actorController = actor.GetComponent<ActionController>();
+        CreatureComponent target = CreateCreature("Mapping Target", "presentation-enemies", 20, 10);
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        CreaturePresentation actorPresentation = actor.GetComponent<CreaturePresentation>();
+        yield return null;
+        CreatureAnimationController animation = actorPresentation.AnimationController;
+        Assert.That(animation, Is.Not.Null);
+        target
+            .gameObject.AddComponent<CreaturePresentation>()
+            .Bind(animation, equipmentVisuals: null);
+        Place(actor.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, actor.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { actorController, targetController },
+            tiles,
+            new ScriptedRollService(20, 10, 20, 2)
+        );
+        CreatureId actorId = bridge.GetCreatureId(actor);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        RulesStrikeAction strike = actorController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(action => action.ActionName == "Unarmed Strike");
+        Dictionary<CreatureId, CreatureComponent> creatures = GetCreatureMappings(bridge);
+        bool mappingRemoved = false;
+        void RemoveTargetMapping(string damageType) => mappingRemoved = creatures.Remove(targetId);
+        OnDamageDealt.AddListener(RemoveTargetMapping);
+        bridge.BeginTurn(actorId, 3);
+        animation.StopAction();
+
+        OpResult<StrikeResolution> result = null;
+        try
+        {
+            Assert.DoesNotThrow(() =>
+                result = bridge.Dispatch(new StrikeActionOp(actorId, strike.Item.Item, targetId))
+            );
+        }
+        finally
+        {
+            OnDamageDealt.RemoveListener(RemoveTargetMapping);
+        }
+
+        Assert.That(result, Is.TypeOf<ResolvedOpResult<StrikeResolution>>());
+        Assert.That(mappingRemoved, Is.True);
+        Assert.That(creatures.ContainsKey(targetId), Is.False);
+        Assert.That(
+            animation.CurrentClipId,
+            Is.EqualTo("animation/general/hit_a"),
+            "The originally validated defender must receive the reaction after its mapping changes."
+        );
+    }
+
+    [UnityTest]
     public IEnumerator StrikeBeginsAttackBeforeHitAndDefeatPresentations()
     {
         InstallCombatManager();
@@ -536,6 +603,18 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             BindingFlags.Instance | BindingFlags.NonPublic
         );
         return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private static Dictionary<CreatureId, CreatureComponent> GetCreatureMappings(
+        UnityCombatRulesBridge bridge
+    )
+    {
+        FieldInfo field = typeof(UnityCombatRulesBridge).GetField(
+            "creatures",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        Assert.That(field, Is.Not.Null);
+        return (Dictionary<CreatureId, CreatureComponent>)field.GetValue(bridge);
     }
 
     private CreatureComponent CreateCreature(string name, string teamName, int hp, int ac)
