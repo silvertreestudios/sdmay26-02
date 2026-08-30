@@ -43,16 +43,18 @@ namespace Game.Rules.Runtime.Tests
             );
             InMemoryRulesStore store = CreateFullySeededStore();
             RecordingActionHandler handler = new RecordingActionHandler(false);
+            CountingActionResolvedListener resolvedListener = new();
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
                 store,
                 new SequentialOpIdProvider(10)
             )
                 .RegisterHandler<TestActionOp, TestActionOutcome>(handler)
                 .UseActionLifecycle(new FixedActionCatalog(profile))
-                .UseRuleRegistry(CreateRuleRegistry())
+                .UseRuleRegistry(CreateRuleRegistry(resolvedListener))
                 .Build();
+            TestActionOp operation = new();
 
-            OpResult<TestActionOutcome> result = await dispatcher.Dispatch(new TestActionOp());
+            OpResult<TestActionOutcome> result = await dispatcher.Dispatch(operation);
 
             ResolvedOpResult<TestActionOutcome> resolved = RequireResolved(result);
             Assert.That(
@@ -78,6 +80,7 @@ namespace Game.Rules.Runtime.Tests
                         typeof(FocusPointsSpentFact),
                         typeof(AmmunitionSpentFact),
                         typeof(BindingFrequencySpentFact),
+                        typeof(ActionResolvedFact<TestActionOutcome>),
                     }
                 )
             );
@@ -91,11 +94,21 @@ namespace Game.Rules.Runtime.Tests
                         new FactId(3),
                         new FactId(4),
                         new FactId(5),
+                        new FactId(6),
                     }
                 )
             );
-            Assert.That(result.Facts.All(fact => fact.SourceOpId == new OpId(11)), Is.True);
+            Assert.That(result.Facts.Take(5).All(fact => fact.SourceOpId == new OpId(11)), Is.True);
+            Assert.That(result.Facts.Last().SourceOpId, Is.EqualTo(new OpId(10)));
             Assert.That(result.Facts.All(fact => fact.RootOpId == new OpId(10)), Is.True);
+            ActionResolvedFact<TestActionOutcome> actionResolved = result
+                .Facts.OfType<ActionResolvedFact<TestActionOutcome>>()
+                .Single();
+            Assert.That(actionResolved.Action, Is.SameAs(operation));
+            Assert.That(actionResolved.ActionInfo.Id, Is.EqualTo(new OpId(10)));
+            Assert.That(actionResolved.Outcome.DomainSucceeded, Is.False);
+            Assert.That(resolvedListener.Calls, Is.EqualTo(1));
+            Assert.That(resolvedListener.Fact, Is.SameAs(actionResolved));
             Assert.That(
                 store.Snapshot.Version,
                 Is.EqualTo(1),
@@ -279,7 +292,7 @@ namespace Game.Rules.Runtime.Tests
                 ((ResolvedOpResult<TestActionOutcome>)result).Value.DomainSucceeded,
                 Is.False
             );
-            Assert.That(result.Facts, Is.Empty);
+            Assert.That(result.Facts.Single(), Is.TypeOf<ActionResolvedFact<TestActionOutcome>>());
             Assert.That(handler.WasCalled, Is.True);
             Assert.That(handler.ActionsRemaining, Is.EqualTo(3));
         }
@@ -596,6 +609,15 @@ namespace Game.Rules.Runtime.Tests
             return registry.Build();
         }
 
+        private static RuleRegistry CreateRuleRegistry(CountingActionResolvedListener listener)
+        {
+            RuleRegistryBuilder registry = new RuleRegistryBuilder();
+            registry
+                .Define(BindingDefinition)
+                .FactListener(RuleLifecyclePhase.Observation, listener);
+            return registry.Build();
+        }
+
         private static RuleRegistry CreateRuleRegistry(ActionBegunMiddleware middleware)
         {
             RuleRegistryBuilder registry = new RuleRegistryBuilder();
@@ -835,6 +857,23 @@ namespace Game.Rules.Runtime.Tests
             public ValueTask OnFactCommitted(ActionCostSpentFact fact, FactContext context)
             {
                 Calls++;
+                return default;
+            }
+        }
+
+        private sealed class CountingActionResolvedListener
+            : IRuleFactListener<ActionResolvedFact<TestActionOutcome>>
+        {
+            public int Calls { get; private set; }
+            public ActionResolvedFact<TestActionOutcome> Fact { get; private set; }
+
+            public ValueTask OnFactCommitted(
+                ActionResolvedFact<TestActionOutcome> fact,
+                FactContext context
+            )
+            {
+                Calls++;
+                Fact = fact;
                 return default;
             }
         }

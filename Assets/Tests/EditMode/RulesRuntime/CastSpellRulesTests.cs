@@ -44,7 +44,7 @@ namespace Game.Rules.Runtime.Tests
             InMemoryRulesStore store = CreateStore(3);
             RuleDispatcher dispatcher = CreateDispatcher(store, new TestBook(true));
             CountingObserver observer = new();
-            dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(observer);
+            dispatcher.RegisterFactObserver<ActionResolvedFact<CastSpellOutcome>>(observer);
 
             OpResult<CastSpellOutcome> result = await dispatcher.Dispatch(
                 new CastSpellActionOp(Actor, Light, TwoActions, SpellCastSelection.Empty)
@@ -404,19 +404,16 @@ namespace Game.Rules.Runtime.Tests
                     : SpellCastAuthorization.Unavailable("The ranked slot is unavailable.");
         }
 
-        private sealed class CountingObserver
-            : IResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>
+        private sealed class CountingObserver : IFactObserver<ActionResolvedFact<CastSpellOutcome>>
         {
             public int Calls { get; private set; }
 
-            public ValueTask OnOperationResolved(
-                CastSpellActionOp operation,
-                CastSpellOutcome result,
+            public void OnFactCommitted(
+                ActionResolvedFact<CastSpellOutcome> fact,
                 RulesSnapshot currentSnapshot
             )
             {
                 Calls++;
-                return default;
             }
         }
 

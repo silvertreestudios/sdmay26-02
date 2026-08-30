@@ -27,6 +27,8 @@ namespace Game.Rules.Runtime
         private bool isRuleRegistryConfigured;
         private ActionRuntimeConfiguration actionRuntimeConfiguration =
             ActionRuntimeConfiguration.Unconfigured;
+        private IFactObserverExceptionReporter factObserverExceptionReporter =
+            TraceFactObserverExceptionReporter.Instance;
 
         /// <summary>
         /// Initializes a dispatcher builder with production roll and sequential operation-ID sources.
@@ -70,6 +72,18 @@ namespace Game.Rules.Runtime
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
+        }
+
+        /// <summary>Configures the host boundary that reports isolated Fact-observer failures.</summary>
+        /// <param name="reporter">The non-null reporter used by the built dispatcher.</param>
+        /// <returns>This builder for fluent composition.</returns>
+        public RuleDispatcherBuilder UseFactObserverExceptionReporter(
+            IFactObserverExceptionReporter reporter
+        )
+        {
+            factObserverExceptionReporter =
+                reporter ?? throw new ArgumentNullException(nameof(reporter));
+            return this;
         }
 
         /// <summary>
@@ -462,7 +476,8 @@ namespace Game.Rules.Runtime
                 rollService,
                 completedRegistrations,
                 ruleRegistry,
-                actionRuntime
+                actionRuntime,
+                factObserverExceptionReporter
             );
         }
 

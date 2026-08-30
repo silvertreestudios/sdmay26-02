@@ -10,6 +10,7 @@ using Game.KayKit;
 using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Attack;
 using Game.Strikes;
 using GridPrivate;
 using GridPublic;
@@ -147,9 +148,6 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             tiles,
             new ScriptedRollService(20, 15, 10, 10, 4, 10, 4)
         );
-        AttackStartObserver attackStart = new(sharedAnimation);
-        GetDispatcher(bridge)
-            .RegisterResolvedOpObserver<ResolveStrikeOp, StrikeResolution>(attackStart);
         CreatureId actorId = bridge.GetCreatureId(actor);
         RulesStrikeAction shortbow = actorController
             .GetActions()
@@ -172,6 +170,32 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             "The hit reaction must be the last presentation started after the shared attack."
         );
 
+        CreatureComponent uncommittedDefeatTarget = CreateCreature(
+            "Uncommitted Defeat Target",
+            "presentation-enemies",
+            0,
+            10
+        );
+        uncommittedDefeatTarget
+            .gameObject.AddComponent<CreaturePresentation>()
+            .Bind(sharedAnimation, equipmentVisuals: null);
+        HealthState uncommittedZeroHealth = new(0, 1);
+        sharedAnimation.StopAction();
+        UnityAttackResultPresentation.PresentTargetReaction(
+            uncommittedDefeatTarget,
+            finalDamage: 1,
+            uncommittedZeroHealth
+        );
+
+        Assert.That(uncommittedDefeatTarget.hp, Is.Zero);
+        Assert.That(uncommittedZeroHealth.IsCommittedDefeated, Is.False);
+        Assert.That(uncommittedDefeatTarget.gameObject.activeSelf, Is.True);
+        Assert.That(
+            sharedAnimation.CurrentClipId,
+            Is.EqualTo("animation/general/hit_a"),
+            "Zero HP must remain a hit reaction until defeat is committed."
+        );
+
         sharedAnimation.StopAction();
         bridge.BeginTurn(actorId, 3);
         grid.Target = defeatTarget.gameObject;
@@ -182,22 +206,6 @@ public sealed class RulesStrikeIntegrationPlayModeTests
 
         Assert.That(actorController.IsTakingAction, Is.False);
         Assert.That(defeatTarget.hp, Is.Zero);
-        Assert.That(
-            attackStart.ClipIds,
-            Is.EqualTo(
-                new[]
-                {
-                    "animation/combatranged/ranged_bow_release",
-                    "animation/combatranged/ranged_bow_release",
-                }
-            ),
-            "The feature presentation observer must start each attack before parent continuation."
-        );
-        Assert.That(
-            attackStart.TargetHitPoints,
-            Is.EqualTo(new[] { 20, 1 }),
-            "ResolveStrike observation must run before hit or defeat commits authoritative HP."
-        );
         Assert.That(
             sharedAnimation.CurrentClipId,
             Is.EqualTo("animation/general/death_a"),
@@ -528,29 +536,6 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             BindingFlags.Instance | BindingFlags.NonPublic
         );
         return (RuleDispatcher)field.GetValue(bridge);
-    }
-
-    private sealed class AttackStartObserver
-        : IResolvedOpObserver<ResolveStrikeOp, StrikeResolution>
-    {
-        private readonly CreatureAnimationController animation;
-
-        public AttackStartObserver(CreatureAnimationController animation) =>
-            this.animation = animation;
-
-        public List<string> ClipIds { get; } = new();
-        public List<int> TargetHitPoints { get; } = new();
-
-        public System.Threading.Tasks.ValueTask OnOperationResolved(
-            ResolveStrikeOp operation,
-            StrikeResolution result,
-            RulesSnapshot currentSnapshot
-        )
-        {
-            ClipIds.Add(animation.CurrentClipId);
-            TargetHitPoints.Add(currentSnapshot.Health[operation.Target].Current);
-            return default;
-        }
     }
 
     private CreatureComponent CreateCreature(string name, string teamName, int hp, int ac)

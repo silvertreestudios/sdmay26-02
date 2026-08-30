@@ -39,31 +39,25 @@ namespace Game.Rules.Unity.Composition
                 this.owner = owner;
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(
-                EncounterStartedFact fact,
-                RulesSnapshot currentSnapshot
-            )
+            public void OnFactCommitted(EncounterStartedFact fact, RulesSnapshot currentSnapshot)
             {
                 owner.ProjectEncounterStarted();
-                return default;
             }
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(TurnBeganFact fact, RulesSnapshot currentSnapshot)
             {
                 owner.EnqueueEncounterPresentation(fact, () => owner.ProjectTurnBegan(fact.Turn));
-                return default;
             }
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(TurnEndedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(TurnEndedFact fact, RulesSnapshot currentSnapshot)
             {
                 owner.EnqueueEncounterPresentation(fact, () => owner.ProjectTurnEnded(fact.Turn));
-                return default;
             }
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 EncounterOutcomeCommittedFact fact,
                 RulesSnapshot currentSnapshot
             )
@@ -72,7 +66,6 @@ namespace Game.Rules.Unity.Composition
                     fact,
                     () => owner.ProjectEncounterEnded(fact.Outcome)
                 );
-                return default;
             }
         }
 

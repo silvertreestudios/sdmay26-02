@@ -55,6 +55,7 @@ Stride rules without attaching combat authority or spending encounter action eco
 | Enrollment and rollback | [`UnityCombatantEnrollmentPipeline.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityCombatantEnrollmentPipeline.cs) |
 | Unity authority and synchronous dispatch boundary | [`UnityCombatRulesBridge.cs`](../Assets/Scripts/Rules/Unity/UnityCombatRulesBridge.cs) |
 | Strike and spell Unity adapters | [`UnityStrikeEncounterModule.cs`](../Assets/Scripts/Rules/Unity/Strike/UnityStrikeEncounterModule.cs), [`UnitySpellcastingEncounterModule.cs`](../Assets/Scripts/Combat/Spells/UnitySpellcastingEncounterModule.cs) |
+| Typed resolved-action presentation routing | [`UnityActionPresentationRegistry.cs`](../Assets/Scripts/Rules/Unity/UnityActionPresentationRegistry.cs) |
 | Health and encounter projection | [`UnityHealthProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityHealthProjectionModule.cs), [`UnityEncounterProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterProjectionModule.cs) |
 
 The wildcard families above are navigation hints, not Markdown links. Inspect the neighboring files
@@ -70,9 +71,10 @@ composition contract:
 3. `UnityRageEncounterModule`
 4. `UnityStrikeEncounterModule`
 5. `UnitySpellcastingEncounterModule`
-6. `UnityLightEncounterModule`
-7. `UnityHealthProjectionModule`
-8. `UnityEncounterProjectionModule`
+6. `UnityActionPresentationModule`
+7. `UnityLightEncounterModule`
+8. `UnityHealthProjectionModule`
+9. `UnityEncounterProjectionModule`
 
 Before constructing that list, the module set creates shared typed contexts and catalogs, defines
 every `RuleDefinitionId` required by this composition, and builds the `RuleRegistry`. Modules are
@@ -86,6 +88,7 @@ each module implements:
 | `IUnityEncounterDispatcherModule` | Add feature handlers, reducers, validators, middleware, or listeners before `Build` |
 | `IUnityEncounterTurnStartModule` | Supply a transitional turn-start adapter |
 | `IUnityEncounterRuntimeModule` | Register observers or other encounter-owned runtime resources |
+| `IUnityEncounterActionPresentationModule` | Register typed feature presenters by stable action definition |
 | `IUnityEncounterTopologyModule` | Replace a feature's live Unity grid adapter after topology changes |
 | `IUnityCombatantEnrollmentModule` | Prepare feature state and Unity installation for both initial participants and reinforcements |
 
@@ -99,8 +102,9 @@ dispatcher or enrollment hooks merely for symmetry.
 | Rotting Aura | Transitional turn-start adapter |
 | Slowed | Transitional turn-start adapter |
 | Rage | Dispatcher configuration and combatant enrollment |
-| Strike | Dispatcher, runtime observers, combatant enrollment, and topology refresh |
-| Spellcasting | Dispatcher, runtime observers, combatant enrollment, and topology refresh |
+| Strike | Dispatcher, action presentation, runtime state projection, combatant enrollment, and topology refresh |
+| Spellcasting | Dispatcher, action presentation, runtime effect projection, combatant enrollment, and topology refresh |
+| Action presentation | Runtime registration of the shared resolved-action Fact observer |
 | Light | Runtime effect presentation |
 | Health projection | Runtime Fact projection |
 | Encounter projection | Runtime Fact and settlement projection |
@@ -117,9 +121,11 @@ The private `UnityCombatRulesBridge` constructor performs these boundaries in or
    `UseHealthRules`, `UseMultipleAttackPenaltyRules`, `UseCheckResolution`,
    `UseActiveEffectRules`, `UseEncounterRules`, `UseActionLifecycle`, `UseMovementRules`, and
    `UseStrideRules`.
-6. Ask dispatcher-capable feature modules to configure the builder in module order.
+6. Compose feature-owned typed action presenters into `UnityActionPresentationRegistry` and ask
+   dispatcher-capable feature modules to configure the builder, both in module order.
 7. Build the dispatcher.
-8. Register runtime modules into the encounter `CompositeLifetime`.
+8. Register runtime modules, including the single action-presentation Fact observer, into the
+   encounter `CompositeLifetime`.
 9. Attach exact Unity authority and apply prepared feature installations.
 10. Transfer the prepared enrollment lifetime to the encounter lifetime.
 
@@ -192,15 +198,26 @@ Within the dispatcher:
 - one root owns its operation frames and nested dispatches;
 - an action is validated, pays its complete costs atomically, resolves `ActionBegunOp`, and then
   invokes its feature handler;
-- reducers commit state and stamp Facts;
-- resolved-operation observers run when an operation has resolved;
-- Fact listeners run from committed Facts and may create causal follow-up roots; and
+- reducers commit state and stamp state-change Facts;
+- the action lifecycle stamps one `ActionResolvedFact<TResult>` after a resolved action's handler
+  and awaited children complete;
+- synchronous external Fact observers receive each Fact's exact associated snapshot, isolate and
+  report failures, and cannot delay mechanics;
+- asynchronous binding-scoped Fact listeners run from committed Facts and may create causal
+  follow-up roots; and
 - settlement observers report when roots and their causal trees finish.
 
-For Strike, the production handler resolves the attack first, then the parent action dispatches
-damage, loaded-state changes, and multiple attack penalty work. Presentation may observe
-`ResolveStrikeOp` before those later child operations. Do not move the later commits into the
-resolution handler merely to make the workflow look shorter.
+For Strike, the production handler resolves the attack first, then dispatches damage, loaded-state
+changes, and multiple attack penalty work. Presentation observes the parent Strike's
+`ActionResolvedFact<StrikeResolution>` only after that complete workflow. Spell presentation uses
+the cast's existing `CastSpellOutcome`, including its actual `SpellAttackResolution` collection;
+it does not observe nested attack operations or recalculate outcomes.
+
+`UnityActionPresentationRegistry` is the single generic Unity routing boundary. Strike and
+spellcasting explicitly register typed presenters through their encounter modules, keyed by stable
+`ActionDefinitionId`. The registry verifies the concrete action/outcome pair before invoking the
+feature presenter. Cast a Spell may then route within its presenter by the selected
+`SpellReference`. There is no static discovery or central feature switch.
 
 ### Encounter presentation settlement
 
@@ -264,8 +281,8 @@ runtime does not mean every trait, feat interaction, or rules option for that ac
    reinforcement enrollment through `IUnityCombatantEnrollmentModule`.
 8. Transfer encounter-scoped observers/resources to the supplied `CompositeLifetime`. Keep
    root-scoped registrations local.
-9. Project only committed Facts or resolved results. Keep feature presentation out of shared bridge
-   classes.
+9. Project only committed Facts. Register resolved-action presentation through the typed Unity
+   registry and keep feature presentation out of shared bridge classes.
 10. Remove the old writer and fallback in the same change. Do not leave dual authority for the
     migrated slice.
 11. Add deterministic EditMode tests for rules behavior and bridge composition. Add PlayMode
@@ -278,12 +295,14 @@ runtime does not mean every trait, feat interaction, or rules option for that ac
 - Put legality checks in action validators or nested shared operations.
 - Let the engine commit all costs before the handler.
 - Return the feature's structural outcome; do not throw for an ordinary illegal choice.
+- Add Unity presentation by registering an `IUnityActionPresenter<TOp, TResult>` from the feature's
+  encounter module. Reuse the action and outcome carried by `ActionResolvedFact<TResult>`.
 
 ### Rule responding to committed state
 
 - Emit or reuse a Fact from the reducer that owns the transition.
 - Use a feature-owned Fact listener when the response creates more rules work.
-- Use an observer when the response is presentation or another external side effect.
+- Use a synchronous observer when the response is immediate projection or queued external work.
 - Add middleware only when the rule must affect the selected operation before it commits.
 
 ### Migrating a state slice

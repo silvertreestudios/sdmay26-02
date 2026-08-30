@@ -67,6 +67,7 @@ namespace Game.Rules.Unity.Composition
             )
                 registryBuilder.Define(definitionId);
 
+            UnityActionPresentationRegistry actionPresentation = new();
             IUnityEncounterModule[] modules =
             {
                 new RottingAuraEncounterModule(owner),
@@ -85,15 +86,14 @@ namespace Game.Rules.Unity.Composition
                     creatures,
                     installUnityAuthority
                 ),
+                new UnityActionPresentationModule(actionPresentation),
                 new UnityLightEncounterModule(spellCatalog, creatures),
                 new UnityHealthProjectionModule(creatures, installUnityAuthority),
                 new UnityEncounterProjectionModule(owner),
             };
-            return new UnityEncounterModuleSet(
-                new UnityEncounterComposition(modules),
-                actionCatalog,
-                registryBuilder.Build()
-            );
+            UnityEncounterComposition composition = new(modules);
+            composition.ConfigureActionPresentation(actionPresentation);
+            return new UnityEncounterModuleSet(composition, actionCatalog, registryBuilder.Build());
         }
     }
 

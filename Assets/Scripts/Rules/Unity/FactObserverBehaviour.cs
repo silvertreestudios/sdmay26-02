@@ -1,5 +1,4 @@
 using System;
-using System.Threading.Tasks;
 using Game.Rules.Runtime;
 using UnityEngine;
 
@@ -42,7 +41,7 @@ namespace Game.Rules.Unity
         }
 
         /// <inheritdoc/>
-        public abstract ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot);
+        public abstract void OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot);
 
         /// <summary>
         /// Registers this component when Unity enables it after configuration.

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
 
@@ -42,24 +41,22 @@ namespace Game.Rules.Unity.Composition
             ) => this.creatures = creatures;
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot)
             {
                 CreatureComponent creature = RequireCreature(fact.Creature);
                 HealthState health = currentSnapshot.Health[fact.Creature];
                 creature.ProjectCommittedHealth(health);
                 if (fact is DamageAppliedFact && health.Current > 0)
                     creature.PresentCommittedHit();
-                return default;
             }
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 CreatureDefeatCommittedFact fact,
                 RulesSnapshot currentSnapshot
             )
             {
                 RequireCreature(fact.Creature).PresentCommittedDefeat();
-                return default;
             }
 
             private CreatureComponent RequireCreature(CreatureId id)

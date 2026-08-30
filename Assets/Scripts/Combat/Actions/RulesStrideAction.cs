@@ -138,21 +138,33 @@ public sealed class RulesStrideAction : EntityAction, ISelectionDrivenEntityActi
             while (!pendingDispatch.IsCompleted)
                 yield return null;
 
+            bool resolved = false;
             try
             {
-                bool resolved = pendingDispatch.GetAwaiter().GetResult();
-                if (resolver is IProjectedStrideContinuationReceiver receiver)
-                    receiver.RecordMayContinueRoute(resolved && !projection.WasRouteInterrupted);
-                if (!resolved)
-                    Debug.LogWarning("Stride was rejected by current rules state.", target);
+                resolved = pendingDispatch.GetAwaiter().GetResult();
             }
             catch (Exception exception)
             {
                 Debug.LogException(exception, target);
             }
 
-            if (startedInExploration)
-                yield return projection.DrainExplorationPresentation();
+            ValueTask pendingPresentation = UnityCoroutineTask.Run(projection.DrainPresentation());
+            while (!pendingPresentation.IsCompleted)
+                yield return null;
+            try
+            {
+                pendingPresentation.GetAwaiter().GetResult();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, target);
+                resolved = false;
+            }
+
+            if (resolver is IProjectedStrideContinuationReceiver receiver)
+                receiver.RecordMayContinueRoute(resolved && !projection.WasRouteInterrupted);
+            if (!resolved)
+                Debug.LogWarning("Stride was rejected by current rules state.", target);
         }
         finally
         {

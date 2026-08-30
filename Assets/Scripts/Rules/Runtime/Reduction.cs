@@ -230,6 +230,26 @@ namespace Game.Rules.Runtime
             IOpReducer<TOp, TResult> reducer
         )
             where TOp : IRuleOp<TResult>;
+
+        /// <summary>
+        /// Stamps one committed rules occurrence without mutating authoritative state.
+        /// </summary>
+        /// <param name="fact">The unstamped occurrence Fact owned by the runtime lifecycle.</param>
+        /// <param name="sourceOpId">The operation whose completed lifecycle produced the occurrence.</param>
+        /// <param name="rootOpId">The root that owns the occurrence.</param>
+        /// <param name="source">The non-empty runtime source responsible for the occurrence.</param>
+        /// <returns>The exact unchanged snapshot associated with the stamped occurrence.</returns>
+        /// <remarks>
+        /// Reducers remain the only state mutation path. This narrow boundary exists for committed
+        /// lifecycle occurrences, such as action resolution, that must share the store's Fact ID
+        /// sequence without fabricating a state change or invoking a no-op reducer.
+        /// </remarks>
+        RulesSnapshot CommitOccurrence(
+            RuleFact fact,
+            OpId sourceOpId,
+            OpId rootOpId,
+            RuleSource source
+        );
     }
 
     public sealed class InMemoryRulesStore : IRulesStore
@@ -332,6 +352,36 @@ namespace Game.Rules.Runtime
                 {
                     isReducing = false;
                 }
+            }
+        }
+
+        /// <inheritdoc/>
+        public RulesSnapshot CommitOccurrence(
+            RuleFact fact,
+            OpId sourceOpId,
+            OpId rootOpId,
+            RuleSource source
+        )
+        {
+            if (fact == null)
+                throw new ArgumentNullException(nameof(fact));
+            if (fact.IsStamped)
+                throw new InvalidOperationException("A committed occurrence must be unstamped.");
+            if (sourceOpId.IsEmpty)
+                throw new ArgumentException("A source Op ID is required.", nameof(sourceOpId));
+            if (rootOpId.IsEmpty)
+                throw new ArgumentException("A root Op ID is required.", nameof(rootOpId));
+            if (source.IsEmpty)
+                throw new ArgumentException("A rule source is required.", nameof(source));
+
+            lock (gate)
+            {
+                if (isReducing)
+                    throw new InvalidOperationException(
+                        "A rules occurrence cannot commit during an active reduction."
+                    );
+                fact.Stamp(new FactId(nextFactId++), sourceOpId, rootOpId, source);
+                return state.Snapshot;
             }
         }
     }

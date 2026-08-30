@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
 using UnityEngine;
@@ -62,10 +61,7 @@ namespace Game.Rules.Unity.Light
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
-            ActiveEffectCreatedFact fact,
-            RulesSnapshot currentSnapshot
-        )
+        public void OnFactCommitted(ActiveEffectCreatedFact fact, RulesSnapshot currentSnapshot)
         {
             if (
                 !currentSnapshot.ActiveEffects.TryGet(
@@ -73,7 +69,7 @@ namespace Game.Rules.Unity.Light
                     out ActiveEffectInstance effect
                 )
             )
-                return default;
+                return;
             if (
                 effect.DefinitionId != presentedDefinition
                 || visuals.ContainsKey(effect.Id)
@@ -81,7 +77,7 @@ namespace Game.Rules.Unity.Light
                 || !creatures.TryGetValue(state.Target, out CreatureComponent owner)
                 || owner == null
             )
-                return default;
+                return;
 
             GameObject visual = null;
             try
@@ -102,31 +98,22 @@ namespace Game.Rules.Unity.Light
                 Destroy(visual);
                 Debug.LogException(exception);
             }
-            return default;
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
-            ActiveEffectExpiredFact fact,
-            RulesSnapshot currentSnapshot
-        )
+        public void OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot currentSnapshot)
         {
             Remove(fact.EffectId);
-            return default;
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
-            ActiveEffectRemovedFact fact,
-            RulesSnapshot currentSnapshot
-        )
+        public void OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot currentSnapshot)
         {
             Remove(fact.EffectId);
-            return default;
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
+        public void OnFactCommitted(
             EncounterOutcomeCommittedFact fact,
             RulesSnapshot currentSnapshot
         )
@@ -134,7 +121,6 @@ namespace Game.Rules.Unity.Light
             List<ActiveEffectId> owned = new(visuals.Keys);
             foreach (ActiveEffectId effect in owned)
                 Remove(effect);
-            return default;
         }
 
         /// <summary>Removes every remaining encounter-owned presentation object.</summary>

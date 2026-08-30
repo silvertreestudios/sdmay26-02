@@ -1,19 +1,18 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
     /// <summary>
-    /// Observes one typed Fact immediately after the reduction that committed it.
+    /// Observes one typed Fact immediately after it commits.
     /// </summary>
     /// <typeparam name="TFact">The committed Fact type accepted by the observer.</typeparam>
     /// <remarks>
-    /// Observation is awaited before the reducer result returns to its parent handler. The state
-    /// transition is already durable, so an observer may pace subsequent work but cannot alter,
-    /// cancel, or roll back the commit. Use the current snapshot for current-state lookups;
-    /// transition-specific values belong on the Fact itself. The callback receives no rules
-    /// context and has no causal-dispatch authority.
+    /// Observation is a synchronous, non-authoritative notification boundary. Implementations
+    /// must project immediately or enqueue host-owned asynchronous presentation and return. The
+    /// callback receives no rules context and has no causal-dispatch authority. Exceptions are
+    /// isolated, reported through <see cref="IFactObserverExceptionReporter"/>, and never delay or
+    /// fail reducers, handlers, rules Fact listeners, or other external observers.
     /// </remarks>
     public interface IFactObserver<TFact>
         where TFact : RuleFact
@@ -21,10 +20,30 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Observes an already committed Fact and its exact post-commit snapshot.
         /// </summary>
-        /// <param name="fact">The committed transition payload.</param>
-        /// <param name="currentSnapshot">The immutable snapshot produced by the same reduction.</param>
-        /// <returns>A task-like value that completes when observation has finished.</returns>
-        ValueTask OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot);
+        /// <param name="fact">The committed transition or occurrence payload.</param>
+        /// <param name="currentSnapshot">The exact immutable snapshot associated with the Fact.</param>
+        void OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot);
+    }
+
+    /// <summary>Reports an isolated external Fact-observer failure.</summary>
+    public interface IFactObserverExceptionReporter
+    {
+        /// <summary>Reports one observer exception without changing rules resolution.</summary>
+        /// <param name="fact">The committed Fact whose observer failed.</param>
+        /// <param name="exception">The observer exception.</param>
+        void Report(RuleFact fact, Exception exception);
+    }
+
+    internal sealed class TraceFactObserverExceptionReporter : IFactObserverExceptionReporter
+    {
+        public static TraceFactObserverExceptionReporter Instance { get; } = new();
+
+        private TraceFactObserverExceptionReporter() { }
+
+        public void Report(RuleFact fact, Exception exception) =>
+            System.Diagnostics.Trace.TraceError(
+                $"Fact observer failed for {fact.GetType().Name}: {exception}"
+            );
     }
 
     internal abstract class FactObserverRegistration
@@ -37,7 +56,7 @@ namespace Game.Rules.Runtime
         public object Observer { get; }
         public abstract Type FactType { get; }
         public abstract bool Matches(RuleFact fact);
-        public abstract ValueTask Invoke(RuleFact fact, RulesSnapshot currentSnapshot);
+        public abstract void Invoke(RuleFact fact, RulesSnapshot currentSnapshot);
     }
 
     internal sealed class FactObserverRegistration<TFact> : FactObserverRegistration
@@ -55,7 +74,7 @@ namespace Game.Rules.Runtime
 
         public override bool Matches(RuleFact fact) => fact is TFact;
 
-        public override ValueTask Invoke(RuleFact fact, RulesSnapshot currentSnapshot)
+        public override void Invoke(RuleFact fact, RulesSnapshot currentSnapshot)
         {
             if (!(fact is TFact typedFact))
             {
@@ -64,17 +83,12 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            return observer.OnFactCommitted(typedFact, currentSnapshot);
+            observer.OnFactCommitted(typedFact, currentSnapshot);
         }
     }
 
     public sealed partial class RuleDispatcher
     {
-        private static readonly ObserverFailureState EmptyFactObserverFailures =
-            ObserverFailureState.CreateEmpty(
-                "Multiple Fact observers failed after the reduction committed."
-            );
-
         private readonly List<FactObserverRegistration> factObservers =
             new List<FactObserverRegistration>();
 
@@ -152,7 +166,7 @@ namespace Game.Rules.Runtime
             }
         }
 
-        internal async ValueTask NotifyFactObservers(
+        internal void NotifyFactObservers(
             IReadOnlyList<RuleFact> committedFacts,
             RulesSnapshot currentSnapshot
         )
@@ -172,7 +186,6 @@ namespace Game.Rules.Runtime
                 observerPlan = factObservers.ToArray();
             }
 
-            ObserverFailureState failures = EmptyFactObserverFailures;
             foreach (RuleFact fact in committedFacts)
             {
                 foreach (FactObserverRegistration observer in observerPlan)
@@ -182,16 +195,31 @@ namespace Game.Rules.Runtime
 
                     try
                     {
-                        await observer.Invoke(fact, currentSnapshot);
+                        observer.Invoke(fact, currentSnapshot);
                     }
                     catch (Exception exception)
                     {
-                        failures = failures.Add(exception);
+                        ReportFactObserverFailure(fact, exception);
                     }
                 }
             }
+        }
 
-            failures.ThrowIfAny();
+        private void ReportFactObserverFailure(RuleFact fact, Exception exception)
+        {
+            try
+            {
+                factObserverExceptionReporter.Report(fact, exception);
+            }
+            catch (Exception reporterException)
+            {
+                System.Diagnostics.Trace.TraceError(
+                    $"Fact observer reporter failed for {fact.GetType().Name}: {reporterException}"
+                );
+                System.Diagnostics.Trace.TraceError(
+                    $"Original Fact observer failure for {fact.GetType().Name}: {exception}"
+                );
+            }
         }
     }
 }

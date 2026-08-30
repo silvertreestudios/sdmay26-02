@@ -6,6 +6,10 @@ namespace Game.Rules.Runtime
 {
     public sealed partial class RuleDispatcher
     {
+        private static readonly RuleSource ActionLifecycleSource = RuleSource.FromSlug(
+            "action-lifecycle"
+        );
+
         private async ValueTask<object> InvokeActionLifecycle(
             IRegistration registration,
             IFrameInvocation invocation,
@@ -58,6 +62,33 @@ namespace Game.Rules.Runtime
                 );
             }
             return featureResult;
+        }
+
+        private void CommitActionResolvedFact<TResult>(
+            IFrameInvocation invocation,
+            IRuleOp<TResult> operation,
+            TResult outcome
+        )
+        {
+            if (operation is not ActionOp<TResult> action)
+                throw new InvalidOperationException(
+                    "An action frame contained an operation outside ActionOp<TResult>."
+                );
+
+            ActionResolvedFact<TResult> fact = new(
+                invocation.FrameView.ActionInfo,
+                action,
+                outcome
+            );
+            RulesSnapshot snapshot = store.CommitOccurrence(
+                fact,
+                invocation.FrameView.Id,
+                invocation.FrameView.RootId,
+                ActionLifecycleSource
+            );
+            RuleFact[] committed = { fact };
+            CaptureCommittedFacts(invocation, committed);
+            NotifyFactObservers(committed, snapshot);
         }
 
         private ValueTask<object> InvokeWithMiddleware(

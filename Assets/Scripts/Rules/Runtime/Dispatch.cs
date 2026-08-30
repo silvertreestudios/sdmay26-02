@@ -110,6 +110,7 @@ namespace Game.Rules.Runtime
         private readonly IReadOnlyDictionary<Type, IRegistration> registrations;
         private readonly RuleRegistry ruleRegistry;
         private readonly ActionRuntime actionRuntime;
+        private readonly IFactObserverExceptionReporter factObserverExceptionReporter;
         private RootResolution activeRoot = RootResolution.Idle;
 
         internal RuleDispatcher(
@@ -118,7 +119,8 @@ namespace Game.Rules.Runtime
             IRollService rollService,
             IDictionary<Type, IRegistration> registrations,
             RuleRegistry ruleRegistry,
-            ActionRuntime actionRuntime
+            ActionRuntime actionRuntime,
+            IFactObserverExceptionReporter factObserverExceptionReporter
         )
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
@@ -131,6 +133,9 @@ namespace Game.Rules.Runtime
                 ruleRegistry ?? throw new ArgumentNullException(nameof(ruleRegistry));
             this.actionRuntime =
                 actionRuntime ?? throw new ArgumentNullException(nameof(actionRuntime));
+            this.factObserverExceptionReporter =
+                factObserverExceptionReporter
+                ?? throw new ArgumentNullException(nameof(factObserverExceptionReporter));
             Trace = new ResolutionTrace();
             Diagnostics = new ResolutionDiagnostics(Trace);
         }

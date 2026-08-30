@@ -1,6 +1,6 @@
 using System;
 using System.Collections;
-using System.Threading.Tasks;
+using System.Collections.Generic;
 using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
@@ -16,6 +16,7 @@ namespace Game.Rules.Unity
         private readonly CreatureId creature;
         private readonly GridBase grid;
         private readonly bool startedInExploration;
+        private readonly Queue<CommittedStep> committedSteps = new();
         private IExplorationPresentationDrain explorationPresentation;
 
         internal UnityStrideProjectionObserver(
@@ -39,19 +40,31 @@ namespace Game.Rules.Unity
         /// </summary>
         internal bool WasRouteInterrupted { get; private set; }
 
-        /// <summary>Completes follower presentation queued by this exploration action.</summary>
-        internal IEnumerator DrainExplorationPresentation() =>
-            explorationPresentation?.DrainPresentation(character) ?? EmptyCoroutine();
+        /// <summary>
+        /// Projects all steps captured during mechanically complete rules dispatch, then drains
+        /// follower presentation queued by the exploration coordinator.
+        /// </summary>
+        internal IEnumerator DrainPresentation()
+        {
+            while (committedSteps.Count > 0)
+            {
+                CommittedStep step = committedSteps.Dequeue();
+                yield return Project(step.Fact, step.Snapshot);
+                if (WasRouteInterrupted)
+                    break;
+            }
+            if (explorationPresentation != null)
+                yield return explorationPresentation.DrainPresentation(character);
+        }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
         {
             if (fact.Mover != creature)
-                return default;
+                return;
             if (currentSnapshot == null)
                 throw new ArgumentNullException(nameof(currentSnapshot));
-
-            return UnityCoroutineTask.Run(Project(fact, currentSnapshot));
+            committedSteps.Enqueue(new CommittedStep(fact, currentSnapshot));
         }
 
         private IEnumerator Project(TokenMovedFact fact, RulesSnapshot currentSnapshot)
@@ -96,7 +109,7 @@ namespace Game.Rules.Unity
                                 controller.IsTakingAction = true;
                         }
                         WasRouteInterrupted = true;
-                        throw new ExplorationStrideProjectionInterruptedException();
+                        yield break;
                     }
                     throw new InvalidOperationException(
                         "Exploration could not project an already-committed Stride step."
@@ -147,15 +160,16 @@ namespace Game.Rules.Unity
         private static Vector3Int ToUnity(GridPosition value) =>
             new Vector3Int(value.X, value.Y, value.Z);
 
-        private static IEnumerator EmptyCoroutine()
+        private readonly struct CommittedStep
         {
-            yield break;
+            internal CommittedStep(TokenMovedFact fact, RulesSnapshot snapshot)
+            {
+                Fact = fact;
+                Snapshot = snapshot;
+            }
+
+            internal TokenMovedFact Fact { get; }
+            internal RulesSnapshot Snapshot { get; }
         }
     }
-
-    /// <summary>
-    /// Stops an obsolete temporary exploration root after its committed leader step is projected
-    /// and the coordinator determines that its remaining route must be abandoned.
-    /// </summary>
-    internal sealed class ExplorationStrideProjectionInterruptedException : Exception { }
 }

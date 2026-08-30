@@ -6,6 +6,7 @@ using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Attack;
 using Game.Rules.Unity.Composition;
 using UnityEngine;
 
@@ -206,9 +207,9 @@ namespace Game.Combat.Spells
         }
     }
 
-    /// <summary>Projects every resolved generic cast exactly once into shared Unity presentation.</summary>
-    public sealed class UnityResolvedSpellCastPresentationObserver
-        : IResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>
+    /// <summary>Projects every committed resolved cast through feature-owned Unity presentation.</summary>
+    public sealed class UnitySpellActionPresenter
+        : IUnityActionPresenter<CastSpellActionOp, CastSpellOutcome>
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly ISpellDefinitionCatalog catalog;
@@ -216,7 +217,7 @@ namespace Game.Combat.Spells
         /// <summary>Creates the shared presenter for all resolved spell casts.</summary>
         /// <param name="creatures">Live Unity creatures keyed by encounter rules ID.</param>
         /// <param name="catalog">Definitions used for player-facing spell names.</param>
-        public UnityResolvedSpellCastPresentationObserver(
+        public UnitySpellActionPresenter(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             ISpellDefinitionCatalog catalog
         )
@@ -226,7 +227,7 @@ namespace Game.Combat.Spells
         }
 
         /// <inheritdoc/>
-        public ValueTask OnOperationResolved(
+        public void Present(
             CastSpellActionOp operation,
             CastSpellOutcome result,
             RulesSnapshot currentSnapshot
@@ -271,7 +272,47 @@ namespace Game.Combat.Spells
                 },
                 actor
             );
-            return default;
+            foreach (SpellAttackResolution attack in result.AttackResolutions)
+                PresentAttack(definition, attacker: creature, attack, currentSnapshot);
+        }
+
+        private void PresentAttack(
+            Game.Rules.Runtime.SpellDefinition definition,
+            CreatureComponent attacker,
+            SpellAttackResolution resolution,
+            RulesSnapshot currentSnapshot
+        )
+        {
+            if (
+                !creatures.TryGetValue(resolution.Target, out CreatureComponent target)
+                || target == null
+            )
+                return;
+            UnityAttackResultPresentation.Present(
+                attacker.gameObject,
+                target.gameObject,
+                definition.DisplayName,
+                new UnityAttackResult(
+                    resolution.AttackRoll,
+                    resolution.AttackModifier,
+                    resolution.ArmorClass,
+                    resolution.Degree,
+                    resolution.Damage.Select(part => new UnityAttackDamagePart(
+                        part.DamageType,
+                        part.Amount
+                    )),
+                    resolution.FinalDamage,
+                    resolution.MultipleAttackPenalty,
+                    0,
+                    0
+                )
+            );
+            if (currentSnapshot.Health.TryGet(resolution.Target, out HealthState health))
+                UnityAttackResultPresentation.PresentTargetReaction(
+                    target,
+                    resolution.FinalDamage,
+                    health
+                );
         }
 
         private static void PresentSafely(Action presentation, UnityEngine.Object context)

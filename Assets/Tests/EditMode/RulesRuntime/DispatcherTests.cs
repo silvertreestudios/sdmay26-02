@@ -1969,6 +1969,13 @@ namespace Game.Rules.Runtime.Tests
                 }
                 return reduced;
             }
+
+            public RulesSnapshot CommitOccurrence(
+                RuleFact fact,
+                OpId sourceOpId,
+                OpId rootOpId,
+                RuleSource source
+            ) => inner.CommitOccurrence(fact, sourceOpId, rootOpId, source);
         }
     }
 }

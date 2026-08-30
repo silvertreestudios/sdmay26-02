@@ -99,6 +99,7 @@ namespace Game.Rules.Unity
                     new InMemoryRulesStore(seed),
                     rollService ?? throw new ArgumentNullException(nameof(rollService))
                 )
+                    .UseFactObserverExceptionReporter(UnityFactObserverExceptionReporter.Instance)
                     .UseHealthRules()
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
@@ -594,14 +595,14 @@ namespace Game.Rules.Unity
         }
 
         /// <summary>
-        /// Dispatches Stride while awaiting one Unity projection for each committed movement Fact.
+        /// Dispatches Stride while one root-scoped observer queues committed movement projection.
         /// </summary>
         /// <param name="creature">The registered mover.</param>
         /// <param name="path">The exact completed selection.</param>
         /// <param name="projection">The projection observer retained for this root only.</param>
         /// <returns>
-        /// Whether the rules root resolved, including a committed exploration step whose obsolete
-        /// temporary suffix was intentionally abandoned.
+        /// Whether the rules root resolved. Presentation and exploration route continuation are
+        /// owned by the caller after this mechanically complete dispatch.
         /// </returns>
         public async ValueTask<bool> DispatchProjectedStride(
             CreatureId creature,
@@ -613,18 +614,8 @@ namespace Game.Rules.Unity
                 throw new ArgumentNullException(nameof(projection));
             using (dispatcher.RegisterFactObserver(projection))
             {
-                try
-                {
-                    OpResult<MovePathOutcome> result = await DispatchStride(creature, path);
-                    return result is ResolvedOpResult<MovePathOutcome>;
-                }
-                catch (ExplorationStrideProjectionInterruptedException)
-                {
-                    // The committed leader step has already projected. Cancellation, encounter
-                    // startup, or a known partial follower failure makes both the temporary Stride
-                    // suffix and the outer destination route obsolete.
-                    return true;
-                }
+                OpResult<MovePathOutcome> result = await DispatchStride(creature, path);
+                return result is ResolvedOpResult<MovePathOutcome>;
             }
         }
 

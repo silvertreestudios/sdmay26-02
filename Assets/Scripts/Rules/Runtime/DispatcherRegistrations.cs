@@ -211,7 +211,7 @@ namespace Game.Rules.Runtime
 
         public override bool IsReducer => true;
 
-        public override async ValueTask<object> Invoke(
+        public override ValueTask<object> Invoke(
             IFrameInvocation invocation,
             RuleDispatcher dispatcher
         )
@@ -225,13 +225,11 @@ namespace Game.Rules.Runtime
             ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, factSource);
             dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
             if (reduced.Facts.Count > 0)
-            {
-                await dispatcher.NotifyFactObservers(reduced.Facts, reduced.Snapshot);
-            }
+                dispatcher.NotifyFactObservers(reduced.Facts, reduced.Snapshot);
             OpResult<TResult> result = reduced.IsAccepted
                 ? OpResult<TResult>.Resolved(reduced.Value)
                 : OpResult<TResult>.Invalid(reduced.RejectionReason);
-            return result.WithFacts(reduced.Facts);
+            return new ValueTask<object>(result.WithFacts(reduced.Facts));
         }
     }
 }

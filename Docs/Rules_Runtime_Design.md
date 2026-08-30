@@ -68,8 +68,9 @@ Unity or another client
 ```
 
 The operation describes what is being attempted. The rules snapshot describes what is true. The
-result describes how the attempt ended. Facts describe changes that already committed. Unity
-projects those outcomes; it does not silently decide them for a migrated state slice.
+result describes how the attempt ended. Facts describe committed state changes or narrow committed
+rules occurrences. Unity projects those outcomes; it does not silently decide them for a migrated
+state slice.
 
 ## Core contracts
 
@@ -105,17 +106,25 @@ Handlers, middleware, listeners, and observers do not mutate state directly.
 
 ### Facts and timing
 
-A `RuleFact` reports something that has committed. It is not a request and it is not a preview.
-Fact listeners may react by dispatching more rules work. External observers may update presentation,
-audio, animation, or Unity projections.
+A `RuleFact` reports something that has committed. Most Facts are emitted by reducers for state
+changes. The action lifecycle runner also emits one `ActionResolvedFact<TResult>` occurrence after
+a structurally resolved action and all of its awaited child mechanics. It is not a request and it is
+not a preview. Fact listeners may react by dispatching more rules work. External observers may
+update presentation, audio, animation, or Unity projections.
 
 The distinction matters:
 
 - middleware participates while an operation is resolving;
 - reducers commit authoritative state;
-- Facts expose the committed transition;
-- rule listeners create follow-up rules work; and
-- observers perform external side effects after the rules event exists.
+- Facts expose the committed transition or occurrence;
+- binding-scoped rule listeners are asynchronous, awaited, and may create authoritative follow-up
+  rules work; and
+- external Fact observers are synchronous, non-authoritative notifications that project immediately
+  or enqueue host-owned presentation.
+
+External observer exceptions are isolated and reported. They do not stop handlers, reducers, rules
+Fact listeners, or other observers. Presentation does not have retry, pending, recovery, or durable
+rules state.
 
 Code that needs to veto or alter a transition belongs before the commit. Code that merely responds
 to the committed result belongs after it.
@@ -129,7 +138,7 @@ Use the narrowest extension point that matches the behavior:
 | Orchestrate a multi-step feature workflow | `IOpHandler<TOp, TResult>` |
 | Alter or interrupt a selected operation while it resolves | `IOpMiddleware<TOp, TResult>` |
 | React to a committed Fact with more rules work | `IRuleFactListener<TFact>` or batch listener |
-| Project committed or resolved work outside the rules model | Fact or resolved-operation observer |
+| Project committed work outside the rules model | synchronous Fact observer |
 | Read a derived answer without changing state | selector over `RulesSnapshot` |
 | Perform a small authoritative mutation | `IOpReducer<TOp, TResult>` |
 
@@ -146,6 +155,12 @@ Every rules-backed action follows the same engine-owned boundary:
 3. commit all action and rule-resource costs atomically;
 4. resolve `ActionBegunOp`; and
 5. invoke the feature handler.
+
+After the handler and every awaited child mechanic complete, a structurally resolved action emits
+exactly one `ActionResolvedFact<TResult>`. Invalid, interrupted, and cancelled actions do not emit
+it; a feature-level outcome such as a missed Strike still does. The Fact reuses `ActionOpInfo`, the
+actual immutable `ActionOp<TResult>`, and the existing outcome. It is not action history or a second
+result model.
 
 The feature handler owns the action's semantics after that boundary. It should dispatch existing
 generic operations for shared work rather than reimplementing checks, damage, movement, resources,
@@ -220,7 +235,8 @@ The following are architectural constraints, not optional conventions:
 
 - A migrated state slice has exactly one writable authority.
 - Only reducers mutate authoritative state.
-- Facts describe committed state and are published after commit.
+- Facts describe committed state changes or explicit lifecycle occurrences and are published only
+  after their owning commit or lifecycle boundary.
 - Every action operation passes through the action lifecycle exactly once.
 - Feature semantics remain in the feature module, not shared bridges or managers.
 - Composition is explicit and deterministic; no static discovery or self-registration.

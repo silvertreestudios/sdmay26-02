@@ -15,6 +15,7 @@ namespace Game.Combat.Spells
     internal sealed class UnitySpellcastingEncounterModule
         : IUnityEncounterDispatcherModule,
             IUnityEncounterRuntimeModule,
+            IUnityEncounterActionPresentationModule,
             IUnityEncounterTopologyModule,
             IUnityCombatantEnrollmentModule
     {
@@ -59,20 +60,21 @@ namespace Game.Combat.Spells
         /// <inheritdoc/>
         public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
         {
-            lifetime.Add(
-                dispatcher.RegisterResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>(
-                    new UnityResolvedSpellCastPresentationObserver(creatures, catalog)
-                )
-            );
-            lifetime.Add(
-                dispatcher.RegisterResolvedOpObserver<ResolveSpellAttackOp, SpellAttackResolution>(
-                    new UnitySpellAttackPresentationObserver(creatures, catalog)
-                )
-            );
             RestoredSpellEffectTimingObserver restored = new(restoredEffects);
             lifetime.Add(dispatcher.RegisterFactObserver<InitiativeBoundaryReachedFact>(restored));
             lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(restored));
             lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(restored));
+        }
+
+        /// <inheritdoc/>
+        public void ConfigureActionPresentation(UnityActionPresentationRegistry registry)
+        {
+            if (!installUnityAuthority)
+                return;
+            registry.Register<CastSpellActionOp, CastSpellOutcome>(
+                CastSpellActionDefinition.DefinitionId,
+                new UnitySpellActionPresenter(creatures, catalog)
+            );
         }
 
         /// <inheritdoc/>
@@ -386,32 +388,23 @@ namespace Game.Combat.Spells
             IReadOnlyDictionary<ActiveEffectId, RestoredSpellEffectProjection> projections
         ) => this.projections = projections ?? throw new ArgumentNullException(nameof(projections));
 
-        public ValueTask OnFactCommitted(
+        public void OnFactCommitted(
             InitiativeBoundaryReachedFact fact,
             RulesSnapshot currentSnapshot
         )
         {
             foreach (RestoredSpellEffectProjection projection in projections.Values)
                 projection.ProjectRemaining(currentSnapshot);
-            return default;
         }
 
-        public ValueTask OnFactCommitted(
-            ActiveEffectExpiredFact fact,
-            RulesSnapshot currentSnapshot
-        )
+        public void OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot currentSnapshot)
         {
             Remove(fact.EffectId);
-            return default;
         }
 
-        public ValueTask OnFactCommitted(
-            ActiveEffectRemovedFact fact,
-            RulesSnapshot currentSnapshot
-        )
+        public void OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot currentSnapshot)
         {
             Remove(fact.EffectId);
-            return default;
         }
 
         private void Remove(ActiveEffectId effect)

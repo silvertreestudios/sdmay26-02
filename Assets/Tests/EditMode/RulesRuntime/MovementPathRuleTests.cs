@@ -146,7 +146,7 @@ namespace Game.Rules.Runtime.Tests
                 RequireResolved(result).Value.Failure.Kind,
                 Is.EqualTo(MovementFailureKind.NonContiguous)
             );
-            Assert.That(result.Facts, Is.Empty);
+            Assert.That(result.Facts.Single(), Is.TypeOf<ActionResolvedFact<MovePathOutcome>>());
             Assert.That(store.Snapshot.Version, Is.Zero);
             Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(origin));
             Assert.That(store.Snapshot.MovementBudgets[Mover].Remaining.Feet, Is.EqualTo(30));
@@ -393,12 +393,13 @@ namespace Game.Rules.Runtime.Tests
                         typeof(MovementBudgetStartedFact),
                         typeof(TokenMovedFact),
                         typeof(TokenMovedFact),
+                        typeof(ActionResolvedFact<MovePathOutcome>),
                     }
                 )
             );
             Assert.That(
                 result.Facts.Select(fact => fact.Id),
-                Is.EqualTo(new[] { new FactId(1), new FactId(2), new FactId(3) })
+                Is.EqualTo(new[] { new FactId(1), new FactId(2), new FactId(3), new FactId(4) })
             );
             TokenMovedFact[] moved = result.Facts.OfType<TokenMovedFact>().ToArray();
             Assert.That(
@@ -981,7 +982,7 @@ namespace Game.Rules.Runtime.Tests
             public List<TokenMovedFact> Facts { get; } = new List<TokenMovedFact>();
             public List<StepSnapshot> Snapshots { get; } = new List<StepSnapshot>();
 
-            public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
             {
                 Facts.Add(fact);
                 Snapshots.Add(
@@ -990,7 +991,6 @@ namespace Game.Rules.Runtime.Tests
                         currentSnapshot.MovementBudgets[fact.Mover].Remaining.Feet
                     )
                 );
-                return default;
             }
         }
 
@@ -998,10 +998,9 @@ namespace Game.Rules.Runtime.Tests
         {
             public List<TokenRelocatedFact> Facts { get; } = new List<TokenRelocatedFact>();
 
-            public ValueTask OnFactCommitted(TokenRelocatedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(TokenRelocatedFact fact, RulesSnapshot currentSnapshot)
             {
                 Facts.Add(fact);
-                return default;
             }
         }
 

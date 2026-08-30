@@ -174,8 +174,15 @@ namespace Game.Rules.Runtime
                         $"Resolver for {op.GetType().Name} returned an impossible result type."
                     );
 
+                if (
+                    invocation.FrameView.IsAction
+                    && result is ResolvedOpResult<TResult> resolvedAction
+                )
+                {
+                    CommitActionResolvedFact(invocation, op, resolvedAction.Value);
+                }
+
                 OpResult<TResult> completed;
-                RulesSnapshot completedSnapshot;
                 lock (gate)
                 {
                     RequireActiveResolution(resolution);
@@ -190,16 +197,8 @@ namespace Game.Rules.Runtime
                         subtreeFacts = Array.AsReadOnly(subtreeFactArray);
                     }
                     completed = result.WithFacts(subtreeFacts);
-                    completedSnapshot = store.Snapshot;
                     Diagnostics.Complete(id, completed.Status, directFacts);
                 }
-                if (completed is ResolvedOpResult<TResult> resolved)
-                    await NotifyResolvedOpObservers(
-                        op,
-                        typeof(TResult),
-                        resolved.Value,
-                        completedSnapshot
-                    );
                 return completed;
             }
             finally

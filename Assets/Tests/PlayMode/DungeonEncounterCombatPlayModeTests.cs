@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -766,30 +767,31 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
     }
 
-    /// <summary>Verifies a failed committed startup releases ownership so the host can retry.</summary>
+    /// <summary>Verifies presentation failure cannot undo or interrupt committed startup.</summary>
     [Test]
-    public void LegacyStartCombat_FailedPresentationDoesNotLeaveManagerActive()
+    public void LegacyStartCombat_FailedPresentationDoesNotStopCommittedEncounter()
     {
         CombatantFixture first = CreateCombatant("First", "TeamA", 300);
-        CombatantFixture second = CreateCombatant("Second", "TeamB", 200);
+        CreateCombatant("Second", "TeamB", 200);
         UnityAction failingPresentation = () =>
             throw new InvalidOperationException("Synthetic encounter-start presentation failure.");
         OnCombatStart.AddListener(failingPresentation);
+        LogAssert.Expect(
+            LogType.Exception,
+            new Regex("Synthetic encounter-start presentation failure")
+        );
         try
         {
-            Assert.Catch<Exception>(() => manager.StartCombat());
-            Assert.That(manager.IsCombatActive, Is.False);
-            AssertTransientTurnStateCleared(first.Controller);
-            AssertTransientTurnStateCleared(second.Controller);
+            Assert.DoesNotThrow(() => manager.StartCombat());
         }
         finally
         {
             OnCombatStart.RemoveListener(failingPresentation);
         }
 
-        Assert.DoesNotThrow(() => manager.StartCombat());
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
+        Assert.That(first.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
     /// <summary>Verifies legacy combat excludes registered controllers that cannot take turns.</summary>

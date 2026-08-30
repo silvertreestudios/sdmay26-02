@@ -87,7 +87,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task CommittedTraversalConsumesPermissionWhenObserverThrows()
+        public async Task ObserverFailureDoesNotInterruptTraversalOrRestoreConsumedPermission()
         {
             PermissionActionHandler handler = new PermissionActionHandler(
                 PermissionScenario.ObserverFailureThenReuse
@@ -100,14 +100,14 @@ namespace Game.Rules.Runtime.Tests
             OpResult<bool> result = await dispatcher.Dispatch(new PermissionActionOp());
 
             Assert.That(RequireResolved(result).Value, Is.True);
-            Assert.That(handler.CaughtObserverFailure, Is.True);
+            Assert.That(handler.CaughtObserverFailure, Is.False);
             Assert.That(handler.SecondMove.Status, Is.EqualTo(MovePathStatus.Stopped));
             Assert.That(
                 handler.SecondMove.Failure.PermissionFailure,
                 Is.EqualTo(MovementPermissionFailureKind.Reused)
             );
             Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(Origin));
-            Assert.That(result.Facts.OfType<TokenMovedFact>().Count(), Is.EqualTo(2));
+            Assert.That(result.Facts.OfType<TokenMovedFact>().Count(), Is.EqualTo(3));
             Assert.That(result.Facts.OfType<OccupiedSpaceTraversedFact>().Count(), Is.EqualTo(1));
             Assert.That(result.Facts.OfType<TokenRelocatedFact>().Count(), Is.EqualTo(1));
             Assert.That(observer.ObservedMoverPosition, Is.EqualTo(SecondIntermediate));
@@ -1017,23 +1017,16 @@ namespace Game.Rules.Runtime.Tests
 
                 if (scenario == PermissionScenario.ObserverFailureThenReuse)
                 {
-                    try
-                    {
-                        FirstMove = await Move(
-                            frame,
-                            context,
-                            started.Budget.Id,
-                            CrossingPath,
-                            IssuedPermission,
-                            Purpose
-                        );
-                    }
-                    catch (InvalidOperationException exception)
-                    {
-                        CaughtObserverFailure = exception.Message == "injected observer failure";
-                    }
+                    FirstMove = await Move(
+                        frame,
+                        context,
+                        started.Budget.Id,
+                        CrossingPath,
+                        IssuedPermission,
+                        Purpose
+                    );
 
-                    await Relocate(frame, context, Mover, SecondIntermediate, Origin);
+                    await Relocate(frame, context, Mover, Exit, Origin);
                     SecondMove = await Move(
                         frame,
                         context,
@@ -1643,22 +1636,21 @@ namespace Game.Rules.Runtime.Tests
             public List<GridPosition> Positions { get; } = new List<GridPosition>();
             public List<bool> UniquePositions { get; } = new List<bool>();
 
-            public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot) =>
+            public void OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot) =>
                 Record(currentSnapshot);
 
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 OccupiedSpaceTraversedFact fact,
                 RulesSnapshot currentSnapshot
             ) => Record(currentSnapshot);
 
-            private ValueTask Record(RulesSnapshot snapshot)
+            private void Record(RulesSnapshot snapshot)
             {
                 Positions.Add(snapshot.Positions[Mover]);
                 UniquePositions.Add(
                     snapshot.Positions.Select(pair => pair.Value).Distinct().Count()
                         == snapshot.Positions.Count
                 );
-                return default;
             }
         }
 
@@ -1667,7 +1659,7 @@ namespace Game.Rules.Runtime.Tests
             public GridPosition ObservedMoverPosition { get; private set; }
             public bool ObservedUniquePositions { get; private set; }
 
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 OccupiedSpaceTraversedFact fact,
                 RulesSnapshot currentSnapshot
             )

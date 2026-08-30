@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
@@ -10,16 +9,15 @@ using UnityEngine;
 namespace Game.Rules.Unity.Strike
 {
     /// <summary>
-    /// Projects resolved Strike operations into feature-owned Unity animation, events, and logs.
+    /// Projects a committed resolved Strike action into Unity animation, events, and logs.
     /// </summary>
     /// <remarks>
     /// The adapter intentionally contains the Unity combat-log singleton and static creature
     /// events. Every cosmetic callback is exception-contained so presentation cannot prevent
     /// authoritative damage, load-state changes, or MAP advancement.
     /// </remarks>
-    public sealed class UnityStrikePresentationObserver
-        : IResolvedOpObserver<ResolveStrikeOp, StrikeResolution>,
-            IResolvedOpObserver<StrikeActionOp, StrikeResolution>
+    public sealed class UnityStrikeActionPresenter
+        : IUnityActionPresenter<StrikeActionOp, StrikeResolution>
     {
         private readonly IReadOnlyDictionary<CreatureId, ActionController> controllers;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
@@ -29,7 +27,7 @@ namespace Game.Rules.Unity.Strike
         /// <param name="controllers">Rules-to-Unity attacker mappings.</param>
         /// <param name="creatures">Rules-to-Unity creature mappings.</param>
         /// <param name="strikeContext">The feature context owning item and weapon mappings.</param>
-        public UnityStrikePresentationObserver(
+        public UnityStrikeActionPresenter(
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             UnityStrikeContext strikeContext
@@ -42,47 +40,7 @@ namespace Game.Rules.Unity.Strike
         }
 
         /// <inheritdoc/>
-        public ValueTask OnOperationResolved(
-            ResolveStrikeOp operation,
-            StrikeResolution result,
-            RulesSnapshot currentSnapshot
-        )
-        {
-            if (
-                !TryGetPresentation(
-                    operation.Actor,
-                    operation.Target,
-                    out GameObject attacker,
-                    out GameObject target
-                )
-            )
-                return default;
-
-            StrikeItemDefinition item;
-            try
-            {
-                item = strikeContext.GetStrikeItem(operation.Item);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, attacker);
-                return default;
-            }
-
-            PresentSafely(
-                () =>
-                {
-                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
-                        log.Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
-                },
-                attacker
-            );
-            PresentSafely(() => PlayAttack(attacker, target, item), attacker);
-            return default;
-        }
-
-        /// <inheritdoc/>
-        public ValueTask OnOperationResolved(
+        public void Present(
             StrikeActionOp operation,
             StrikeResolution result,
             RulesSnapshot currentSnapshot
@@ -96,12 +54,33 @@ namespace Game.Rules.Unity.Strike
                     out GameObject target
                 )
             )
-                return default;
+                return;
+
+            StrikeItemDefinition item;
+            try
+            {
+                item = strikeContext.GetStrikeItem(operation.Item);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, attacker);
+                return;
+            }
+
+            PresentSafely(
+                () =>
+                {
+                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
+                        log.Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
+                },
+                attacker
+            );
+            PresentSafely(() => PlayAttack(attacker, target, item), attacker);
 
             UnityAttackResultPresentation.Present(
                 attacker,
                 target,
-                strikeContext.GetStrikeItem(operation.Item).Label,
+                item.Label,
                 new UnityAttackResult(
                     result.AttackRoll,
                     result.AttackModifier,
@@ -114,7 +93,12 @@ namespace Game.Rules.Unity.Strike
                     result.CoverBonus
                 )
             );
-            return default;
+            if (currentSnapshot.Health.TryGet(operation.Target, out HealthState health))
+                UnityAttackResultPresentation.PresentTargetReaction(
+                    creatures[operation.Target],
+                    result.FinalDamage,
+                    health
+                );
         }
 
         private bool TryGetPresentation(
