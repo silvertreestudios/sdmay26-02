@@ -106,8 +106,10 @@ Handlers, middleware, listeners, and observers do not mutate state directly.
 
 ### Facts and timing
 
-A `RuleFact` reports something that has committed. Most Facts are emitted by reducers for state
-changes. The action lifecycle runner also emits one `ActionResolvedFact<TResult>` occurrence after
+A `RuleFact` is an immutable domain payload reporting something that has committed. It carries no
+store-assigned identity, mutable commit marker, or dispatcher provenance. Most Facts are emitted by
+reducers for state changes. The action lifecycle runner also emits one
+`ActionResolvedFact<TResult>` occurrence after
 a structurally resolved action and all of its awaited child mechanics. It is not a request and it is
 not a preview. Fact listeners may react by dispatching more rules work. External observers may
 update presentation, audio, animation, or Unity projections.
@@ -122,9 +124,12 @@ The distinction matters:
 - external Fact observers are synchronous, non-authoritative notifications that project immediately
   or enqueue host-owned presentation.
 
-External observer exceptions are isolated and reported. They do not stop handlers, reducers, rules
-Fact listeners, or other observers. Presentation does not have retry, pending, recovery, or durable
-rules state.
+The dispatcher keeps source/root provenance, listener eligibility, delivery ordering, and each
+delivery's exact snapshot in internal orchestration records. External observers receive only the
+immutable payload, its existing root `OpId`, and exact snapshot. Observer exceptions are isolated
+and logged directly to `System.Diagnostics.Trace` on a best-effort basis; neither the observer nor
+logging failure stops handlers, reducers, rules Fact listeners, or other observers. Presentation
+does not have retry, pending, recovery, or durable rules state.
 
 Code that needs to veto or alter a transition belongs before the commit. Code that merely responds
 to the committed result belongs after it.
@@ -236,7 +241,7 @@ The following are architectural constraints, not optional conventions:
 - A migrated state slice has exactly one writable authority.
 - Only reducers mutate authoritative state.
 - Facts describe committed state changes or explicit lifecycle occurrences and are published only
-  after their owning commit or lifecycle boundary.
+  after their owning commit or lifecycle boundary, without mutating their payloads.
 - Every action operation passes through the action lifecycle exactly once.
 - Feature semantics remain in the feature module, not shared bridges or managers.
 - Composition is explicit and deterministic; no static discovery or self-registration.

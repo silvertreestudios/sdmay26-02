@@ -99,7 +99,6 @@ namespace Game.Rules.Unity
                     new InMemoryRulesStore(seed),
                     rollService ?? throw new ArgumentNullException(nameof(rollService))
                 )
-                    .UseFactObserverExceptionReporter(UnityFactObserverExceptionReporter.Instance)
                     .UseHealthRules()
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
@@ -807,21 +806,19 @@ namespace Game.Rules.Unity
             }
         }
 
-        internal void EnqueueEncounterPresentation(RuleFact fact, Action presentation)
+        internal void EnqueueEncounterPresentation(OpId rootId, Action presentation)
         {
-            if (fact == null || !fact.IsStamped)
+            if (rootId.IsEmpty)
                 throw new ArgumentException(
                     "Encounter presentation requires a committed root-owned Fact.",
-                    nameof(fact)
+                    nameof(rootId)
                 );
             if (presentation == null)
                 throw new ArgumentNullException(nameof(presentation));
-            if (
-                !encounterPresentationByRoot.TryGetValue(fact.RootOpId, out Queue<Action> callbacks)
-            )
+            if (!encounterPresentationByRoot.TryGetValue(rootId, out Queue<Action> callbacks))
             {
                 callbacks = new Queue<Action>();
-                encounterPresentationByRoot.Add(fact.RootOpId, callbacks);
+                encounterPresentationByRoot.Add(rootId, callbacks);
             }
             callbacks.Enqueue(presentation);
         }

@@ -390,6 +390,7 @@ namespace Game.Combat.Spells
 
         public void OnFactCommitted(
             InitiativeBoundaryReachedFact fact,
+            OpId rootId,
             RulesSnapshot currentSnapshot
         )
         {
@@ -397,12 +398,20 @@ namespace Game.Combat.Spells
                 projection.ProjectRemaining(currentSnapshot);
         }
 
-        public void OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(
+            ActiveEffectExpiredFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        )
         {
             Remove(fact.EffectId);
         }
 
-        public void OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(
+            ActiveEffectRemovedFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        )
         {
             Remove(fact.EffectId);
         }

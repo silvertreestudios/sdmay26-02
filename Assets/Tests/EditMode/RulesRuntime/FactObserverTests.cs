@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -24,8 +25,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
             Assert.That(observer.Facts, Has.Count.EqualTo(1));
-            Assert.That(observer.Facts.Single().IsStamped, Is.True);
-            Assert.That(observer.Facts.Single().Source, Is.EqualTo(Source));
+            Assert.That(observer.Roots.Single(), Is.EqualTo(new OpId(1)));
             Assert.That(observer.Snapshots.Single(), Is.SameAs(store.Snapshot));
             Assert.That(observer.Snapshots.Single().Health[Creature].Current, Is.EqualTo(1));
         }
@@ -78,7 +78,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task ObserverFailuresAreReportedAndDoNotStopObserversOrRulesListeners()
+        public async Task ObserverFailuresDoNotStopObserversOrRulesListeners()
         {
             ActiveRuleBinding binding = new(
                 new BindingId("observer-failure-listener"),
@@ -90,13 +90,9 @@ namespace Game.Rules.Runtime.Tests
             );
             InMemoryRulesStore store = CreateStore(binding);
             CapturingFactListener listener = new();
-            RecordingExceptionReporter reporter = new();
             RuleRegistryBuilder rules = new();
             rules.Define(ListenerDefinition).FactListener(RuleLifecyclePhase.Observation, listener);
-            RuleDispatcher dispatcher = CreateBuilder(store)
-                .UseFactObserverExceptionReporter(reporter)
-                .UseRuleRegistry(rules.Build())
-                .Build();
+            RuleDispatcher dispatcher = CreateBuilder(store).UseRuleRegistry(rules.Build()).Build();
             InvalidOperationException first = new("first");
             ApplicationException second = new("second");
             SnapshotObserver completed = new();
@@ -107,10 +103,35 @@ namespace Game.Rules.Runtime.Tests
             OpResult<int> result = await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
-            Assert.That(reporter.Exceptions, Is.EqualTo(new Exception[] { first, second }));
             Assert.That(completed.Facts, Has.Count.EqualTo(1));
             Assert.That(listener.Facts.Single(), Is.SameAs(completed.Facts.Single()));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task TraceLoggingFailureDoesNotStopLaterObservers()
+        {
+            RuleDispatcher dispatcher = CreateBuilder(CreateStore()).Build();
+            SnapshotObserver completed = new();
+            dispatcher.RegisterFactObserver(
+                new ThrowingObserver(new InvalidOperationException("observer failure"))
+            );
+            dispatcher.RegisterFactObserver(completed);
+            ThrowingTraceListener traceListener = new();
+            Trace.Listeners.Insert(0, traceListener);
+
+            try
+            {
+                OpResult<int> result = await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
+
+                Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
+                Assert.That(completed.Facts, Has.Count.EqualTo(1));
+            }
+            finally
+            {
+                Trace.Listeners.Remove(traceListener);
+                traceListener.Dispose();
+            }
         }
 
         [Test]
@@ -224,11 +245,17 @@ namespace Game.Rules.Runtime.Tests
         private sealed class SnapshotObserver : IFactObserver<ChangedFact>
         {
             public List<ChangedFact> Facts { get; } = new();
+            public List<OpId> Roots { get; } = new();
             public List<RulesSnapshot> Snapshots { get; } = new();
 
-            public void OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 Facts.Add(fact);
+                Roots.Add(rootId);
                 Snapshots.Add(currentSnapshot);
             }
         }
@@ -244,8 +271,11 @@ namespace Game.Rules.Runtime.Tests
                 this.deliveries = deliveries;
             }
 
-            public void OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot) =>
-                deliveries.Add($"{fact.Sequence}:{name}");
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            ) => deliveries.Add($"{fact.Sequence}:{name}");
         }
 
         private sealed class MutatingObserver : IFactObserver<ChangedFact>
@@ -269,7 +299,11 @@ namespace Game.Rules.Runtime.Tests
                 this.deliveries = deliveries;
             }
 
-            public void OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 deliveries.Add($"{fact.Sequence}:mutating");
                 if (changed)
@@ -286,15 +320,20 @@ namespace Game.Rules.Runtime.Tests
 
             public ThrowingObserver(Exception exception) => this.exception = exception;
 
-            public void OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot) =>
-                throw exception;
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            ) => throw exception;
         }
 
-        private sealed class RecordingExceptionReporter : IFactObserverExceptionReporter
+        private sealed class ThrowingTraceListener : TraceListener
         {
-            public List<Exception> Exceptions { get; } = new();
+            public override void Write(string message) =>
+                throw new InvalidOperationException("trace failure");
 
-            public void Report(RuleFact fact, Exception exception) => Exceptions.Add(exception);
+            public override void WriteLine(string message) =>
+                throw new InvalidOperationException("trace failure");
         }
 
         private sealed class CapturingFactListener : IRuleFactListener<ChangedFact>

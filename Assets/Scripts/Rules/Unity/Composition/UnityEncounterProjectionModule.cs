@@ -39,31 +39,44 @@ namespace Game.Rules.Unity.Composition
                 this.owner = owner;
 
             /// <inheritdoc/>
-            public void OnFactCommitted(EncounterStartedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                EncounterStartedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 owner.ProjectEncounterStarted();
             }
 
             /// <inheritdoc/>
-            public void OnFactCommitted(TurnBeganFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                TurnBeganFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
-                owner.EnqueueEncounterPresentation(fact, () => owner.ProjectTurnBegan(fact.Turn));
+                owner.EnqueueEncounterPresentation(rootId, () => owner.ProjectTurnBegan(fact.Turn));
             }
 
             /// <inheritdoc/>
-            public void OnFactCommitted(TurnEndedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                TurnEndedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
-                owner.EnqueueEncounterPresentation(fact, () => owner.ProjectTurnEnded(fact.Turn));
+                owner.EnqueueEncounterPresentation(rootId, () => owner.ProjectTurnEnded(fact.Turn));
             }
 
             /// <inheritdoc/>
             public void OnFactCommitted(
                 EncounterOutcomeCommittedFact fact,
+                OpId rootId,
                 RulesSnapshot currentSnapshot
             )
             {
                 owner.EnqueueEncounterPresentation(
-                    fact,
+                    rootId,
                     () => owner.ProjectEncounterEnded(fact.Outcome)
                 );
             }

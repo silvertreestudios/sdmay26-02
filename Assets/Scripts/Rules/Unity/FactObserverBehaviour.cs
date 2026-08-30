@@ -41,7 +41,11 @@ namespace Game.Rules.Unity
         }
 
         /// <inheritdoc/>
-        public abstract void OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot);
+        public abstract void OnFactCommitted(
+            TFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        );
 
         /// <summary>
         /// Registers this component when Unity enables it after configuration.

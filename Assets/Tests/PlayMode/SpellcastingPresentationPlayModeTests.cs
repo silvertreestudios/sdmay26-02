@@ -506,6 +506,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
+            new OpId(1),
             snapshot
         );
         Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
@@ -517,6 +518,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(unrelated, new BindingId("binding-unrelated")),
+            new OpId(1),
             snapshot
         );
         Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
@@ -529,6 +531,7 @@ public sealed class SpellcastingPresentationPlayModeTests
                 EffectStateVersion.Initial,
                 EffectStateVersion.Initial.Next()
             ),
+            new OpId(1),
             snapshot
         );
         observer.OnFactCommitted(
@@ -539,6 +542,7 @@ public sealed class SpellcastingPresentationPlayModeTests
                 EffectStateVersion.Initial.Next(),
                 ActiveEffectStatus.Expired
             ),
+            new OpId(1),
             snapshot
         );
         yield return null;
@@ -546,6 +550,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
+            new OpId(1),
             snapshot
         );
         observer.Dispose();

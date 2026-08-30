@@ -1921,7 +1921,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public int Calls { get; private set; }
 
-            public void OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 Calls++;
             }
@@ -1934,7 +1934,7 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<TFact> Facts => facts;
 
-            public void OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 facts.Add(fact);
             }
@@ -1944,7 +1944,11 @@ namespace Game.Rules.Runtime.Tests
         {
             public int Calls { get; private set; }
 
-            public void OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectExpiredFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 Calls++;
                 if (Calls == 1)
@@ -1958,7 +1962,7 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<CreatureId> Actors => actors;
 
-            public void OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 actors.Add(fact.Turn.Actor);
             }
@@ -1972,7 +1976,7 @@ namespace Game.Rules.Runtime.Tests
 
             public int ActionsAtFact { get; private set; } = -1;
 
-            public void OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 ActionsAtFact = snapshot.ActionEconomy[fact.Turn.Actor].ActionsRemaining;
                 order.Add("fact");
@@ -1987,12 +1991,20 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<string> Order => order;
 
-            public void OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectExpiredFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 order.Add("expired");
             }
 
-            public void OnFactCommitted(EncounterOutcomeCommittedFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                EncounterOutcomeCommittedFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 order.Add("ended");
             }
@@ -2006,12 +2018,16 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<string> Order => order;
 
-            public void OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectExpiredFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 order.Add("expired");
             }
 
-            public void OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 order.Add("turn");
             }
@@ -2036,12 +2052,20 @@ namespace Game.Rules.Runtime.Tests
             public int EnemyAtOutcome { get; private set; } = -1;
             public int EndCalls { get; private set; }
 
-            public void OnFactCommitted(CreatureReducedToZeroFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                CreatureReducedToZeroFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 order.Add($"zero:{fact.Creature.Value}");
             }
 
-            public void OnFactCommitted(EncounterOutcomeCommittedFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                EncounterOutcomeCommittedFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 EndCalls++;
                 HeroAtOutcome = snapshot.Health[hero].Current;

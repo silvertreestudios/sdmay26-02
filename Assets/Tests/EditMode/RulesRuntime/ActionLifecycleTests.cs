@@ -84,23 +84,6 @@ namespace Game.Rules.Runtime.Tests
                     }
                 )
             );
-            Assert.That(
-                result.Facts.Select(fact => fact.Id),
-                Is.EqualTo(
-                    new[]
-                    {
-                        new FactId(1),
-                        new FactId(2),
-                        new FactId(3),
-                        new FactId(4),
-                        new FactId(5),
-                        new FactId(6),
-                    }
-                )
-            );
-            Assert.That(result.Facts.Take(5).All(fact => fact.SourceOpId == new OpId(11)), Is.True);
-            Assert.That(result.Facts.Last().SourceOpId, Is.EqualTo(new OpId(10)));
-            Assert.That(result.Facts.All(fact => fact.RootOpId == new OpId(10)), Is.True);
             ActionResolvedFact<TestActionOutcome> actionResolved = result
                 .Facts.OfType<ActionResolvedFact<TestActionOutcome>>()
                 .Single();
@@ -109,6 +92,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(actionResolved.Outcome.DomainSucceeded, Is.False);
             Assert.That(resolvedListener.Calls, Is.EqualTo(1));
             Assert.That(resolvedListener.Fact, Is.SameAs(actionResolved));
+            Assert.That(resolvedListener.CommittedRootId, Is.EqualTo(new OpId(10)));
             Assert.That(
                 store.Snapshot.Version,
                 Is.EqualTo(1),
@@ -866,6 +850,7 @@ namespace Game.Rules.Runtime.Tests
         {
             public int Calls { get; private set; }
             public ActionResolvedFact<TestActionOutcome> Fact { get; private set; }
+            public OpId CommittedRootId { get; private set; }
 
             public ValueTask OnFactCommitted(
                 ActionResolvedFact<TestActionOutcome> fact,
@@ -874,6 +859,7 @@ namespace Game.Rules.Runtime.Tests
             {
                 Calls++;
                 Fact = fact;
+                CommittedRootId = context.CommittedRootId;
                 return default;
             }
         }

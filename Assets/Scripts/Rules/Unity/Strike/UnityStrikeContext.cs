@@ -258,14 +258,22 @@ namespace Game.Rules.Unity.Strike
         }
 
         /// <inheritdoc/>
-        public void OnFactCommitted(AmmunitionSpentFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(
+            AmmunitionSpentFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        )
         {
             if (ammunition.TryGetValue(fact.Item, out AmmunitionProjection projection))
                 projection.Creature.SetAmmoQuantity(projection.AmmoName, fact.Remaining);
         }
 
         /// <inheritdoc/>
-        public void OnFactCommitted(StrikeItemLoadedChangedFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(
+            StrikeItemLoadedChangedFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        )
         {
             if (
                 itemOwners.TryGetValue(fact.Item, out CreatureComponent owner)

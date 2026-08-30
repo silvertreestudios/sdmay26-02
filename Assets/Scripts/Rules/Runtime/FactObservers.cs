@@ -11,8 +11,8 @@ namespace Game.Rules.Runtime
     /// Observation is a synchronous, non-authoritative notification boundary. Implementations
     /// must project immediately or enqueue host-owned asynchronous presentation and return. The
     /// callback receives no rules context and has no causal-dispatch authority. Exceptions are
-    /// isolated, reported through <see cref="IFactObserverExceptionReporter"/>, and never delay or
-    /// fail reducers, handlers, rules Fact listeners, or other external observers.
+    /// isolated, logged best-effort, and cannot fail or interrupt reducers, handlers, rules Fact
+    /// listeners, or other external observers.
     /// </remarks>
     public interface IFactObserver<TFact>
         where TFact : RuleFact
@@ -21,29 +21,9 @@ namespace Game.Rules.Runtime
         /// Observes an already committed Fact and its exact post-commit snapshot.
         /// </summary>
         /// <param name="fact">The committed transition or occurrence payload.</param>
+        /// <param name="rootId">The existing operation root that owns this delivery.</param>
         /// <param name="currentSnapshot">The exact immutable snapshot associated with the Fact.</param>
-        void OnFactCommitted(TFact fact, RulesSnapshot currentSnapshot);
-    }
-
-    /// <summary>Reports an isolated external Fact-observer failure.</summary>
-    public interface IFactObserverExceptionReporter
-    {
-        /// <summary>Reports one observer exception without changing rules resolution.</summary>
-        /// <param name="fact">The committed Fact whose observer failed.</param>
-        /// <param name="exception">The observer exception.</param>
-        void Report(RuleFact fact, Exception exception);
-    }
-
-    internal sealed class TraceFactObserverExceptionReporter : IFactObserverExceptionReporter
-    {
-        public static TraceFactObserverExceptionReporter Instance { get; } = new();
-
-        private TraceFactObserverExceptionReporter() { }
-
-        public void Report(RuleFact fact, Exception exception) =>
-            System.Diagnostics.Trace.TraceError(
-                $"Fact observer failed for {fact.GetType().Name}: {exception}"
-            );
+        void OnFactCommitted(TFact fact, OpId rootId, RulesSnapshot currentSnapshot);
     }
 
     internal abstract class FactObserverRegistration
@@ -56,7 +36,7 @@ namespace Game.Rules.Runtime
         public object Observer { get; }
         public abstract Type FactType { get; }
         public abstract bool Matches(RuleFact fact);
-        public abstract void Invoke(RuleFact fact, RulesSnapshot currentSnapshot);
+        public abstract void Invoke(RuleFact fact, OpId rootId, RulesSnapshot currentSnapshot);
     }
 
     internal sealed class FactObserverRegistration<TFact> : FactObserverRegistration
@@ -74,7 +54,7 @@ namespace Game.Rules.Runtime
 
         public override bool Matches(RuleFact fact) => fact is TFact;
 
-        public override void Invoke(RuleFact fact, RulesSnapshot currentSnapshot)
+        public override void Invoke(RuleFact fact, OpId rootId, RulesSnapshot currentSnapshot)
         {
             if (!(fact is TFact typedFact))
             {
@@ -83,7 +63,7 @@ namespace Game.Rules.Runtime
                 );
             }
 
-            observer.OnFactCommitted(typedFact, currentSnapshot);
+            observer.OnFactCommitted(typedFact, rootId, currentSnapshot);
         }
     }
 
@@ -166,15 +146,10 @@ namespace Game.Rules.Runtime
             }
         }
 
-        internal void NotifyFactObservers(
-            IReadOnlyList<RuleFact> committedFacts,
-            RulesSnapshot currentSnapshot
-        )
+        internal void NotifyFactObservers(IReadOnlyList<CommittedFactRecord> committedFacts)
         {
             if (committedFacts == null)
                 throw new ArgumentNullException(nameof(committedFacts));
-            if (currentSnapshot == null)
-                throw new ArgumentNullException(nameof(currentSnapshot));
             if (committedFacts.Count == 0)
                 return;
 
@@ -186,39 +161,38 @@ namespace Game.Rules.Runtime
                 observerPlan = factObservers.ToArray();
             }
 
-            foreach (RuleFact fact in committedFacts)
+            foreach (CommittedFactRecord committed in committedFacts)
             {
+                if (committed == null)
+                    throw new InvalidOperationException("A Fact observer delivery cannot be null.");
                 foreach (FactObserverRegistration observer in observerPlan)
                 {
-                    if (!observer.Matches(fact))
+                    if (!observer.Matches(committed.Fact))
                         continue;
 
                     try
                     {
-                        observer.Invoke(fact, currentSnapshot);
+                        observer.Invoke(committed.Fact, committed.RootOpId, committed.Snapshot);
                     }
                     catch (Exception exception)
                     {
-                        ReportFactObserverFailure(fact, exception);
+                        TraceFactObserverFailure(committed.Fact, exception);
                     }
                 }
             }
         }
 
-        private void ReportFactObserverFailure(RuleFact fact, Exception exception)
+        private static void TraceFactObserverFailure(RuleFact fact, Exception exception)
         {
             try
             {
-                factObserverExceptionReporter.Report(fact, exception);
+                System.Diagnostics.Trace.TraceError(
+                    $"Fact observer failed for {fact.GetType().Name}: {exception}"
+                );
             }
-            catch (Exception reporterException)
+            catch
             {
-                System.Diagnostics.Trace.TraceError(
-                    $"Fact observer reporter failed for {fact.GetType().Name}: {reporterException}"
-                );
-                System.Diagnostics.Trace.TraceError(
-                    $"Original Fact observer failure for {fact.GetType().Name}: {exception}"
-                );
+                // Diagnostics are best-effort and cannot affect rules resolution.
             }
         }
     }

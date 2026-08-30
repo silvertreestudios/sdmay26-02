@@ -198,11 +198,13 @@ Within the dispatcher:
 - one root owns its operation frames and nested dispatches;
 - an action is validated, pays its complete costs atomically, resolves `ActionBegunOp`, and then
   invokes its feature handler;
-- reducers commit state and stamp state-change Facts;
-- the action lifecycle stamps one `ActionResolvedFact<TResult>` after a resolved action's handler
-  and awaited children complete;
+- reducers atomically commit state and return immutable state-change Fact payloads;
+- the dispatcher records source, root, exact-snapshot, and listener-delivery provenance internally
+  without mutating those payloads;
+- the action lifecycle publishes one `ActionResolvedFact<TResult>` directly after a resolved
+  action's handler and awaited children complete, against the unchanged committed snapshot;
 - synchronous external Fact observers receive each Fact's exact associated snapshot, isolate and
-  report failures, and cannot delay mechanics;
+  best-effort trace failures, and cannot fail or interrupt mechanics;
 - asynchronous binding-scoped Fact listeners run from committed Facts and may create causal
   follow-up roots; and
 - settlement observers report when roots and their causal trees finish.

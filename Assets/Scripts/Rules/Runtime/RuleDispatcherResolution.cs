@@ -179,7 +179,7 @@ namespace Game.Rules.Runtime
                     && result is ResolvedOpResult<TResult> resolvedAction
                 )
                 {
-                    CommitActionResolvedFact(invocation, op, resolvedAction.Value);
+                    PublishActionResolvedFact(invocation, op, resolvedAction.Value);
                 }
 
                 OpResult<TResult> completed;
@@ -260,7 +260,6 @@ namespace Game.Rules.Runtime
                 IReadOnlyList<BoundFactListenerRegistration>
             > frameFactListeners =
                 new Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>();
-            private readonly HashSet<FactId> factIds = new HashSet<FactId>();
             private readonly HashSet<RuleFact> factReferences = new HashSet<RuleFact>(
                 ReferenceEqualityComparer<RuleFact>.Instance
             );
@@ -394,15 +393,17 @@ namespace Game.Rules.Runtime
                     );
             }
 
-            public void AddFact(RuleFact fact, OpId sourceId, OpId rootId)
+            public CommittedFactRecord AddFact(
+                RuleFact fact,
+                OpId sourceId,
+                OpId rootId,
+                RuleSource source,
+                RulesSnapshot snapshot
+            )
             {
-                if (fact == null || !fact.IsStamped)
-                    throw new InvalidOperationException("A reducer returned an unstamped Fact.");
-                if (fact.SourceOpId != sourceId)
-                    throw new InvalidOperationException(
-                        "A reducer returned a Fact for a different source operation."
-                    );
-                if (fact.RootOpId != rootId || rootId != RootId)
+                if (fact == null)
+                    throw new InvalidOperationException("A reducer returned a null Fact.");
+                if (rootId != RootId)
                     throw new InvalidOperationException(
                         "A reducer emitted a Fact across resolution roots."
                     );
@@ -417,12 +418,21 @@ namespace Game.Rules.Runtime
                         "A committed Fact has no source-frame listener selection."
                     );
                 }
-                if (!factIds.Add(fact.Id) || !factReferences.Add(fact))
+                if (!factReferences.Add(fact))
                     throw new InvalidOperationException(
                         "A committed Fact was aggregated more than once."
                     );
+                CommittedFactRecord committed = new CommittedFactRecord(
+                    fact,
+                    sourceId,
+                    rootId,
+                    source,
+                    snapshot,
+                    eligibleListeners
+                );
                 Facts.Add(fact);
-                CommittedFacts.Add(new CommittedFactRecord(fact, eligibleListeners));
+                CommittedFacts.Add(committed);
+                return committed;
             }
 
             private void RequireCurrentRoot(OpId rootId)

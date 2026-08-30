@@ -397,22 +397,10 @@ namespace Game.Rules.Runtime.Tests
                     }
                 )
             );
-            Assert.That(
-                result.Facts.Select(fact => fact.Id),
-                Is.EqualTo(new[] { new FactId(1), new FactId(2), new FactId(3), new FactId(4) })
-            );
             TokenMovedFact[] moved = result.Facts.OfType<TokenMovedFact>().ToArray();
-            Assert.That(
-                moved.Select(fact => fact.RootOpId).Distinct().Single(),
-                Is.EqualTo(new OpId(1))
-            );
             Assert.That(
                 moved.Select(fact => fact.ActionOpId).Distinct().Single(),
                 Is.EqualTo(new OpId(1))
-            );
-            Assert.That(
-                moved.Select(fact => fact.Source),
-                Is.All.EqualTo(RuleSource.FromSlug("movement"))
             );
             Assert.That(
                 moved.Select(fact => fact.TriggerId.StepNumber),
@@ -422,7 +410,6 @@ namespace Game.Rules.Runtime.Tests
                 moved.Select(fact => fact.TriggerId.MovePathOpId).Distinct().Count(),
                 Is.EqualTo(1)
             );
-            Assert.That(moved.Select(fact => fact.SourceOpId).Distinct().Count(), Is.EqualTo(2));
         }
 
         [Test]
@@ -521,7 +508,7 @@ namespace Game.Rules.Runtime.Tests
             );
 
             Assert.That(firstCommit.IsAccepted, Is.True);
-            Assert.That(firstCommit.Facts.Single().Id, Is.EqualTo(new FactId(1)));
+            Assert.That(firstCommit.Facts, Has.Count.EqualTo(1));
             Assert.Throws<InvalidOperationException>(() =>
                 store.Reduce(
                     new ReductionContext<CommitMovementStepOp>(
@@ -546,7 +533,7 @@ namespace Game.Rules.Runtime.Tests
                 ),
                 reducer
             );
-            Assert.That(retry.Facts.Single().Id, Is.EqualTo(new FactId(2)));
+            Assert.That(retry.Facts, Has.Count.EqualTo(1));
             Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(second));
             Assert.That(store.Snapshot.MovementBudgets[Mover].Remaining.Feet, Is.EqualTo(10));
         }
@@ -638,9 +625,8 @@ namespace Game.Rules.Runtime.Tests
                 store.Snapshot.ActionEconomy[Mover],
                 Is.EqualTo(new ActionEconomyState(2, true))
             );
-            Assert.That(fact.OriginOpId, Is.EqualTo(fact.RootOpId));
+            Assert.That(fact.OriginOpId, Is.EqualTo(new OpId(1)));
             Assert.That(fact.Kind, Is.EqualTo(RelocationKind.FromSlug("test-relocation")));
-            Assert.That(fact.Source, Is.EqualTo(TestSource));
         }
 
         [Test]
@@ -982,7 +968,11 @@ namespace Game.Rules.Runtime.Tests
             public List<TokenMovedFact> Facts { get; } = new List<TokenMovedFact>();
             public List<StepSnapshot> Snapshots { get; } = new List<StepSnapshot>();
 
-            public void OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                TokenMovedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 Facts.Add(fact);
                 Snapshots.Add(
@@ -998,7 +988,11 @@ namespace Game.Rules.Runtime.Tests
         {
             public List<TokenRelocatedFact> Facts { get; } = new List<TokenRelocatedFact>();
 
-            public void OnFactCommitted(TokenRelocatedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                TokenRelocatedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 Facts.Add(fact);
             }

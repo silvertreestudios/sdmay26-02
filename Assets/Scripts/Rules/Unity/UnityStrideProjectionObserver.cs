@@ -58,7 +58,7 @@ namespace Game.Rules.Unity
         }
 
         /// <inheritdoc/>
-        public void OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(TokenMovedFact fact, OpId rootId, RulesSnapshot currentSnapshot)
         {
             if (fact.Mover != creature)
                 return;

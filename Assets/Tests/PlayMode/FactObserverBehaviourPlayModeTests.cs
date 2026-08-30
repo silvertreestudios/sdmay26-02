@@ -124,6 +124,7 @@ public sealed class FactObserverBehaviourPlayModeTests
 
         public override void OnFactCommitted(
             ObserverChangedFact fact,
+            OpId rootId,
             RulesSnapshot currentSnapshot
         ) => DeliveryCount++;
 

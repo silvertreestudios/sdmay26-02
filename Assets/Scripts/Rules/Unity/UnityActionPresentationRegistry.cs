@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Game.Rules.Runtime;
-using UnityEngine;
 
 namespace Game.Rules.Unity
 {
@@ -71,7 +70,7 @@ namespace Game.Rules.Unity
         }
 
         /// <inheritdoc/>
-        public void OnFactCommitted(RuleFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(RuleFact fact, OpId rootId, RulesSnapshot currentSnapshot)
         {
             if (fact == null)
                 throw new ArgumentNullException(nameof(fact));
@@ -124,15 +123,5 @@ namespace Game.Rules.Unity
 
         public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime) =>
             lifetime.Add(dispatcher.RegisterFactObserver<RuleFact>(registry));
-    }
-
-    /// <summary>Reports isolated runtime observer failures through Unity's normal exception log.</summary>
-    internal sealed class UnityFactObserverExceptionReporter : IFactObserverExceptionReporter
-    {
-        internal static UnityFactObserverExceptionReporter Instance { get; } = new();
-
-        private UnityFactObserverExceptionReporter() { }
-
-        public void Report(RuleFact fact, Exception exception) => Debug.LogException(exception);
     }
 }

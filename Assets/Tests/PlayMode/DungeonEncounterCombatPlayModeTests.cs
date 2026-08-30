@@ -2,7 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Text.RegularExpressions;
+using System.Text;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -776,19 +776,23 @@ public sealed class DungeonEncounterCombatPlayModeTests
         UnityAction failingPresentation = () =>
             throw new InvalidOperationException("Synthetic encounter-start presentation failure.");
         OnCombatStart.AddListener(failingPresentation);
-        LogAssert.Expect(
-            LogType.Exception,
-            new Regex("Synthetic encounter-start presentation failure")
-        );
+        RecordingTraceListener traceListener = new();
+        System.Diagnostics.Trace.Listeners.Insert(0, traceListener);
         try
         {
             Assert.DoesNotThrow(() => manager.StartCombat());
         }
         finally
         {
+            System.Diagnostics.Trace.Listeners.Remove(traceListener);
+            traceListener.Dispose();
             OnCombatStart.RemoveListener(failingPresentation);
         }
 
+        Assert.That(
+            traceListener.Output,
+            Does.Contain("Synthetic encounter-start presentation failure")
+        );
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
         Assert.That(first.Controller.StartTurnCount, Is.EqualTo(1));
@@ -1196,6 +1200,17 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public override void Log(string msg, List<string> tags) => messages.Add(msg);
 
         public override List<string> GetMessages() => new(messages);
+    }
+
+    private sealed class RecordingTraceListener : System.Diagnostics.TraceListener
+    {
+        private readonly StringBuilder output = new();
+
+        public string Output => output.ToString();
+
+        public override void Write(string message) => output.Append(message);
+
+        public override void WriteLine(string message) => output.AppendLine(message);
     }
 
     private sealed class TestGridAPI : GridAPI, GridAPIPrivate

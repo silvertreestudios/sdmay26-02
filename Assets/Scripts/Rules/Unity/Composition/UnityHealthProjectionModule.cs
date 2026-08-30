@@ -41,7 +41,7 @@ namespace Game.Rules.Unity.Composition
             ) => this.creatures = creatures;
 
             /// <inheritdoc/>
-            public void OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(HealthFact fact, OpId rootId, RulesSnapshot currentSnapshot)
             {
                 CreatureComponent creature = RequireCreature(fact.Creature);
                 HealthState health = currentSnapshot.Health[fact.Creature];
@@ -53,6 +53,7 @@ namespace Game.Rules.Unity.Composition
             /// <inheritdoc/>
             public void OnFactCommitted(
                 CreatureDefeatCommittedFact fact,
+                OpId rootId,
                 RulesSnapshot currentSnapshot
             )
             {

@@ -76,7 +76,6 @@ namespace Game.Rules.Runtime.Tests
             DamageAppliedFact damage = result.Facts.OfType<DamageAppliedFact>().Single();
             Assert.That(damage.Creature, Is.EqualTo(Target));
             Assert.That(damage.Applied, Is.EqualTo(5));
-            Assert.That(damage.Source, Is.EqualTo(RuleSource.FromSlug("divine-lance")));
             Assert.That(damage.Origin.Value, Does.StartWith("spell-"));
             Assert.That(
                 result.Facts.OfType<MultipleAttackPenaltyAdvancedFact>().Single().AttackCount,

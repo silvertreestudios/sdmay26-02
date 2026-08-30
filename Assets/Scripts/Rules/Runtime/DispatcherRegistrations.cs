@@ -223,9 +223,14 @@ namespace Game.Rules.Runtime
                     $"Reducer operation {typeof(TOp).Name} supplied an empty rule source."
                 );
             ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, factSource);
-            dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
+            IReadOnlyList<CommittedFactRecord> committedFacts = dispatcher.CaptureCommittedFacts(
+                invocation,
+                reduced.Facts,
+                factSource,
+                reduced.Snapshot
+            );
             if (reduced.Facts.Count > 0)
-                dispatcher.NotifyFactObservers(reduced.Facts, reduced.Snapshot);
+                dispatcher.NotifyFactObservers(committedFacts);
             OpResult<TResult> result = reduced.IsAccepted
                 ? OpResult<TResult>.Resolved(reduced.Value)
                 : OpResult<TResult>.Invalid(reduced.RejectionReason);

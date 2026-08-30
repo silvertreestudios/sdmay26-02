@@ -1231,7 +1231,7 @@ public sealed class UnityCombatRulesBridgeTests
     {
         public List<TokenMovedFact> Facts { get; } = new List<TokenMovedFact>();
 
-        public void OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(TokenMovedFact fact, OpId rootId, RulesSnapshot currentSnapshot)
         {
             Facts.Add(fact);
         }

@@ -64,7 +64,7 @@ namespace Game.Rules.Runtime
             return featureResult;
         }
 
-        private void CommitActionResolvedFact<TResult>(
+        private void PublishActionResolvedFact<TResult>(
             IFrameInvocation invocation,
             IRuleOp<TResult> operation,
             TResult outcome
@@ -80,15 +80,13 @@ namespace Game.Rules.Runtime
                 action,
                 outcome
             );
-            RulesSnapshot snapshot = store.CommitOccurrence(
-                fact,
-                invocation.FrameView.Id,
-                invocation.FrameView.RootId,
-                ActionLifecycleSource
+            IReadOnlyList<CommittedFactRecord> committed = CaptureCommittedFacts(
+                invocation,
+                Array.AsReadOnly(new RuleFact[] { fact }),
+                ActionLifecycleSource,
+                store.Snapshot
             );
-            RuleFact[] committed = { fact };
-            CaptureCommittedFacts(invocation, committed);
-            NotifyFactObservers(committed, snapshot);
+            NotifyFactObservers(committed);
         }
 
         private ValueTask<object> InvokeWithMiddleware(

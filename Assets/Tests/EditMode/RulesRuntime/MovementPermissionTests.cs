@@ -1636,11 +1636,15 @@ namespace Game.Rules.Runtime.Tests
             public List<GridPosition> Positions { get; } = new List<GridPosition>();
             public List<bool> UniquePositions { get; } = new List<bool>();
 
-            public void OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot) =>
-                Record(currentSnapshot);
+            public void OnFactCommitted(
+                TokenMovedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            ) => Record(currentSnapshot);
 
             public void OnFactCommitted(
                 OccupiedSpaceTraversedFact fact,
+                OpId rootId,
                 RulesSnapshot currentSnapshot
             ) => Record(currentSnapshot);
 
@@ -1661,6 +1665,7 @@ namespace Game.Rules.Runtime.Tests
 
             public void OnFactCommitted(
                 OccupiedSpaceTraversedFact fact,
+                OpId rootId,
                 RulesSnapshot currentSnapshot
             )
             {

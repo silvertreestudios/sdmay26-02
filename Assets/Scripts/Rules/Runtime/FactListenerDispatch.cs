@@ -100,14 +100,35 @@ namespace Game.Rules.Runtime
     internal sealed class CommittedFactRecord
     {
         public RuleFact Fact { get; }
+        public OpId SourceOpId { get; }
+        public OpId RootOpId { get; }
+        public RuleSource Source { get; }
+        public RulesSnapshot Snapshot { get; }
         public IReadOnlyList<BoundFactListenerRegistration> EligibleListeners { get; }
 
         public CommittedFactRecord(
             RuleFact fact,
+            OpId sourceOpId,
+            OpId rootOpId,
+            RuleSource source,
+            RulesSnapshot snapshot,
             IReadOnlyList<BoundFactListenerRegistration> eligibleListeners
         )
         {
             Fact = fact ?? throw new ArgumentNullException(nameof(fact));
+            if (sourceOpId.IsEmpty)
+                throw new ArgumentException(
+                    "A source operation ID is required.",
+                    nameof(sourceOpId)
+                );
+            if (rootOpId.IsEmpty)
+                throw new ArgumentException("A root operation ID is required.", nameof(rootOpId));
+            if (source.IsEmpty)
+                throw new ArgumentException("A rule source is required.", nameof(source));
+            SourceOpId = sourceOpId;
+            RootOpId = rootOpId;
+            Source = source;
+            Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
             EligibleListeners =
                 eligibleListeners ?? throw new ArgumentNullException(nameof(eligibleListeners));
         }
@@ -147,19 +168,19 @@ namespace Game.Rules.Runtime
         public ActiveRuleBinding Binding { get; }
         public FactListenerRegistration Registration { get; }
         public OpId RootId { get; }
-        public IReadOnlyList<RuleFact> Facts { get; }
+        public IReadOnlyList<CommittedFactRecord> CommittedFacts { get; }
 
         public FactListenerDelivery(
             ActiveRuleBinding binding,
             FactListenerRegistration registration,
             OpId rootId,
-            IReadOnlyList<RuleFact> facts
+            IReadOnlyList<CommittedFactRecord> committedFacts
         )
         {
             Binding = binding;
             Registration = registration;
             RootId = rootId;
-            Facts = facts;
+            CommittedFacts = committedFacts;
         }
 
         public static int Compare(FactListenerDelivery left, FactListenerDelivery right) =>

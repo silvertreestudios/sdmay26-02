@@ -61,7 +61,11 @@ namespace Game.Rules.Unity.Light
         }
 
         /// <inheritdoc/>
-        public void OnFactCommitted(ActiveEffectCreatedFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(
+            ActiveEffectCreatedFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        )
         {
             if (
                 !currentSnapshot.ActiveEffects.TryGet(
@@ -101,13 +105,21 @@ namespace Game.Rules.Unity.Light
         }
 
         /// <inheritdoc/>
-        public void OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(
+            ActiveEffectExpiredFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        )
         {
             Remove(fact.EffectId);
         }
 
         /// <inheritdoc/>
-        public void OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(
+            ActiveEffectRemovedFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        )
         {
             Remove(fact.EffectId);
         }
@@ -115,6 +127,7 @@ namespace Game.Rules.Unity.Light
         /// <inheritdoc/>
         public void OnFactCommitted(
             EncounterOutcomeCommittedFact fact,
+            OpId rootId,
             RulesSnapshot currentSnapshot
         )
         {

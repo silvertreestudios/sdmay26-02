@@ -27,8 +27,6 @@ namespace Game.Rules.Runtime
         private bool isRuleRegistryConfigured;
         private ActionRuntimeConfiguration actionRuntimeConfiguration =
             ActionRuntimeConfiguration.Unconfigured;
-        private IFactObserverExceptionReporter factObserverExceptionReporter =
-            TraceFactObserverExceptionReporter.Instance;
 
         /// <summary>
         /// Initializes a dispatcher builder with production roll and sequential operation-ID sources.
@@ -74,18 +72,6 @@ namespace Game.Rules.Runtime
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
         }
 
-        /// <summary>Configures the host boundary that reports isolated Fact-observer failures.</summary>
-        /// <param name="reporter">The non-null reporter used by the built dispatcher.</param>
-        /// <returns>This builder for fluent composition.</returns>
-        public RuleDispatcherBuilder UseFactObserverExceptionReporter(
-            IFactObserverExceptionReporter reporter
-        )
-        {
-            factObserverExceptionReporter =
-                reporter ?? throw new ArgumentNullException(nameof(reporter));
-            return this;
-        }
-
         /// <summary>
         /// Registers an asynchronous handler for a concrete operation type.
         /// </summary>
@@ -117,7 +103,7 @@ namespace Game.Rules.Runtime
         /// <typeparam name="TOp">The operation reduced by <paramref name="reducer"/>.</typeparam>
         /// <typeparam name="TResult">The accepted value produced by the reducer.</typeparam>
         /// <param name="reducer">The reducer that validates and stages state changes and facts.</param>
-        /// <param name="source">The rule source stamped onto facts committed by this reducer.</param>
+        /// <param name="source">The rule source recorded for Facts committed by this reducer.</param>
         /// <returns>This builder so registrations can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="reducer"/> is <see langword="null"/>.</exception>
         /// <exception cref="ArgumentException"><paramref name="source"/> is empty.</exception>
@@ -476,8 +462,7 @@ namespace Game.Rules.Runtime
                 rollService,
                 completedRegistrations,
                 ruleRegistry,
-                actionRuntime,
-                factObserverExceptionReporter
+                actionRuntime
             );
         }
 

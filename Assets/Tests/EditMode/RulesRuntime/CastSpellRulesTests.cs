@@ -410,6 +410,7 @@ namespace Game.Rules.Runtime.Tests
 
             public void OnFactCommitted(
                 ActionResolvedFact<CastSpellOutcome> fact,
+                OpId rootId,
                 RulesSnapshot currentSnapshot
             )
             {
