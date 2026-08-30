@@ -13,8 +13,10 @@ namespace Game.Rules.Unity.Strike
     /// </summary>
     /// <remarks>
     /// The adapter intentionally contains the Unity combat-log singleton and static creature
-    /// events. Every cosmetic callback is exception-contained so presentation cannot prevent
-    /// authoritative damage, load-state changes, or MAP advancement.
+    /// events. The dispatcher contains exceptions at the external-observer boundary, so presentation
+    /// cannot prevent authoritative damage, load-state changes, or MAP advancement. Earlier
+    /// cosmetic callbacks are also contained individually so one failure does not skip later
+    /// presentation steps.
     /// </remarks>
     public sealed class UnityStrikeActionPresenter
         : IUnityActionPresenter<StrikeActionOp, StrikeResolution>
