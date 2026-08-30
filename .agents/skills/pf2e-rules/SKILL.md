@@ -17,8 +17,8 @@ Use this skill when changing Pathfinder 2e rules behavior or data in this reposi
 ## Implementation Workflow
 
 For encounter, action, active-effect, bridge, or combatant-enrollment work, first read the canonical
-as-built `Docs/Encounter_Rules_Architecture.md`. Use `Docs/Ops_Based_Rules_Proposal.md` for the
-conceptual model and its implemented/deferred matrix; do not treat conceptual examples as shipped.
+as-built `Docs/Encounter_Rules_Architecture.md` and the durable design constraints in
+`Docs/Rules_Runtime_Design.md`.
 
 1. Locate the affected JSON under `Assets/Resources/DataFiles` and the loading/mapping code in `Assets/Scripts/Creature`.
 2. Locate the runtime calculation path in combat, creature, equipment, action, or condition code.

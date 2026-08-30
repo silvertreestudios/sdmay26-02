@@ -9,7 +9,7 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 
 ## Workflow
 
-1. Read `AGENTS.md`, `ProjectSettings/ProjectVersion.txt`, relevant asmdefs, and nearby code before editing. For encounter, action, effect, bridge, or enrollment work, also read the canonical as-built `Docs/Encounter_Rules_Architecture.md`; use `Docs/Ops_Based_Rules_Proposal.md` for rationale and deferred concepts.
+1. Read `AGENTS.md`, `ProjectSettings/ProjectVersion.txt`, relevant asmdefs, and nearby code before editing. For encounter, action, effect, bridge, or enrollment work, also read the canonical as-built `Docs/Encounter_Rules_Architecture.md` and the durable constraints in `Docs/Rules_Runtime_Design.md`.
 2. Create or use a task-specific Git worktree under `../sdmay26-02-worktrees/`; do not edit the main checkout directly.
 3. Keep changes within existing runtime and test assemblies unless a new boundary is clearly needed.
 4. Prefer pure, deterministic logic for combat/rules calculations and thin MonoBehaviour integration.
