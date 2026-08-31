@@ -118,7 +118,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task InvalidPathPreflightCommitsNoStateBudgetOrFacts()
+        public async Task InvalidPathPreflightCommitsNoStateBudgetOrMovementFacts()
         {
             GridPosition origin = new GridPosition(1, 0, 1);
             MovementBudgetId budgetId = new MovementBudgetId(new OpId(10));
