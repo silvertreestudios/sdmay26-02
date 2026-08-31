@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -227,16 +228,11 @@ namespace Game.Combat.Spells
         }
 
         /// <inheritdoc/>
-        public void Present(
+        public IEnumerator PresentBeginning(
             CastSpellActionOp operation,
-            CastSpellOutcome result,
             RulesSnapshot currentSnapshot
         )
         {
-            if (result.Actor != operation.Actor)
-                throw new InvalidOperationException(
-                    "Resolved spell presentation actor does not match its operation."
-                );
             if (
                 !creatures.TryGetValue(operation.Actor, out CreatureComponent creature)
                 || creature == null
@@ -254,13 +250,18 @@ namespace Game.Combat.Spells
                     $"Resolved spell {operation.Spell} has no presentation definition."
                 );
             GameObject actor = creature.gameObject;
+            CreatureAnimationController animation = creature
+                .GetComponent<CreaturePresentation>()
+                ?.AnimationController;
+            bool animationStarted = false;
             PresentSafely(
                 () =>
                 {
                     if (!creature.IsDefeated)
-                        actor
-                            .GetComponent<CreaturePresentation>()
-                            ?.PlayAttack(AnimationStyle.Magic);
+                        animationStarted =
+                            actor
+                                .GetComponent<CreaturePresentation>()
+                                ?.PlayAttack(AnimationStyle.Magic) == true;
                 },
                 actor
             );
@@ -272,15 +273,42 @@ namespace Game.Combat.Spells
                 },
                 actor
             );
+            while (
+                animationStarted
+                && animation != null
+                && animation.isActiveAndEnabled
+                && animation.IsActionPlaying
+            )
+                yield return null;
+        }
+
+        /// <inheritdoc/>
+        public IEnumerator PresentResolved(
+            CastSpellActionOp operation,
+            CastSpellOutcome result,
+            RulesSnapshot currentSnapshot
+        )
+        {
+            if (result.Actor != operation.Actor)
+                throw new InvalidOperationException(
+                    "Resolved spell presentation actor does not match its operation."
+                );
+            if (
+                !creatures.TryGetValue(operation.Actor, out CreatureComponent creature)
+                || creature == null
+            )
+                yield break;
+            if (!catalog.TryGetSpell(operation.Spell, out var definition))
+                yield break;
             foreach (SpellAttackResolution attack in result.AttackResolutions)
-                PresentAttack(definition, attacker: creature, attack, currentSnapshot);
+                PresentAttack(definition, attacker: creature, attack);
+            yield break;
         }
 
         private void PresentAttack(
             Game.Rules.Runtime.SpellDefinition definition,
             CreatureComponent attacker,
-            SpellAttackResolution resolution,
-            RulesSnapshot currentSnapshot
+            SpellAttackResolution resolution
         )
         {
             if (
@@ -307,12 +335,6 @@ namespace Game.Combat.Spells
                     0
                 )
             );
-            if (currentSnapshot.Health.TryGet(resolution.Target, out HealthState health))
-                UnityAttackResultPresentation.PresentTargetReaction(
-                    target,
-                    resolution.FinalDamage,
-                    health
-                );
         }
 
         private static void PresentSafely(Action presentation, UnityEngine.Object context)

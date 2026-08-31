@@ -109,10 +109,12 @@ Handlers, middleware, listeners, and observers do not mutate state directly.
 A `RuleFact` is an immutable domain payload reporting something that has committed. It carries no
 store-assigned identity, mutable commit marker, or dispatcher provenance. Most Facts are emitted by
 reducers for state changes. The action lifecycle runner also emits one
-`ActionResolvedFact<TResult>` occurrence after
-a structurally resolved action and all of its awaited child mechanics. It is not a request and it is
-not a preview. Fact listeners may react by dispatching more rules work. External observers may
-update presentation, audio, animation, or Unity projections.
+`ActionBegunFact<TResult>` occurrence after validation, atomic costs, and the action-begun timing
+window succeed, immediately before the feature handler, plus one `ActionResolvedFact<TResult>`
+occurrence after a structurally resolved action and all of its awaited child mechanics. Neither is
+a request or preview. Both reuse the exact immutable action and its `ActionOpInfo`; the resolved
+occurrence also carries the existing feature outcome. Fact listeners may react by dispatching more
+rules work. External observers may update presentation, audio, animation, or Unity projections.
 
 The distinction matters:
 
@@ -158,14 +160,16 @@ Every rules-backed action follows the same engine-owned boundary:
 1. resolve the base `ActionProfile` and any legitimate profile changes;
 2. run action validators against the snapshot;
 3. commit all action and rule-resource costs atomically;
-4. resolve `ActionBegunOp`; and
-5. invoke the feature handler.
+4. resolve `ActionBegunOp`;
+5. publish exactly one `ActionBegunFact<TResult>` occurrence; and
+6. invoke the feature handler.
 
 After the handler and every awaited child mechanic complete, a structurally resolved action emits
-exactly one `ActionResolvedFact<TResult>`. Invalid, interrupted, and cancelled actions do not emit
-it; a feature-level outcome such as a missed Strike still does. The Fact reuses `ActionOpInfo`, the
-actual immutable `ActionOp<TResult>`, and the existing outcome. It is not action history or a second
-result model.
+exactly one `ActionResolvedFact<TResult>`. An action rejected or interrupted before feature
+execution emits neither lifecycle occurrence; a feature-level outcome such as a missed Strike emits
+both. Once the begun occurrence is published, the lifecycle requires structural resolution or
+propagates an exceptional dispatcher failure. These Facts are not action history or a second result
+model.
 
 The feature handler owns the action's semantics after that boundary. It should dispatch existing
 generic operations for shared work rather than reimplementing checks, damage, movement, resources,
@@ -212,6 +216,16 @@ special case to a central manager until the manager becomes the real rules engin
 Unity owns scene references, input, visuals, animation, and component installation. Feature adapters
 translate those objects into stable rules values before dispatch and project committed results back
 afterward.
+
+Synchronous external Fact observation may feed a host-owned ordered presentation sequence. The host
+opens that sequence from `ActionBegunFact<TResult>`, appends generic projections and feature steps in
+committed Fact order, then drains the exact immutable action after synchronous dispatch. Observers
+enqueue and return immediately; the dispatcher never awaits Unity frames. Presentation failure is
+logged and isolated, has no retry or recovery state, and must not keep the caller locked.
+
+Authoritative health still changes at reducer commit time. Unity's existing projected health storage
+may intentionally lag while an action sequence plays so HUD bars move at the queued health step.
+Rules and other mechanics continue to read `HealthState` from the authoritative snapshot.
 
 For a migrated slice:
 

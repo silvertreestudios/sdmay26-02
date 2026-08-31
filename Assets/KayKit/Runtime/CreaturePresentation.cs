@@ -25,33 +25,47 @@ namespace Game.KayKit
             AnimationController?.SetMoving(moving, speed);
         }
 
-        public void PlayAttack(AnimationStyle style)
+        /// <summary>Starts an attack animation and updates the visible weapon state.</summary>
+        /// <param name="style">The equipped or unarmed animation style.</param>
+        /// <returns><see langword="true"/> when a usable animation started.</returns>
+        public bool PlayAttack(AnimationStyle style)
         {
             if (style == AnimationStyle.Unarmed)
                 EquipmentVisuals?.SetActiveWeapon(null);
-            AnimationController?.PlayAttack(style);
+            return AnimationController != null && AnimationController.PlayAttack(style);
         }
 
-        public void PlayAttack(EquipmentWeapon weapon)
+        /// <summary>Starts the attack animation selected for an equipped weapon.</summary>
+        /// <param name="weapon">The weapon whose presentation selects the animation style.</param>
+        /// <returns><see langword="true"/> when a usable animation started.</returns>
+        public bool PlayAttack(EquipmentWeapon weapon)
         {
             EquipmentVisuals?.SetActiveWeapon(weapon);
             AnimationStyle style =
                 EquipmentVisuals != null
                     ? EquipmentVisuals.GetAnimationStyle(weapon)
                     : AnimationStyle.Unarmed;
-            AnimationController?.PlayAttack(style);
+            return AnimationController != null && AnimationController.PlayAttack(style);
         }
 
-        public void PlayAttack(AnimationStyle style, Vector3 targetPosition)
+        /// <summary>Faces a target position and starts a styled attack animation.</summary>
+        /// <param name="style">The equipped or unarmed animation style.</param>
+        /// <param name="targetPosition">The world position the creature should face.</param>
+        /// <returns><see langword="true"/> when a usable animation started.</returns>
+        public bool PlayAttack(AnimationStyle style, Vector3 targetPosition)
         {
             FaceTowards(targetPosition);
-            PlayAttack(style);
+            return PlayAttack(style);
         }
 
-        public void PlayAttack(EquipmentWeapon weapon, Vector3 targetPosition)
+        /// <summary>Faces a target position and starts an equipped-weapon attack animation.</summary>
+        /// <param name="weapon">The weapon whose presentation selects the animation style.</param>
+        /// <param name="targetPosition">The world position the creature should face.</param>
+        /// <returns><see langword="true"/> when a usable animation started.</returns>
+        public bool PlayAttack(EquipmentWeapon weapon, Vector3 targetPosition)
         {
             FaceTowards(targetPosition);
-            PlayAttack(weapon);
+            return PlayAttack(weapon);
         }
 
         public bool FaceTowards(Vector3 targetPosition)

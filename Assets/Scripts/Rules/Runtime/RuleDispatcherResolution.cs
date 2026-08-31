@@ -153,7 +153,7 @@ namespace Game.Rules.Runtime
                 try
                 {
                     resultObject = invocation.FrameView.IsAction
-                        ? await InvokeActionLifecycle(registration, invocation, middleware)
+                        ? await InvokeActionLifecycle(registration, invocation, middleware, op)
                         : await InvokeWithMiddleware(registration, invocation, middleware, 0);
                 }
                 catch

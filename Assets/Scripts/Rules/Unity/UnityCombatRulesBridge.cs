@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.ExceptionServices;
@@ -36,6 +37,7 @@ namespace Game.Rules.Unity
         private readonly UnityEncounterComposition composition;
         private readonly UnityCombatantEnrollmentPipeline enrollmentPipeline;
         private readonly CompositeLifetime encounterLifetime = new();
+        private readonly UnityActionPresentationCoordinator actionPresentationCoordinator = new();
         private readonly Dictionary<OpId, Queue<Action>> encounterPresentationByRoot = new();
         private readonly Dictionary<OpId, List<OpId>> encounterPresentationChildren = new();
         private readonly HashSet<OpId> settledEncounterPresentationRoots = new();
@@ -75,6 +77,7 @@ namespace Game.Rules.Unity
             );
             UnityEncounterModuleSet modules = UnityEncounterModuleSet.Create(
                 this,
+                actionPresentationCoordinator,
                 creatures,
                 controllers,
                 tiles,
@@ -425,6 +428,22 @@ namespace Game.Rules.Unity
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
             return DispatchResultNow(operation);
+        }
+
+        /// <summary>
+        /// Drains the Unity-owned presentation recorded for the exact immutable action request.
+        /// </summary>
+        /// <typeparam name="TResult">The action's feature-owned result type.</typeparam>
+        /// <param name="action">The same immutable action instance supplied to <see cref="Dispatch{TResult}"/>.</param>
+        /// <returns>
+        /// A coroutine that releases the sequence after every recorded step succeeds or fails.
+        /// Missing sequences complete immediately.
+        /// </returns>
+        public IEnumerator DrainActionPresentation<TResult>(ActionOp<TResult> action)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+            return actionPresentationCoordinator.Drain(action);
         }
 
         /// <summary>Registers dungeon reinforcements in the existing encounter store.</summary>

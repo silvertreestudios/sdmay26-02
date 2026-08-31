@@ -1,9 +1,13 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using NUnit.Framework;
+using UnityEngine;
 
 public sealed class UnityActionPresentationRegistryTests
 {
@@ -23,9 +27,10 @@ public sealed class UnityActionPresentationRegistryTests
 
         OpResult<TestOutcome> first = await dispatcher.Dispatch(presented);
         await dispatcher.Dispatch(new TestActionOp(OtherDefinition, 29));
+        Drain(registry.Coordinator.Drain(presented));
 
         Assert.That(first, Is.TypeOf<ResolvedOpResult<TestOutcome>>());
-        Assert.That(presenter.Calls, Is.EqualTo(1));
+        Assert.That(presenter.Calls, Is.EqualTo(new[] { "begin", "resolved" }));
         Assert.That(presenter.Action, Is.SameAs(presented));
         Assert.That(presenter.Outcome.Value, Is.EqualTo(17));
         Assert.That(presenter.Snapshot, Is.SameAs(dispatcher.Snapshot));
@@ -45,11 +50,46 @@ public sealed class UnityActionPresentationRegistryTests
         );
     }
 
+    [Test]
+    public async Task DrainIsolatesFailedStepsContinuesAndReleasesExactAction()
+    {
+        UnityActionPresentationRegistry registry = new();
+        FailingPresenter presenter = new();
+        registry.Register<TestActionOp, TestOutcome>(PresentedDefinition, presenter);
+        RuleDispatcher dispatcher = CreateDispatcher();
+        dispatcher.RegisterFactObserver<RuleFact>(registry);
+        TestActionOp action = new(PresentedDefinition, 31);
+        await dispatcher.Dispatch(action);
+        ExpectLog(LogType.Exception, new Regex("presentation failed"));
+
+        Drain(registry.Coordinator.Drain(action));
+
+        Assert.That(presenter.ResolvedCalls, Is.EqualTo(1));
+        IEnumerator secondDrain = registry.Coordinator.Drain(action);
+        Assert.That(secondDrain.MoveNext(), Is.False, "The failed sequence must be released.");
+    }
+
     private static RuleDispatcher CreateDispatcher() =>
         new RuleDispatcherBuilder(new InMemoryRulesStore())
             .RegisterHandler<TestActionOp, TestOutcome>(new TestActionHandler())
             .UseActionLifecycle(new TestActionCatalog())
             .Build();
+
+    private static void Drain(IEnumerator presentation)
+    {
+        while (presentation.MoveNext()) { }
+    }
+
+    private static void ExpectLog(LogType type, Regex message)
+    {
+        Type logAssert = AppDomain
+            .CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType("UnityEngine.TestTools.LogAssert"))
+            .First(candidate => candidate != null);
+        logAssert
+            .GetMethod("Expect", new[] { typeof(LogType), typeof(Regex) })
+            .Invoke(null, new object[] { type, message });
+    }
 
     private readonly struct TestOutcome
     {
@@ -82,17 +122,52 @@ public sealed class UnityActionPresentationRegistryTests
 
     private sealed class RecordingPresenter : IUnityActionPresenter<TestActionOp, TestOutcome>
     {
-        public int Calls { get; private set; }
+        public List<string> Calls { get; } = new();
         public TestActionOp Action { get; private set; }
         public TestOutcome Outcome { get; private set; }
         public RulesSnapshot Snapshot { get; private set; }
 
-        public void Present(TestActionOp action, TestOutcome outcome, RulesSnapshot currentSnapshot)
+        public IEnumerator PresentBeginning(TestActionOp action, RulesSnapshot currentSnapshot)
         {
-            Calls++;
+            Calls.Add("begin");
+            Action = action;
+            Snapshot = currentSnapshot;
+            yield break;
+        }
+
+        public IEnumerator PresentResolved(
+            TestActionOp action,
+            TestOutcome outcome,
+            RulesSnapshot currentSnapshot
+        )
+        {
+            Calls.Add("resolved");
             Action = action;
             Outcome = outcome;
             Snapshot = currentSnapshot;
+            yield break;
+        }
+    }
+
+    private sealed class FailingPresenter : IUnityActionPresenter<TestActionOp, TestOutcome>
+    {
+        public int ResolvedCalls { get; private set; }
+
+        public IEnumerator PresentBeginning(TestActionOp action, RulesSnapshot currentSnapshot)
+        {
+            if (action != null)
+                throw new InvalidOperationException("presentation failed");
+            yield break;
+        }
+
+        public IEnumerator PresentResolved(
+            TestActionOp action,
+            TestOutcome outcome,
+            RulesSnapshot currentSnapshot
+        )
+        {
+            ResolvedCalls++;
+            yield break;
         }
     }
 }

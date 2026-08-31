@@ -1,32 +1,42 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Game.Rules.Runtime;
+using UnityEngine;
 
 namespace Game.Rules.Unity
 {
-    /// <summary>Projects one concrete resolved action and its existing outcome into Unity.</summary>
+    /// <summary>Contributes ordered Unity presentation for one concrete action lifecycle.</summary>
     /// <typeparam name="TOp">The concrete feature-owned action type.</typeparam>
     /// <typeparam name="TResult">The action's existing feature-owned outcome type.</typeparam>
     public interface IUnityActionPresenter<in TOp, in TResult>
         where TOp : ActionOp<TResult>
     {
         /// <summary>
-        /// Projects a committed action occurrence or enqueues Unity-owned asynchronous work.
+        /// Creates the presentation step that runs before the action's child mechanics are shown.
         /// </summary>
         /// <param name="action">The actual immutable action request and selection.</param>
+        /// <param name="currentSnapshot">The exact snapshot associated with the begun occurrence.</param>
+        /// <returns>A Unity coroutine step that may complete immediately.</returns>
+        IEnumerator PresentBeginning(TOp action, RulesSnapshot currentSnapshot);
+
+        /// <summary>Creates the final action-specific presentation step.</summary>
+        /// <param name="action">The actual immutable action request and selection.</param>
         /// <param name="outcome">The actual outcome returned after all child mechanics.</param>
-        /// <param name="currentSnapshot">The exact snapshot associated with the occurrence.</param>
-        void Present(TOp action, TResult outcome, RulesSnapshot currentSnapshot);
+        /// <param name="currentSnapshot">The exact snapshot associated with resolution.</param>
+        /// <returns>A Unity coroutine step that may complete immediately.</returns>
+        IEnumerator PresentResolved(TOp action, TResult outcome, RulesSnapshot currentSnapshot);
     }
 
     /// <summary>
-    /// Routes committed action-resolution Facts to explicitly composed typed Unity presenters.
+    /// Routes committed action-lifecycle Facts to explicitly composed typed Unity presenters.
     /// </summary>
     /// <remarks>
     /// Routing uses stable <see cref="ActionDefinitionId"/> values. The registry type-erases only
     /// at this shared boundary; each registration restores and verifies the concrete action and
-    /// outcome pair before invoking feature-owned presentation. Presenters must return immediately
-    /// after direct projection or enqueueing asynchronous Unity work.
+    /// outcome pair before scheduling feature-owned presentation. Presenter methods create
+    /// coroutines only when their ordered step is drained; they must not change rules state.
     /// </remarks>
     public sealed class UnityActionPresentationRegistry : IFactObserver<RuleFact>
     {
@@ -34,6 +44,16 @@ namespace Game.Rules.Unity
             ActionDefinitionId,
             IActionPresentationRegistration
         > registrations = new();
+        private readonly UnityActionPresentationCoordinator coordinator;
+
+        /// <summary>Creates an isolated typed presentation registry.</summary>
+        public UnityActionPresentationRegistry()
+            : this(new UnityActionPresentationCoordinator()) { }
+
+        internal UnityActionPresentationRegistry(UnityActionPresentationCoordinator coordinator) =>
+            this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+
+        internal UnityActionPresentationCoordinator Coordinator => coordinator;
 
         /// <summary>Registers one typed presenter for a stable action definition.</summary>
         /// <typeparam name="TOp">The concrete action type accepted by the presenter.</typeparam>
@@ -76,15 +96,32 @@ namespace Game.Rules.Unity
                 throw new ArgumentNullException(nameof(fact));
             if (currentSnapshot == null)
                 throw new ArgumentNullException(nameof(currentSnapshot));
-            if (fact is not IActionResolvedFact resolved)
+            if (fact is not IActionLifecycleFact lifecycle)
                 return;
-            if (registrations.TryGetValue(resolved.DefinitionId, out var registration))
-                registration.Present(fact, currentSnapshot);
+            if (!registrations.TryGetValue(lifecycle.DefinitionId, out var registration))
+                return;
+            if (fact is IActionBegunFact)
+                registration.Begin(fact, rootId, currentSnapshot, coordinator);
+            else if (fact is IActionResolvedFact)
+            {
+                registration.Resolve(fact, currentSnapshot, coordinator);
+            }
         }
 
         private interface IActionPresentationRegistration
         {
-            void Present(RuleFact fact, RulesSnapshot currentSnapshot);
+            void Begin(
+                RuleFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot,
+                UnityActionPresentationCoordinator coordinator
+            );
+
+            void Resolve(
+                RuleFact fact,
+                RulesSnapshot currentSnapshot,
+                UnityActionPresentationCoordinator coordinator
+            );
         }
 
         private sealed class ActionPresentationRegistration<TOp, TResult>
@@ -97,7 +134,36 @@ namespace Game.Rules.Unity
                 IUnityActionPresenter<TOp, TResult> presenter
             ) => this.presenter = presenter;
 
-            public void Present(RuleFact fact, RulesSnapshot currentSnapshot)
+            public void Begin(
+                RuleFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot,
+                UnityActionPresentationCoordinator coordinator
+            )
+            {
+                if (fact is not ActionBegunFact<TResult> begun || begun.Action is not TOp action)
+                {
+                    throw new InvalidOperationException(
+                        $"Action presentation for {typeof(TOp).Name} received an incompatible begun Fact."
+                    );
+                }
+                if (begun.ActionInfo.RootId != rootId)
+                    throw new InvalidOperationException(
+                        "Action presentation received mismatched root provenance."
+                    );
+
+                coordinator.Begin(action, rootId);
+                coordinator.Enqueue(
+                    action,
+                    () => presenter.PresentBeginning(action, currentSnapshot)
+                );
+            }
+
+            public void Resolve(
+                RuleFact fact,
+                RulesSnapshot currentSnapshot,
+                UnityActionPresentationCoordinator coordinator
+            )
             {
                 if (
                     fact is not ActionResolvedFact<TResult> resolved
@@ -108,8 +174,175 @@ namespace Game.Rules.Unity
                         $"Action presentation for {typeof(TOp).Name} received an incompatible Fact."
                     );
                 }
-                presenter.Present(action, resolved.Outcome, currentSnapshot);
+                coordinator.Enqueue(
+                    action,
+                    () => presenter.PresentResolved(action, resolved.Outcome, currentSnapshot)
+                );
             }
+        }
+    }
+
+    /// <summary>
+    /// Retains encounter-scoped Unity coroutine steps in committed Fact order until the exact
+    /// action caller drains them.
+    /// </summary>
+    internal sealed class UnityActionPresentationCoordinator : IDisposable
+    {
+        private readonly Dictionary<object, Sequence> byAction = new(ReferenceComparer.Instance);
+        private readonly Dictionary<OpId, Sequence> byRoot = new();
+
+        internal void Begin(object action, OpId rootId)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+            if (rootId.IsEmpty)
+                throw new ArgumentException(
+                    "Action presentation requires a root ID.",
+                    nameof(rootId)
+                );
+            if (byAction.ContainsKey(action) || byRoot.ContainsKey(rootId))
+                throw new InvalidOperationException(
+                    "An action presentation sequence is already active for this action or root."
+                );
+
+            Sequence sequence = new(action, rootId);
+            byAction.Add(action, sequence);
+            byRoot.Add(rootId, sequence);
+        }
+
+        internal void Enqueue(object action, Func<IEnumerator> step)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+            if (step == null)
+                throw new ArgumentNullException(nameof(step));
+            if (!byAction.TryGetValue(action, out Sequence sequence))
+                throw new InvalidOperationException(
+                    "Action presentation was enqueued before its begun occurrence."
+                );
+            sequence.Steps.Enqueue(step);
+        }
+
+        internal bool TryEnqueue(OpId rootId, Func<IEnumerator> step)
+        {
+            if (step == null)
+                throw new ArgumentNullException(nameof(step));
+            if (!byRoot.TryGetValue(rootId, out Sequence sequence))
+                return false;
+            sequence.Steps.Enqueue(step);
+            return true;
+        }
+
+        internal IEnumerator Drain(object action)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+            if (!byAction.TryGetValue(action, out Sequence sequence))
+                yield break;
+
+            Stack<IEnumerator> activeSteps = new();
+            try
+            {
+                while (sequence.Steps.Count > 0)
+                {
+                    IEnumerator step;
+                    try
+                    {
+                        step =
+                            sequence.Steps.Dequeue().Invoke()
+                            ?? throw new InvalidOperationException(
+                                "An action presenter returned no coroutine step."
+                            );
+                    }
+                    catch (Exception exception)
+                    {
+                        Debug.LogException(exception);
+                        continue;
+                    }
+
+                    activeSteps.Push(step);
+                    while (activeSteps.Count > 0)
+                    {
+                        IEnumerator currentStep = activeSteps.Peek();
+                        bool moved;
+                        object current = null;
+                        try
+                        {
+                            moved = currentStep.MoveNext();
+                            if (moved)
+                                current = currentStep.Current;
+                        }
+                        catch (Exception exception)
+                        {
+                            Debug.LogException(exception);
+                            DisposeTop(activeSteps);
+                            continue;
+                        }
+
+                        if (!moved)
+                        {
+                            DisposeTop(activeSteps);
+                            continue;
+                        }
+                        if (current is IEnumerator nested)
+                        {
+                            activeSteps.Push(nested);
+                            continue;
+                        }
+                        yield return current;
+                    }
+                }
+            }
+            finally
+            {
+                while (activeSteps.Count > 0)
+                    DisposeTop(activeSteps);
+                byAction.Remove(sequence.Action);
+                byRoot.Remove(sequence.RootId);
+            }
+        }
+
+        private static void DisposeTop(Stack<IEnumerator> activeSteps)
+        {
+            IEnumerator completed = activeSteps.Pop();
+            if (completed is not IDisposable disposable)
+                return;
+            try
+            {
+                disposable.Dispose();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
+        public void Dispose()
+        {
+            byAction.Clear();
+            byRoot.Clear();
+        }
+
+        private sealed class Sequence
+        {
+            internal Sequence(object action, OpId rootId)
+            {
+                Action = action;
+                RootId = rootId;
+            }
+
+            internal object Action { get; }
+            internal OpId RootId { get; }
+            internal Queue<Func<IEnumerator>> Steps { get; } = new();
+        }
+
+        private sealed class ReferenceComparer : IEqualityComparer<object>
+        {
+            internal static ReferenceComparer Instance { get; } = new();
+
+            public new bool Equals(object left, object right) => ReferenceEquals(left, right);
+
+            public int GetHashCode(object value) => RuntimeHelpers.GetHashCode(value);
         }
     }
 
@@ -121,7 +354,10 @@ namespace Game.Rules.Unity
         internal UnityActionPresentationModule(UnityActionPresentationRegistry registry) =>
             this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
 
-        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime) =>
+        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
+        {
             lifetime.Add(dispatcher.RegisterFactObserver<RuleFact>(registry));
+            lifetime.Add(registry.Coordinator);
+        }
     }
 }

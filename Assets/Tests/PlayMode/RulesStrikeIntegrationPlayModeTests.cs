@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -101,6 +102,49 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator StrikeUnlocksAndProjectsHealthWhenPresentationStepFails()
+    {
+        InstallCombatManager();
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallSelectingGrid();
+        CreatureComponent actor = CreateCreature("Failure Actor", "players", 20, 10);
+        CreatureComponent target = CreateCreature("Failure Target", "enemies", 20, 5);
+        TestActionController actorController =
+            actor.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Place(actor.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, actor.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { actorController, targetController },
+            tiles,
+            new ScriptedRollService(10, 10, 20, 3, 3)
+        );
+        GetDispatcher(bridge)
+            .RegisterFactObserver<ActionBegunFact<StrikeResolution>>(
+                new FailingPresentationObserver<StrikeResolution>(
+                    GetActionPresentationCoordinator(bridge)
+                )
+            );
+        RulesStrikeAction strike = actorController.GetActions().OfType<RulesStrikeAction>().First();
+        grid.Target = target.gameObject;
+        bridge.BeginTurn(bridge.GetCreatureId(actor), 3);
+        actorController.IsTakingAction = true;
+        LogAssert.Expect(LogType.Exception, new Regex("presentation step failed"));
+
+        strike.Invoke(actor.gameObject);
+        for (int frame = 0; frame < 30 && actorController.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(actorController.IsTakingAction, Is.False);
+        Assert.That(target.hp, Is.LessThan(20));
+        Assert.That(target.PresentedHealth.Current, Is.EqualTo(target.hp));
+    }
+
+    [UnityTest]
     public IEnumerator StrikeReactionUsesDefenderValidatedBeforeDamageCallbackChangesMappings()
     {
         InstallCombatManager();
@@ -145,12 +189,12 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         bridge.BeginTurn(actorId, 3);
         animation.StopAction();
 
+        StrikeActionOp operation = new(actorId, strike.Item.Item, targetId);
         OpResult<StrikeResolution> result = null;
         try
         {
-            Assert.DoesNotThrow(() =>
-                result = bridge.Dispatch(new StrikeActionOp(actorId, strike.Item.Item, targetId))
-            );
+            Assert.DoesNotThrow(() => result = bridge.Dispatch(operation));
+            yield return bridge.DrainActionPresentation(operation);
         }
         finally
         {
@@ -197,12 +241,21 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         yield return null;
         Assert.That(actorPresentation.AnimationController, Is.Not.Null);
         CreatureAnimationController sharedAnimation = actorPresentation.AnimationController;
+        GameObject defeatVisual = Object.Instantiate(sharedAnimation.gameObject);
+        created.Add(defeatVisual);
+        CreatureAnimationController defeatAnimation =
+            defeatVisual.GetComponent<CreatureAnimationController>();
+        Assert.That(defeatAnimation, Is.Not.Null);
+        string clipAtDamagePresentation = null;
+        void CaptureDamagePresentation(string _) =>
+            clipAtDamagePresentation = sharedAnimation.CurrentClipId;
+        OnDamageDealt.AddListener(CaptureDamagePresentation);
         hitTarget
             .gameObject.AddComponent<CreaturePresentation>()
             .Bind(sharedAnimation, equipmentVisuals: null);
         defeatTarget
             .gameObject.AddComponent<CreaturePresentation>()
-            .Bind(sharedAnimation, equipmentVisuals: null);
+            .Bind(defeatAnimation, equipmentVisuals: null);
         Place(actor.gameObject, 0);
         Place(hitTarget.gameObject, 1);
         Place(defeatTarget.gameObject, 2);
@@ -222,62 +275,66 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             .Single(action => action.ActionName == "Shortbow");
         sharedAnimation.StopAction();
 
-        bridge.BeginTurn(actorId, 3);
-        grid.Target = hitTarget.gameObject;
-        actorController.IsTakingAction = true;
-        shortbow.Invoke(actor.gameObject);
-        for (int frame = 0; frame < 10 && actorController.IsTakingAction; frame++)
+        try
+        {
+            bridge.BeginTurn(actorId, 3);
+            grid.Target = hitTarget.gameObject;
+            actorController.IsTakingAction = true;
+            shortbow.Invoke(actor.gameObject);
             yield return null;
 
-        Assert.That(actorController.IsTakingAction, Is.False);
-        Assert.That(hitTarget.hp, Is.LessThan(20));
-        Assert.That(
-            sharedAnimation.CurrentClipId,
-            Is.EqualTo("animation/general/hit_a"),
-            "The hit reaction must be the last presentation started after the shared attack."
-        );
+            Assert.That(
+                bridge.Snapshot.Health[bridge.GetCreatureId(hitTarget)].Current,
+                Is.LessThan(20),
+                "Rules health must commit before presentation drains."
+            );
+            Assert.That(
+                hitTarget.PresentedHealth.Current,
+                Is.EqualTo(20),
+                "Projected health must wait behind the attack presentation step."
+            );
+            Assert.That(actorController.IsTakingAction, Is.True);
+            Assert.That(sharedAnimation.IsActionPlaying, Is.True);
 
-        CreatureComponent uncommittedDefeatTarget = CreateCreature(
-            "Uncommitted Defeat Target",
-            "presentation-enemies",
-            0,
-            10
-        );
-        uncommittedDefeatTarget
-            .gameObject.AddComponent<CreaturePresentation>()
-            .Bind(sharedAnimation, equipmentVisuals: null);
-        HealthState uncommittedZeroHealth = new(0, 1);
-        sharedAnimation.StopAction();
-        UnityAttackResultPresentation.PresentTargetReaction(
-            uncommittedDefeatTarget,
-            finalDamage: 1,
-            uncommittedZeroHealth
-        );
-
-        Assert.That(uncommittedDefeatTarget.hp, Is.Zero);
-        Assert.That(uncommittedZeroHealth.IsCommittedDefeated, Is.False);
-        Assert.That(uncommittedDefeatTarget.gameObject.activeSelf, Is.True);
-        Assert.That(
-            sharedAnimation.CurrentClipId,
-            Is.EqualTo("animation/general/hit_a"),
-            "Zero HP must remain a hit reaction until defeat is committed."
-        );
-
-        sharedAnimation.StopAction();
-        bridge.BeginTurn(actorId, 3);
-        grid.Target = defeatTarget.gameObject;
-        actorController.IsTakingAction = true;
-        shortbow.Invoke(actor.gameObject);
-        for (int frame = 0; frame < 10 && actorController.IsTakingAction; frame++)
+            yield return new WaitForSeconds(5.1f);
             yield return null;
 
-        Assert.That(actorController.IsTakingAction, Is.False);
-        Assert.That(defeatTarget.hp, Is.Zero);
-        Assert.That(
-            sharedAnimation.CurrentClipId,
-            Is.EqualTo("animation/general/death_a"),
-            "The defeat reaction must be the last presentation started after the shared attack."
-        );
+            Assert.That(actorController.IsTakingAction, Is.False);
+            Assert.That(hitTarget.hp, Is.LessThan(20));
+            Assert.That(hitTarget.PresentedHealth.Current, Is.EqualTo(hitTarget.hp));
+            Assert.That(
+                clipAtDamagePresentation,
+                Is.EqualTo("animation/general/hit_a"),
+                "The hit reaction must start after the shared attack and before the damage summary."
+            );
+
+            sharedAnimation.StopAction();
+            bridge.BeginTurn(actorId, 3);
+            grid.Target = defeatTarget.gameObject;
+            actorController.IsTakingAction = true;
+            shortbow.Invoke(actor.gameObject);
+            bool sawDeathPresentation = false;
+            float deadline = Time.realtimeSinceStartup + 5.1f;
+            while (actorController.IsTakingAction && Time.realtimeSinceStartup < deadline)
+            {
+                sawDeathPresentation |=
+                    defeatAnimation.CurrentClipId == "animation/general/death_a";
+                yield return null;
+            }
+            yield return null;
+
+            Assert.That(actorController.IsTakingAction, Is.False);
+            Assert.That(defeatTarget.hp, Is.Zero);
+            Assert.That(
+                sawDeathPresentation,
+                Is.True,
+                "The defeat reaction must start after the shared attack."
+            );
+        }
+        finally
+        {
+            OnDamageDealt.RemoveListener(CaptureDamagePresentation);
+        }
     }
 
     [UnityTest]
@@ -605,6 +662,17 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         return (RuleDispatcher)field.GetValue(bridge);
     }
 
+    private static UnityActionPresentationCoordinator GetActionPresentationCoordinator(
+        UnityCombatRulesBridge bridge
+    )
+    {
+        FieldInfo field = typeof(UnityCombatRulesBridge).GetField(
+            "actionPresentationCoordinator",
+            BindingFlags.Instance | BindingFlags.NonPublic
+        );
+        return (UnityActionPresentationCoordinator)field.GetValue(bridge);
+    }
+
     private static Dictionary<CreatureId, CreatureComponent> GetCreatureMappings(
         UnityCombatRulesBridge bridge
     )
@@ -740,6 +808,28 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
+    }
+
+    private sealed class FailingPresentationObserver<TResult>
+        : IFactObserver<ActionBegunFact<TResult>>
+    {
+        private readonly UnityActionPresentationCoordinator coordinator;
+
+        public FailingPresentationObserver(UnityActionPresentationCoordinator coordinator) =>
+            this.coordinator = coordinator;
+
+        public void OnFactCommitted(
+            ActionBegunFact<TResult> fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        ) => coordinator.TryEnqueue(rootId, Fail);
+
+        private static IEnumerator Fail()
+        {
+            if (Time.frameCount >= 0)
+                throw new InvalidOperationException("presentation step failed");
+            yield break;
+        }
     }
 
     private sealed class TestAiController : AIActionController { }

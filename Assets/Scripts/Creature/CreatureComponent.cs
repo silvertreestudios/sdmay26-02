@@ -278,6 +278,17 @@ namespace Game.Creature
             : hasInitializedHealth ? initializedHealth
             : new HealthState(_hp, _maxHp, _tempHp);
 
+        /// <summary>
+        /// Gets the last health state projected into Unity presentation and serialized storage.
+        /// </summary>
+        /// <remarks>
+        /// During rules-owned action presentation this value may intentionally lag
+        /// <see cref="Health"/> until the committed health Fact reaches its ordered visual step.
+        /// Mechanics must continue to read <see cref="Health"/>.
+        /// </remarks>
+        public HealthState PresentedHealth =>
+            hasInitializedHealth ? initializedHealth : new HealthState(_hp, _maxHp, _tempHp);
+
         /// <summary>Gets authoritative current Hit Points.</summary>
         public int hp => Health.Current;
 

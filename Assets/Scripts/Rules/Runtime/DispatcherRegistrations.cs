@@ -57,28 +57,25 @@ namespace Game.Rules.Runtime
     internal sealed class FrameInvocation<TOp> : IFrameInvocation
         where TOp : IRuleOp
     {
-        private static readonly IReadOnlyList<RuleFact> NoDirectFacts = Array.AsReadOnly(
-            Array.Empty<RuleFact>()
-        );
-        private IReadOnlyList<RuleFact> directFacts = NoDirectFacts;
+        private readonly List<RuleFact> directFacts = new List<RuleFact>();
+        private readonly IReadOnlyList<RuleFact> directFactsView;
 
         public OpFrame<TOp> Frame { get; }
         public IOpFrameView FrameView { get; }
-        public IReadOnlyList<RuleFact> DirectFacts => directFacts;
+        public IReadOnlyList<RuleFact> DirectFacts => directFactsView;
 
         public FrameInvocation(OpFrame<TOp> frame)
         {
             Frame = frame ?? throw new ArgumentNullException(nameof(frame));
             FrameView = new OpFrameView<TOp>(frame);
+            directFactsView = directFacts.AsReadOnly();
         }
 
         public void CaptureDirectFacts(IReadOnlyList<RuleFact> facts)
         {
-            if (!ReferenceEquals(directFacts, NoDirectFacts))
-                throw new InvalidOperationException(
-                    "A resolver captured its direct Facts more than once."
-                );
-            directFacts = facts ?? throw new ArgumentNullException(nameof(facts));
+            if (facts == null)
+                throw new ArgumentNullException(nameof(facts));
+            directFacts.AddRange(facts);
         }
     }
 

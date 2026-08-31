@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.KayKit;
 using Game.Rules.Runtime;
 
 namespace Game.Rules.Unity.Composition
@@ -9,14 +11,18 @@ namespace Game.Rules.Unity.Composition
     internal sealed class UnityHealthProjectionModule : IUnityEncounterRuntimeModule
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
+        private readonly UnityActionPresentationCoordinator actionPresentation;
         private readonly bool enabled;
 
         internal UnityHealthProjectionModule(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+            UnityActionPresentationCoordinator actionPresentation,
             bool enabled
         )
         {
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
+            this.actionPresentation =
+                actionPresentation ?? throw new ArgumentNullException(nameof(actionPresentation));
             this.enabled = enabled;
         }
 
@@ -25,7 +31,7 @@ namespace Game.Rules.Unity.Composition
         {
             if (!enabled)
                 return;
-            HealthProjectionObserver observer = new(creatures);
+            HealthProjectionObserver observer = new(creatures, actionPresentation);
             lifetime.Add(dispatcher.RegisterFactObserver<HealthFact>(observer));
             lifetime.Add(dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(observer));
         }
@@ -35,19 +41,30 @@ namespace Game.Rules.Unity.Composition
                 IFactObserver<CreatureDefeatCommittedFact>
         {
             private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
+            private readonly UnityActionPresentationCoordinator actionPresentation;
 
             internal HealthProjectionObserver(
-                IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
-            ) => this.creatures = creatures;
+                IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+                UnityActionPresentationCoordinator actionPresentation
+            )
+            {
+                this.creatures = creatures;
+                this.actionPresentation = actionPresentation;
+            }
 
             /// <inheritdoc/>
             public void OnFactCommitted(HealthFact fact, OpId rootId, RulesSnapshot currentSnapshot)
             {
                 CreatureComponent creature = RequireCreature(fact.Creature);
                 HealthState health = currentSnapshot.Health[fact.Creature];
-                creature.ProjectCommittedHealth(health);
-                if (fact is DamageAppliedFact && health.Current > 0)
-                    creature.PresentCommittedHit();
+                bool presentHit = fact is DamageAppliedFact && health.Current > 0;
+                if (
+                    !actionPresentation.TryEnqueue(
+                        rootId,
+                        () => PresentHealth(creature, health, presentHit)
+                    )
+                )
+                    ProjectHealth(creature, health, presentHit);
             }
 
             /// <inheritdoc/>
@@ -57,7 +74,51 @@ namespace Game.Rules.Unity.Composition
                 RulesSnapshot currentSnapshot
             )
             {
-                RequireCreature(fact.Creature).PresentCommittedDefeat();
+                CreatureComponent creature = RequireCreature(fact.Creature);
+                if (!actionPresentation.TryEnqueue(rootId, () => PresentDefeat(creature)))
+                    creature.PresentCommittedDefeat();
+            }
+
+            private static IEnumerator PresentHealth(
+                CreatureComponent creature,
+                HealthState health,
+                bool presentHit
+            )
+            {
+                ProjectHealth(creature, health, presentHit);
+                yield break;
+            }
+
+            private static void ProjectHealth(
+                CreatureComponent creature,
+                HealthState health,
+                bool presentHit
+            )
+            {
+                if (creature == null)
+                    return;
+                creature.ProjectCommittedHealth(health);
+                if (presentHit)
+                    creature.PresentCommittedHit();
+            }
+
+            private static IEnumerator PresentDefeat(CreatureComponent creature)
+            {
+                if (creature == null)
+                    yield break;
+                CreatureAnimationController animation = creature
+                    .GetComponent<CreaturePresentation>()
+                    ?.AnimationController;
+                creature.PresentCommittedDefeat();
+                while (
+                    creature != null
+                    && creature.gameObject != null
+                    && creature.gameObject.activeInHierarchy
+                    && animation != null
+                    && animation.isActiveAndEnabled
+                    && animation.IsDeathPlaying
+                )
+                    yield return null;
             }
 
             private CreatureComponent RequireCreature(CreatureId id)

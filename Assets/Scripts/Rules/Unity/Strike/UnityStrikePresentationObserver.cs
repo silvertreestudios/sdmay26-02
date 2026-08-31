@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using Game.Creature;
 using Game.KayKit;
@@ -42,7 +43,55 @@ namespace Game.Rules.Unity.Strike
         }
 
         /// <inheritdoc/>
-        public void Present(
+        public IEnumerator PresentBeginning(StrikeActionOp operation, RulesSnapshot currentSnapshot)
+        {
+            if (
+                !TryGetPresentation(
+                    operation.Actor,
+                    operation.Target,
+                    out GameObject attacker,
+                    out GameObject target,
+                    out _
+                )
+            )
+                yield break;
+
+            StrikeItemDefinition item;
+            try
+            {
+                item = strikeContext.GetStrikeItem(operation.Item);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, attacker);
+                yield break;
+            }
+
+            PresentSafely(
+                () =>
+                {
+                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
+                        log.Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
+                },
+                attacker
+            );
+            CreatureAnimationController animation = null;
+            bool animationStarted = false;
+            PresentSafely(
+                () => animationStarted = PlayAttack(attacker, target, item, out animation),
+                attacker
+            );
+            while (
+                animationStarted
+                && animation != null
+                && animation.isActiveAndEnabled
+                && animation.IsActionPlaying
+            )
+                yield return null;
+        }
+
+        /// <inheritdoc/>
+        public IEnumerator PresentResolved(
             StrikeActionOp operation,
             StrikeResolution result,
             RulesSnapshot currentSnapshot
@@ -54,10 +103,10 @@ namespace Game.Rules.Unity.Strike
                     operation.Target,
                     out GameObject attacker,
                     out GameObject target,
-                    out CreatureComponent defender
+                    out _
                 )
             )
-                return;
+                yield break;
 
             StrikeItemDefinition item;
             try
@@ -67,18 +116,8 @@ namespace Game.Rules.Unity.Strike
             catch (Exception exception)
             {
                 Debug.LogException(exception, attacker);
-                return;
+                yield break;
             }
-
-            PresentSafely(
-                () =>
-                {
-                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
-                        log.Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
-                },
-                attacker
-            );
-            PresentSafely(() => PlayAttack(attacker, target, item), attacker);
 
             UnityAttackResultPresentation.Present(
                 attacker,
@@ -96,12 +135,7 @@ namespace Game.Rules.Unity.Strike
                     result.CoverBonus
                 )
             );
-            if (currentSnapshot.Health.TryGet(operation.Target, out HealthState health))
-                UnityAttackResultPresentation.PresentTargetReaction(
-                    defender,
-                    result.FinalDamage,
-                    health
-                );
+            yield break;
         }
 
         private bool TryGetPresentation(
@@ -130,13 +164,20 @@ namespace Game.Rules.Unity.Strike
             return false;
         }
 
-        private void PlayAttack(GameObject attacker, GameObject target, StrikeItemDefinition item)
+        private bool PlayAttack(
+            GameObject attacker,
+            GameObject target,
+            StrikeItemDefinition item,
+            out CreatureAnimationController animation
+        )
         {
             CreaturePresentation presentation = attacker.GetComponent<CreaturePresentation>();
+            animation = presentation?.AnimationController;
+            if (presentation == null || target == null)
+                return false;
             if (strikeContext.TryGetWeapon(item.Item, out EquipmentWeapon weapon))
-                presentation?.PlayAttack(weapon, target.transform.position);
-            else
-                presentation?.PlayAttack(AnimationStyle.Unarmed, target.transform.position);
+                return presentation.PlayAttack(weapon, target.transform.position);
+            return presentation.PlayAttack(AnimationStyle.Unarmed, target.transform.position);
         }
 
         private static IEnumerable<UnityAttackDamagePart> ToDamage(StrikeResolution resolution)

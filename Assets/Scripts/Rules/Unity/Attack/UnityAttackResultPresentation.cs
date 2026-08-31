@@ -97,43 +97,6 @@ namespace Game.Rules.Unity.Attack
             );
         }
 
-        /// <summary>
-        /// Restarts the target's damage reaction after the owning action animation.
-        /// </summary>
-        /// <remarks>
-        /// Health Facts project as soon as their reducers commit, before the enclosing action emits
-        /// its resolved occurrence Fact. An action presenter therefore starts the attack first and
-        /// then restores the target reaction from the action outcome and committed snapshot. Zero
-        /// Hit Points can precede committed defeat while zero-HP reactions settle, so only
-        /// <see cref="HealthState.IsCommittedDefeated"/> authorizes death presentation and target
-        /// deactivation. This method does not repeat health projection, combat events, or defeat
-        /// bookkeeping.
-        /// </remarks>
-        public static void PresentTargetReaction(
-            CreatureComponent target,
-            int finalDamage,
-            HealthState committedHealth
-        )
-        {
-            if (target == null || finalDamage <= 0)
-                return;
-
-            CreaturePresentation presentation = target.GetComponent<CreaturePresentation>();
-            if (presentation == null)
-                return;
-            if (!committedHealth.IsCommittedDefeated)
-            {
-                presentation.PlayHit();
-                return;
-            }
-
-            presentation.PlayDeath(() =>
-            {
-                if (target != null && target.gameObject != null)
-                    target.gameObject.SetActive(false);
-            });
-        }
-
         private static CombatLogEntry BuildEntry(
             GameObject attacker,
             GameObject target,

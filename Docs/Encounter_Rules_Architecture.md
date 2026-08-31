@@ -55,7 +55,7 @@ Stride rules without attaching combat authority or spending encounter action eco
 | Enrollment and rollback | [`UnityCombatantEnrollmentPipeline.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityCombatantEnrollmentPipeline.cs) |
 | Unity authority and synchronous dispatch boundary | [`UnityCombatRulesBridge.cs`](../Assets/Scripts/Rules/Unity/UnityCombatRulesBridge.cs) |
 | Strike and spell Unity adapters | [`UnityStrikeEncounterModule.cs`](../Assets/Scripts/Rules/Unity/Strike/UnityStrikeEncounterModule.cs), [`UnitySpellcastingEncounterModule.cs`](../Assets/Scripts/Combat/Spells/UnitySpellcastingEncounterModule.cs) |
-| Typed resolved-action presentation routing | [`UnityActionPresentationRegistry.cs`](../Assets/Scripts/Rules/Unity/UnityActionPresentationRegistry.cs) |
+| Typed action lifecycle presentation routing and ordered draining | [`UnityActionPresentationRegistry.cs`](../Assets/Scripts/Rules/Unity/UnityActionPresentationRegistry.cs) |
 | Health and encounter projection | [`UnityHealthProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityHealthProjectionModule.cs), [`UnityEncounterProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterProjectionModule.cs) |
 
 The wildcard families above are navigation hints, not Markdown links. Inspect the neighboring files
@@ -104,7 +104,7 @@ dispatcher or enrollment hooks merely for symmetry.
 | Rage | Dispatcher configuration and combatant enrollment |
 | Strike | Dispatcher, action presentation, runtime state projection, combatant enrollment, and topology refresh |
 | Spellcasting | Dispatcher, action presentation, runtime effect projection, combatant enrollment, and topology refresh |
-| Action presentation | Runtime registration of the shared resolved-action Fact observer |
+| Action presentation | Runtime registration of the shared lifecycle Fact observer and encounter-owned coordinator |
 | Light | Runtime effect presentation |
 | Health projection | Runtime Fact projection |
 | Encounter projection | Runtime Fact and settlement projection |
@@ -197,7 +197,7 @@ Within the dispatcher:
 
 - one root owns its operation frames and nested dispatches;
 - an action is validated, pays its complete costs atomically, resolves `ActionBegunOp`, and then
-  invokes its feature handler;
+  publishes one `ActionBegunFact<TResult>` immediately before invoking its feature handler;
 - reducers atomically commit state and return immutable state-change Fact payloads;
 - the dispatcher records source, root, exact-snapshot, and listener-delivery provenance internally
   without mutating those payloads;
@@ -220,6 +220,22 @@ spellcasting explicitly register typed presenters through their encounter module
 `ActionDefinitionId`. The registry verifies the concrete action/outcome pair before invoking the
 feature presenter. Cast a Spell may then route within its presenter by the selected
 `SpellReference`. There is no static discovery or central feature switch.
+
+The shared observer opens one encounter-owned presentation sequence for the exact immutable action
+when its begun occurrence arrives. Typed beginning presentation, committed health/defeat projection,
+and typed resolved presentation append coroutine steps to that sequence in observer order. The
+Strike and Cast a Spell Unity coroutines drain that exact action after synchronous dispatch before
+unlocking input. Each step is exception-isolated, and draining releases the sequence even after a
+failure. Invalid, interrupted, cancelled, unpresented, and failed-presentation paths therefore do
+not retain queue entries.
+
+Strike and spell presenters own attacker animation plus action summary, log, and miss presentation;
+they do not re-select targets, recalculate attacks or damage, or replay target reactions from their
+outcomes. `UnityHealthProjectionModule` instead queues projected health and hit/death reactions from
+the actual committed `HealthFact` and `CreatureDefeatCommittedFact`. Without an active action
+sequence, those generic projections remain immediate. Rules health is authoritative at commit time,
+while `CreatureComponent.PresentedHealth` and the HUD intentionally update when the queued projection
+step runs.
 
 ### Encounter presentation settlement
 
@@ -283,8 +299,9 @@ runtime does not mean every trait, feat interaction, or rules option for that ac
    reinforcement enrollment through `IUnityCombatantEnrollmentModule`.
 8. Transfer encounter-scoped observers/resources to the supplied `CompositeLifetime`. Keep
    root-scoped registrations local.
-9. Project only committed Facts. Register resolved-action presentation through the typed Unity
-   registry and keep feature presentation out of shared bridge classes.
+9. Project only committed Facts. Register begun and resolved action presentation through the typed
+   Unity registry, let generic Fact projectors own target state/reactions, and keep feature
+   presentation out of shared bridge classes.
 10. Remove the old writer and fallback in the same change. Do not leave dual authority for the
     migrated slice.
 11. Add deterministic EditMode tests for rules behavior and bridge composition. Add PlayMode
@@ -298,7 +315,9 @@ runtime does not mean every trait, feat interaction, or rules option for that ac
 - Let the engine commit all costs before the handler.
 - Return the feature's structural outcome; do not throw for an ordinary illegal choice.
 - Add Unity presentation by registering an `IUnityActionPresenter<TOp, TResult>` from the feature's
-  encounter module. Reuse the action and outcome carried by `ActionResolvedFact<TResult>`.
+  encounter module. Queue attacker/feature presentation from the begun and resolved occurrences;
+  reuse their exact action and the resolved occurrence's existing outcome. Do not loop over outcome
+  targets to replay generic health, hit, or defeat presentation.
 
 ### Rule responding to committed state
 

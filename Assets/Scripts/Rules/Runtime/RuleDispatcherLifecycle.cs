@@ -10,10 +10,11 @@ namespace Game.Rules.Runtime
             "action-lifecycle"
         );
 
-        private async ValueTask<object> InvokeActionLifecycle(
+        private async ValueTask<object> InvokeActionLifecycle<TResult>(
             IRegistration registration,
             IFrameInvocation invocation,
-            IReadOnlyList<BoundMiddlewareRegistration> middleware
+            IReadOnlyList<BoundMiddlewareRegistration> middleware,
+            IRuleOp<TResult> operation
         )
         {
             ActionValidationResult validation = actionRuntime.Validate(invocation);
@@ -48,6 +49,8 @@ namespace Game.Rules.Runtime
             if (resolvedBegun.Value.Decision == ActionStartDecision.Interrupted)
                 return registration.CreateInterruptedResult();
 
+            PublishActionBegunFact(invocation, operation);
+
             object featureResult = await InvokeWithMiddleware(
                 registration,
                 invocation,
@@ -62,6 +65,26 @@ namespace Game.Rules.Runtime
                 );
             }
             return featureResult;
+        }
+
+        private void PublishActionBegunFact<TResult>(
+            IFrameInvocation invocation,
+            IRuleOp<TResult> operation
+        )
+        {
+            if (operation is not ActionOp<TResult> action)
+                throw new InvalidOperationException(
+                    "An action frame contained an operation outside ActionOp<TResult>."
+                );
+
+            ActionBegunFact<TResult> fact = new(invocation.FrameView.ActionInfo, action);
+            IReadOnlyList<CommittedFactRecord> committed = CaptureCommittedFacts(
+                invocation,
+                Array.AsReadOnly(new RuleFact[] { fact }),
+                ActionLifecycleSource,
+                store.Snapshot
+            );
+            NotifyFactObservers(committed);
         }
 
         private void PublishActionResolvedFact<TResult>(

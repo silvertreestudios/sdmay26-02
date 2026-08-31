@@ -146,7 +146,16 @@ namespace Game.Rules.Runtime.Tests
                 RequireResolved(result).Value.Failure.Kind,
                 Is.EqualTo(MovementFailureKind.NonContiguous)
             );
-            Assert.That(result.Facts.Single(), Is.TypeOf<ActionResolvedFact<MovePathOutcome>>());
+            Assert.That(
+                result.Facts.Select(fact => fact.GetType()),
+                Is.EqualTo(
+                    new[]
+                    {
+                        typeof(ActionBegunFact<MovePathOutcome>),
+                        typeof(ActionResolvedFact<MovePathOutcome>),
+                    }
+                )
+            );
             Assert.That(store.Snapshot.Version, Is.Zero);
             Assert.That(store.Snapshot.Positions[Mover], Is.EqualTo(origin));
             Assert.That(store.Snapshot.MovementBudgets[Mover].Remaining.Feet, Is.EqualTo(30));
@@ -390,6 +399,7 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(
                     new[]
                     {
+                        typeof(ActionBegunFact<MovePathOutcome>),
                         typeof(MovementBudgetStartedFact),
                         typeof(TokenMovedFact),
                         typeof(TokenMovedFact),

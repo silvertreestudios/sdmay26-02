@@ -8,6 +8,7 @@ using Game.DungeonGeneration;
 using Game.DungeonPersistence;
 using Game.DungeonPersistence.Autosave;
 using Game.DungeonPersistence.Repository;
+using Game.Rules.Runtime;
 using Game.Strikes;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -1261,7 +1262,7 @@ public class HUDController
                     cardVE.AddToClassList("card-inactive");
                 }
                 UpdateActionPointMedallions(card, p.GetComponent<ActionController>());
-                if (p.hp <= 0)
+                if (p.PresentedHealth.Current <= 0)
                 {
                     continue;
                 }
@@ -1303,14 +1304,17 @@ public class HUDController
                 continue;
             }
 
-            int temporaryHitPoints = creature.tempHp;
-            int emptyHitPoints = Mathf.Max(0, creature.maxHp - creature.hp);
+            HealthState presentedHealth = creature.PresentedHealth;
+            int temporaryHitPoints = presentedHealth.Temporary;
+            int emptyHitPoints = Mathf.Max(0, presentedHealth.Maximum - presentedHealth.Current);
 
-            health.style.flexGrow = creature.hp;
+            health.style.flexGrow = presentedHealth.Current;
             temporaryHealth.style.flexGrow = temporaryHitPoints;
             emptyHealth.style.flexGrow = emptyHitPoints;
             label.text =
-                (creature.hp + temporaryHitPoints) + "/" + (creature.maxHp + temporaryHitPoints);
+                (presentedHealth.Current + temporaryHitPoints)
+                + "/"
+                + (presentedHealth.Maximum + temporaryHitPoints);
         }
     }
 

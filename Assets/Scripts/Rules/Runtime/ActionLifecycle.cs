@@ -254,12 +254,44 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Provides type-erased routing data for a structurally resolved action Fact.</summary>
-    public interface IActionResolvedFact
+    /// <summary>Provides type-erased routing data for an action lifecycle occurrence Fact.</summary>
+    public interface IActionLifecycleFact
     {
         /// <summary>Gets the stable action definition selected for the invocation.</summary>
         ActionDefinitionId DefinitionId { get; }
     }
+
+    /// <summary>
+    /// Reports that one action passed validation, committed all costs, and completed its
+    /// action-begun timing window immediately before feature-owned mechanics execute.
+    /// </summary>
+    /// <typeparam name="TResult">The action's feature-owned result type.</typeparam>
+    /// <remarks>
+    /// The occurrence carries the original immutable action rather than a presentation or history
+    /// copy. Invalid, interrupted, and cancelled actions do not produce it.
+    /// </remarks>
+    public interface IActionBegunFact : IActionLifecycleFact { }
+
+    /// <inheritdoc cref="IActionBegunFact"/>
+    public sealed class ActionBegunFact<TResult> : RuleFact, IActionBegunFact
+    {
+        internal ActionBegunFact(ActionOpInfo actionInfo, ActionOp<TResult> action)
+        {
+            ActionInfo = actionInfo ?? throw new ArgumentNullException(nameof(actionInfo));
+            Action = action ?? throw new ArgumentNullException(nameof(action));
+        }
+
+        /// <summary>Gets dispatcher-owned identity and provenance for the begun action.</summary>
+        public ActionOpInfo ActionInfo { get; }
+
+        /// <summary>Gets the actual immutable action request and selection object.</summary>
+        public ActionOp<TResult> Action { get; }
+
+        ActionDefinitionId IActionLifecycleFact.DefinitionId => ActionInfo.DefinitionId;
+    }
+
+    /// <summary>Provides type-erased routing data for a structurally resolved action Fact.</summary>
+    public interface IActionResolvedFact : IActionLifecycleFact { }
 
     /// <summary>
     /// Reports that one action structurally resolved after its handler and awaited child mechanics,
@@ -294,7 +326,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the existing feature-owned outcome returned by the action handler.</summary>
         public TResult Outcome { get; }
 
-        ActionDefinitionId IActionResolvedFact.DefinitionId => ActionInfo.DefinitionId;
+        ActionDefinitionId IActionLifecycleFact.DefinitionId => ActionInfo.DefinitionId;
     }
 
     /// <summary>

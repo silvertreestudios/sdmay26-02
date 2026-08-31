@@ -32,6 +32,7 @@ namespace Game.Rules.Unity.Composition
 
         internal static UnityEncounterModuleSet Create(
             UnityCombatRulesBridge owner,
+            UnityActionPresentationCoordinator actionPresentationCoordinator,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             Tile[,] tiles,
@@ -41,6 +42,8 @@ namespace Game.Rules.Unity.Composition
         {
             if (owner == null)
                 throw new ArgumentNullException(nameof(owner));
+            if (actionPresentationCoordinator == null)
+                throw new ArgumentNullException(nameof(actionPresentationCoordinator));
             UnityStrikeContext strikeContext = new(creatures, tiles);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
@@ -67,7 +70,7 @@ namespace Game.Rules.Unity.Composition
             )
                 registryBuilder.Define(definitionId);
 
-            UnityActionPresentationRegistry actionPresentation = new();
+            UnityActionPresentationRegistry actionPresentation = new(actionPresentationCoordinator);
             IUnityEncounterModule[] modules =
             {
                 new RottingAuraEncounterModule(owner),
@@ -88,7 +91,11 @@ namespace Game.Rules.Unity.Composition
                 ),
                 new UnityActionPresentationModule(actionPresentation),
                 new UnityLightEncounterModule(spellCatalog, creatures),
-                new UnityHealthProjectionModule(creatures, installUnityAuthority),
+                new UnityHealthProjectionModule(
+                    creatures,
+                    actionPresentationCoordinator,
+                    installUnityAuthority
+                ),
                 new UnityEncounterProjectionModule(owner),
             };
             UnityEncounterComposition composition = new(modules);

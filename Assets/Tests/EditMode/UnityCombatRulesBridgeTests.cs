@@ -787,6 +787,11 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(healing.Applied, Is.EqualTo(2));
             Assert.That(first.hp, Is.EqualTo(8));
             Assert.That(first.maxHp, Is.EqualTo(12));
+            Assert.That(
+                first.PresentedHealth.Current,
+                Is.EqualTo(8),
+                "Health outside an action presentation root must still project immediately."
+            );
             Assert.That(bridge.Snapshot.Health[firstId].Current, Is.EqualTo(first.hp));
             Assert.That(
                 bridge.TryGetOriginSource(

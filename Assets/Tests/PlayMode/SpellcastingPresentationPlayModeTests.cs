@@ -356,18 +356,27 @@ public sealed class SpellcastingPresentationPlayModeTests
         grid.Target = target.gameObject;
         clericController.IsTakingAction = true;
         action.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
-            yield return null;
+        yield return null;
+
+        Assert.That(target.hp, Is.EqualTo(5), "Rules health must commit synchronously.");
+        Assert.That(
+            target.PresentedHealth.Current,
+            Is.EqualTo(10),
+            "Spell target projection must wait behind the caster animation."
+        );
+        Assert.That(clericController.IsTakingAction, Is.True);
+        Assert.That(animation.IsActionPlaying, Is.True);
+
+        yield return new WaitForSeconds(5.1f);
+        yield return null;
 
         Assert.That(clericController.IsTakingAction, Is.False);
         Assert.That(clericController.ActionPoints, Is.EqualTo(1));
         Assert.That(target.hp, Is.EqualTo(5));
+        Assert.That(target.PresentedHealth.Current, Is.EqualTo(5));
         Assert.That(damageEventCount, Is.EqualTo(1));
         Assert.That(missEventCount, Is.Zero);
-        Assert.That(
-            animation.CurrentClipId,
-            Is.EqualTo("animation/combatranged/ranged_magic_shoot")
-        );
+        Assert.That(animation.CurrentClipId, Is.Null);
         Assert.That(log.Messages.Any(message => message.Contains("casts Divine Lance")), Is.True);
         Assert.That(log.Entries, Has.Count.EqualTo(1));
         Assert.That(log.Entries.Single().Kind, Is.EqualTo(CombatLogEntryKind.Attack));
@@ -376,8 +385,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         bridge.BeginTurn(actor, 3);
         clericController.IsTakingAction = true;
         action.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
-            yield return null;
+        yield return new WaitForSeconds(5.1f);
+        yield return null;
 
         Assert.That(clericController.IsTakingAction, Is.False);
         Assert.That(clericController.ActionPoints, Is.EqualTo(1));
