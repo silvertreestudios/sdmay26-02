@@ -57,14 +57,12 @@ namespace Game.Rules.Unity.Composition
             {
                 CreatureComponent creature = RequireCreature(fact.Creature);
                 HealthState health = currentSnapshot.Health[fact.Creature];
+                creature.ProjectCommittedHealth(health);
                 bool presentHit = fact is DamageAppliedFact && health.Current > 0;
-                if (
-                    !actionPresentation.TryEnqueue(
-                        rootId,
-                        () => PresentHealth(creature, health, presentHit)
-                    )
-                )
-                    ProjectHealth(creature, health, presentHit);
+                if (!presentHit)
+                    return;
+                if (!actionPresentation.TryEnqueue(rootId, () => PresentHit(creature)))
+                    creature.PresentCommittedHit();
             }
 
             /// <inheritdoc/>
@@ -79,27 +77,11 @@ namespace Game.Rules.Unity.Composition
                     creature.PresentCommittedDefeat();
             }
 
-            private static IEnumerator PresentHealth(
-                CreatureComponent creature,
-                HealthState health,
-                bool presentHit
-            )
+            private static IEnumerator PresentHit(CreatureComponent creature)
             {
-                ProjectHealth(creature, health, presentHit);
-                yield break;
-            }
-
-            private static void ProjectHealth(
-                CreatureComponent creature,
-                HealthState health,
-                bool presentHit
-            )
-            {
-                if (creature == null)
-                    return;
-                creature.ProjectCommittedHealth(health);
-                if (presentHit)
+                if (creature != null)
                     creature.PresentCommittedHit();
+                yield break;
             }
 
             private static IEnumerator PresentDefeat(CreatureComponent creature)

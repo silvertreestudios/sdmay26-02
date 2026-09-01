@@ -51,21 +51,26 @@ public sealed class UnityActionPresentationRegistryTests
     }
 
     [Test]
-    public async Task DrainIsolatesFailedStepsContinuesAndReleasesExactAction()
+    public void FirstFailedStepAbortsRemainingPresentationAndReleasesActionAndRoot()
     {
-        UnityActionPresentationRegistry registry = new();
-        FailingPresenter presenter = new();
-        registry.Register<TestActionOp, TestOutcome>(PresentedDefinition, presenter);
-        RuleDispatcher dispatcher = CreateDispatcher();
-        dispatcher.RegisterFactObserver<RuleFact>(registry);
-        TestActionOp action = new(PresentedDefinition, 31);
-        await dispatcher.Dispatch(action);
+        UnityActionPresentationCoordinator coordinator = new();
+        object action = new();
+        OpId rootId = new(41);
+        int remainingCalls = 0;
+        coordinator.Begin(action, rootId);
+        coordinator.Enqueue(action, FailPresentation);
+        coordinator.Enqueue(action, () => RecordPresentation(() => remainingCalls++));
         ExpectLog(LogType.Exception, new Regex("presentation failed"));
 
-        Drain(registry.Coordinator.Drain(action));
+        Drain(coordinator.Drain(action));
 
-        Assert.That(presenter.ResolvedCalls, Is.EqualTo(1));
-        IEnumerator secondDrain = registry.Coordinator.Drain(action);
+        Assert.That(remainingCalls, Is.Zero, "Later visual steps must be abandoned.");
+        Assert.That(
+            coordinator.TryEnqueue(rootId, () => RecordPresentation(() => remainingCalls++)),
+            Is.False,
+            "The failed sequence must release its root mapping."
+        );
+        IEnumerator secondDrain = coordinator.Drain(action);
         Assert.That(secondDrain.MoveNext(), Is.False, "The failed sequence must be released.");
     }
 
@@ -78,6 +83,18 @@ public sealed class UnityActionPresentationRegistryTests
     private static void Drain(IEnumerator presentation)
     {
         while (presentation.MoveNext()) { }
+    }
+
+    private static IEnumerator FailPresentation()
+    {
+        yield return null;
+        throw new InvalidOperationException("presentation failed");
+    }
+
+    private static IEnumerator RecordPresentation(Action record)
+    {
+        record();
+        yield break;
     }
 
     private static void ExpectLog(LogType type, Regex message)
@@ -145,28 +162,6 @@ public sealed class UnityActionPresentationRegistryTests
             Action = action;
             Outcome = outcome;
             Snapshot = currentSnapshot;
-            yield break;
-        }
-    }
-
-    private sealed class FailingPresenter : IUnityActionPresenter<TestActionOp, TestOutcome>
-    {
-        public int ResolvedCalls { get; private set; }
-
-        public IEnumerator PresentBeginning(TestActionOp action, RulesSnapshot currentSnapshot)
-        {
-            if (action != null)
-                throw new InvalidOperationException("presentation failed");
-            yield break;
-        }
-
-        public IEnumerator PresentResolved(
-            TestActionOp action,
-            TestOutcome outcome,
-            RulesSnapshot currentSnapshot
-        )
-        {
-            ResolvedCalls++;
             yield break;
         }
     }

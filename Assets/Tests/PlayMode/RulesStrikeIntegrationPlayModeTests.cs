@@ -102,7 +102,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator StrikeUnlocksAndProjectsHealthWhenPresentationStepFails()
+    public IEnumerator FirstPresentationFailureAbortsRemainingVisualsReleasesMappingsAndUnlocks()
     {
         InstallCombatManager();
         InstallCoroutineRunner();
@@ -123,15 +123,14 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             tiles,
             new ScriptedRollService(10, 10, 20, 3, 3)
         );
+        UnityActionPresentationCoordinator coordinator = GetActionPresentationCoordinator(bridge);
+        FailingPresentationObserver<StrikeResolution> failureObserver = new(coordinator);
         GetDispatcher(bridge)
-            .RegisterFactObserver<ActionBegunFact<StrikeResolution>>(
-                new FailingPresentationObserver<StrikeResolution>(
-                    GetActionPresentationCoordinator(bridge)
-                )
-            );
+            .RegisterFactObserver<ActionBegunFact<StrikeResolution>>(failureObserver);
         RulesStrikeAction strike = actorController.GetActions().OfType<RulesStrikeAction>().First();
         grid.Target = target.gameObject;
         bridge.BeginTurn(bridge.GetCreatureId(actor), 3);
+        OnDamageDealt.AddListener(CountDamagePresentation);
         actorController.IsTakingAction = true;
         LogAssert.Expect(LogType.Exception, new Regex("presentation step failed"));
 
@@ -141,7 +140,14 @@ public sealed class RulesStrikeIntegrationPlayModeTests
 
         Assert.That(actorController.IsTakingAction, Is.False);
         Assert.That(target.hp, Is.LessThan(20));
-        Assert.That(target.PresentedHealth.Current, Is.EqualTo(target.hp));
+        Assert.That(target.Health.Current, Is.EqualTo(target.hp));
+        Assert.That(damagePresentationCount, Is.Zero, "Later action visuals must be abandoned.");
+        Assert.That(failureObserver.RootId.IsEmpty, Is.False);
+        Assert.That(
+            coordinator.TryEnqueue(failureObserver.RootId, EmptyPresentation),
+            Is.False,
+            "Failure cleanup must release the root mapping."
+        );
     }
 
     [UnityTest]
@@ -212,7 +218,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator StrikeBeginsAttackBeforeHitAndDefeatPresentations()
+    public IEnumerator StrikeProjectsHealthImmediatelyThenOrdersFactDrivenHitAndDefeatReactions()
     {
         InstallCombatManager();
         InstallCoroutineRunner();
@@ -289,9 +295,9 @@ public sealed class RulesStrikeIntegrationPlayModeTests
                 "Rules health must commit before presentation drains."
             );
             Assert.That(
-                hitTarget.PresentedHealth.Current,
-                Is.EqualTo(20),
-                "Projected health must wait behind the attack presentation step."
+                hitTarget.Health.Current,
+                Is.EqualTo(bridge.Snapshot.Health[bridge.GetCreatureId(hitTarget)].Current),
+                "The exact committed health snapshot must be authoritative immediately."
             );
             Assert.That(actorController.IsTakingAction, Is.True);
             Assert.That(sharedAnimation.IsActionPlaying, Is.True);
@@ -301,7 +307,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
 
             Assert.That(actorController.IsTakingAction, Is.False);
             Assert.That(hitTarget.hp, Is.LessThan(20));
-            Assert.That(hitTarget.PresentedHealth.Current, Is.EqualTo(hitTarget.hp));
+            Assert.That(hitTarget.Health.Current, Is.EqualTo(hitTarget.hp));
             Assert.That(
                 clipAtDamagePresentation,
                 Is.EqualTo("animation/general/hit_a"),
@@ -805,6 +811,11 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         return (ResolvedOpResult<T>)result;
     }
 
+    private static IEnumerator EmptyPresentation()
+    {
+        yield break;
+    }
+
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
@@ -818,11 +829,17 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         public FailingPresentationObserver(UnityActionPresentationCoordinator coordinator) =>
             this.coordinator = coordinator;
 
+        public OpId RootId { get; private set; }
+
         public void OnFactCommitted(
             ActionBegunFact<TResult> fact,
             OpId rootId,
             RulesSnapshot currentSnapshot
-        ) => coordinator.TryEnqueue(rootId, Fail);
+        )
+        {
+            RootId = rootId;
+            coordinator.TryEnqueue(rootId, Fail);
+        }
 
         private static IEnumerator Fail()
         {

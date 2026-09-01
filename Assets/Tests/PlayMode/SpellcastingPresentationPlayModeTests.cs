@@ -360,9 +360,9 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         Assert.That(target.hp, Is.EqualTo(5), "Rules health must commit synchronously.");
         Assert.That(
-            target.PresentedHealth.Current,
-            Is.EqualTo(10),
-            "Spell target projection must wait behind the caster animation."
+            target.Health.Current,
+            Is.EqualTo(5),
+            "The exact committed health snapshot must be authoritative during presentation."
         );
         Assert.That(clericController.IsTakingAction, Is.True);
         Assert.That(animation.IsActionPlaying, Is.True);
@@ -373,7 +373,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(clericController.IsTakingAction, Is.False);
         Assert.That(clericController.ActionPoints, Is.EqualTo(1));
         Assert.That(target.hp, Is.EqualTo(5));
-        Assert.That(target.PresentedHealth.Current, Is.EqualTo(5));
+        Assert.That(target.Health.Current, Is.EqualTo(5));
         Assert.That(damageEventCount, Is.EqualTo(1));
         Assert.That(missEventCount, Is.Zero);
         Assert.That(animation.CurrentClipId, Is.Null);

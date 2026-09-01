@@ -14,10 +14,9 @@ namespace Game.Rules.Unity.Strike
     /// </summary>
     /// <remarks>
     /// The adapter intentionally contains the Unity combat-log singleton and static creature
-    /// events. The dispatcher contains exceptions at the external-observer boundary, so presentation
-    /// cannot prevent authoritative damage, load-state changes, or MAP advancement. Earlier
-    /// cosmetic callbacks are also contained individually so one failure does not skip later
-    /// presentation steps.
+    /// events. Presenter exceptions flow to the action presentation coordinator, which logs the
+    /// first failure, abandons the remaining action visuals, and releases the caller without
+    /// affecting committed rules state.
     /// </remarks>
     public sealed class UnityStrikeActionPresenter
         : IUnityActionPresenter<StrikeActionOp, StrikeResolution>
@@ -56,31 +55,11 @@ namespace Game.Rules.Unity.Strike
             )
                 yield break;
 
-            StrikeItemDefinition item;
-            try
-            {
-                item = strikeContext.GetStrikeItem(operation.Item);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, attacker);
-                yield break;
-            }
-
-            PresentSafely(
-                () =>
-                {
-                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
-                        log.Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
-                },
-                attacker
-            );
+            StrikeItemDefinition item = strikeContext.GetStrikeItem(operation.Item);
+            if (CombatLog.TryGetInstance(out CombatLogInterface log))
+                log.Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
             CreatureAnimationController animation = null;
-            bool animationStarted = false;
-            PresentSafely(
-                () => animationStarted = PlayAttack(attacker, target, item, out animation),
-                attacker
-            );
+            bool animationStarted = PlayAttack(attacker, target, item, out animation);
             while (
                 animationStarted
                 && animation != null
@@ -108,16 +87,7 @@ namespace Game.Rules.Unity.Strike
             )
                 yield break;
 
-            StrikeItemDefinition item;
-            try
-            {
-                item = strikeContext.GetStrikeItem(operation.Item);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, attacker);
-                yield break;
-            }
+            StrikeItemDefinition item = strikeContext.GetStrikeItem(operation.Item);
 
             UnityAttackResultPresentation.Present(
                 attacker,
@@ -184,18 +154,6 @@ namespace Game.Rules.Unity.Strike
         {
             foreach (TypedDamagePart part in resolution.Damage)
                 yield return new UnityAttackDamagePart(part.DamageType, part.Amount);
-        }
-
-        private static void PresentSafely(Action presentation, UnityEngine.Object context)
-        {
-            try
-            {
-                presentation();
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, context);
-            }
         }
     }
 }

@@ -436,8 +436,8 @@ namespace Game.Rules.Unity
         /// <typeparam name="TResult">The action's feature-owned result type.</typeparam>
         /// <param name="action">The same immutable action instance supplied to <see cref="Dispatch{TResult}"/>.</param>
         /// <returns>
-        /// A coroutine that releases the sequence after every recorded step succeeds or fails.
-        /// Missing sequences complete immediately.
+        /// A coroutine that releases the sequence after all recorded steps succeed or the first
+        /// presenter execution fails. Missing sequences complete immediately.
         /// </returns>
         public IEnumerator DrainActionPresentation<TResult>(ActionOp<TResult> action)
         {

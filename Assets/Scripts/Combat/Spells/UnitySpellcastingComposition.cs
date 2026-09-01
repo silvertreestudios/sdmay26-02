@@ -253,26 +253,12 @@ namespace Game.Combat.Spells
             CreatureAnimationController animation = creature
                 .GetComponent<CreaturePresentation>()
                 ?.AnimationController;
-            bool animationStarted = false;
-            PresentSafely(
-                () =>
-                {
-                    if (!creature.IsDefeated)
-                        animationStarted =
-                            actor
-                                .GetComponent<CreaturePresentation>()
-                                ?.PlayAttack(AnimationStyle.Magic) == true;
-                },
-                actor
-            );
-            PresentSafely(
-                () =>
-                {
-                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
-                        log.Log($"- {actor.name} casts {definition.DisplayName}.");
-                },
-                actor
-            );
+            bool animationStarted =
+                !creature.IsDefeated
+                && actor.GetComponent<CreaturePresentation>()?.PlayAttack(AnimationStyle.Magic)
+                    == true;
+            if (CombatLog.TryGetInstance(out CombatLogInterface log))
+                log.Log($"- {actor.name} casts {definition.DisplayName}.");
             while (
                 animationStarted
                 && animation != null
@@ -335,18 +321,6 @@ namespace Game.Combat.Spells
                     0
                 )
             );
-        }
-
-        private static void PresentSafely(Action presentation, UnityEngine.Object context)
-        {
-            try
-            {
-                presentation();
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, context);
-            }
         }
     }
 }

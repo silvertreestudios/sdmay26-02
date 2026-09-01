@@ -1262,7 +1262,7 @@ public class HUDController
                     cardVE.AddToClassList("card-inactive");
                 }
                 UpdateActionPointMedallions(card, p.GetComponent<ActionController>());
-                if (p.PresentedHealth.Current <= 0)
+                if (p.Health.Current <= 0)
                 {
                     continue;
                 }
@@ -1304,17 +1304,17 @@ public class HUDController
                 continue;
             }
 
-            HealthState presentedHealth = creature.PresentedHealth;
-            int temporaryHitPoints = presentedHealth.Temporary;
-            int emptyHitPoints = Mathf.Max(0, presentedHealth.Maximum - presentedHealth.Current);
+            HealthState healthState = creature.Health;
+            int temporaryHitPoints = healthState.Temporary;
+            int emptyHitPoints = Mathf.Max(0, healthState.Maximum - healthState.Current);
 
-            health.style.flexGrow = presentedHealth.Current;
+            health.style.flexGrow = healthState.Current;
             temporaryHealth.style.flexGrow = temporaryHitPoints;
             emptyHealth.style.flexGrow = emptyHitPoints;
             label.text =
-                (presentedHealth.Current + temporaryHitPoints)
+                (healthState.Current + temporaryHitPoints)
                 + "/"
-                + (presentedHealth.Maximum + temporaryHitPoints);
+                + (healthState.Maximum + temporaryHitPoints);
         }
     }
 

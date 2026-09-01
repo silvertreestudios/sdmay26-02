@@ -222,20 +222,20 @@ feature presenter. Cast a Spell may then route within its presenter by the selec
 `SpellReference`. There is no static discovery or central feature switch.
 
 The shared observer opens one encounter-owned presentation sequence for the exact immutable action
-when its begun occurrence arrives. Typed beginning presentation, committed health/defeat projection,
+when its begun occurrence arrives. Typed beginning presentation, committed hit/defeat reactions,
 and typed resolved presentation append coroutine steps to that sequence in observer order. The
 Strike and Cast a Spell Unity coroutines drain that exact action after synchronous dispatch before
-unlocking input. Each step is exception-isolated, and draining releases the sequence even after a
-failure. Invalid, interrupted, cancelled, unpresented, and failed-presentation paths therefore do
-not retain queue entries.
+unlocking input. The coordinator logs the first presenter execution failure, abandons the remaining
+steps for that action, and releases both its exact-action and root mappings. Invalid, interrupted,
+cancelled, unpresented, and failed-presentation paths therefore do not retain queue entries.
 
 Strike and spell presenters own attacker animation plus action summary, log, and miss presentation;
 they do not re-select targets, recalculate attacks or damage, or replay target reactions from their
-outcomes. `UnityHealthProjectionModule` instead queues projected health and hit/death reactions from
-the actual committed `HealthFact` and `CreatureDefeatCommittedFact`. Without an active action
-sequence, those generic projections remain immediate. Rules health is authoritative at commit time,
-while `CreatureComponent.PresentedHealth` and the HUD intentionally update when the queued projection
-step runs.
+outcomes. On every committed `HealthFact`, `UnityHealthProjectionModule` immediately projects the
+exact associated `HealthState` snapshot into `CreatureComponent`; the HUD reads the component's
+authoritative `Health`. Hit and defeat reactions come from the actual committed `HealthFact` and
+`CreatureDefeatCommittedFact`: they join an active action sequence in Fact order, or present
+immediately when no action sequence owns their root.
 
 ### Encounter presentation settlement
 

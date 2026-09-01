@@ -184,7 +184,8 @@ namespace Game.Rules.Unity
 
     /// <summary>
     /// Retains encounter-scoped Unity coroutine steps in committed Fact order until the exact
-    /// action caller drains them.
+    /// action caller drains them. The first execution failure is logged once, abandons the
+    /// remaining steps, and releases both action and root correlation.
     /// </summary>
     internal sealed class UnityActionPresentationCoordinator : IDisposable
     {
@@ -240,81 +241,60 @@ namespace Game.Rules.Unity
             if (!byAction.TryGetValue(action, out Sequence sequence))
                 yield break;
 
-            Stack<IEnumerator> activeSteps = new();
             try
             {
                 while (sequence.Steps.Count > 0)
                 {
-                    IEnumerator step;
-                    try
-                    {
-                        step =
-                            sequence.Steps.Dequeue().Invoke()
-                            ?? throw new InvalidOperationException(
-                                "An action presenter returned no coroutine step."
-                            );
-                    }
-                    catch (Exception exception)
-                    {
-                        Debug.LogException(exception);
-                        continue;
-                    }
-
-                    activeSteps.Push(step);
-                    while (activeSteps.Count > 0)
-                    {
-                        IEnumerator currentStep = activeSteps.Peek();
-                        bool moved;
-                        object current = null;
-                        try
-                        {
-                            moved = currentStep.MoveNext();
-                            if (moved)
-                                current = currentStep.Current;
-                        }
-                        catch (Exception exception)
-                        {
-                            Debug.LogException(exception);
-                            DisposeTop(activeSteps);
-                            continue;
-                        }
-
-                        if (!moved)
-                        {
-                            DisposeTop(activeSteps);
-                            continue;
-                        }
-                        if (current is IEnumerator nested)
-                        {
-                            activeSteps.Push(nested);
-                            continue;
-                        }
+                    Func<IEnumerator> createStep = sequence.Steps.Dequeue();
+                    IEnumerator step = null;
+                    Exception failure;
+                    while (TryMoveNext(createStep, ref step, out object current, out failure))
                         yield return current;
+                    if (failure != null)
+                    {
+                        Debug.LogException(failure);
+                        yield break;
                     }
                 }
             }
             finally
             {
-                while (activeSteps.Count > 0)
-                    DisposeTop(activeSteps);
                 byAction.Remove(sequence.Action);
                 byRoot.Remove(sequence.RootId);
             }
         }
 
-        private static void DisposeTop(Stack<IEnumerator> activeSteps)
+        private static bool TryMoveNext(
+            Func<IEnumerator> createStep,
+            ref IEnumerator step,
+            out object current,
+            out Exception failure
+        )
         {
-            IEnumerator completed = activeSteps.Pop();
-            if (completed is not IDisposable disposable)
-                return;
             try
             {
-                disposable.Dispose();
+                step ??=
+                    createStep()
+                    ?? throw new InvalidOperationException(
+                        "An action presenter returned no coroutine step."
+                    );
+                if (step.MoveNext())
+                {
+                    current = step.Current;
+                    failure = null;
+                    return true;
+                }
             }
             catch (Exception exception)
             {
-                Debug.LogException(exception);
+                current = null;
+                failure = exception;
+                return false;
             }
+
+            current = null;
+            failure = null;
+            return false;
         }
 
         public void Dispose()
