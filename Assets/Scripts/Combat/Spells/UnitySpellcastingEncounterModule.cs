@@ -94,9 +94,10 @@ namespace Game.Combat.Spells
                     .ToArray();
                 if (projections.Length > 0)
                 {
-                    RestoredSpellEffectRegistration[] registrations = projections
-                        .Select(projection => projection.CreateRegistration(owner))
-                        .ToArray();
+                    (ActiveEffectInstance Effect, ActiveRuleBinding Binding)[] registrations =
+                        projections
+                            .Select(projection => projection.CreateRegistration(owner))
+                            .ToArray();
                     builder.AddActiveEffects(registrations.Select(value => value.Effect));
                     builder.AddRuleBindings(registrations.Select(value => value.Binding));
                     builder.Own(new RestoredSpellEffectPreparation(restoredEffects, projections));
@@ -219,7 +220,9 @@ namespace Game.Combat.Spells
             return null;
         }
 
-        internal RestoredSpellEffectRegistration CreateRegistration(UnityCombatRulesBridge owner)
+        internal (ActiveEffectInstance Effect, ActiveRuleBinding Binding) CreateRegistration(
+            UnityCombatRulesBridge owner
+        )
         {
             if (Effect.Source == null)
                 throw new InvalidOperationException(
@@ -247,7 +250,7 @@ namespace Game.Combat.Spells
                 ruleSource,
                 CreationOrder
             );
-            return new RestoredSpellEffectRegistration(active, binding);
+            return (active, binding);
         }
 
         internal void ProjectRemaining(RulesSnapshot snapshot)
@@ -279,21 +282,6 @@ namespace Game.Combat.Spells
                 EffectDuration.Rounds(effect.RemainingTargetTurnStarts)
             );
         }
-    }
-
-    internal sealed class RestoredSpellEffectRegistration
-    {
-        internal RestoredSpellEffectRegistration(
-            ActiveEffectInstance effect,
-            ActiveRuleBinding binding
-        )
-        {
-            Effect = effect ?? throw new ArgumentNullException(nameof(effect));
-            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
-        }
-
-        internal ActiveEffectInstance Effect { get; }
-        internal ActiveRuleBinding Binding { get; }
     }
 
     internal sealed class RestoredSpellEffectTimingObserver

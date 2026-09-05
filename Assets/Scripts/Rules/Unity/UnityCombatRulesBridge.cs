@@ -436,7 +436,7 @@ namespace Game.Rules.Unity
 
         /// <summary>Adds a prepared combatant batch to the existing encounter store.</summary>
         /// <param name="combatants">New, unique controllers not already registered.</param>
-        public void RegisterCombatants(IEnumerable<ActionController> combatants)
+        public void AddCombatants(IEnumerable<ActionController> combatants)
         {
             UnityCombatantEnrollmentPlan enrollment = enrollmentPipeline.Prepare(
                 combatants,
@@ -457,7 +457,7 @@ namespace Game.Rules.Unity
                 catch (Exception cleanupFailure)
                 {
                     throw new AggregateException(
-                        "Combatant registration and rollback both failed.",
+                        "Combatant registration and local cleanup both failed.",
                         registrationFailure,
                         cleanupFailure
                     );

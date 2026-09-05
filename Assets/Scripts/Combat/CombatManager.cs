@@ -182,7 +182,7 @@ public class CombatManager : CombatManagerInterface
             foreach (ActionController addition in additions)
                 addition.SetDungeonExploration(false);
             Pf2eRulesEngine.ApplyCombatStartRules(additions);
-            combatRules.RegisterCombatants(additions);
+            combatRules.AddCombatants(additions);
             activeCombatants.AddRange(additions);
         }
         catch

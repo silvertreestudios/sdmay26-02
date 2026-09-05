@@ -130,7 +130,7 @@ public sealed class SpellcastingPresentationPlayModeTests
             reinforcement.gameObject.AddComponent<TestActionController>();
         yield return null;
         Occupy(tiles, reinforcement.gameObject);
-        bridge.RegisterCombatants(new[] { reinforcementController });
+        bridge.AddCombatants(new[] { reinforcementController });
         CreatureId reinforcementId = bridge.GetCreatureId(reinforcementController);
         TestSpellActionCatalog repeatCatalog = new(
             UnitySpellDefinitionCatalog.Load(),

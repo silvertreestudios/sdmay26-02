@@ -157,15 +157,18 @@ namespace Game.Rules.Runtime
             {
                 EncounterState encounter = state
                     .Encounters.Select(pair => pair.Value)
-                    .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
+                    .FirstOrDefault(value =>
+                        value.Phase == EncounterPhase.Initialized
+                        || value.Phase == EncounterPhase.Active
+                    );
                 // Exploration-owned effects retain their existing host-managed lifetime until an
-                // encounter clock exists. Once a clock exists, every finite effect is scheduled
-                // deterministically and its source must belong to that exact roster.
+                // encounter roster exists. Once it does, every finite effect is scheduled before
+                // any initiative boundary can occur and its source must belong to that roster.
                 if (encounter != null)
                 {
                     if (!encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature))
                         return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                            "The effect source is not in the active encounter roster."
+                            "The effect source is not in the encounter roster."
                         );
                     state.ActiveEffectTimings.Set(
                         effect.Id,

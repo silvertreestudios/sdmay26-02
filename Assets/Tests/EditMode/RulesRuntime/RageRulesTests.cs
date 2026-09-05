@@ -191,6 +191,44 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
+        public async Task QuickTemperedRageKeepsPreFirstTurnTimingAndExpiresNormally()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState(ownsQuickTempered: true)),
+                new ScriptedRollService(20, 1),
+                actorInitiativeModifier: 0,
+                enemyInitiativeModifier: 0,
+                advanceEncounter: false
+            );
+
+            EncounterState initialized = dispatcher.Snapshot.Encounters[Encounter];
+            ActiveEffectInstance rage = dispatcher
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single(effect =>
+                    effect.DefinitionId == RageActionDefinition.EffectDefinitionId
+                    && effect.SourceCreature == Actor
+                );
+            ActiveEffectTimingState timing = dispatcher.Snapshot.ActiveEffectTimings[rage.Id];
+            Assert.That(initialized.Phase, Is.EqualTo(EncounterPhase.Initialized));
+            Assert.That(initialized.CurrentTurn, Is.Null);
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.True);
+            Assert.That(timing.RemainingBoundaries, Is.EqualTo(10));
+
+            RequireResolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
+            int turnsEnded = 0;
+            while (RageRules.IsRaging(dispatcher.Snapshot, Actor) && turnsEnded < 20)
+            {
+                EncounterState active = dispatcher.Snapshot.Encounters[Encounter];
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(active.CurrentTurn.Value)));
+                turnsEnded++;
+            }
+
+            Assert.That(turnsEnded, Is.LessThan(20));
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(rage.Id), Is.False);
+        }
+
+        [Test]
         public void EncounterStartAppliesQuickTemperedBeforeHigherInitiativeTurn()
         {
             RuleDispatcher dispatcher = CreateDispatcher(
@@ -504,7 +542,8 @@ namespace Game.Tests.EditMode.RulesRuntime
             ScriptedRollService rolls,
             int actorInitiativeModifier,
             int enemyInitiativeModifier,
-            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null
+            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null,
+            bool advanceEncounter = true
         )
         {
             RageActionDefinition definition = new RageActionDefinition(provider);
@@ -555,13 +594,14 @@ namespace Game.Tests.EditMode.RulesRuntime
                     .GetAwaiter()
                     .GetResult()
             );
-            RequireResolved(
-                dispatcher
-                    .Dispatch(new AdvanceEncounterOp(Encounter))
-                    .AsTask()
-                    .GetAwaiter()
-                    .GetResult()
-            );
+            if (advanceEncounter)
+                RequireResolved(
+                    dispatcher
+                        .Dispatch(new AdvanceEncounterOp(Encounter))
+                        .AsTask()
+                        .GetAwaiter()
+                        .GetResult()
+                );
             return dispatcher;
         }
 

@@ -212,9 +212,10 @@ namespace Game.Rules.Runtime
                 return ReductionResult<CombatantsAddedOutcome>.Reject(
                     $"Encounter {context.Op.Encounter.Value} cannot accept combatants."
                 );
-            HashSet<CreatureId> existing = new HashSet<CreatureId>(
+            HashSet<CreatureId> rosterCreatures = new HashSet<CreatureId>(
                 encounter.Roster.Select(entry => entry.Creature)
             );
+            HashSet<CreatureId> existing = new HashSet<CreatureId>(rosterCreatures);
             HashSet<SpellSlotPoolId> incomingSpellSlots = new HashSet<SpellSlotPoolId>();
             HashSet<BindingId> incomingRuleBindings = new HashSet<BindingId>();
             HashSet<ItemId> incomingEquipment = new HashSet<ItemId>();
@@ -283,22 +284,23 @@ namespace Game.Rules.Runtime
                             $"Active effect {effect.Id.Value} is already registered."
                         );
                     if (
-                        !state.Creatures.Contains(effect.SourceCreature)
+                        !rosterCreatures.Contains(effect.SourceCreature)
                         && !incomingCreatures.Contains(effect.SourceCreature)
                     )
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Active effect {effect.Id.Value} has an unenrolled source."
                         );
-                    ActiveRuleBinding[] matching = registration
+                    ActiveRuleBinding[] associated = registration
                         .RuleBindings.Where(binding =>
-                            binding.IsEnabled
-                            && binding.EffectId.HasValue
-                            && binding.EffectId.Value == effect.Id
-                            && binding.DefinitionId == effect.DefinitionId
-                            && binding.Source == effect.Source
+                            binding.EffectId.HasValue && binding.EffectId.Value == effect.Id
                         )
                         .ToArray();
-                    if (matching.Length != 1)
+                    if (
+                        associated.Length != 1
+                        || !associated[0].IsEnabled
+                        || associated[0].DefinitionId != effect.DefinitionId
+                        || associated[0].Source != effect.Source
+                    )
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Active effect {effect.Id.Value} requires one matching enabled binding."
                         );

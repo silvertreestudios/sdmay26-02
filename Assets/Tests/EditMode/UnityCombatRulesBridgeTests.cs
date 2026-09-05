@@ -127,7 +127,7 @@ public sealed class UnityCombatRulesBridgeTests
             );
             bridge.AdvanceEncounter();
 
-            bridge.RegisterCombatants(new ActionController[] { reinforcement });
+            bridge.AddCombatants(new ActionController[] { reinforcement });
 
             CreatureId initialId = bridge.GetCreatureId(initial);
             CreatureId reinforcementId = bridge.GetCreatureId(reinforcement);
@@ -244,7 +244,7 @@ public sealed class UnityCombatRulesBridgeTests
             );
             bridge.AdvanceEncounter();
 
-            bridge.RegisterCombatants(new ActionController[] { target });
+            bridge.AddCombatants(new ActionController[] { target });
 
             ActiveEffectInstance restored = bridge
                 .Snapshot.ActiveEffects.Select(pair => pair.Value)
@@ -736,7 +736,7 @@ public sealed class UnityCombatRulesBridgeTests
             RulesSnapshot before = encounter.Snapshot;
 
             Assert.Throws<InvalidOperationException>(() =>
-                encounter.RegisterCombatants(new ActionController[] { reinforcement })
+                encounter.AddCombatants(new ActionController[] { reinforcement })
             );
 
             Assert.That(encounter.Snapshot.Version, Is.EqualTo(before.Version));
@@ -747,7 +747,7 @@ public sealed class UnityCombatRulesBridgeTests
             competing.ReleaseOwnership();
 
             Assert.DoesNotThrow(() =>
-                encounter.RegisterCombatants(new ActionController[] { reinforcement })
+                encounter.AddCombatants(new ActionController[] { reinforcement })
             );
             Assert.That(encounter.GetEncounter().Roster, Has.Count.EqualTo(3));
             Assert.That(
@@ -802,7 +802,7 @@ public sealed class UnityCombatRulesBridgeTests
             );
 
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-                encounter.RegisterCombatants(new ActionController[] { reinforcement })
+                encounter.AddCombatants(new ActionController[] { reinforcement })
             );
 
             Assert.That(error.Message, Does.Contain("Injected later preparation failure"));
@@ -817,12 +817,101 @@ public sealed class UnityCombatRulesBridgeTests
 
             reinforcement.GetActionsEvent.RemoveAllListeners();
             Assert.DoesNotThrow(() =>
-                encounter.RegisterCombatants(new ActionController[] { reinforcement })
+                encounter.AddCombatants(new ActionController[] { reinforcement })
             );
             Assert.That(encounter.GetEncounter().Roster, Has.Count.EqualTo(3));
             Assert.That(
                 encounter.GetCreatureId(reinforcement).Value,
                 Is.EqualTo("combat-creature-3")
+            );
+            encounter.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(hostObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void PostCommitInstallationFailureKeepsRegistrationAndCleansLocalAuthority()
+    {
+        GameObject hostObject = new GameObject("post-commit-host");
+        GameObject anchorObject = new GameObject("post-commit-anchor");
+        GameObject reinforcementObject = new GameObject("post-commit-reinforcement");
+        try
+        {
+            BridgeTestActionController host = ConfigureCombatant(
+                hostObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            UnityCombatRulesBridge encounter = UnityCombatRulesBridge.Create(
+                new ActionController[] { host, anchor },
+                CreateTiles(3),
+                "Players"
+            );
+            encounter.AdvanceEncounter();
+            CompositeLifetime preparation = new CompositeLifetime();
+            RegistrationToken identity = preparation.Add(encounter.CreateIdentityReservation());
+            UnityCombatantEnrollmentBuilder builder = encounter.CreateCombatantEnrollmentBuilder(
+                reinforcement,
+                preparation
+            );
+            encounter.AddRegistrationMaps(builder.Controller, builder.Creature, builder.CreatureId);
+            RegistrationToken mapping = preparation.Add(
+                new RegistrationToken(() =>
+                    encounter.RemoveRegistrationMaps(
+                        builder.Controller,
+                        builder.Creature,
+                        builder.CreatureId
+                    )
+                )
+            );
+            PreparedCombatantEnrollment prepared = new PreparedCombatantEnrollment(
+                builder.Controller,
+                builder.Creature,
+                builder.BuildState(builder.Creature.GetInitiative()),
+                new IUnityCombatantInstallationContribution[]
+                {
+                    new ThrowingInstallationContribution(),
+                }
+            );
+            UnityCombatantEnrollmentPlan enrollment = new UnityCombatantEnrollmentPlan(
+                encounter,
+                new[] { prepared },
+                preparation,
+                new[] { identity, mapping },
+                true
+            );
+
+            enrollment.Commit();
+            ApplicationException error = Assert.Throws<ApplicationException>(() =>
+                enrollment.AttachAndInstall()
+            );
+            Assert.That(error.Message, Does.Contain("post-commit installation"));
+            Assert.DoesNotThrow(() => enrollment.Dispose());
+
+            CreatureId reinforcementId = encounter.GetCreatureId(reinforcement);
+            Assert.That(encounter.Snapshot.Creatures.Contains(reinforcementId), Is.True);
+            Assert.That(
+                encounter.GetEncounter().Roster.Select(entry => entry.Creature),
+                Does.Contain(reinforcementId)
+            );
+            Assert.That(reinforcement.HasTurnAuthority, Is.False);
+            Assert.Throws<InvalidOperationException>(() =>
+                encounter.AddCombatants(new ActionController[] { reinforcement })
             );
             encounter.ReleaseOwnership();
         }
@@ -1547,6 +1636,12 @@ public sealed class UnityCombatRulesBridgeTests
             EncounterTurnStartContext context,
             TurnStartContribution current
         ) => new ValueTask<TurnStartContribution>(current);
+    }
+
+    private sealed class ThrowingInstallationContribution : IUnityCombatantInstallationContribution
+    {
+        public void Apply() =>
+            throw new ApplicationException("Injected post-commit installation failure.");
     }
 
     private sealed class BridgeTestActionController : ActionController

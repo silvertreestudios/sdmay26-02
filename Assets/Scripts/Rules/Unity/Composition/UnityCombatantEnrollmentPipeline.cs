@@ -87,13 +87,13 @@ namespace Game.Rules.Unity.Composition
                 {
                     composition.PrepareCombatant(builder);
                     int initiativeModifier = builder.Creature.GetInitiative();
-                    CombatantRegistration registration = new(
-                        builder.Controller,
-                        builder.Creature,
-                        builder.BuildState(initiativeModifier)
-                    );
                     combatants.Add(
-                        new PreparedCombatantEnrollment(registration, builder.Installations)
+                        new PreparedCombatantEnrollment(
+                            builder.Controller,
+                            builder.Creature,
+                            builder.BuildState(initiativeModifier),
+                            builder.Installations
+                        )
                     );
                 }
                 return new UnityCombatantEnrollmentPlan(
@@ -123,7 +123,7 @@ namespace Game.Rules.Unity.Composition
         }
     }
 
-    /// <summary>Owns one prepared enrollment batch until rollback or encounter-lifetime transfer.</summary>
+    /// <summary>Owns one prepared enrollment batch until cleanup or encounter-lifetime transfer.</summary>
     internal sealed class UnityCombatantEnrollmentPlan : IDisposable
     {
         private readonly UnityCombatRulesBridge owner;
@@ -149,13 +149,17 @@ namespace Game.Rules.Unity.Composition
         }
 
         /// <summary>Commits every prepared batch through the common rules-owned addition.</summary>
-        internal void Commit() =>
+        internal void Commit()
+        {
             owner.DispatchRequired(
                 new AddCombatantsOp(
                     owner.EncounterId,
-                    combatants.Select(combatant => combatant.Registration.State)
+                    combatants.Select(combatant => combatant.State)
                 )
             );
+            foreach (RegistrationToken reservation in durableReservations)
+                reservation.Retain();
+        }
 
         /// <summary>Seeds the isolated non-encounter Stride composition.</summary>
         internal void SeedExploration(RulesStateSeed seed)
@@ -168,7 +172,7 @@ namespace Game.Rules.Unity.Composition
                 throw new ArgumentNullException(nameof(seed));
             foreach (PreparedCombatantEnrollment combatant in combatants)
             {
-                CombatantRulesState state = combatant.Registration.State;
+                CombatantRulesState state = combatant.State;
                 UnityCombatRulesBridge.SeedExploration(seed, state);
             }
         }
@@ -180,19 +184,18 @@ namespace Game.Rules.Unity.Composition
                 return;
             foreach (PreparedCombatantEnrollment combatant in combatants)
             {
-                CombatantRegistration registration = combatant.Registration;
-                registration.Creature.AttachHealthRules(owner, registration.State.Creature.Id);
+                combatant.Creature.AttachHealthRules(owner, combatant.State.Creature.Id);
                 lifetime.Add(
                     new RegistrationToken(() =>
-                        registration.Creature.DetachHealthRules(
+                        combatant.Creature.DetachHealthRules(
                             owner,
-                            owner.GetHealth(registration.State.Creature.Id)
+                            owner.GetHealth(combatant.State.Creature.Id)
                         )
                     )
                 );
-                registration.Controller.AttachCombatRules(owner, registration.State.Creature.Id);
+                combatant.Controller.AttachCombatRules(owner, combatant.State.Creature.Id);
                 lifetime.Add(
-                    new RegistrationToken(() => registration.Controller.DetachCombatRules(owner))
+                    new RegistrationToken(() => combatant.Controller.DetachCombatRules(owner))
                 );
                 foreach (
                     IUnityCombatantInstallationContribution installation in combatant.Installations
@@ -211,8 +214,6 @@ namespace Game.Rules.Unity.Composition
                     "Combatant enrollment was already transferred."
                 );
             encounterLifetime.Add(lifetime);
-            foreach (RegistrationToken reservation in durableReservations)
-                reservation.Retain();
             isTransferred = true;
         }
 
@@ -227,35 +228,25 @@ namespace Game.Rules.Unity.Composition
     internal sealed class PreparedCombatantEnrollment
     {
         internal PreparedCombatantEnrollment(
-            CombatantRegistration registration,
+            ActionController controller,
+            CreatureComponent creature,
+            CombatantRulesState state,
             IReadOnlyList<IUnityCombatantInstallationContribution> installations
         )
         {
-            Registration = registration;
-            Installations = installations;
-        }
-
-        internal CombatantRegistration Registration { get; }
-
-        internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations { get; }
-    }
-
-    internal sealed class CombatantRegistration
-    {
-        internal CombatantRegistration(
-            ActionController controller,
-            CreatureComponent creature,
-            CombatantRulesState state
-        )
-        {
-            Controller = controller;
-            Creature = creature;
-            State = state;
+            Controller = controller ?? throw new ArgumentNullException(nameof(controller));
+            Creature = creature ?? throw new ArgumentNullException(nameof(creature));
+            State = state ?? throw new ArgumentNullException(nameof(state));
+            Installations = installations ?? throw new ArgumentNullException(nameof(installations));
         }
 
         internal ActionController Controller { get; }
+
         internal CreatureComponent Creature { get; }
+
         internal CombatantRulesState State { get; }
+
+        internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations { get; }
     }
 
     /// <summary>Idempotently releases one reversible registration action.</summary>

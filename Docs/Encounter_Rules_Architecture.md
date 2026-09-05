@@ -108,8 +108,9 @@ registration side effects.
    encounter rules, action lifecycle, movement, and Stride.
 5. Invoke `ConfigureDispatcher` for feature modules in module order, build the dispatcher, then
    invoke `RegisterRuntime` in module order.
-6. Dispatch `InitEncounterOp`, commit the initial prepared batch through `AddCombatantsOp`, then
-   call `AttachAndInstall` and transfer the plan to the encounter lifetime before `Create` returns.
+6. Dispatch `InitEncounterOp`, commit the initial prepared batch through `AddCombatantsOp`, retain
+   its now-durable identity and registration-map reservations, then call `AttachAndInstall` and
+   transfer the plan to the encounter lifetime before `Create` returns.
 7. The caller invokes `AdvanceEncounter` to dispatch `AdvanceEncounterOp`, activate the encounter,
    publish encounter-start presentation, and reach the first turn.
 
@@ -184,15 +185,19 @@ naturally qualify for round one. An active-turn addition inserted at or before t
 until the next round; one inserted after it remains eligible in the current round. Adding combatants
 never advances, begins, or ends a turn.
 
-After a successful rules commit, call `AttachAndInstall`, then `TransferTo(encounterLifetime)`. A new
-feature contributes complete registration state and therefore supports both initial and later
-batches without a second state workflow.
+After a successful rules commit, the plan immediately retains its identity and registration-map
+reservations because the combatants now exist in `RulesState`. It then calls `AttachAndInstall`
+before `TransferTo(encounterLifetime)`, which transfers lifetime ownership only. If installation
+throws, the failure surfaces and locally owned attachment and feature resources are disposed, but
+the durable rules registration and maps are not rolled back. A new feature contributes complete
+registration state and therefore supports both initial and later batches without a second state
+workflow.
 
-### Restored-effect adoption
+### Restored-effect enrollment
 
 `UnitySpellcastingEncounterModule` is the production example of state that crosses both enrollment
-routes. During preparation it converts supported `SpellEffectController` entries into
-`RestoredSpellEffectRegistration` objects with stable `ActiveEffectId` and `BindingId` values.
+routes. During preparation it converts supported `SpellEffectController` entries into paired
+`ActiveEffectInstance` and `ActiveRuleBinding` values with stable IDs.
 The complete combatant registration carries each restored effect and matching binding through the
 same addition reducer. That reducer creates encounter timing and emits the generic
 `ActiveEffectCreatedFact`. `RestoredSpellEffectTimingObserver` projects initiative-boundary counts
@@ -204,6 +209,11 @@ and removes Unity effects when `ActiveEffectRemovedFact` commits.
 fact-listener roots, deterministic middleware/listener selection, Fact aggregation, and settlement
 notifications. Handlers orchestrate; reducers are the only writers to `RulesStateDraft`; committed
 Facts are the notification contract.
+
+Finite effects created for a source in a populated initialized encounter are scheduled immediately,
+before the first explicit advance, just as they are during an active encounter. This lets
+initiative-assignment listeners such as Quick-Tempered apply pre-first-turn behavior without
+creating an unscheduled effect.
 
 [`EncounterRuleRuntime`](../Assets/Scripts/Rules/Runtime/EncounterRuleRuntime.cs) installs the
 encounter handlers and engine reducers. Its current division of responsibility is:
@@ -314,7 +324,7 @@ framework.
    in every applicable composition pass. These named root references are wiring, not feature
    semantics; do not move rules into the root or self-register.
 8. **Test the vertical boundary.** Add deterministic EditMode tests for reducers, handlers,
-   lifecycle, initial and later additions, failure rollback, ordering, exact identity,
+   lifecycle, initial and later additions, preparation rollback, ordering, exact identity,
    and cleanup. Add PlayMode coverage only for scene/FSM/presentation behavior. Verify unavailable
    projections and required-operation failures without a bridge.
 9. **Update this guide only if the shared architecture changed.** Feature-specific behavior belongs
@@ -378,7 +388,8 @@ shrink them through vertical migrations:
 Start with these suites when changing the architecture:
 
 - [`UnityCombatRulesBridgeTests`](../Assets/Tests/EditMode/UnityCombatRulesBridgeTests.cs): module
-  order, shared enrollment, restored effects, rollback, exact attachment, cleanup, health, and
+  order, shared enrollment, restored effects, preparation rollback, exact attachment, cleanup,
+  health, and
   movement projection.
 - [`EncounterRuntimeTests`](../Assets/Tests/EditMode/RulesRuntime/EncounterRuntimeTests.cs): roster,
   initiative, reinforcement eligibility, turn lifecycle, outcome, causal reactions, and effect
