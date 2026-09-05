@@ -423,7 +423,7 @@ namespace Game.Rules.Runtime
         /// <param name="destination">The legal, unoccupied destination.</param>
         /// <param name="originOpId">The ancestor operation that caused relocation.</param>
         /// <param name="kind">The mechanical relocation reason.</param>
-        /// <param name="source">The rule source stamped on the relocation Fact.</param>
+        /// <param name="source">The rule source copied into the relocation Fact payload.</param>
         public RelocateTokenOp(
             CreatureId mover,
             GridPosition expectedOrigin,
@@ -467,7 +467,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the mechanical relocation reason.</summary>
         public RelocationKind Kind { get; }
 
-        /// <summary>Gets the rule source stamped onto the committed relocation Fact.</summary>
+        /// <summary>Gets the rule source copied into the committed relocation Fact payload.</summary>
         public RuleSource Source { get; }
     }
 

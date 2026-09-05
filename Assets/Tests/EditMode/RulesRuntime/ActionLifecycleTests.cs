@@ -43,16 +43,20 @@ namespace Game.Rules.Runtime.Tests
             );
             InMemoryRulesStore store = CreateFullySeededStore();
             RecordingActionHandler handler = new RecordingActionHandler(false);
+            CountingActionResolvedListener resolvedListener = new();
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
                 store,
                 new SequentialOpIdProvider(10)
             )
                 .RegisterHandler<TestActionOp, TestActionOutcome>(handler)
                 .UseActionLifecycle(new FixedActionCatalog(profile))
-                .UseRuleRegistry(CreateRuleRegistry())
+                .UseRuleRegistry(CreateRuleRegistry(resolvedListener))
                 .Build();
+            TestActionOp operation = new();
+            RecordingActionBegunObserver begunObserver = new(handler);
+            dispatcher.RegisterFactObserver<ActionBegunFact<TestActionOutcome>>(begunObserver);
 
-            OpResult<TestActionOutcome> result = await dispatcher.Dispatch(new TestActionOp());
+            OpResult<TestActionOutcome> result = await dispatcher.Dispatch(operation);
 
             ResolvedOpResult<TestActionOutcome> resolved = RequireResolved(result);
             Assert.That(
@@ -78,24 +82,29 @@ namespace Game.Rules.Runtime.Tests
                         typeof(FocusPointsSpentFact),
                         typeof(AmmunitionSpentFact),
                         typeof(BindingFrequencySpentFact),
+                        typeof(ActionBegunFact<TestActionOutcome>),
+                        typeof(ActionResolvedFact<TestActionOutcome>),
                     }
                 )
             );
+            ActionResolvedFact<TestActionOutcome> actionResolved = result
+                .Facts.OfType<ActionResolvedFact<TestActionOutcome>>()
+                .Single();
+            Assert.That(actionResolved.Action, Is.SameAs(operation));
+            Assert.That(actionResolved.ActionInfo.Id, Is.EqualTo(new OpId(10)));
+            Assert.That(actionResolved.Outcome.DomainSucceeded, Is.False);
+            Assert.That(resolvedListener.Calls, Is.EqualTo(1));
+            Assert.That(resolvedListener.Fact, Is.SameAs(actionResolved));
+            Assert.That(resolvedListener.CommittedRootId, Is.EqualTo(new OpId(10)));
+            Assert.That(begunObserver.Calls, Is.EqualTo(1));
+            Assert.That(begunObserver.Action, Is.SameAs(operation));
+            Assert.That(begunObserver.RootId, Is.EqualTo(new OpId(10)));
+            Assert.That(begunObserver.ActionsRemaining, Is.EqualTo(2));
             Assert.That(
-                result.Facts.Select(fact => fact.Id),
-                Is.EqualTo(
-                    new[]
-                    {
-                        new FactId(1),
-                        new FactId(2),
-                        new FactId(3),
-                        new FactId(4),
-                        new FactId(5),
-                    }
-                )
+                begunObserver.HandlerWasCalled,
+                Is.False,
+                "The begun occurrence must be observed before feature mechanics execute."
             );
-            Assert.That(result.Facts.All(fact => fact.SourceOpId == new OpId(11)), Is.True);
-            Assert.That(result.Facts.All(fact => fact.RootOpId == new OpId(10)), Is.True);
             Assert.That(
                 store.Snapshot.Version,
                 Is.EqualTo(1),
@@ -279,7 +288,16 @@ namespace Game.Rules.Runtime.Tests
                 ((ResolvedOpResult<TestActionOutcome>)result).Value.DomainSucceeded,
                 Is.False
             );
-            Assert.That(result.Facts, Is.Empty);
+            Assert.That(
+                result.Facts.Select(fact => fact.GetType()),
+                Is.EqualTo(
+                    new[]
+                    {
+                        typeof(ActionBegunFact<TestActionOutcome>),
+                        typeof(ActionResolvedFact<TestActionOutcome>),
+                    }
+                )
+            );
             Assert.That(handler.WasCalled, Is.True);
             Assert.That(handler.ActionsRemaining, Is.EqualTo(3));
         }
@@ -596,6 +614,15 @@ namespace Game.Rules.Runtime.Tests
             return registry.Build();
         }
 
+        private static RuleRegistry CreateRuleRegistry(CountingActionResolvedListener listener)
+        {
+            RuleRegistryBuilder registry = new RuleRegistryBuilder();
+            registry
+                .Define(BindingDefinition)
+                .FactListener(RuleLifecyclePhase.Observation, listener);
+            return registry.Build();
+        }
+
         private static RuleRegistry CreateRuleRegistry(ActionBegunMiddleware middleware)
         {
             RuleRegistryBuilder registry = new RuleRegistryBuilder();
@@ -836,6 +863,53 @@ namespace Game.Rules.Runtime.Tests
             {
                 Calls++;
                 return default;
+            }
+        }
+
+        private sealed class CountingActionResolvedListener
+            : IRuleFactListener<ActionResolvedFact<TestActionOutcome>>
+        {
+            public int Calls { get; private set; }
+            public ActionResolvedFact<TestActionOutcome> Fact { get; private set; }
+            public OpId CommittedRootId { get; private set; }
+
+            public ValueTask OnFactCommitted(
+                ActionResolvedFact<TestActionOutcome> fact,
+                FactContext context
+            )
+            {
+                Calls++;
+                Fact = fact;
+                CommittedRootId = context.CommittedRootId;
+                return default;
+            }
+        }
+
+        private sealed class RecordingActionBegunObserver
+            : IFactObserver<ActionBegunFact<TestActionOutcome>>
+        {
+            private readonly RecordingActionHandler handler;
+
+            public RecordingActionBegunObserver(RecordingActionHandler handler) =>
+                this.handler = handler;
+
+            public int Calls { get; private set; }
+            public TestActionOp Action { get; private set; }
+            public OpId RootId { get; private set; }
+            public int ActionsRemaining { get; private set; }
+            public bool HandlerWasCalled { get; private set; }
+
+            public void OnFactCommitted(
+                ActionBegunFact<TestActionOutcome> fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                Calls++;
+                Action = (TestActionOp)fact.Action;
+                RootId = rootId;
+                ActionsRemaining = currentSnapshot.ActionEconomy[Actor].ActionsRemaining;
+                HandlerWasCalled = handler.WasCalled;
             }
         }
 

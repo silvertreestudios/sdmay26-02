@@ -127,10 +127,14 @@ namespace Game.KayKit
             animator.SetFloat(SpeedParameter, Mathf.Clamp(speed / 25.0f, 0.1f, 3.0f));
         }
 
-        public void PlayAttack(AnimationStyle style)
+        /// <summary>Starts the configured one-shot attack animation for a combat style.</summary>
+        /// <param name="style">The equipped or unarmed animation style.</param>
+        /// <returns><see langword="true"/> when a usable clip started.</returns>
+        public bool PlayAttack(AnimationStyle style)
         {
             if (AttackClipIds.TryGetValue(style, out string clipId))
-                PlayClip(clipId);
+                return PlayClip(clipId);
+            return false;
         }
 
         public void PlayHit()

@@ -1,92 +1,40 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
 
 namespace Game.Rules.Runtime.Tests
 {
-    /// <summary>
-    /// Verifies reduction-scoped, awaited delivery to dynamically registered Fact observers.
-    /// </summary>
     public sealed class FactObserverTests
     {
-        private static readonly CreatureId Creature = new CreatureId("fact-observer-creature");
+        private static readonly CreatureId Creature = new("fact-observer-creature");
         private static readonly RuleSource Source = RuleSource.FromSlug("fact-observer-test");
-        private static readonly RuleDefinitionId ListenerDefinition = new RuleDefinitionId(
-            "fact-observer-listener"
-        );
+        private static readonly RuleDefinitionId ListenerDefinition = new("fact-observer-listener");
 
         [Test]
-        public async Task ObserverReceivesExactCommittedSnapshotAndPacesTheNextReduction()
+        public async Task ObserverReceivesExactPostCommitSnapshot()
         {
             InMemoryRulesStore store = CreateStore();
-            RuleDispatcher dispatcher = CreateDispatcher(store);
-            FirstDeliveryGateObserver observer = new FirstDeliveryGateObserver();
+            SnapshotObserver observer = new();
+            RuleDispatcher dispatcher = CreateBuilder(store).Build();
             dispatcher.RegisterFactObserver(observer);
 
-            Task<OpResult<int>> dispatch = dispatcher
-                .Dispatch(new RootOp(new ChangeOp(1, 1), new ChangeOp(1, 2)))
-                .AsTask();
-
-            await observer.FirstStarted;
-
-            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
-            Assert.That(observer.Snapshots.Single(), Is.SameAs(store.Snapshot));
-            Assert.That(observer.Snapshots.Single().Version, Is.EqualTo(1));
-            Assert.That(observer.Facts.Single().IsStamped, Is.True);
-            Assert.That(observer.Facts.Single().Id.IsEmpty, Is.False);
-            Assert.That(observer.Facts.Single().SourceOpId.IsEmpty, Is.False);
-            Assert.That(observer.Facts.Single().RootOpId.IsEmpty, Is.False);
-            Assert.That(observer.Facts.Single().Source, Is.EqualTo(Source));
-            Assert.That(dispatch.IsCompleted, Is.False);
-
-            observer.ReleaseFirst();
-            OpResult<int> result = await dispatch;
-
-            Assert.That(((ResolvedOpResult<int>)result).Value, Is.EqualTo(2));
-            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(2));
-            Assert.That(observer.Sequences, Is.EqualTo(new[] { 1, 2 }));
-            Assert.That(observer.Snapshots[1], Is.SameAs(store.Snapshot));
-        }
-
-        [Test]
-        public async Task RejectedAndAcceptedNoCommitReductionsNotifyNobody()
-        {
-            InMemoryRulesStore store = CreateStore();
-            CountingObserver observer = new CountingObserver();
-            RuleDispatcher dispatcher = CreateDispatcher(store);
-            dispatcher.RegisterFactObserver(observer);
-
-            OpResult<int> result = await dispatcher.Dispatch(new RejectionAndNoCommitRootOp());
+            OpResult<int> result = await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
 
             Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
-            Assert.That(observer.Count, Is.Zero);
-            Assert.That(store.Snapshot.Version, Is.Zero);
-            Assert.That(result.Facts, Is.Empty);
-        }
-
-        [Test]
-        public async Task RegistrationTokenUnregistersObserverExactlyOnce()
-        {
-            CountingObserver observer = new CountingObserver();
-            RuleDispatcher dispatcher = CreateDispatcher(CreateStore());
-            IDisposable registration = dispatcher.RegisterFactObserver(observer);
-
-            await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
-            registration.Dispose();
-            registration.Dispose();
-            await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 2)));
-
-            Assert.That(observer.Count, Is.EqualTo(1));
-            Assert.That(dispatcher.UnregisterFactObserver(observer), Is.False);
+            Assert.That(observer.Facts, Has.Count.EqualTo(1));
+            Assert.That(observer.Roots.Single(), Is.EqualTo(new OpId(1)));
+            Assert.That(observer.Snapshots.Single(), Is.SameAs(store.Snapshot));
+            Assert.That(observer.Snapshots.Single().Health[Creature].Current, Is.EqualTo(1));
         }
 
         [Test]
         public async Task MultipleFactsAndObserversUseFactThenRegistrationOrder()
         {
-            List<string> deliveries = new List<string>();
-            RuleDispatcher dispatcher = CreateDispatcher(CreateStore());
+            List<string> deliveries = new();
+            RuleDispatcher dispatcher = CreateBuilder(CreateStore()).Build();
             dispatcher.RegisterFactObserver(new RecordingObserver("first", deliveries));
             dispatcher.RegisterFactObserver(new RecordingObserver("second", deliveries));
 
@@ -99,19 +47,15 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task RegistrationChangesDuringCallbackApplyToLaterNotificationsOnly()
+        public async Task RegistrationChangesApplyToLaterNotificationPassesOnly()
         {
-            List<string> deliveries = new List<string>();
-            RuleDispatcher dispatcher = CreateDispatcher(CreateStore());
-            RecordingObserver removed = new RecordingObserver("removed", deliveries);
-            RecordingObserver added = new RecordingObserver("added", deliveries);
-            MutatingObserver mutating = new MutatingObserver(
-                dispatcher,
-                removed,
-                added,
-                deliveries
+            List<string> deliveries = new();
+            RuleDispatcher dispatcher = CreateBuilder(CreateStore()).Build();
+            RecordingObserver removed = new("removed", deliveries);
+            RecordingObserver added = new("added", deliveries);
+            dispatcher.RegisterFactObserver(
+                new MutatingObserver(dispatcher, removed, added, deliveries)
             );
-            dispatcher.RegisterFactObserver(mutating);
             dispatcher.RegisterFactObserver(removed);
 
             await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1, 2)));
@@ -134,35 +78,9 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void ObserverFailuresRunEveryDeliveryAndAggregateInDeliveryOrderAfterCommit()
+        public async Task ObserverFailuresDoNotStopObserversOrRulesListeners()
         {
-            InMemoryRulesStore store = CreateStore();
-            RuleDispatcher dispatcher = CreateDispatcher(store);
-            InvalidOperationException first = new InvalidOperationException("first");
-            ApplicationException second = new ApplicationException("second");
-            CountingObserver completed = new CountingObserver();
-            dispatcher.RegisterFactObserver(new ThrowingObserver(first));
-            dispatcher.RegisterFactObserver(new ThrowingObserver(second));
-            dispatcher.RegisterFactObserver(completed);
-
-            AggregateException failure = Assert.ThrowsAsync<AggregateException>(async () =>
-                await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)))
-            );
-
-            Assert.That(
-                failure.Message,
-                Does.StartWith("Multiple Fact observers failed after the reduction committed.")
-            );
-            Assert.That(failure.InnerExceptions, Is.EqualTo(new Exception[] { first, second }));
-            Assert.That(completed.Count, Is.EqualTo(1));
-            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
-            Assert.That(store.Snapshot.Version, Is.EqualTo(1));
-        }
-
-        [Test]
-        public void OneObserverFailurePropagatesTheOriginalExceptionAfterCommit()
-        {
-            ActiveRuleBinding binding = new ActiveRuleBinding(
+            ActiveRuleBinding binding = new(
                 new BindingId("observer-failure-listener"),
                 ListenerDefinition,
                 Creature,
@@ -171,30 +89,63 @@ namespace Game.Rules.Runtime.Tests
                 0
             );
             InMemoryRulesStore store = CreateStore(binding);
-            CapturingFactListener listener = new CapturingFactListener();
-            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            CapturingFactListener listener = new();
+            RuleRegistryBuilder rules = new();
             rules.Define(ListenerDefinition).FactListener(RuleLifecyclePhase.Observation, listener);
-            RuleDispatcher dispatcher = CreateDispatcherBuilder(store)
-                .UseRuleRegistry(rules.Build())
-                .Build();
-            InvalidOperationException expected = new InvalidOperationException("single");
-            ThrowingObserver observer = new ThrowingObserver(expected);
+            RuleDispatcher dispatcher = CreateBuilder(store).UseRuleRegistry(rules.Build()).Build();
+            InvalidOperationException first = new("first");
+            ApplicationException second = new("second");
+            SnapshotObserver completed = new();
+            dispatcher.RegisterFactObserver(new ThrowingObserver(first));
+            dispatcher.RegisterFactObserver(new ThrowingObserver(second));
+            dispatcher.RegisterFactObserver(completed);
+
+            OpResult<int> result = await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
+
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
+            Assert.That(completed.Facts, Has.Count.EqualTo(1));
+            Assert.That(listener.Facts.Single(), Is.SameAs(completed.Facts.Single()));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task TraceLoggingFailureDoesNotStopLaterObservers()
+        {
+            RuleDispatcher dispatcher = CreateBuilder(CreateStore()).Build();
+            SnapshotObserver completed = new();
+            dispatcher.RegisterFactObserver(
+                new ThrowingObserver(new InvalidOperationException("observer failure"))
+            );
+            dispatcher.RegisterFactObserver(completed);
+            ThrowingTraceListener traceListener = new();
+            Trace.Listeners.Insert(0, traceListener);
+
+            try
+            {
+                OpResult<int> result = await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
+
+                Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
+                Assert.That(completed.Facts, Has.Count.EqualTo(1));
+            }
+            finally
+            {
+                Trace.Listeners.Remove(traceListener);
+                traceListener.Dispose();
+            }
+        }
+
+        [Test]
+        public async Task NoCommitReductionsNotifyNobody()
+        {
+            SnapshotObserver observer = new();
+            RuleDispatcher dispatcher = CreateBuilder(CreateStore()).Build();
             dispatcher.RegisterFactObserver(observer);
 
-            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
-                async () =>
-                    await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)))
-            );
+            OpResult<int> result = await dispatcher.Dispatch(new NoCommitRootOp());
 
-            Assert.That(actual, Is.SameAs(expected));
-            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
-            Assert.That(observer.Facts, Has.Count.EqualTo(1));
-            Assert.That(listener.Facts, Has.Count.EqualTo(1));
-            Assert.That(
-                listener.Facts.Single(),
-                Is.SameAs(observer.Facts.Single()),
-                "Observer failure must not discard the durable Fact before root listeners run."
-            );
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
+            Assert.That(observer.Facts, Is.Empty);
+            Assert.That(result.Facts, Is.Empty);
         }
 
         private static InMemoryRulesStore CreateStore(params ActiveRuleBinding[] bindings)
@@ -208,27 +159,18 @@ namespace Game.Rules.Runtime.Tests
             return new InMemoryRulesStore(seed);
         }
 
-        private static RuleDispatcher CreateDispatcher(IRulesStore store) =>
-            CreateDispatcherBuilder(store).Build();
-
-        private static RuleDispatcherBuilder CreateDispatcherBuilder(IRulesStore store) =>
+        private static RuleDispatcherBuilder CreateBuilder(IRulesStore store) =>
             new RuleDispatcherBuilder(store)
                 .RegisterHandler<RootOp, int>(new RootHandler())
-                .RegisterHandler<RejectionAndNoCommitRootOp, int>(
-                    new RejectionAndNoCommitRootHandler()
-                )
+                .RegisterHandler<NoCommitRootOp, int>(new NoCommitRootHandler())
                 .RegisterReducer<ChangeOp, int>(new ChangeReducer(), Source)
-                .RegisterReducer<RejectOp, int>(new RejectReducer(), Source)
                 .RegisterReducer<NoCommitOp, int>(new NoCommitReducer(), Source);
 
         private sealed class RootOp : IRuleOp<int>
         {
-            public IReadOnlyList<ChangeOp> Changes { get; }
+            public RootOp(params ChangeOp[] changes) => Changes = Array.AsReadOnly(changes);
 
-            public RootOp(params ChangeOp[] changes)
-            {
-                Changes = Array.AsReadOnly(changes);
-            }
+            public IReadOnlyList<ChangeOp> Changes { get; }
         }
 
         private sealed class RootHandler : IOpHandler<RootOp, int>
@@ -237,25 +179,21 @@ namespace Game.Rules.Runtime.Tests
             {
                 int current = context.Snapshot.Health[Creature].Current;
                 foreach (ChangeOp change in frame.Op.Changes)
-                {
-                    OpResult<int> result = await context.Dispatch(change);
-                    current = ((ResolvedOpResult<int>)result).Value;
-                }
-
+                    current = ((ResolvedOpResult<int>)await context.Dispatch(change)).Value;
                 return current;
             }
         }
 
         private sealed class ChangeOp : IRuleOp<int>
         {
-            public int Amount { get; }
-            public IReadOnlyList<int> FactSequences { get; }
-
             public ChangeOp(int amount, params int[] factSequences)
             {
                 Amount = amount;
                 FactSequences = Array.AsReadOnly(factSequences);
             }
+
+            public int Amount { get; }
+            public IReadOnlyList<int> FactSequences { get; }
         }
 
         private sealed class ChangeReducer : IOpReducer<ChangeOp, int>
@@ -267,56 +205,30 @@ namespace Game.Rules.Runtime.Tests
             )
             {
                 if (!state.Health.TryGet(Creature, out HealthState previous))
-                    throw new InvalidOperationException("Missing Fact-observer health seed.");
+                    throw new InvalidOperationException("Missing observer test health state.");
                 int current = previous.Current + context.Op.Amount;
                 state.Health.Set(Creature, new HealthState(current, previous.Maximum));
                 foreach (int sequence in context.Op.FactSequences)
-                    facts.Stage(new ChangedFact(sequence, previous.Current, current));
+                    facts.Stage(new ChangedFact(sequence));
                 return ReductionResult<int>.Accept(current);
             }
         }
 
         private sealed class ChangedFact : RuleFact
         {
-            public int Sequence { get; }
-            public int Previous { get; }
-            public int Current { get; }
+            public ChangedFact(int sequence) => Sequence = sequence;
 
-            public ChangedFact(int sequence, int previous, int current)
-            {
-                Sequence = sequence;
-                Previous = previous;
-                Current = current;
-            }
+            public int Sequence { get; }
         }
 
-        private sealed class RejectionAndNoCommitRootOp : IRuleOp<int> { }
+        private sealed class NoCommitRootOp : IRuleOp<int> { }
 
-        private sealed class RejectionAndNoCommitRootHandler
-            : IOpHandler<RejectionAndNoCommitRootOp, int>
+        private sealed class NoCommitRootHandler : IOpHandler<NoCommitRootOp, int>
         {
             public async ValueTask<int> Handle(
-                OpFrame<RejectionAndNoCommitRootOp> frame,
+                OpFrame<NoCommitRootOp> frame,
                 OpHandlerContext context
-            )
-            {
-                OpResult<int> rejected = await context.Dispatch(new RejectOp());
-                OpResult<int> noCommit = await context.Dispatch(new NoCommitOp());
-                Assert.That(rejected, Is.TypeOf<InvalidOpResult<int>>());
-                Assert.That(noCommit, Is.TypeOf<ResolvedOpResult<int>>());
-                return ((ResolvedOpResult<int>)noCommit).Value;
-            }
-        }
-
-        private sealed class RejectOp : IRuleOp<int> { }
-
-        private sealed class RejectReducer : IOpReducer<RejectOp, int>
-        {
-            public ReductionResult<int> Reduce(
-                ReductionContext<RejectOp> context,
-                RulesStateDraft state,
-                FactSink facts
-            ) => ReductionResult<int>.Reject("rejected");
+            ) => ((ResolvedOpResult<int>)await context.Dispatch(new NoCommitOp())).Value;
         }
 
         private sealed class NoCommitOp : IRuleOp<int> { }
@@ -330,41 +242,21 @@ namespace Game.Rules.Runtime.Tests
             ) => ReductionResult<int>.Accept(0);
         }
 
-        private sealed class FirstDeliveryGateObserver : IFactObserver<ChangedFact>
+        private sealed class SnapshotObserver : IFactObserver<ChangedFact>
         {
-            private readonly TaskCompletionSource<bool> firstStarted =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            private readonly TaskCompletionSource<bool> firstRelease =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            public List<ChangedFact> Facts { get; } = new();
+            public List<OpId> Roots { get; } = new();
+            public List<RulesSnapshot> Snapshots { get; } = new();
 
-            public Task FirstStarted => firstStarted.Task;
-            public List<ChangedFact> Facts { get; } = new List<ChangedFact>();
-            public List<int> Sequences { get; } = new List<int>();
-            public List<RulesSnapshot> Snapshots { get; } = new List<RulesSnapshot>();
-
-            public void ReleaseFirst() => firstRelease.TrySetResult(true);
-
-            public async ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 Facts.Add(fact);
-                Sequences.Add(fact.Sequence);
+                Roots.Add(rootId);
                 Snapshots.Add(currentSnapshot);
-                if (Sequences.Count != 1)
-                    return;
-
-                firstStarted.TrySetResult(true);
-                await firstRelease.Task;
-            }
-        }
-
-        private sealed class CountingObserver : IFactObserver<ChangedFact>
-        {
-            public int Count { get; private set; }
-
-            public ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
-            {
-                Count++;
-                return default;
             }
         }
 
@@ -379,11 +271,11 @@ namespace Game.Rules.Runtime.Tests
                 this.deliveries = deliveries;
             }
 
-            public ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
-            {
-                deliveries.Add($"{fact.Sequence}:{name}");
-                return default;
-            }
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            ) => deliveries.Add($"{fact.Sequence}:{name}");
         }
 
         private sealed class MutatingObserver : IFactObserver<ChangedFact>
@@ -407,17 +299,18 @@ namespace Game.Rules.Runtime.Tests
                 this.deliveries = deliveries;
             }
 
-            public ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 deliveries.Add($"{fact.Sequence}:mutating");
-                if (!changed)
-                {
-                    changed = true;
-                    dispatcher.UnregisterFactObserver(removed);
-                    dispatcher.RegisterFactObserver(added);
-                }
-
-                return default;
+                if (changed)
+                    return;
+                changed = true;
+                dispatcher.UnregisterFactObserver(removed);
+                dispatcher.RegisterFactObserver(added);
             }
         }
 
@@ -425,23 +318,27 @@ namespace Game.Rules.Runtime.Tests
         {
             private readonly Exception exception;
 
-            public ThrowingObserver(Exception exception)
-            {
-                this.exception = exception;
-            }
+            public ThrowingObserver(Exception exception) => this.exception = exception;
 
-            public List<ChangedFact> Facts { get; } = new List<ChangedFact>();
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            ) => throw exception;
+        }
 
-            public ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
-            {
-                Facts.Add(fact);
-                throw exception;
-            }
+        private sealed class ThrowingTraceListener : TraceListener
+        {
+            public override void Write(string message) =>
+                throw new InvalidOperationException("trace failure");
+
+            public override void WriteLine(string message) =>
+                throw new InvalidOperationException("trace failure");
         }
 
         private sealed class CapturingFactListener : IRuleFactListener<ChangedFact>
         {
-            public List<ChangedFact> Facts { get; } = new List<ChangedFact>();
+            public List<ChangedFact> Facts { get; } = new();
 
             public ValueTask OnFactCommitted(ChangedFact fact, FactContext context)
             {

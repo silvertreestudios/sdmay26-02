@@ -221,17 +221,19 @@ namespace Game.Rules.Runtime
         ) => new CastSpellActionOp(actor, spell, variant, selection);
     }
 
-    /// <summary>Reports the active effects created by one resolved spell cast.</summary>
+    /// <summary>Reports the effects and spell attacks produced by one resolved spell cast.</summary>
     public sealed class CastSpellOutcome
     {
         /// <summary>Creates the structural result of a resolved generic spell cast.</summary>
         /// <param name="actor">The caster that resolved the action.</param>
         /// <param name="spell">The exact spell identity and cast rank.</param>
         /// <param name="createdEffects">All active effects committed by the cast.</param>
+        /// <param name="attackResolutions">The actual spell-attack outcomes produced by the cast.</param>
         public CastSpellOutcome(
             CreatureId actor,
             SpellReference spell,
-            IEnumerable<ActiveEffectId> createdEffects
+            IEnumerable<ActiveEffectId> createdEffects,
+            IEnumerable<SpellAttackResolution> attackResolutions
         )
         {
             Actor = actor;
@@ -239,6 +241,11 @@ namespace Game.Rules.Runtime
             CreatedEffects = new ReadOnlyCollection<ActiveEffectId>(
                 (
                     createdEffects ?? throw new ArgumentNullException(nameof(createdEffects))
+                ).ToArray()
+            );
+            AttackResolutions = new ReadOnlyCollection<SpellAttackResolution>(
+                (
+                    attackResolutions ?? throw new ArgumentNullException(nameof(attackResolutions))
                 ).ToArray()
             );
         }
@@ -251,6 +258,11 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the active effects created by the cast.</summary>
         public IReadOnlyList<ActiveEffectId> CreatedEffects { get; }
+
+        /// <summary>
+        /// Gets the actual spell-attack outcomes produced during this cast in definition order.
+        /// </summary>
+        public IReadOnlyList<SpellAttackResolution> AttackResolutions { get; }
     }
 
     /// <summary>Registers generic spell validation and active-effect creation.</summary>
@@ -372,6 +384,7 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException("A validated spell definition disappeared.");
 
             List<ActiveEffectId> created = new();
+            List<SpellAttackResolution> attacks = new();
             for (int index = 0; index < definition.Effects.Count; index++)
             {
                 SpellEffectDirective directive = definition.Effects[index];
@@ -414,6 +427,7 @@ namespace Game.Rules.Runtime
                 if (result is not ResolvedOpResult<SpellAttackResolution> resolved)
                     throw new InvalidOperationException("Spell attack resolution did not resolve.");
                 SpellAttackResolution resolution = resolved.Value;
+                attacks.Add(resolution);
                 if (resolution.Hit && resolution.FinalDamage > 0)
                 {
                     OpResult<DamageOutcome> damage = await context.Dispatch(
@@ -435,7 +449,7 @@ namespace Game.Rules.Runtime
                         "Spell attack MAP advancement did not resolve."
                     );
             }
-            return new CastSpellOutcome(frame.Op.Actor, frame.Op.Spell, created);
+            return new CastSpellOutcome(frame.Op.Actor, frame.Op.Spell, created, attacks);
         }
 
         private static CreatureId ResolveTarget(

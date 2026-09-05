@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Game.Combat.Encounters;
@@ -11,6 +12,7 @@ using Game.DungeonGeneration;
 using Game.KayKit;
 using Game.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -72,6 +74,53 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         manager = null;
         movement = null;
         yield return null;
+    }
+
+    /// <summary>
+    /// Verifies a presentation failure after committed Stride mechanics suppresses route
+    /// continuation without misreporting the mechanics as a rules rejection.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator CommittedStrideProjectionFailureDoesNotReportRulesRejection()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 2) },
+            configurePartyBeforeInitialization: controllers =>
+                controllers[0].AddAction(new RulesStrideAction())
+        );
+        Track(new GameObject("Throwing Stride Projection Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        Combatant leader = fixture.Party[0];
+        RulesStrideAction stride = leader
+            .Controller.GetActions()
+            .OfType<RulesStrideAction>()
+            .Single();
+        ThrowingExplorationStrideCoordinator coordinator = new(fixture.Runtime);
+        fixture.Grid.BindExplorationStrideCoordinator(coordinator);
+        FixedMovementPathResolver resolver = new(
+            new MovementPath(new GridPosition(2, 0, 2), new[] { new GridPosition(3, 0, 2) })
+        );
+        LogAssert.Expect(
+            LogType.Exception,
+            new Regex("InvalidOperationException: Simulated exploration projection failure\\.")
+        );
+
+        try
+        {
+            leader.Controller.TakeAction(stride, resolver);
+            int remainingFrames = 240;
+            while (leader.Controller.IsTakingAction && remainingFrames-- > 0)
+                yield return null;
+
+            Assert.That(remainingFrames, Is.GreaterThan(0), "The failing Stride timed out.");
+            Assert.That(coordinator.ProjectionAttempted, Is.True);
+            Assert.That(resolver.MayContinueRoute, Is.False);
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally
+        {
+            fixture.Grid.BindExplorationStrideCoordinator(fixture.Runtime);
+        }
     }
 
     /// <summary>
@@ -2622,11 +2671,15 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         }
     }
 
-    private sealed class FixedMovementPathResolver : ISelectionResolver
+    private sealed class FixedMovementPathResolver
+        : ISelectionResolver,
+            IProjectedStrideContinuationReceiver
     {
         private readonly MovementPath path;
 
         internal FixedMovementPathResolver(MovementPath path) => this.path = path;
+
+        internal bool? MayContinueRoute { get; private set; }
 
         public ValueTask<SelectionOutcome<TSelection>> Select<TSelection>(
             ActionSelectionRequest<TSelection> request,
@@ -2654,6 +2707,44 @@ public sealed class DungeonExplorationRuntimePlayModeTests
                 (SelectionOutcome<TSelection>)(object)completed
             );
         }
+
+        void IProjectedStrideContinuationReceiver.RecordMayContinueRoute(bool mayContinueRoute) =>
+            MayContinueRoute = mayContinueRoute;
+    }
+
+    private sealed class ThrowingExplorationStrideCoordinator : IExplorationStrideCoordinator
+    {
+        private readonly IExplorationStrideCoordinator inner;
+
+        internal ThrowingExplorationStrideCoordinator(IExplorationStrideCoordinator inner) =>
+            this.inner = inner ?? throw new ArgumentNullException(nameof(inner));
+
+        internal bool ProjectionAttempted { get; private set; }
+
+        public bool Handles(GameObject character) => inner.Handles(character);
+
+        public bool IsPartyMember(GameObject character) => inner.IsPartyMember(character);
+
+        public bool TryCancelActiveTravel() => inner.TryCancelActiveTravel();
+
+        public IEnumerator ProjectCommittedStep(
+            GameObject leader,
+            Vector3Int from,
+            Vector3Int destination,
+            Tile[,] tiles,
+            TokenMovement movement,
+            Ref<bool> continuePath,
+            Ref<bool> pathInterrupted
+        ) => ThrowDuringEnumeration();
+
+        private IEnumerator ThrowDuringEnumeration()
+        {
+            ProjectionAttempted = true;
+            yield return ThrowProjectionFailure();
+        }
+
+        private static object ThrowProjectionFailure() =>
+            throw new InvalidOperationException("Simulated exploration projection failure.");
     }
 
     private sealed class RecordingExplorationPresentation

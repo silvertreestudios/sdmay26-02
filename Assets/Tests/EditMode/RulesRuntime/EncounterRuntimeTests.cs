@@ -1566,9 +1566,7 @@ namespace Game.Rules.Runtime.Tests
             ThrowOnceExpirationObserver observer = new ThrowOnceExpirationObserver();
             dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(observer);
 
-            Assert.ThrowsAsync<ApplicationException>(async () =>
-                await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
-            );
+            Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
 
             Assert.That(
                 dispatcher.Snapshot.ActiveEffects[firstId].Status,
@@ -1576,24 +1574,10 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(
                 dispatcher.Snapshot.ActiveEffects[secondId].Status,
-                Is.EqualTo(ActiveEffectStatus.Active)
-            );
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffectTimings[secondId].RemainingBoundaries,
-                Is.Zero
-            );
-            EncounterState pending = dispatcher.Snapshot.Encounters[Encounter];
-            Assert.That(pending.Cursor, Is.Zero);
-            Assert.That(pending.CurrentTurn, Is.Null);
-            Assert.That(pending.IsInitiativeBoundaryPending, Is.True);
-
-            Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
-
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffects[secondId].Status,
                 Is.EqualTo(ActiveEffectStatus.Expired)
             );
             Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(secondId), Is.False);
+            Assert.That(observer.Calls, Is.EqualTo(2));
             Assert.That(
                 dispatcher.Snapshot.Encounters[Encounter].CurrentTurn.Value.Actor,
                 Is.EqualTo(Hero)
@@ -1937,10 +1921,9 @@ namespace Game.Rules.Runtime.Tests
         {
             public int Calls { get; private set; }
 
-            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 Calls++;
-                return default;
             }
         }
 
@@ -1951,44 +1934,25 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<TFact> Facts => facts;
 
-            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 facts.Add(fact);
-                return default;
             }
-        }
-
-        private sealed class BlockingFactObserver<TFact> : IFactObserver<TFact>
-            where TFact : RuleFact
-        {
-            private readonly TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously
-            );
-            private readonly TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously
-            );
-
-            public Task Started => started.Task;
-
-            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
-            {
-                started.TrySetResult(true);
-                return new ValueTask(release.Task);
-            }
-
-            public void Release() => release.TrySetResult(true);
         }
 
         private sealed class ThrowOnceExpirationObserver : IFactObserver<ActiveEffectExpiredFact>
         {
             public int Calls { get; private set; }
 
-            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectExpiredFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 Calls++;
                 if (Calls == 1)
                     throw new ApplicationException("first expiration callback failed");
-                return default;
             }
         }
 
@@ -1998,10 +1962,9 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<CreatureId> Actors => actors;
 
-            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 actors.Add(fact.Turn.Actor);
-                return default;
             }
         }
 
@@ -2013,11 +1976,10 @@ namespace Game.Rules.Runtime.Tests
 
             public int ActionsAtFact { get; private set; } = -1;
 
-            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 ActionsAtFact = snapshot.ActionEconomy[fact.Turn.Actor].ActionsRemaining;
                 order.Add("fact");
-                return default;
             }
         }
 
@@ -2029,19 +1991,22 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<string> Order => order;
 
-            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectExpiredFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 order.Add("expired");
-                return default;
             }
 
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 EncounterOutcomeCommittedFact fact,
+                OpId rootId,
                 RulesSnapshot snapshot
             )
             {
                 order.Add("ended");
-                return default;
             }
         }
 
@@ -2053,16 +2018,18 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<string> Order => order;
 
-            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectExpiredFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 order.Add("expired");
-                return default;
             }
 
-            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 order.Add("turn");
-                return default;
             }
         }
 
@@ -2085,14 +2052,18 @@ namespace Game.Rules.Runtime.Tests
             public int EnemyAtOutcome { get; private set; } = -1;
             public int EndCalls { get; private set; }
 
-            public ValueTask OnFactCommitted(CreatureReducedToZeroFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                CreatureReducedToZeroFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 order.Add($"zero:{fact.Creature.Value}");
-                return default;
             }
 
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 EncounterOutcomeCommittedFact fact,
+                OpId rootId,
                 RulesSnapshot snapshot
             )
             {
@@ -2100,7 +2071,6 @@ namespace Game.Rules.Runtime.Tests
                 HeroAtOutcome = snapshot.Health[hero].Current;
                 EnemyAtOutcome = snapshot.Health[enemy].Current;
                 order.Add("ended");
-                return default;
             }
         }
 

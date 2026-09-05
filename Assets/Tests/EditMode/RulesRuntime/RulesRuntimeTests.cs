@@ -158,7 +158,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void SuccessfulReductionAtomicallyCommitsStateAndStampedFact()
+        public void SuccessfulReductionAtomicallyCommitsStateAndImmutableFact()
         {
             InMemoryRulesStore store = CreateStore(20);
             ReductionContext<AdjustHealthOp> context = Context(new AdjustHealthOp(Creature, -5));
@@ -172,17 +172,55 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.Facts, Has.Count.EqualTo(1));
 
             HealthAdjustedFact fact = (HealthAdjustedFact)result.Facts[0];
-            Assert.That(fact.IsStamped, Is.True);
-            Assert.That(fact.Id, Is.EqualTo(new FactId(1)));
-            Assert.That(fact.SourceOpId, Is.EqualTo(context.SourceOpId));
-            Assert.That(fact.RootOpId, Is.EqualTo(context.RootOpId));
-            Assert.That(fact.Source, Is.EqualTo(TestSource));
             Assert.That(fact.Previous, Is.EqualTo(20));
             Assert.That(fact.Current, Is.EqualTo(15));
+            Assert.That(store.Snapshot, Is.SameAs(result.Snapshot));
         }
 
         [Test]
-        public void RejectedReductionRollsBackEverySliceAndNeverStampsFacts()
+        public void EveryProductionFactTypeIsAnImmutablePayloadWithoutCommitMetadata()
+        {
+            Type[] factTypes = typeof(RuleFact)
+                .Assembly.GetTypes()
+                .Where(type => typeof(RuleFact).IsAssignableFrom(type) && !type.IsAbstract)
+                .ToArray();
+
+            Assert.That(factTypes, Is.Not.Empty);
+            foreach (Type factType in factTypes)
+            {
+                Assert.That(
+                    factType
+                        .GetProperties(
+                            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
+                        )
+                        .All(property => property.GetSetMethod(true) == null),
+                    Is.True,
+                    factType.FullName
+                );
+
+                for (Type current = factType; current != null; current = current.BaseType)
+                {
+                    Assert.That(
+                        current
+                            .GetFields(
+                                BindingFlags.Instance
+                                    | BindingFlags.Public
+                                    | BindingFlags.NonPublic
+                                    | BindingFlags.DeclaredOnly
+                            )
+                            .All(field => field.IsInitOnly),
+                        Is.True,
+                        current.FullName
+                    );
+                }
+            }
+
+            Assert.That(typeof(RuleFact).GetProperties(), Is.Empty);
+            Assert.That(typeof(IRulesStore).Assembly.GetType("Game.Rules.Runtime.FactId"), Is.Null);
+        }
+
+        [Test]
+        public void RejectedReductionRollsBackEverySliceAndReturnsNoFacts()
         {
             InMemoryRulesStore store = CreateStore(20);
             RulesSnapshot before = store.Snapshot;
@@ -197,7 +235,8 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.DidCommit, Is.False);
             Assert.That(result.RejectionReason, Is.EqualTo("rejected for test"));
             Assert.That(result.Facts, Is.Empty);
-            Assert.That(reducer.StagedFact.IsStamped, Is.False);
+            Assert.That(reducer.StagedFact.Previous, Is.EqualTo(20));
+            Assert.That(reducer.StagedFact.Current, Is.Zero);
             Assert.That(store.Snapshot, Is.SameAs(before));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
             Assert.That(store.Snapshot.Positions[Creature], Is.EqualTo(new GridPosition(0, 0, 0)));
@@ -263,7 +302,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(recovered.Snapshot.Version, Is.EqualTo(1));
             Assert.That(recovered.Snapshot.Health[Creature].Current, Is.EqualTo(19));
-            Assert.That(recovered.Facts[0].Id, Is.EqualTo(new FactId(1)));
+            Assert.That(recovered.Facts, Has.Count.EqualTo(1));
         }
 
         [Test]
@@ -281,7 +320,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(exception.Message, Does.Contain("nested reduction"));
             Assert.That(nested.InvocationCount, Is.Zero);
             Assert.That(outer.ObservedSnapshotVersion, Is.Zero);
-            Assert.That(outer.StagedFact.IsStamped, Is.False);
+            Assert.That(outer.StagedFact.Previous, Is.EqualTo(20));
             Assert.That(store.Snapshot, Is.SameAs(before));
             Assert.That(store.Snapshot.Version, Is.Zero);
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
@@ -293,11 +332,11 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(recovered.Snapshot.Version, Is.EqualTo(1));
             Assert.That(recovered.Snapshot.Health[Creature].Current, Is.EqualTo(19));
-            Assert.That(recovered.Facts[0].Id, Is.EqualTo(new FactId(1)));
+            Assert.That(recovered.Facts, Has.Count.EqualTo(1));
         }
 
         [Test]
-        public void DuplicateFactInstanceFailsBeforeStampingAndStoreRemainsUsable()
+        public void DuplicateFactInstanceFailsBeforeCommitAndStoreRemainsUsable()
         {
             InMemoryRulesStore store = CreateStore(20);
             RulesSnapshot before = store.Snapshot;
@@ -308,7 +347,7 @@ namespace Game.Rules.Runtime.Tests
             );
 
             Assert.That(exception.Message, Does.Contain("same Rule Fact instance"));
-            Assert.That(reducer.StagedFact.IsStamped, Is.False);
+            Assert.That(reducer.StagedFact.Previous, Is.EqualTo(20));
             Assert.That(store.Snapshot, Is.SameAs(before));
             Assert.That(store.Snapshot.Version, Is.Zero);
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(20));
@@ -320,7 +359,7 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(recovered.Snapshot.Version, Is.EqualTo(1));
             Assert.That(recovered.Snapshot.Health[Creature].Current, Is.EqualTo(19));
-            Assert.That(recovered.Facts[0].Id, Is.EqualTo(new FactId(1)));
+            Assert.That(recovered.Facts, Has.Count.EqualTo(1));
         }
 
         [Test]
@@ -337,8 +376,30 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(result.DidCommit, Is.True);
             Assert.That(result.Facts, Has.Count.EqualTo(2));
             Assert.That(result.Facts[0], Is.Not.SameAs(result.Facts[1]));
-            Assert.That(result.Facts[0].Id, Is.EqualTo(new FactId(1)));
-            Assert.That(result.Facts[1].Id, Is.EqualTo(new FactId(2)));
+        }
+
+        [Test]
+        public void ReusingCommittedFactInstanceRejectsBeforeASecondAtomicCommit()
+        {
+            InMemoryRulesStore store = CreateStore(20);
+            HealthAdjustedFact fact = new HealthAdjustedFact(Creature, 20, 19);
+            ReusedFactReducer reducer = new ReusedFactReducer(fact);
+
+            ReductionResult<int> first = store.Reduce(
+                Context(new AdjustHealthOp(Creature, -1)),
+                reducer
+            );
+            RulesSnapshot committed = store.Snapshot;
+
+            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+                store.Reduce(Context(new AdjustHealthOp(Creature, -1)), reducer)
+            );
+
+            Assert.That(first.Facts.Single(), Is.SameAs(fact));
+            Assert.That(exception.Message, Does.Contain("cannot commit more than once"));
+            Assert.That(store.Snapshot, Is.SameAs(committed));
+            Assert.That(store.Snapshot.Version, Is.EqualTo(1));
+            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(19));
         }
 
         [Test]
@@ -610,11 +671,6 @@ namespace Game.Rules.Runtime.Tests
                 leftResult.Snapshot.Health[Creature],
                 Is.EqualTo(rightResult.Snapshot.Health[Creature])
             );
-            Assert.That(leftResult.Facts[0].Id, Is.EqualTo(rightResult.Facts[0].Id));
-            Assert.That(
-                leftResult.Facts[0].SourceOpId,
-                Is.EqualTo(rightResult.Facts[0].SourceOpId)
-            );
             Assert.That(
                 ((HealthAdjustedFact)leftResult.Facts[0]).Current,
                 Is.EqualTo(((HealthAdjustedFact)rightResult.Facts[0]).Current)
@@ -622,7 +678,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void RejectedFactsDoNotConsumeStoreStampedIdentity()
+        public void RejectedFactsRemainPrivateToReducerAndLaterCommitReturnsOnlyItsPayload()
         {
             InMemoryRulesStore store = CreateStore(20);
             store.Reduce(
@@ -635,7 +691,10 @@ namespace Game.Rules.Runtime.Tests
                 new AdjustHealthReducer()
             );
 
-            Assert.That(committed.Facts[0].Id, Is.EqualTo(new FactId(1)));
+            Assert.That(committed.Facts, Has.Count.EqualTo(1));
+            HealthAdjustedFact fact = (HealthAdjustedFact)committed.Facts[0];
+            Assert.That(fact.Previous, Is.EqualTo(20));
+            Assert.That(fact.Current, Is.EqualTo(19));
         }
 
         private static InMemoryRulesStore CreateStore(int hitPoints)
@@ -811,6 +870,26 @@ namespace Game.Rules.Runtime.Tests
                 state.Health.Set(context.Op.Creature, new HealthState(current, health.Maximum));
                 facts.Stage(new ValueEqualFact(current));
                 facts.Stage(new ValueEqualFact(current));
+                return ReductionResult<int>.Accept(current);
+            }
+        }
+
+        private sealed class ReusedFactReducer : IOpReducer<AdjustHealthOp, int>
+        {
+            private readonly HealthAdjustedFact fact;
+
+            public ReusedFactReducer(HealthAdjustedFact fact) => this.fact = fact;
+
+            public ReductionResult<int> Reduce(
+                ReductionContext<AdjustHealthOp> context,
+                RulesStateDraft state,
+                FactSink facts
+            )
+            {
+                state.Health.TryGet(context.Op.Creature, out HealthState health);
+                int current = health.Current + context.Op.Delta;
+                state.Health.Set(context.Op.Creature, new HealthState(current, health.Maximum));
+                facts.Stage(fact);
                 return ReductionResult<int>.Accept(current);
             }
         }

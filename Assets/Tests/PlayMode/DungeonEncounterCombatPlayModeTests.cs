@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -766,30 +767,35 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
     }
 
-    /// <summary>Verifies a failed committed startup releases ownership so the host can retry.</summary>
+    /// <summary>Verifies presentation failure cannot undo or interrupt committed startup.</summary>
     [Test]
-    public void LegacyStartCombat_FailedPresentationDoesNotLeaveManagerActive()
+    public void LegacyStartCombat_FailedPresentationDoesNotStopCommittedEncounter()
     {
         CombatantFixture first = CreateCombatant("First", "TeamA", 300);
-        CombatantFixture second = CreateCombatant("Second", "TeamB", 200);
+        CreateCombatant("Second", "TeamB", 200);
         UnityAction failingPresentation = () =>
             throw new InvalidOperationException("Synthetic encounter-start presentation failure.");
         OnCombatStart.AddListener(failingPresentation);
+        RecordingTraceListener traceListener = new();
+        System.Diagnostics.Trace.Listeners.Insert(0, traceListener);
         try
         {
-            Assert.Catch<Exception>(() => manager.StartCombat());
-            Assert.That(manager.IsCombatActive, Is.False);
-            AssertTransientTurnStateCleared(first.Controller);
-            AssertTransientTurnStateCleared(second.Controller);
+            Assert.DoesNotThrow(() => manager.StartCombat());
         }
         finally
         {
+            System.Diagnostics.Trace.Listeners.Remove(traceListener);
+            traceListener.Dispose();
             OnCombatStart.RemoveListener(failingPresentation);
         }
 
-        Assert.DoesNotThrow(() => manager.StartCombat());
+        Assert.That(
+            traceListener.Output,
+            Does.Contain("Synthetic encounter-start presentation failure")
+        );
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
+        Assert.That(first.Controller.StartTurnCount, Is.EqualTo(1));
     }
 
     /// <summary>Verifies legacy combat excludes registered controllers that cannot take turns.</summary>
@@ -1194,6 +1200,17 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public override void Log(string msg, List<string> tags) => messages.Add(msg);
 
         public override List<string> GetMessages() => new(messages);
+    }
+
+    private sealed class RecordingTraceListener : System.Diagnostics.TraceListener
+    {
+        private readonly StringBuilder output = new();
+
+        public string Output => output.ToString();
+
+        public override void Write(string message) => output.Append(message);
+
+        public override void WriteLine(string message) => output.AppendLine(message);
     }
 
     private sealed class TestGridAPI : GridAPI, GridAPIPrivate

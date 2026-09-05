@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.KayKit;
 using Game.Rules.Runtime;
 using UnityEngine;
+using CreatureComponent = Game.Creature.CreatureComponent;
 
 namespace Game.Rules.Unity.Attack
 {
@@ -69,30 +71,18 @@ namespace Game.Rules.Unity.Attack
         {
             if (attacker == null || target == null || result == null)
                 return;
-            PresentSafely(
-                () =>
-                {
-                    if (result.Hit)
-                    {
-                        string damageType =
-                            result.Damage.Count == 0 ? "untyped" : result.Damage[0].DamageType;
-                        OnDamageDealt.Invoke(damageType);
-                    }
-                    else
-                    {
-                        OnAttackMiss.Invoke(attacker);
-                    }
-                },
-                attacker
-            );
-            PresentSafely(
-                () =>
-                {
-                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
-                        log.LogEntry(BuildEntry(attacker, target, action, result));
-                },
-                attacker
-            );
+            if (result.Hit)
+            {
+                string damageType =
+                    result.Damage.Count == 0 ? "untyped" : result.Damage[0].DamageType;
+                OnDamageDealt.Invoke(damageType);
+            }
+            else
+            {
+                OnAttackMiss.Invoke(attacker);
+            }
+            if (CombatLog.TryGetInstance(out CombatLogInterface log))
+                log.LogEntry(BuildEntry(attacker, target, action, result));
         }
 
         private static CombatLogEntry BuildEntry(
@@ -169,17 +159,5 @@ namespace Game.Rules.Unity.Attack
                 DegreeOfSuccess.CriticalFailure => CombatLogOutcome.CriticalFailure,
                 _ => CombatLogOutcome.Failure,
             };
-
-        private static void PresentSafely(Action presentation, UnityEngine.Object context)
-        {
-            try
-            {
-                presentation();
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, context);
-            }
-        }
     }
 }

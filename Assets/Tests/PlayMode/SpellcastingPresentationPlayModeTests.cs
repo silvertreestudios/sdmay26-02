@@ -356,18 +356,27 @@ public sealed class SpellcastingPresentationPlayModeTests
         grid.Target = target.gameObject;
         clericController.IsTakingAction = true;
         action.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
-            yield return null;
+        yield return null;
+
+        Assert.That(target.hp, Is.EqualTo(5), "Rules health must commit synchronously.");
+        Assert.That(
+            target.Health.Current,
+            Is.EqualTo(5),
+            "The exact committed health snapshot must be authoritative during presentation."
+        );
+        Assert.That(clericController.IsTakingAction, Is.True);
+        Assert.That(animation.IsActionPlaying, Is.True);
+
+        yield return new WaitForSeconds(5.1f);
+        yield return null;
 
         Assert.That(clericController.IsTakingAction, Is.False);
         Assert.That(clericController.ActionPoints, Is.EqualTo(1));
         Assert.That(target.hp, Is.EqualTo(5));
+        Assert.That(target.Health.Current, Is.EqualTo(5));
         Assert.That(damageEventCount, Is.EqualTo(1));
         Assert.That(missEventCount, Is.Zero);
-        Assert.That(
-            animation.CurrentClipId,
-            Is.EqualTo("animation/combatranged/ranged_magic_shoot")
-        );
+        Assert.That(animation.CurrentClipId, Is.Null);
         Assert.That(log.Messages.Any(message => message.Contains("casts Divine Lance")), Is.True);
         Assert.That(log.Entries, Has.Count.EqualTo(1));
         Assert.That(log.Entries.Single().Kind, Is.EqualTo(CombatLogEntryKind.Attack));
@@ -376,8 +385,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         bridge.BeginTurn(actor, 3);
         clericController.IsTakingAction = true;
         action.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
-            yield return null;
+        yield return new WaitForSeconds(5.1f);
+        yield return null;
 
         Assert.That(clericController.IsTakingAction, Is.False);
         Assert.That(clericController.ActionPoints, Is.EqualTo(1));
@@ -506,6 +515,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
+            new OpId(1),
             snapshot
         );
         Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
@@ -517,6 +527,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(unrelated, new BindingId("binding-unrelated")),
+            new OpId(1),
             snapshot
         );
         Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
@@ -529,6 +540,7 @@ public sealed class SpellcastingPresentationPlayModeTests
                 EffectStateVersion.Initial,
                 EffectStateVersion.Initial.Next()
             ),
+            new OpId(1),
             snapshot
         );
         observer.OnFactCommitted(
@@ -539,6 +551,7 @@ public sealed class SpellcastingPresentationPlayModeTests
                 EffectStateVersion.Initial.Next(),
                 ActiveEffectStatus.Expired
             ),
+            new OpId(1),
             snapshot
         );
         yield return null;
@@ -546,6 +559,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
+            new OpId(1),
             snapshot
         );
         observer.Dispose();

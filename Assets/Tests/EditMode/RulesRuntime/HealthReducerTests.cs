@@ -294,19 +294,22 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task FactsCarryRuleSourceAndDispatcherOwnedNestedProvenance()
+        public async Task FactPayloadAndTraceKeepDomainDataSeparateFromDispatchProvenance()
         {
             RuleDispatcher dispatcher = CreateDispatcher(new HealthState(10, 10));
 
             OpResult<DamageOutcome> result = await dispatcher.Dispatch(
                 Damage(1, Strike, "provenance")
             );
-            RuleFact fact = result.Facts.Single();
+            DamageAppliedFact fact = result.Facts.OfType<DamageAppliedFact>().Single();
 
-            Assert.That(fact.Source, Is.EqualTo(Strike));
-            Assert.That(fact.SourceOpId, Is.Not.EqualTo(fact.RootOpId));
-            Assert.That(dispatcher.Trace.IsDescendantOf(fact.SourceOpId, fact.RootOpId), Is.True);
-            Assert.That(fact.Id.IsEmpty, Is.False);
+            IOpFrameView root = dispatcher.Trace.OrderedFrames.Single(frame =>
+                !frame.ParentId.HasValue
+            );
+            IOpFrameView nested = dispatcher.Trace.OrderedFrames.Single(frame =>
+                frame.ParentId.HasValue
+            );
+            Assert.That(dispatcher.Trace.IsDescendantOf(nested.Id, root.Id), Is.True);
         }
 
         private static RuleDispatcher CreateDispatcher(HealthState health) =>

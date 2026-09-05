@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -185,7 +186,9 @@ public sealed class RulesStrikeUnityTests
             .OfType<RulesStrikeAction>()
             .Single(candidate => candidate.ActionName == "Sling");
 
-        RequireResolved(bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId)));
+        StrikeActionOp operation = new(actor, action.Item.Item, targetId);
+        RequireResolved(bridge.Dispatch(operation));
+        Drain(bridge.DrainActionPresentation(operation));
 
         Assert.That(archerController.ActionPoints, Is.EqualTo(2));
         Assert.That(archer.GetAmmoQuantity("sling-bullets"), Is.EqualTo(1));
@@ -414,9 +417,9 @@ public sealed class RulesStrikeUnityTests
             .OfType<RulesStrikeAction>()
             .Single(candidate => candidate.ActionName == "Unarmed Strike");
 
-        ResolvedOpResult<StrikeResolution> result = RequireResolved(
-            bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId))
-        );
+        StrikeActionOp operation = new(actor, action.Item.Item, targetId);
+        ResolvedOpResult<StrikeResolution> result = RequireResolved(bridge.Dispatch(operation));
+        Drain(bridge.DrainActionPresentation(operation));
 
         Assert.That(result.Value.Hit, Is.False);
         Assert.That(missEventCount, Is.EqualTo(1));
@@ -548,6 +551,11 @@ public sealed class RulesStrikeUnityTests
     {
         Assert.That(result, Is.TypeOf<ResolvedOpResult<T>>());
         return (ResolvedOpResult<T>)result;
+    }
+
+    private static void Drain(IEnumerator presentation)
+    {
+        while (presentation.MoveNext()) { }
     }
 
     private sealed class TestActionController : ActionController
