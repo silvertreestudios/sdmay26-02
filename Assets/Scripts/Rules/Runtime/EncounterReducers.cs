@@ -150,175 +150,92 @@ namespace Game.Rules.Runtime
             EncounterEndValidation.Evaluate(encounter, creature => IsLiving(state, creature));
     }
 
-    internal sealed class CommitEncounterStartReducer
-        : IOpReducer<CommitEncounterStartOp, EncounterStartOutcome>
+    internal sealed class CommitEncounterInitializationReducer
+        : IOpReducer<CommitEncounterInitializationOp, EncounterInitializationOutcome>
     {
-        public ReductionResult<EncounterStartOutcome> Reduce(
-            ReductionContext<CommitEncounterStartOp> context,
+        public ReductionResult<EncounterInitializationOutcome> Reduce(
+            ReductionContext<CommitEncounterInitializationOp> context,
             RulesStateDraft state,
             FactSink facts
         )
         {
-            if (state.Encounters.Any(pair => pair.Value.Phase == EncounterPhase.Active))
-                return ReductionResult<EncounterStartOutcome>.Reject(
-                    "A rules store already has an active encounter."
+            if (
+                state.Encounters.Any(pair =>
+                    pair.Value.Phase == EncounterPhase.Initialized
+                    || pair.Value.Phase == EncounterPhase.Active
+                )
+            )
+                return ReductionResult<EncounterInitializationOutcome>.Reject(
+                    "A rules store already has an unfinished encounter."
                 );
             if (state.Encounters.Contains(context.Op.Encounter))
-                return ReductionResult<EncounterStartOutcome>.Reject(
+                return ReductionResult<EncounterInitializationOutcome>.Reject(
                     $"Encounter {context.Op.Encounter.Value} already exists."
-                );
-            if (!context.Op.Roster.Any(entry => entry.Team == context.Op.ProtagonistTeam))
-                return ReductionResult<EncounterStartOutcome>.Reject(
-                    "An encounter roster must contain its designated protagonist team."
-                );
-            if (
-                context.Op.Roster.Select(entry => entry.Creature).Distinct().Count()
-                != context.Op.Roster.Count
-            )
-                return ReductionResult<EncounterStartOutcome>.Reject(
-                    "An encounter roster contains a duplicate creature."
-                );
-            foreach (InitiativeEntry entry in context.Op.Roster)
-            {
-                if (!state.Health.Contains(entry.Creature))
-                    return ReductionResult<EncounterStartOutcome>.Reject(
-                        $"Creature {entry.Creature.Value} has no authoritative health state."
-                    );
-                if (
-                    state.Creatures.TryGet(entry.Creature, out CreatureState creature)
-                    && creature.Player != entry.Team
-                )
-                    return ReductionResult<EncounterStartOutcome>.Reject(
-                        $"Creature {entry.Creature.Value} has a team that conflicts with its authoritative creature state."
-                    );
-            }
-            BindingId outcomeBindingId = EncounterRuleRuntime.OutcomeBindingId(
-                context.Op.Encounter
-            );
-            if (state.RuleBindings.Contains(outcomeBindingId))
-                return ReductionResult<EncounterStartOutcome>.Reject(
-                    $"Rule binding {outcomeBindingId.Value} is already registered."
                 );
             EncounterState encounter = new EncounterState(
                 context.Op.Encounter,
-                EncounterPhase.Active,
+                EncounterPhase.Initialized,
                 context.Op.ProtagonistTeam,
                 context.Op.ConclusionPolicy,
                 RoundNumber.First,
-                context.Op.Roster,
+                Array.Empty<InitiativeEntry>(),
                 -1,
                 null,
                 1,
                 null
             );
-            List<ActiveEffectTimingState> adoptedTimings = new List<ActiveEffectTimingState>();
-            HashSet<CreatureId> rosterCreatures = new HashSet<CreatureId>(
-                context.Op.Roster.Select(entry => entry.Creature)
-            );
-            foreach (
-                ActiveEffectInstance effect in state
-                    .ActiveEffects.Select(pair => pair.Value)
-                    .Where(effect =>
-                        effect.Duration.Kind != EffectDurationKind.Indefinite
-                        && rosterCreatures.Contains(effect.SourceCreature)
-                    )
-                    .OrderBy(effect => effect.Id.Value, StringComparer.Ordinal)
-            )
-            {
-                if (state.ActiveEffectTimings.Contains(effect.Id))
-                    return ReductionResult<EncounterStartOutcome>.Reject(
-                        $"Active effect {effect.Id.Value} already has encounter timing."
-                    );
-                ActiveRuleBinding[] bindings = state
-                    .RuleBindings.Select(pair => pair.Value)
-                    .Where(binding =>
-                        binding.IsEnabled
-                        && binding.EffectId.HasValue
-                        && binding.EffectId.Value == effect.Id
-                    )
-                    .ToArray();
-                if (
-                    bindings.Length != 1
-                    || bindings[0].DefinitionId != effect.DefinitionId
-                    || bindings[0].Source != effect.Source
-                )
-                    return ReductionResult<EncounterStartOutcome>.Reject(
-                        $"Active effect {effect.Id.Value} requires one matching enabled binding."
-                    );
-                adoptedTimings.Add(
-                    ActiveEffectTimingState.ForEncounter(effect, bindings[0], encounter)
-                );
-            }
             state.Encounters.Set(encounter.Id, encounter);
-            state.RuleBindings.Set(
-                outcomeBindingId,
-                new ActiveRuleBinding(
-                    outcomeBindingId,
-                    EncounterRuleRuntime.OutcomeDefinitionId,
-                    encounter.Roster[0].Creature,
-                    null,
-                    EncounterRuleRuntime.Source,
-                    0
-                )
-            );
-            foreach (ActiveEffectTimingState timing in adoptedTimings)
-                state.ActiveEffectTimings.Set(timing.Effect, timing);
-            foreach (InitiativeEntry entry in encounter.Roster)
-            {
-                state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
-                state.MultipleAttackPenalty.Set(entry.Creature, new MultipleAttackPenaltyState(0));
-            }
-            facts.Stage(new EncounterStartedFact(encounter));
-            return ReductionResult<EncounterStartOutcome>.Accept(
-                new EncounterStartOutcome(encounter)
+            facts.Stage(new EncounterInitializedFact(encounter));
+            return ReductionResult<EncounterInitializationOutcome>.Accept(
+                new EncounterInitializationOutcome(encounter)
             );
         }
     }
 
-    internal sealed class CommitEncounterJoinReducer
-        : IOpReducer<CommitEncounterJoinOp, EncounterJoinOutcome>
+    internal sealed class CommitCombatantsAdditionReducer
+        : IOpReducer<CommitCombatantsAdditionOp, CombatantsAddedOutcome>
     {
-        public ReductionResult<EncounterJoinOutcome> Reduce(
-            ReductionContext<CommitEncounterJoinOp> context,
+        public ReductionResult<CombatantsAddedOutcome> Reduce(
+            ReductionContext<CommitCombatantsAdditionOp> context,
             RulesStateDraft state,
             FactSink facts
         )
         {
+            if (!state.Encounters.TryGet(context.Op.Encounter, out EncounterState encounter))
+                return ReductionResult<CombatantsAddedOutcome>.Reject(
+                    $"Encounter {context.Op.Encounter.Value} is unknown."
+                );
             if (
-                !EncounterReduction.TryGetActive(
-                    state,
-                    context.Op.Encounter,
-                    out EncounterState encounter,
-                    out string rejection
-                )
+                encounter.Phase != EncounterPhase.Initialized
+                && encounter.Phase != EncounterPhase.Active
             )
-                return ReductionResult<EncounterJoinOutcome>.Reject(rejection);
-            if (!encounter.CurrentTurn.HasValue)
-                return ReductionResult<EncounterJoinOutcome>.Reject(
-                    "Reinforcements require an active turn boundary."
+                return ReductionResult<CombatantsAddedOutcome>.Reject(
+                    $"Encounter {context.Op.Encounter.Value} cannot accept combatants."
                 );
             HashSet<CreatureId> existing = new HashSet<CreatureId>(
                 encounter.Roster.Select(entry => entry.Creature)
             );
             HashSet<SpellSlotPoolId> incomingSpellSlots = new HashSet<SpellSlotPoolId>();
             HashSet<BindingId> incomingRuleBindings = new HashSet<BindingId>();
-            if (context.Op.Registrations.Count != context.Op.Additions.Count)
-                return ReductionResult<EncounterJoinOutcome>.Reject(
-                    "Every reinforcement must have exactly one captured rules registration."
-                );
-            foreach (InitiativeEntry entry in context.Op.Additions)
+            HashSet<ItemId> incomingEquipment = new HashSet<ItemId>();
+            HashSet<ItemId> incomingAmmunition = new HashSet<ItemId>();
+            HashSet<ActiveEffectId> incomingEffects = new HashSet<ActiveEffectId>();
+            HashSet<CreatureId> incomingCreatures = new HashSet<CreatureId>(
+                context.Op.Additions.Select(addition => addition.Combatant.Creature.Id)
+            );
+            foreach (CombatantAddition addition in context.Op.Additions)
             {
+                InitiativeEntry entry = addition.Initiative;
+                CombatantRulesState registration = addition.Combatant;
                 if (!existing.Add(entry.Creature))
-                    return ReductionResult<EncounterJoinOutcome>.Reject(
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(
                         $"Creature {entry.Creature.Value} is already in the roster."
                     );
-                if (!context.Op.Registrations.ContainsKey(entry.Creature))
-                    return ReductionResult<EncounterJoinOutcome>.Reject(
-                        $"Creature {entry.Creature.Value} has no captured rules registration."
-                    );
-                CombatantRulesState registration = context.Op.Registrations[entry.Creature];
-                if (registration.Creature.Id != entry.Creature)
-                    return ReductionResult<EncounterJoinOutcome>.Reject(
+                if (
+                    registration.Creature.Id != entry.Creature
+                    || registration.Creature.Player != entry.Team
+                )
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(
                         $"Creature {entry.Creature.Value} has a mismatched rules registration."
                     );
                 if (
@@ -329,12 +246,12 @@ namespace Game.Rules.Runtime
                     || state.ActionEconomy.Contains(entry.Creature)
                     || state.MultipleAttackPenalty.Contains(entry.Creature)
                 )
-                    return ReductionResult<EncounterJoinOutcome>.Reject(
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(
                         $"Creature {entry.Creature.Value} collides with existing registration state."
                     );
                 foreach (SpellSlotState slot in registration.SpellSlots)
                     if (state.SpellSlots.Contains(slot.Id) || !incomingSpellSlots.Add(slot.Id))
-                        return ReductionResult<EncounterJoinOutcome>.Reject(
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Spell-slot pool {slot.Id.Value} is already registered."
                         );
                 foreach (ActiveRuleBinding binding in registration.RuleBindings)
@@ -342,13 +259,55 @@ namespace Game.Rules.Runtime
                         state.RuleBindings.Contains(binding.Id)
                         || !incomingRuleBindings.Add(binding.Id)
                     )
-                        return ReductionResult<EncounterJoinOutcome>.Reject(
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Rule binding {binding.Id.Value} is already registered."
                         );
+                foreach (EquipmentState item in registration.Equipment)
+                    if (state.Equipment.Contains(item.Id) || !incomingEquipment.Add(item.Id))
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Equipment {item.Id.Value} is already registered."
+                        );
+                foreach (AmmunitionState pool in registration.Ammunition)
+                    if (state.Ammunition.Contains(pool.Item) || !incomingAmmunition.Add(pool.Item))
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Ammunition pool {pool.Item.Value} is already registered."
+                        );
+                foreach (ActiveEffectInstance effect in registration.ActiveEffects)
+                {
+                    if (
+                        state.ActiveEffects.Contains(effect.Id)
+                        || state.ActiveEffectTimings.Contains(effect.Id)
+                        || !incomingEffects.Add(effect.Id)
+                    )
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Active effect {effect.Id.Value} is already registered."
+                        );
+                    if (
+                        !state.Creatures.Contains(effect.SourceCreature)
+                        && !incomingCreatures.Contains(effect.SourceCreature)
+                    )
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Active effect {effect.Id.Value} has an unenrolled source."
+                        );
+                    ActiveRuleBinding[] matching = registration
+                        .RuleBindings.Where(binding =>
+                            binding.IsEnabled
+                            && binding.EffectId.HasValue
+                            && binding.EffectId.Value == effect.Id
+                            && binding.DefinitionId == effect.DefinitionId
+                            && binding.Source == effect.Source
+                        )
+                        .ToArray();
+                    if (matching.Length != 1)
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Active effect {effect.Id.Value} requires one matching enabled binding."
+                        );
+                }
             }
-            foreach (InitiativeEntry entry in context.Op.Additions)
+            foreach (CombatantAddition addition in context.Op.Additions)
             {
-                CombatantRulesState registration = context.Op.Registrations[entry.Creature];
+                InitiativeEntry entry = addition.Initiative;
+                CombatantRulesState registration = addition.Combatant;
                 state.Creatures.Set(entry.Creature, registration.Creature);
                 state.Health.Set(entry.Creature, registration.Health);
                 state.Positions.Set(entry.Creature, registration.Position);
@@ -357,29 +316,107 @@ namespace Game.Rules.Runtime
                     state.SpellSlots.Set(slot.Id, slot);
                 foreach (ActiveRuleBinding binding in registration.RuleBindings)
                     state.RuleBindings.Set(binding.Id, binding);
+                foreach (EquipmentState item in registration.Equipment)
+                    state.Equipment.Set(item.Id, item);
+                foreach (AmmunitionState pool in registration.Ammunition)
+                    state.Ammunition.Set(pool.Item, pool);
+                foreach (ActiveEffectInstance effect in registration.ActiveEffects)
+                {
+                    ActiveRuleBinding binding = registration.RuleBindings.Single(value =>
+                        value.EffectId.HasValue && value.EffectId.Value == effect.Id
+                    );
+                    state.ActiveEffects.Set(effect.Id, effect);
+                    if (effect.Duration.Kind != EffectDurationKind.Indefinite)
+                        state.ActiveEffectTimings.Set(
+                            effect.Id,
+                            ActiveEffectTimingState.ForEncounter(effect, binding, encounter)
+                        );
+                }
             }
             InitiativeEntry[] roster = encounter
-                .Roster.Concat(context.Op.Additions)
+                .Roster.Concat(context.Op.Additions.Select(addition => addition.Initiative))
                 .OrderByDescending(entry => entry.Total)
                 .ThenBy(entry => entry.RegistrationOrder)
                 .ToArray();
-            int cursor = Array.FindIndex(
-                roster,
-                entry => entry.Creature == encounter.CurrentTurn.Value.Actor
-            );
+            int cursor = encounter.CurrentTurn.HasValue
+                ? Array.FindIndex(
+                    roster,
+                    entry => entry.Creature == encounter.CurrentTurn.Value.Actor
+                )
+                : encounter.Cursor;
             EncounterState updated = encounter.Replace(
                 roster: roster,
                 cursor: cursor,
-                currentTurn: encounter.CurrentTurn.Value
+                currentTurn: encounter.CurrentTurn
             );
             state.Encounters.Set(updated.Id, updated);
-            foreach (InitiativeEntry entry in context.Op.Additions)
+            foreach (CombatantAddition addition in context.Op.Additions)
             {
+                InitiativeEntry entry = addition.Initiative;
                 state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
                 state.MultipleAttackPenalty.Set(entry.Creature, new MultipleAttackPenaltyState(0));
             }
-            facts.Stage(new EncounterJoinedFact(updated));
-            return ReductionResult<EncounterJoinOutcome>.Accept(new EncounterJoinOutcome(updated));
+            facts.Stage(
+                new CombatantsAddedFact(
+                    updated,
+                    context.Op.Additions.Select(value => value.Initiative)
+                )
+            );
+            foreach (CombatantAddition addition in context.Op.Additions)
+            foreach (ActiveEffectInstance effect in addition.Combatant.ActiveEffects)
+            {
+                ActiveRuleBinding binding = addition.Combatant.RuleBindings.Single(value =>
+                    value.EffectId.HasValue && value.EffectId.Value == effect.Id
+                );
+                facts.Stage(new ActiveEffectCreatedFact(effect, binding.Id));
+            }
+            return ReductionResult<CombatantsAddedOutcome>.Accept(
+                new CombatantsAddedOutcome(updated)
+            );
+        }
+    }
+
+    internal sealed class CommitEncounterActivationReducer
+        : IOpReducer<CommitEncounterActivationOp, EncounterAdvanceOutcome>
+    {
+        public ReductionResult<EncounterAdvanceOutcome> Reduce(
+            ReductionContext<CommitEncounterActivationOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            if (!state.Encounters.TryGet(context.Op.Encounter, out EncounterState encounter))
+                return ReductionResult<EncounterAdvanceOutcome>.Reject("The encounter is unknown.");
+            if (encounter.Phase != EncounterPhase.Initialized || encounter.Roster.Count == 0)
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "Only an initialized encounter with combatants can begin."
+                );
+            if (!encounter.Roster.Any(entry => entry.Team == encounter.ProtagonistTeam))
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "The encounter roster must contain its protagonist team."
+                );
+            BindingId outcomeBindingId = EncounterRuleRuntime.OutcomeBindingId(encounter.Id);
+            if (state.RuleBindings.Contains(outcomeBindingId))
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    $"Rule binding {outcomeBindingId.Value} is already registered."
+                );
+            EncounterState active = encounter.Replace(phase: EncounterPhase.Active);
+            state.Encounters.Set(active.Id, active);
+            state.RuleBindings.Set(
+                outcomeBindingId,
+                new ActiveRuleBinding(
+                    outcomeBindingId,
+                    EncounterRuleRuntime.OutcomeDefinitionId,
+                    active.Roster[0].Creature,
+                    null,
+                    EncounterRuleRuntime.Source,
+                    0
+                )
+            );
+            facts.Stage(new EncounterStartedFact(active));
+            return ReductionResult<EncounterAdvanceOutcome>.Accept(
+                new EncounterAdvanceOutcome(active)
+            );
         }
     }
 
@@ -392,15 +429,17 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
+            if (!state.Encounters.TryGet(context.Op.Encounter, out EncounterState encounter))
+                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
+                    $"Encounter {context.Op.Encounter.Value} is unknown."
+                );
             if (
-                !EncounterReduction.TryGetActive(
-                    state,
-                    context.Op.Encounter,
-                    out EncounterState encounter,
-                    out string rejection
-                )
+                encounter.Phase != EncounterPhase.Initialized
+                && encounter.Phase != EncounterPhase.Active
             )
-                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(rejection);
+                return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
+                    $"Encounter {context.Op.Encounter.Value} cannot publish initiative assignments."
+                );
             if (context.Op.Entries == null || context.Op.Entries.Count == 0)
                 return ReductionResult<InitiativeAssignmentsOutcome>.Reject(
                     "At least one initiative assignment is required."

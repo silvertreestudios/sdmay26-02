@@ -55,10 +55,11 @@ public sealed class RulesRageUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { controller, opponentController },
             CreateTiles(),
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "players"
         );
         CreatureId actor = bridge.GetCreatureId(creature);
-        EncounterState encounter = bridge.StartEncounter("players");
+        EncounterState encounter = bridge.AdvanceEncounter();
 
         Assert.That(encounter.CurrentTurn.Value.Actor, Is.EqualTo(actor));
         Assert.That(RageRules.IsRaging(bridge.Snapshot, actor), Is.True);
@@ -99,11 +100,12 @@ public sealed class RulesRageUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { fatiguedController, encumberedController },
             CreateTiles(),
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "players"
         );
         CreatureId fatiguedActor = bridge.GetCreatureId(fatiguedCreature);
         CreatureId encumberedActor = bridge.GetCreatureId(encumberedCreature);
-        bridge.StartEncounter("players");
+        bridge.AdvanceEncounter();
 
         Assert.That(
             bridge.Dispatch(new RageActionOp(fatiguedActor)),

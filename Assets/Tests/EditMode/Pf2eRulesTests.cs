@@ -119,7 +119,7 @@ public class Pf2eRulesTests
         Team team = zombie.AddComponent<Team>();
         team.Name = "Players";
         UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
-        bridge.StartEncounter("Players");
+        bridge.AdvanceEncounter();
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
     }
 
@@ -138,7 +138,7 @@ public class Pf2eRulesTests
         Team team = zombie.AddComponent<Team>();
         team.Name = "Players";
         UnityCombatRulesBridge bridge = CreateActiveEncounter(actionController);
-        bridge.StartEncounter("Players");
+        bridge.AdvanceEncounter();
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
     }
 
@@ -402,6 +402,9 @@ public class Pf2eRulesTests
 
     private UnityCombatRulesBridge CreateCombatRules(CreatureComponent creature)
     {
+        Team creatureTeam =
+            creature.GetComponent<Team>() ?? creature.gameObject.AddComponent<Team>();
+        creatureTeam.Name = "Players";
         TestActionController controller = creature.gameObject.AddComponent<TestActionController>();
         GameObject opponentObject = new("Encounter Opponent");
         created.Add(opponentObject);
@@ -419,7 +422,8 @@ public class Pf2eRulesTests
         return UnityCombatRulesBridge.Create(
             new ActionController[] { controller, opponentController },
             tiles,
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "Players"
         );
     }
 
@@ -502,7 +506,11 @@ public class Pf2eRulesTests
         Team team = opposition.AddComponent<Team>();
         team.Name = "Enemies";
         TestActionController controller = opposition.AddComponent<TestActionController>();
-        return UnityCombatRulesBridge.Create(new[] { protagonist, controller }, CreateTiles());
+        return UnityCombatRulesBridge.Create(
+            new[] { protagonist, controller },
+            CreateTiles(),
+            "Players"
+        );
     }
 
     private sealed class TestActionController : ActionController

@@ -56,23 +56,15 @@ namespace Game.Rules.Unity.Composition
         void Apply();
     }
 
-    /// <summary>Provides feature state for initial seed or reinforcement registration.</summary>
-    internal interface IUnityCombatantStateContribution
-    {
-        /// <summary>Adds initial feature state to the store seed.</summary>
-        void Seed(RulesStateSeed seed);
-
-        /// <summary>Registers the same feature state for a committed reinforcement.</summary>
-        void Register(UnityCombatRulesBridge bridge);
-    }
-
     /// <summary>Collects typed feature contributions while enrollment remains reversible.</summary>
     internal sealed class UnityCombatantEnrollmentBuilder
     {
-        private readonly List<IUnityCombatantStateContribution> stateContributions = new();
         private readonly List<IUnityCombatantInstallationContribution> installations = new();
         private readonly List<SpellSlotState> spellSlots = new();
         private readonly List<ActiveRuleBinding> ruleBindings = new();
+        private readonly List<EquipmentState> equipment = new();
+        private readonly List<AmmunitionState> ammunition = new();
+        private readonly List<ActiveEffectInstance> activeEffects = new();
         private readonly CompositeLifetime preparationLifetime;
         private readonly CreatureState creatureState;
         private readonly HealthState health;
@@ -108,12 +100,6 @@ namespace Game.Rules.Unity.Composition
         internal TResource Own<TResource>(TResource resource)
             where TResource : IDisposable => preparationLifetime.Add(resource);
 
-        /// <summary>Adds one typed authoritative state contribution.</summary>
-        internal void AddState(IUnityCombatantStateContribution contribution) =>
-            stateContributions.Add(
-                contribution ?? throw new ArgumentNullException(nameof(contribution))
-            );
-
         /// <summary>Adds feature-owned spell-slot state to the atomic combatant registration.</summary>
         internal void AddSpellSlots(IEnumerable<SpellSlotState> states)
         {
@@ -130,20 +116,53 @@ namespace Game.Rules.Unity.Composition
             ruleBindings.AddRange(bindings);
         }
 
+        /// <summary>Adds feature-owned equipment to the atomic combatant registration.</summary>
+        internal void AddEquipment(IEnumerable<EquipmentState> states)
+        {
+            if (states == null)
+                throw new ArgumentNullException(nameof(states));
+            equipment.AddRange(states);
+        }
+
+        /// <summary>Adds feature-owned ammunition to the atomic combatant registration.</summary>
+        internal void AddAmmunition(IEnumerable<AmmunitionState> states)
+        {
+            if (states == null)
+                throw new ArgumentNullException(nameof(states));
+            ammunition.AddRange(states);
+        }
+
+        /// <summary>Adds restored active effects to the atomic combatant registration.</summary>
+        internal void AddActiveEffects(IEnumerable<ActiveEffectInstance> effects)
+        {
+            if (effects == null)
+                throw new ArgumentNullException(nameof(effects));
+            activeEffects.AddRange(effects);
+        }
+
         /// <summary>Adds one fully prepared Unity installation.</summary>
         internal void AddInstallation(IUnityCombatantInstallationContribution contribution) =>
             installations.Add(
                 contribution ?? throw new ArgumentNullException(nameof(contribution))
             );
 
-        internal IReadOnlyList<IUnityCombatantStateContribution> StateContributions =>
-            stateContributions;
         internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations =>
             installations;
 
         /// <summary>Freezes the prepared base and feature contributions into one immutable state.</summary>
-        internal CombatantRulesState BuildState() =>
-            new(creatureState, health, position, landSpeed, spellSlots, ruleBindings);
+        internal CombatantRulesState BuildState(int initiativeModifier) =>
+            new(
+                creatureState,
+                health,
+                position,
+                landSpeed,
+                initiativeModifier,
+                spellSlots,
+                ruleBindings,
+                equipment,
+                ammunition,
+                activeEffects
+            );
     }
 
     /// <summary>Invokes explicitly supplied encounter modules without discovering features.</summary>

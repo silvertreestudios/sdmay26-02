@@ -7,8 +7,7 @@ using Game.Rules.Runtime;
 namespace Game.Rules.Unity.Composition
 {
     /// <summary>
-    /// Prepares every combatant through one ordered, reversible path before choosing an initial
-    /// seed or reinforcement commit.
+    /// Prepares every combatant through one ordered, reversible path before the common addition.
     /// </summary>
     internal sealed class UnityCombatantEnrollmentPipeline
     {
@@ -53,6 +52,7 @@ namespace Game.Rules.Unity.Composition
             List<PreparedCombatantEnrollment> combatants = new();
             try
             {
+                List<UnityCombatantEnrollmentBuilder> builders = new();
                 foreach (ActionController controller in copied)
                 {
                     UnityCombatantEnrollmentBuilder builder =
@@ -79,20 +79,21 @@ namespace Game.Rules.Unity.Composition
                             )
                         )
                     );
+                    builders.Add(builder);
+                }
+                // All stable mappings exist before feature preparation so restored cross-creature
+                // references can be frozen directly into the common registration batch.
+                foreach (UnityCombatantEnrollmentBuilder builder in builders)
+                {
                     composition.PrepareCombatant(builder);
                     int initiativeModifier = builder.Creature.GetInitiative();
                     CombatantRegistration registration = new(
                         builder.Controller,
                         builder.Creature,
-                        builder.BuildState()
+                        builder.BuildState(initiativeModifier)
                     );
                     combatants.Add(
-                        new PreparedCombatantEnrollment(
-                            registration,
-                            initiativeModifier,
-                            builder.StateContributions,
-                            builder.Installations
-                        )
+                        new PreparedCombatantEnrollment(registration, builder.Installations)
                     );
                 }
                 return new UnityCombatantEnrollmentPlan(
@@ -147,47 +148,28 @@ namespace Game.Rules.Unity.Composition
             this.installUnityAuthority = installUnityAuthority;
         }
 
-        /// <summary>Adds base and feature-owned state for constructor-time participants.</summary>
-        internal void SeedInitial(RulesStateSeed seed)
+        /// <summary>Commits every prepared batch through the common rules-owned addition.</summary>
+        internal void Commit() =>
+            owner.DispatchRequired(
+                new AddCombatantsOp(
+                    owner.EncounterId,
+                    combatants.Select(combatant => combatant.Registration.State)
+                )
+            );
+
+        /// <summary>Seeds the isolated non-encounter Stride composition.</summary>
+        internal void SeedExploration(RulesStateSeed seed)
         {
+            if (installUnityAuthority)
+                throw new InvalidOperationException(
+                    "Combat enrollment cannot use the exploration seed boundary."
+                );
             if (seed == null)
                 throw new ArgumentNullException(nameof(seed));
             foreach (PreparedCombatantEnrollment combatant in combatants)
             {
-                UnityCombatRulesBridge.Seed(seed, combatant.Registration.State);
-                if (!installUnityAuthority)
-                {
-                    seed.SeedActionEconomy(
-                        combatant.Registration.State.Creature.Id,
-                        new ActionEconomyState(1, false)
-                    );
-                }
-                foreach (IUnityCombatantStateContribution contribution in combatant.State)
-                    contribution.Seed(seed);
-            }
-        }
-
-        /// <summary>Commits prepared reinforcements, then their already validated feature state.</summary>
-        internal void CommitReinforcements()
-        {
-            owner.DispatchRequired(
-                new JoinEncounterOp(
-                    owner.EncounterId,
-                    combatants.Select(combatant => new EncounterJoinParticipant(
-                        new EncounterParticipant(
-                            combatant.Registration.State.Creature.Id,
-                            combatant.Registration.State.Creature.Player,
-                            combatant.InitiativeModifier
-                        ),
-                        combatant.Registration.State
-                    ))
-                )
-            );
-
-            foreach (PreparedCombatantEnrollment combatant in combatants)
-            {
-                foreach (IUnityCombatantStateContribution contribution in combatant.State)
-                    contribution.Register(owner);
+                CombatantRulesState state = combatant.Registration.State;
+                UnityCombatRulesBridge.SeedExploration(seed, state);
             }
         }
 
@@ -246,22 +228,15 @@ namespace Game.Rules.Unity.Composition
     {
         internal PreparedCombatantEnrollment(
             CombatantRegistration registration,
-            int initiativeModifier,
-            IReadOnlyList<IUnityCombatantStateContribution> state,
             IReadOnlyList<IUnityCombatantInstallationContribution> installations
         )
         {
             Registration = registration;
-            InitiativeModifier = initiativeModifier;
-            State = state;
             Installations = installations;
         }
 
         internal CombatantRegistration Registration { get; }
 
-        /// <summary>Gets the initiative modifier captured during fallible Unity preparation.</summary>
-        internal int InitiativeModifier { get; }
-        internal IReadOnlyList<IUnityCombatantStateContribution> State { get; }
         internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations { get; }
     }
 

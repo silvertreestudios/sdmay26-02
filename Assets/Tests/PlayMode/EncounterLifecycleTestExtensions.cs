@@ -15,15 +15,12 @@ internal static class EncounterLifecycleTestExtensions
     {
         if (bridge == null)
             throw new ArgumentNullException(nameof(bridge));
-        bool startedNow = !bridge.Snapshot.Encounters.TryGet(
-            new EncounterId("unity-encounter-1"),
-            out _
-        );
+        EncounterState encounter = bridge.GetEncounter();
+        bool startedNow = encounter.Phase == EncounterPhase.Initialized;
         if (startedNow)
-            bridge.StartEncounter(bridge.Snapshot.Creatures[actor].Player);
+            encounter = bridge.AdvanceEncounter();
 
         int remaining = bridge.Snapshot.Creatures.Count + 1;
-        EncounterState encounter = bridge.GetEncounter();
         if (
             !startedNow
             && encounter.Phase == EncounterPhase.Active

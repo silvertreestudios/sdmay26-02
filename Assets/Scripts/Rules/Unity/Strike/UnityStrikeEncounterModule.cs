@@ -61,12 +61,15 @@ namespace Game.Rules.Unity.Strike
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
-            IUnityCombatantStateContribution state = context.PrepareCombatant(
+            IDisposable preparation = context.PrepareCombatant(
                 builder.CreatureId,
-                builder.Creature
+                builder.Creature,
+                out IReadOnlyList<EquipmentState> equipment,
+                out IReadOnlyList<AmmunitionState> ammunition
             );
-            builder.Own((IDisposable)state);
-            builder.AddState(state);
+            builder.Own(preparation);
+            builder.AddEquipment(equipment);
+            builder.AddAmmunition(ammunition);
             if (installUnityAuthority)
             {
                 builder.AddInstallation(

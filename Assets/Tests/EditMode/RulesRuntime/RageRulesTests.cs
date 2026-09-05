@@ -510,25 +510,13 @@ namespace Game.Tests.EditMode.RulesRuntime
             RageActionDefinition definition = new RageActionDefinition(provider);
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
-            RulesStateSeed seed = new RulesStateSeed()
-                .SeedCreature(new CreatureState(Actor, Party))
-                .SeedCreature(new CreatureState(Enemy, Opposition))
-                .SeedHealth(Actor, new HealthState(10, 10))
-                .SeedHealth(Enemy, new HealthState(10, 10))
-                .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
-            foreach (
-                ActiveRuleBinding binding in RageRules.CreateInitialBindings(
-                    Actor,
-                    provider.Get(Actor)
-                )
-            )
-            {
-                seed.SeedRuleBinding(binding);
-            }
+            ActiveRuleBinding[] actorBindings = RageRules
+                .CreateInitialBindings(Actor, provider.Get(Actor))
+                .ToArray();
 
             registryBuilder.AddOutcomeRule();
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                new InMemoryRulesStore(seed),
+                new InMemoryRulesStore(new RulesStateSeed()),
                 rolls
             )
                 .UseHealthRules()
@@ -541,17 +529,24 @@ namespace Game.Tests.EditMode.RulesRuntime
                 .Build();
             RequireResolved(
                 dispatcher
+                    .Dispatch(new InitEncounterOp(Encounter, Party))
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult()
+            );
+            RequireResolved(
+                dispatcher
                     .Dispatch(
-                        new StartEncounterOp(
+                        new AddCombatantsOp(
                             Encounter,
-                            Party,
                             new[]
                             {
-                                new EncounterParticipant(Actor, Party, actorInitiativeModifier),
-                                new EncounterParticipant(
+                                Registration(Actor, Party, actorInitiativeModifier, actorBindings),
+                                Registration(
                                     Enemy,
                                     Opposition,
-                                    enemyInitiativeModifier
+                                    enemyInitiativeModifier,
+                                    Array.Empty<ActiveRuleBinding>()
                                 ),
                             }
                         )
@@ -560,8 +555,34 @@ namespace Game.Tests.EditMode.RulesRuntime
                     .GetAwaiter()
                     .GetResult()
             );
+            RequireResolved(
+                dispatcher
+                    .Dispatch(new AdvanceEncounterOp(Encounter))
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult()
+            );
             return dispatcher;
         }
+
+        private static CombatantRulesState Registration(
+            CreatureId creature,
+            PlayerId team,
+            int initiativeModifier,
+            IReadOnlyList<ActiveRuleBinding> bindings
+        ) =>
+            new CombatantRulesState(
+                new CreatureState(creature, team),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                initiativeModifier,
+                Array.Empty<SpellSlotState>(),
+                bindings,
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                Array.Empty<ActiveEffectInstance>()
+            );
 
         private static RageActorState CreateActorState(
             bool ownsRage = true,

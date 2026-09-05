@@ -74,7 +74,7 @@ encounter-live adapters. Both are constructed before `UnityCombatRulesBridge` su
 `UseActionLifecycle(modules.ActionCatalog)` and `UseActiveEffectRules(modules.Registry)`, and before
 any module's `ConfigureDispatcher` pass. The catalog's composed capabilities are stable, but
 combatant-specific data remains encounter-live:
-`UnityStrikeContext.Register` adds item definitions during reinforcement preparation, and
+`UnityStrikeContext` adds item definitions during any combatant preparation, and
 `UnitySpellBookProvider` reads the live creature map. Do not snapshot combatant-specific catalog
 data during static composition. This is an allowed named composition-root responsibility: the root
 may mention Rage and spell definitions to wire feature-owned catalogs and IDs, but it does not
@@ -103,13 +103,15 @@ registration side effects.
 1. Create the mutable topology provider, shared feature contexts, catalogs, registry, explicit
    module set, composition, and enrollment pipeline.
 2. Call `UnityCombatantEnrollmentPipeline.Prepare` for all initial participants.
-3. Call `UnityCombatantEnrollmentPlan.SeedInitial` into one `RulesStateSeed`.
+3. Build an empty `RulesState`; combat encounter construction does not seed combatant state.
 4. Configure shared runtimes on `RuleDispatcherBuilder`: health, MAP, checks, active effects,
    encounter rules, action lifecycle, movement, and Stride.
 5. Invoke `ConfigureDispatcher` for feature modules in module order, build the dispatcher, then
    invoke `RegisterRuntime` in module order.
-6. Call `AttachAndInstall`.
-7. Transfer the prepared plan to the encounter's single `CompositeLifetime`.
+6. Dispatch `InitEncounterOp`, commit the initial prepared batch through `AddCombatantsOp`, then
+   call `AttachAndInstall` and transfer the plan to the encounter lifetime before `Create` returns.
+7. The caller invokes `AdvanceEncounter` to dispatch `AdvanceEncounterOp`, activate the encounter,
+   publish encounter-start presentation, and reach the first turn.
 
 `AttachAndInstall` is deliberately after authoritative state and runtime observers exist. For each
 combatant it attaches health authority first, attaches `ActionController` combat authority second,
@@ -148,51 +150,53 @@ is the one path for constructor-time participants and later reinforcements.
 ### Reversible preparation
 
 `Prepare` validates the complete controller batch, reserves creature/player identity allocation,
-creates Unity-to-rules maps provisionally, validates future attachments, invokes every enrollment
-module, captures initiative modifiers, and freezes `CombatantRulesState` plus installation plans.
+creates every Unity-to-rules map provisionally, validates future attachments, invokes every
+enrollment module, captures initiative modifiers, and freezes complete `CombatantRulesState` values
+plus installation plans. Creating all maps before module preparation lets restored effects resolve
+cross-combatant sources while preparation is still reversible.
 `UnityCombatantEnrollmentBuilder` exposes the supported contribution APIs:
 
 - `Own<TResource>` for reversible preparation resources;
-- `AddState(IUnityCombatantStateContribution)` for state that supports both initial seeding and
-  reinforcement registration;
-- `AddSpellSlots` and `AddRuleBindings` for atomic base combatant state;
+- `AddSpellSlots`, `AddRuleBindings`, `AddEquipment`, `AddAmmunition`, and `AddActiveEffects` for
+  rules state committed atomically with the combatant;
 - `AddInstallation(IUnityCombatantInstallationContribution)` for precomputed Unity changes.
 
 If any preparation read or preflight fails, the preparation `CompositeLifetime` rolls back maps,
 identity allocation, and feature-owned resources. Cleanup failures are retained with the original
 failure. Preparation must therefore perform every fallible Unity query needed by `Apply`.
 
-This is not a promise that arbitrary work after a reinforcement commit can roll back `RulesState`.
+This is not a promise that arbitrary work after an addition commit can roll back `RulesState`.
 The commit boundary is intentional: installation contributions must be deterministic applications
 of precomputed data and must not repeat fallible discovery or validation.
 
-### Initial participants versus reinforcements
+### One combatant-addition path
 
-Both routes call the same `PrepareCombatant` methods in the same module order and build the same
-`CombatantRulesState`.
+Initial participants and reinforcements call the same `UnityCombatantEnrollmentPlan.Commit`, which
+dispatches one `AddCombatantsOp` containing a normalized immutable list of complete registrations.
+Its handler rolls initiative and derives stable order and round eligibility. One reducer validates
+the whole batch, commits every state slice, inserts the initiative entries, initializes action
+economy and MAP, preserves an active exact turn, and stages `CombatantsAddedFact` plus any restored
+`ActiveEffectCreatedFact` values. Initiative assignments are published from a later frame so newly
+committed bindings observe their own assignment exactly once.
 
-- Initial participants call `SeedInitial`. Base creature, health, position, land speed, action
-  economy, MAP, spell slots, bindings, and feature contributions enter the seed before the
-  dispatcher exists. Initiative is rolled later by `StartEncounterOp`.
-- Reinforcements call `CommitReinforcements`. One `JoinEncounterOp` atomically adds each prepared
-  `CombatantRulesState` (including spell slots and bindings) to the active encounter, rolls
-  initiative, and assigns `EligibleFromRound` so a higher-than-current result waits until the next
-  round. Additional `IUnityCombatantStateContribution` objects then run their rules-owned
-  registration workflows.
+An initialized encounter has an empty roster, cursor `-1`, and no current turn. Initial additions
+naturally qualify for round one. An active-turn addition inserted at or before the reached actor waits
+until the next round; one inserted after it remains eligible in the current round. Adding combatants
+never advances, begins, or ends a turn.
 
-After either state path, call `AttachAndInstall`, then `TransferTo(encounterLifetime)`. A new feature
-must support both paths; never assume all participants existed at encounter construction.
+After a successful rules commit, call `AttachAndInstall`, then `TransferTo(encounterLifetime)`. A new
+feature contributes complete registration state and therefore supports both initial and later
+batches without a second state workflow.
 
 ### Restored-effect adoption
 
 `UnitySpellcastingEncounterModule` is the production example of state that crosses both enrollment
 routes. During preparation it converts supported `SpellEffectController` entries into
-`RestoredSpellEffectContribution` objects with stable `ActiveEffectId` and `BindingId` values.
-Initial participants seed the effect and binding directly. Reinforcements dispatch the
-feature-owned `AdoptRestoredSpellEffectsOp`, whose handler composes `CreateActiveEffectOp` for each
-registration. `RestoredSpellEffectTimingObserver` projects initiative-boundary counts and removes
-Unity effects when `ActiveEffectRemovedFact` commits. Do not bypass the active-effect runtime for
-restored effects.
+`RestoredSpellEffectRegistration` objects with stable `ActiveEffectId` and `BindingId` values.
+The complete combatant registration carries each restored effect and matching binding through the
+same addition reducer. That reducer creates encounter timing and emits the generic
+`ActiveEffectCreatedFact`. `RestoredSpellEffectTimingObserver` projects initiative-boundary counts
+and removes Unity effects when `ActiveEffectRemovedFact` commits.
 
 ## Dispatcher and encounter runtime
 
@@ -204,12 +208,13 @@ Facts are the notification contract.
 [`EncounterRuleRuntime`](../Assets/Scripts/Rules/Runtime/EncounterRuleRuntime.cs) installs the
 encounter handlers and engine reducers. Its current division of responsibility is:
 
-- `StartEncounterHandler`: roll initiative through `IRollService`, retain registration-order ties,
-  commit the roster and generic conclusion policy, publish initiative assignments, and trigger the
-  first boundary causally.
-- `JoinEncounterHandler`: validate an active turn, roll reinforcement initiative, commit full
-  combatant states, and publish assignments from a later frame so new bindings can observe them.
+- `InitEncounterHandler`: commit an empty initialized encounter and its conclusion policy without
+  starting presentation or initiative.
+- `AddCombatantsHandler`: roll initiative, derive stable order and eligibility, atomically commit
+  complete combatant registrations, and publish assignments from a later frame.
 - `AdvanceEncounterHandler`: evaluate immediate outcomes, then request the next initiative boundary.
+  Its first call activates a populated initialized encounter and emits `EncounterStartedFact` before
+  reaching the first boundary.
   The boundary reducer advances the cursor and effect countdowns, removes every due effect and its
   associated binding/frequency/timing state in deterministic order, and finally stages
   `InitiativeBoundaryReachedFact` in the same atomic commit.
@@ -270,11 +275,10 @@ framework.
    `Use...Rules` extensions or exact `RegisterHandler`, `RegisterReducer`, and
    `RegisterActionValidator` APIs. `UnityStrikeEncounterModule` and
    `UnitySpellcastingEncounterModule` are production examples.
-3. **Model per-combatant enrollment for both routes.** Implement
-   `IUnityCombatantEnrollmentModule.PrepareCombatant(UnityCombatantEnrollmentBuilder)`. Add base
-   slots/bindings directly, or implement `IUnityCombatantStateContribution.Seed` and `Register`
-   when feature state needs different seed and operation-based adoption mechanics. Use `Own` for
-   every provisional disposable.
+3. **Model complete per-combatant enrollment.** Implement
+   `IUnityCombatantEnrollmentModule.PrepareCombatant(UnityCombatantEnrollmentBuilder)`. Add every
+   rules-owned state slice directly to the normalized registration and use `Own` for every
+   provisional disposable. Do not add a post-addition feature registration workflow.
 4. **Precompute Unity installation.** If the feature changes action lists or adapters, return an
    `IUnityCombatantInstallationContribution` from preparation. Its `Apply` method may only apply
    frozen work after rules authority is established. It may mutate Unity installation state, such as
@@ -310,7 +314,7 @@ framework.
    in every applicable composition pass. These named root references are wiring, not feature
    semantics; do not move rules into the root or self-register.
 8. **Test the vertical boundary.** Add deterministic EditMode tests for reducers, handlers,
-   lifecycle, initial seed, reinforcement registration, failure rollback, ordering, exact identity,
+   lifecycle, initial and later additions, failure rollback, ordering, exact identity,
    and cleanup. Add PlayMode coverage only for scene/FSM/presentation behavior. Verify unavailable
    projections and required-operation failures without a bridge.
 9. **Update this guide only if the shared architecture changed.** Feature-specific behavior belongs

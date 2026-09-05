@@ -7,21 +7,21 @@ namespace Game.Rules.Runtime
 {
     internal static class EncounterOperationValues
     {
-        public static IReadOnlyList<EncounterParticipant> CopyParticipants(
-            IEnumerable<EncounterParticipant> participants
+        public static IReadOnlyList<CombatantRulesState> CopyCombatants(
+            IEnumerable<CombatantRulesState> combatants
         )
         {
-            EncounterParticipant[] copied =
-                participants?.ToArray() ?? throw new ArgumentNullException(nameof(participants));
+            CombatantRulesState[] copied =
+                combatants?.ToArray() ?? throw new ArgumentNullException(nameof(combatants));
             if (copied.Length == 0 || copied.Any(value => value == null))
                 throw new ArgumentException(
-                    "At least one complete participant is required.",
-                    nameof(participants)
+                    "At least one complete combatant is required.",
+                    nameof(combatants)
                 );
-            if (copied.Select(value => value.Creature).Distinct().Count() != copied.Length)
+            if (copied.Select(value => value.Creature.Id).Distinct().Count() != copied.Length)
                 throw new ArgumentException(
                     "A creature can be registered only once.",
-                    nameof(participants)
+                    nameof(combatants)
                 );
             return Array.AsReadOnly(copied);
         }
@@ -41,8 +41,8 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Requests a new encounter, initiative rolls, and its first eligible turn.</summary>
-    public sealed class StartEncounterOp : IRuleOp<EncounterStartOutcome>
+    /// <summary>Creates an empty encounter before combatants or turns are added.</summary>
+    public sealed class InitEncounterOp : IRuleOp<EncounterInitializationOutcome>
     {
         /// <summary>Gets the stable identity allocated for the new encounter.</summary>
         public EncounterId Encounter { get; }
@@ -53,22 +53,16 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the policy controlling automatic encounter conclusion.</summary>
         public EncounterConclusionPolicy ConclusionPolicy { get; }
 
-        /// <summary>Gets the immutable registrations rolled in their supplied order.</summary>
-        public IReadOnlyList<EncounterParticipant> Participants { get; }
-
-        /// <summary>Creates a complete request for one not-yet-started encounter.</summary>
+        /// <summary>Creates a complete request for one not-yet-initialized encounter.</summary>
         /// <param name="encounter">The new encounter identity.</param>
         /// <param name="protagonistTeam">The player/protagonist team.</param>
-        /// <param name="participants">Unique creatures in deterministic registration order.</param>
         /// <param name="conclusionPolicy">The health outcomes that automatically end the encounter.</param>
         /// <exception cref="ArgumentException">
-        /// An identity is empty, the participant roster is invalid, or no participant belongs to
-        /// <paramref name="protagonistTeam"/>.
+        /// An identity is empty or the conclusion policy is invalid.
         /// </exception>
-        public StartEncounterOp(
+        public InitEncounterOp(
             EncounterId encounter,
             PlayerId protagonistTeam,
-            IEnumerable<EncounterParticipant> participants,
             EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
         )
         {
@@ -76,54 +70,30 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("Encounter and protagonist team IDs are required.");
             if (!Enum.IsDefined(typeof(EncounterConclusionPolicy), conclusionPolicy))
                 throw new ArgumentOutOfRangeException(nameof(conclusionPolicy));
-            IReadOnlyList<EncounterParticipant> copied = EncounterOperationValues.CopyParticipants(
-                participants
-            );
-            if (!copied.Any(participant => participant.Team == protagonistTeam))
-                throw new ArgumentException(
-                    "At least one encounter participant must belong to the protagonist team.",
-                    nameof(participants)
-                );
             Encounter = encounter;
             ProtagonistTeam = protagonistTeam;
             ConclusionPolicy = conclusionPolicy;
-            Participants = copied;
         }
     }
 
-    /// <summary>Requests same-store registration of encounter reinforcements.</summary>
-    public sealed class JoinEncounterOp : IRuleOp<EncounterJoinOutcome>
+    /// <summary>Adds one complete immutable batch to an initialized or active encounter.</summary>
+    public sealed class AddCombatantsOp : IRuleOp<CombatantsAddedOutcome>
     {
-        /// <summary>Gets the active encounter receiving the reinforcements.</summary>
+        /// <summary>Gets the encounter receiving the combatants.</summary>
         public EncounterId Encounter { get; }
 
-        /// <summary>Gets the complete same-store reinforcement registrations.</summary>
-        public IReadOnlyList<EncounterJoinParticipant> Participants { get; }
+        /// <summary>Gets the complete registrations in deterministic registration order.</summary>
+        public IReadOnlyList<CombatantRulesState> Combatants { get; }
 
-        /// <summary>Creates an atomic reinforcement request.</summary>
-        /// <param name="encounter">The active encounter identity.</param>
-        /// <param name="participants">Unique reinforcement creatures and initial health.</param>
-        public JoinEncounterOp(
-            EncounterId encounter,
-            IEnumerable<EncounterJoinParticipant> participants
-        )
+        /// <summary>Creates one atomic combatant-addition request.</summary>
+        /// <param name="encounter">The initialized or active encounter identity.</param>
+        /// <param name="combatants">Unique complete combatant registrations.</param>
+        public AddCombatantsOp(EncounterId encounter, IEnumerable<CombatantRulesState> combatants)
         {
             if (encounter.IsEmpty)
                 throw new ArgumentException("An encounter ID is required.", nameof(encounter));
             Encounter = encounter;
-            EncounterJoinParticipant[] copied =
-                participants?.ToArray() ?? throw new ArgumentNullException(nameof(participants));
-            if (copied.Length == 0 || copied.Any(value => value == null))
-                throw new ArgumentException(
-                    "At least one complete reinforcement is required.",
-                    nameof(participants)
-                );
-            if (
-                copied.Select(value => value.Participant.Creature).Distinct().Count()
-                != copied.Length
-            )
-                throw new ArgumentException("A creature can join only once.", nameof(participants));
-            Participants = Array.AsReadOnly(copied);
+            Combatants = EncounterOperationValues.CopyCombatants(combatants);
         }
     }
 
@@ -366,36 +336,37 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Returns the encounter snapshot produced by a successful start.</summary>
-    public readonly struct EncounterStartOutcome : ISettledOperationResult<EncounterStartOutcome>
+    /// <summary>Returns the empty encounter snapshot produced by initialization.</summary>
+    public readonly struct EncounterInitializationOutcome
+        : ISettledOperationResult<EncounterInitializationOutcome>
     {
-        /// <summary>Gets the encounter after initiative and first-turn advancement settle.</summary>
+        /// <summary>Gets the initialized encounter before combatants or turns are added.</summary>
         public EncounterState State { get; }
 
         /// <summary>Creates an outcome from one committed encounter snapshot.</summary>
         /// <param name="state">The non-null state represented by this outcome.</param>
-        public EncounterStartOutcome(EncounterState state) =>
+        public EncounterInitializationOutcome(EncounterState state) =>
             State = state ?? throw new ArgumentNullException(nameof(state));
 
-        EncounterStartOutcome ISettledOperationResult<EncounterStartOutcome>.Settle(
+        EncounterInitializationOutcome ISettledOperationResult<EncounterInitializationOutcome>.Settle(
             RulesSnapshot snapshot
-        ) => new EncounterStartOutcome(snapshot.Encounters[State.Id]);
+        ) => new EncounterInitializationOutcome(snapshot.Encounters[State.Id]);
     }
 
-    /// <summary>Returns the atomic roster replacement produced by accepted reinforcements.</summary>
-    public readonly struct EncounterJoinOutcome : ISettledOperationResult<EncounterJoinOutcome>
+    /// <summary>Returns the atomic roster replacement produced by accepted combatants.</summary>
+    public readonly struct CombatantsAddedOutcome : ISettledOperationResult<CombatantsAddedOutcome>
     {
         /// <summary>Gets the encounter containing the retained roster plus additions.</summary>
         public EncounterState State { get; }
 
         /// <summary>Creates an outcome from one committed encounter snapshot.</summary>
         /// <param name="state">The non-null state represented by this outcome.</param>
-        public EncounterJoinOutcome(EncounterState state) =>
+        public CombatantsAddedOutcome(EncounterState state) =>
             State = state ?? throw new ArgumentNullException(nameof(state));
 
-        EncounterJoinOutcome ISettledOperationResult<EncounterJoinOutcome>.Settle(
+        CombatantsAddedOutcome ISettledOperationResult<CombatantsAddedOutcome>.Settle(
             RulesSnapshot snapshot
-        ) => new EncounterJoinOutcome(snapshot.Encounters[State.Id]);
+        ) => new CombatantsAddedOutcome(snapshot.Encounters[State.Id]);
     }
 
     /// <summary>Returns the state produced by turn progression or encounter completion.</summary>
@@ -500,51 +471,63 @@ namespace Game.Rules.Runtime
         internal EncounterActionSpendOutcome(int remaining) => Remaining = remaining;
     }
 
-    internal sealed class CommitEncounterStartOp : IRuleOp<EncounterStartOutcome>
+    internal sealed class CommitEncounterInitializationOp : IRuleOp<EncounterInitializationOutcome>
     {
         public EncounterId Encounter { get; }
         public PlayerId ProtagonistTeam { get; }
         public EncounterConclusionPolicy ConclusionPolicy { get; }
-        public IReadOnlyList<InitiativeEntry> Roster { get; }
 
-        public CommitEncounterStartOp(
+        public CommitEncounterInitializationOp(
             EncounterId encounter,
             PlayerId protagonistTeam,
-            IReadOnlyList<InitiativeEntry> roster
-        )
-            : this(encounter, protagonistTeam, EncounterConclusionPolicy.VictoryOrDefeat, roster)
-        { }
-
-        public CommitEncounterStartOp(
-            EncounterId encounter,
-            PlayerId protagonistTeam,
-            EncounterConclusionPolicy conclusionPolicy,
-            IReadOnlyList<InitiativeEntry> roster
+            EncounterConclusionPolicy conclusionPolicy
         )
         {
             Encounter = encounter;
             ProtagonistTeam = protagonistTeam;
             ConclusionPolicy = conclusionPolicy;
-            Roster = roster;
         }
     }
 
-    internal sealed class CommitEncounterJoinOp : IRuleOp<EncounterJoinOutcome>
+    internal sealed class CommitCombatantsAdditionOp : IRuleOp<CombatantsAddedOutcome>
     {
         public EncounterId Encounter { get; }
-        public IReadOnlyList<InitiativeEntry> Additions { get; }
-        public IReadOnlyDictionary<CreatureId, CombatantRulesState> Registrations { get; }
+        public IReadOnlyList<CombatantAddition> Additions { get; }
 
-        public CommitEncounterJoinOp(
+        public CommitCombatantsAdditionOp(
             EncounterId encounter,
-            IReadOnlyList<InitiativeEntry> additions,
-            IReadOnlyDictionary<CreatureId, CombatantRulesState> registrations
+            IReadOnlyList<CombatantAddition> additions
         )
         {
             Encounter = encounter;
-            Additions = additions;
-            Registrations = registrations;
+            CombatantAddition[] copied =
+                additions?.ToArray() ?? throw new ArgumentNullException(nameof(additions));
+            if (copied.Length == 0 || copied.Any(addition => addition == null))
+                throw new ArgumentException(
+                    "At least one complete combatant addition is required.",
+                    nameof(additions)
+                );
+            Additions = Array.AsReadOnly(copied);
         }
+    }
+
+    internal sealed class CombatantAddition
+    {
+        public CombatantAddition(InitiativeEntry initiative, CombatantRulesState combatant)
+        {
+            Initiative = initiative ?? throw new ArgumentNullException(nameof(initiative));
+            Combatant = combatant ?? throw new ArgumentNullException(nameof(combatant));
+        }
+
+        public InitiativeEntry Initiative { get; }
+        public CombatantRulesState Combatant { get; }
+    }
+
+    internal sealed class CommitEncounterActivationOp : IRuleOp<EncounterAdvanceOutcome>
+    {
+        public CommitEncounterActivationOp(EncounterId encounter) => Encounter = encounter;
+
+        public EncounterId Encounter { get; }
     }
 
     internal sealed class CommitInitiativeAssignmentsOp : IRuleOp<InitiativeAssignmentsOutcome>

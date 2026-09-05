@@ -122,9 +122,10 @@ public sealed class UnityCombatRulesBridgeTests
             ConfigureFeatureState(reinforcementObject.GetComponent<CreatureComponent>());
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { initial, anchor },
-                CreateTiles(3)
+                CreateTiles(3),
+                "Players"
             );
-            bridge.StartEncounter("Players");
+            bridge.AdvanceEncounter();
 
             bridge.RegisterCombatants(new ActionController[] { reinforcement });
 
@@ -169,20 +170,21 @@ public sealed class UnityCombatRulesBridgeTests
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { source, target },
                 CreateTiles(2),
-                new ScriptedRollService(20, 1)
+                new ScriptedRollService(20, 1),
+                "Players"
             );
-            bridge.StartEncounter("Players");
+            bridge.AdvanceEncounter();
 
-            ActiveEffectInstance adopted = bridge
+            ActiveEffectInstance restored = bridge
                 .Snapshot.ActiveEffects.Select(pair => pair.Value)
                 .Single(effect =>
                     effect.DefinitionId
                     == UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
                 );
             CreatureId sourceId = bridge.GetCreatureId(source);
-            Assert.That(adopted.SourceCreature, Is.EqualTo(sourceId));
+            Assert.That(restored.SourceCreature, Is.EqualTo(sourceId));
             Assert.That(
-                bridge.Snapshot.ActiveEffectTimings[adopted.Id].RemainingBoundaries,
+                bridge.Snapshot.ActiveEffectTimings[restored.Id].RemainingBoundaries,
                 Is.EqualTo(1)
             );
             Assert.That(bless.RemainingTargetTurnStarts, Is.EqualTo(1));
@@ -195,13 +197,73 @@ public sealed class UnityCombatRulesBridgeTests
             }
 
             Assert.That(targetEffects.HasEffect<BlessSpellEffect>(), Is.False);
-            Assert.That(bridge.Snapshot.ActiveEffects.Contains(adopted.Id), Is.False);
-            Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(adopted.Id), Is.False);
+            Assert.That(bridge.Snapshot.ActiveEffects.Contains(restored.Id), Is.False);
+            Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(restored.Id), Is.False);
             bridge.ReleaseOwnership();
         }
         finally
         {
             Object.DestroyImmediate(sourceObject);
+            Object.DestroyImmediate(targetObject);
+        }
+    }
+
+    [Test]
+    public void LaterAdditionCommitsRestoredSpellEffectThroughCommonEnrollment()
+    {
+        GameObject sourceObject = new GameObject("later-effect-source");
+        GameObject anchorObject = new GameObject("later-effect-anchor");
+        GameObject targetObject = new GameObject("later-effect-target");
+        try
+        {
+            BridgeTestActionController source = ConfigureCombatant(
+                sourceObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            BridgeTestActionController target = ConfigureCombatant(
+                targetObject,
+                "Enemies",
+                new Vector3Int(2, 0, 0)
+            );
+            BlessSpellEffect bless = new BlessSpellEffect(sourceObject)
+            {
+                RemainingTargetTurnStarts = 2,
+            };
+            SpellEffectController.GetOrAdd(targetObject).RestoreEffects(new[] { bless });
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { source, anchor },
+                CreateTiles(3),
+                new ScriptedRollService(20, 10, 5),
+                "Players"
+            );
+            bridge.AdvanceEncounter();
+
+            bridge.RegisterCombatants(new ActionController[] { target });
+
+            ActiveEffectInstance restored = bridge
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single(effect =>
+                    effect.DefinitionId
+                    == UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
+                );
+            Assert.That(restored.SourceCreature, Is.EqualTo(bridge.GetCreatureId(source)));
+            Assert.That(
+                bridge.Snapshot.ActiveEffectTimings[restored.Id].RemainingBoundaries,
+                Is.EqualTo(2)
+            );
+            Assert.That(bless.RemainingTargetTurnStarts, Is.EqualTo(2));
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(sourceObject);
+            Object.DestroyImmediate(anchorObject);
             Object.DestroyImmediate(targetObject);
         }
     }
@@ -219,7 +281,8 @@ public sealed class UnityCombatRulesBridgeTests
             );
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { controller },
-                CreateTiles(1)
+                CreateTiles(1),
+                "Players"
             );
             List<string> order = new List<string>();
             InvalidOperationException firstCleanupFailure = new InvalidOperationException(
@@ -331,7 +394,8 @@ public sealed class UnityCombatRulesBridgeTests
             );
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { controller },
-                CreateTiles(1)
+                CreateTiles(1),
+                "Players"
             );
             InvalidOperationException failure = new InvalidOperationException("single callback");
             int invocationCount = 0;
@@ -365,7 +429,11 @@ public sealed class UnityCombatRulesBridgeTests
     public void BridgeRejectsEmptyEncounterWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityCombatRulesBridge.Create(Array.Empty<ActionController>(), CreateTiles(1))
+            UnityCombatRulesBridge.Create(
+                Array.Empty<ActionController>(),
+                CreateTiles(1),
+                "Players"
+            )
         );
 
         StringAssert.Contains("requires at least one controller", error.Message);
@@ -375,7 +443,11 @@ public sealed class UnityCombatRulesBridgeTests
     public void BridgeRejectsNullEncounterCreatureWithSpecificError()
     {
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
-            UnityCombatRulesBridge.Create(new ActionController[] { null }, CreateTiles(1))
+            UnityCombatRulesBridge.Create(
+                new ActionController[] { null },
+                CreateTiles(1),
+                "Players"
+            )
         );
 
         StringAssert.Contains("cannot contain a null controller", error.Message);
@@ -448,7 +520,8 @@ public sealed class UnityCombatRulesBridgeTests
             );
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { first, second },
-                CreateTiles(2)
+                CreateTiles(2),
+                "Players"
             );
             CreatureId firstId = bridge.GetCreatureId(first);
             CreatureId secondId = bridge.GetCreatureId(second);
@@ -456,7 +529,7 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(bridge.HasTurnAuthority(firstId), Is.False);
             Assert.That(bridge.HasTurnAuthority(secondId), Is.False);
 
-            EncounterState encounter = bridge.StartEncounter("Players");
+            EncounterState encounter = bridge.AdvanceEncounter();
 
             Assert.That(encounter.CurrentTurn.HasValue, Is.True);
             Assert.That(
@@ -496,13 +569,15 @@ public sealed class UnityCombatRulesBridgeTests
             candidateTeam.Name = "Enemies";
             UnityCombatRulesBridge owner = UnityCombatRulesBridge.Create(
                 new ActionController[] { first },
-                CreateTiles(2)
+                CreateTiles(2),
+                "Players"
             );
 
             Assert.Throws<InvalidOperationException>(() =>
                 UnityCombatRulesBridge.Create(
                     new ActionController[] { candidate, first },
-                    CreateTiles(2)
+                    CreateTiles(2),
+                    "Enemies"
                 )
             );
             Assert.That(candidate.ActionPoints, Is.Zero);
@@ -512,7 +587,8 @@ public sealed class UnityCombatRulesBridgeTests
             owner.ReleaseOwnership();
             UnityCombatRulesBridge retry = UnityCombatRulesBridge.Create(
                 new ActionController[] { candidate, first },
-                CreateTiles(2)
+                CreateTiles(2),
+                "Enemies"
             );
 
             Assert.That(retry.GetCreatureId(candidate), Is.Not.EqualTo(default(CreatureId)));
@@ -551,7 +627,8 @@ public sealed class UnityCombatRulesBridgeTests
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
                 UnityCombatRulesBridge.Create(
                     new ActionController[] { first, thrower },
-                    CreateTiles(2)
+                    CreateTiles(2),
+                    "Players"
                 )
             );
 
@@ -566,7 +643,8 @@ public sealed class UnityCombatRulesBridgeTests
             thrower.GetActionsEvent.RemoveAllListeners();
             UnityCombatRulesBridge retry = UnityCombatRulesBridge.Create(
                 new ActionController[] { first, thrower },
-                CreateTiles(2)
+                CreateTiles(2),
+                "Players"
             );
 
             Assert.That(retry.GetCreatureId(first).Value, Is.EqualTo("combat-creature-1"));
@@ -595,7 +673,8 @@ public sealed class UnityCombatRulesBridgeTests
             team.Name = "Players";
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { ownerController },
-                CreateTiles(1)
+                CreateTiles(1),
+                "Players"
             );
             mixedObject.AddComponent<CreatureComponent>().InitializeHealthBeforeEncounter(10, 10);
             BridgeTestActionController mixed =
@@ -645,12 +724,14 @@ public sealed class UnityCombatRulesBridgeTests
             reinforcementTeam.Name = "Enemies";
             UnityCombatRulesBridge encounter = UnityCombatRulesBridge.Create(
                 new ActionController[] { host, anchor },
-                CreateTiles(3)
+                CreateTiles(3),
+                "Players"
             );
-            encounter.StartEncounter("Players");
+            encounter.AdvanceEncounter();
             UnityCombatRulesBridge competing = UnityCombatRulesBridge.Create(
                 new ActionController[] { reinforcement },
-                CreateTiles(2)
+                CreateTiles(2),
+                "Enemies"
             );
             RulesSnapshot before = encounter.Snapshot;
 
@@ -684,7 +765,7 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
-    public void ReinforcementInstallationFailureLeavesStoreAndOwnershipUnchangedForRetry()
+    public void LaterPreparationFailureLeavesStoreAndOwnershipUnchangedForRetry()
     {
         GameObject hostObject = new GameObject("failure-host");
         GameObject anchorObject = new GameObject("failure-anchor");
@@ -711,19 +792,20 @@ public sealed class UnityCombatRulesBridgeTests
             reinforcementTeam.Name = "Enemies";
             UnityCombatRulesBridge encounter = UnityCombatRulesBridge.Create(
                 new ActionController[] { host, anchor },
-                CreateTiles(3)
+                CreateTiles(3),
+                "Players"
             );
-            encounter.StartEncounter("Players");
+            encounter.AdvanceEncounter();
             RulesSnapshot before = encounter.Snapshot;
             reinforcement.GetActionsEvent.AddListener(_ =>
-                throw new InvalidOperationException("Injected reinforcement installation failure.")
+                throw new InvalidOperationException("Injected later preparation failure.")
             );
 
             InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
                 encounter.RegisterCombatants(new ActionController[] { reinforcement })
             );
 
-            Assert.That(error.Message, Does.Contain("Injected reinforcement installation failure"));
+            Assert.That(error.Message, Does.Contain("Injected later preparation failure"));
             Assert.That(encounter.Snapshot.Version, Is.EqualTo(before.Version));
             Assert.That(
                 encounter.GetEncounter().Roster.Select(entry => entry.Creature),
@@ -903,6 +985,7 @@ public sealed class UnityCombatRulesBridgeTests
             CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
             creature.InitializeHealthBeforeEncounter(10, 10);
             creature.speed = 25;
+            creatureObject.AddComponent<Team>().Name = "players";
             BridgeTestActionController controller =
                 creatureObject.AddComponent<BridgeTestActionController>();
             Team opponentTeam = opponentObject.AddComponent<Team>();
@@ -918,7 +1001,8 @@ public sealed class UnityCombatRulesBridgeTests
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { controller, opponentController },
                 tiles,
-                new ScriptedRollService(20, 10)
+                new ScriptedRollService(20, 10),
+                "players"
             );
             CreatureId id = bridge.GetCreatureId(creature);
             bridge.BeginTurn(id, 3);
@@ -1104,7 +1188,8 @@ public sealed class UnityCombatRulesBridgeTests
                 : new ActionController[] { occupant, mover };
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 registrations,
-                CreateTiles(4)
+                CreateTiles(4),
+                "mover-team"
             );
             CreatureId moverId = bridge.GetCreatureId(
                 moverObject.GetComponent<CreatureComponent>()
@@ -1219,7 +1304,8 @@ public sealed class UnityCombatRulesBridgeTests
             );
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { last, middle, mover },
-                CreateTiles(4)
+                CreateTiles(4),
+                "mover-team"
             );
             CreatureId moverId = bridge.GetCreatureId(
                 moverObject.GetComponent<CreatureComponent>()
@@ -1293,7 +1379,8 @@ public sealed class UnityCombatRulesBridgeTests
             .ToArray();
         return UnityCombatRulesBridge.Create(
             controllers,
-            CreateTiles(Math.Max(1, controllers.Length))
+            CreateTiles(Math.Max(1, controllers.Length)),
+            "Test Team"
         );
     }
 

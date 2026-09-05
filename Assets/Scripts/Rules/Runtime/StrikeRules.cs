@@ -654,72 +654,6 @@ namespace Game.Rules.Runtime
         public bool IsLoaded { get; }
     }
 
-    /// <summary>Contains Strike-owned state added for one encounter reinforcement.</summary>
-    public sealed class StrikeCombatantRegistration
-    {
-        private readonly IReadOnlyList<EquipmentState> equipment;
-        private readonly IReadOnlyList<AmmunitionState> ammunition;
-
-        /// <summary>Creates the complete Strike state for one already-registered combatant.</summary>
-        public StrikeCombatantRegistration(
-            CreatureId actor,
-            IEnumerable<EquipmentState> equipment,
-            IEnumerable<AmmunitionState> ammunition
-        )
-        {
-            if (actor.IsEmpty)
-                throw new ArgumentException("A Strike combatant is required.", nameof(actor));
-            if (equipment == null)
-                throw new ArgumentNullException(nameof(equipment));
-            if (ammunition == null)
-                throw new ArgumentNullException(nameof(ammunition));
-            EquipmentState[] copiedEquipment = equipment.ToArray();
-            AmmunitionState[] copiedAmmunition = ammunition.ToArray();
-            if (copiedEquipment.Any(item => item == null || item.Holder != actor))
-                throw new ArgumentException(
-                    "Every Strike item must belong to the registered actor.",
-                    nameof(equipment)
-                );
-            if (copiedAmmunition.Any(pool => pool.Owner != actor))
-                throw new ArgumentException(
-                    "Every ammunition pool must belong to the registered actor.",
-                    nameof(ammunition)
-                );
-            Actor = actor;
-            this.equipment = Array.AsReadOnly(copiedEquipment);
-            this.ammunition = Array.AsReadOnly(copiedAmmunition);
-        }
-
-        /// <summary>Gets the registered actor.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the actor's Strike equipment.</summary>
-        public IReadOnlyList<EquipmentState> Equipment => equipment;
-
-        /// <summary>Gets the actor's ammunition pools.</summary>
-        public IReadOnlyList<AmmunitionState> Ammunition => ammunition;
-    }
-
-    /// <summary>Adds Strike-owned state after generic reinforcement registration.</summary>
-    public sealed class RegisterStrikeCombatantOp : IRuleOp<bool>
-    {
-        /// <summary>Creates a feature registration request.</summary>
-        public RegisterStrikeCombatantOp(StrikeCombatantRegistration registration) =>
-            Registration = registration ?? throw new ArgumentNullException(nameof(registration));
-
-        /// <summary>Gets the complete Strike state being registered.</summary>
-        public StrikeCombatantRegistration Registration { get; }
-    }
-
-    /// <summary>Records installation of the feature-owned Strike state for a reinforcement.</summary>
-    public sealed class StrikeCombatantRegisteredFact : RuleFact
-    {
-        internal StrikeCombatantRegisteredFact(CreatureId actor) => Actor = actor;
-
-        /// <summary>Gets the newly Strike-enabled combatant.</summary>
-        public CreatureId Actor { get; }
-    }
-
     /// <summary>Represents the minimal feature-owned Reload needed by ranged Strike.</summary>
     public sealed class ReloadActionOp : ActionOp<EquipmentState>
     {
@@ -836,19 +770,12 @@ namespace Game.Rules.Runtime
                 )
                 .RegisterHandler<ReloadActionOp, EquipmentState>(new ReloadActionHandler(catalog))
                 .RegisterActionValidator(new ReloadActionValidator(reload, catalog))
-                .RegisterHandler<RegisterStrikeCombatantOp, bool>(
-                    new RegisterStrikeCombatantHandler()
-                )
                 .RegisterHandler<SetStrikeItemLoadedOp, EquipmentState>(
                     new SetStrikeItemLoadedHandler(),
                     InvocationPolicy.NestedOnly
                 )
                 .RegisterReducer<CommitStrikeItemLoadedOp, EquipmentState>(
                     new CommitStrikeItemLoadedReducer(),
-                    Source
-                )
-                .RegisterReducer<CommitStrikeCombatantRegistrationOp, bool>(
-                    new CommitStrikeCombatantRegistrationReducer(),
                     Source
                 );
         }
@@ -1241,60 +1168,6 @@ namespace Game.Rules.Runtime
                 );
             }
             return ReductionResult<EquipmentState>.Accept(changed);
-        }
-    }
-
-    internal sealed class RegisterStrikeCombatantHandler
-        : IOpHandler<RegisterStrikeCombatantOp, bool>
-    {
-        public async ValueTask<bool> Handle(
-            OpFrame<RegisterStrikeCombatantOp> frame,
-            OpHandlerContext context
-        )
-        {
-            OpResult<bool> result = await context.Dispatch(
-                new CommitStrikeCombatantRegistrationOp(frame.Op.Registration)
-            );
-            if (result is ResolvedOpResult<bool> resolved)
-                return resolved.Value;
-            throw new InvalidOperationException("Strike combatant registration did not resolve.");
-        }
-    }
-
-    internal sealed class CommitStrikeCombatantRegistrationOp : IRuleOp<bool>
-    {
-        public CommitStrikeCombatantRegistrationOp(StrikeCombatantRegistration registration) =>
-            Registration = registration;
-
-        public StrikeCombatantRegistration Registration { get; }
-    }
-
-    internal sealed class CommitStrikeCombatantRegistrationReducer
-        : IOpReducer<CommitStrikeCombatantRegistrationOp, bool>
-    {
-        public ReductionResult<bool> Reduce(
-            ReductionContext<CommitStrikeCombatantRegistrationOp> context,
-            RulesStateDraft state,
-            FactSink facts
-        )
-        {
-            StrikeCombatantRegistration registration = context.Op.Registration;
-            if (!state.Creatures.Contains(registration.Actor))
-                return ReductionResult<bool>.Reject("The Strike combatant is not registered.");
-            if (
-                registration.Equipment.Any(item => state.Equipment.Contains(item.Id))
-                || registration.Ammunition.Any(pool => state.Ammunition.Contains(pool.Item))
-            )
-                return ReductionResult<bool>.Reject(
-                    "Strike combatant state is already registered."
-                );
-            foreach (EquipmentState item in registration.Equipment)
-                state.Equipment.Set(item.Id, item);
-            foreach (AmmunitionState pool in registration.Ammunition)
-                state.Ammunition.Set(pool.Item, pool);
-            state.MultipleAttackPenalty.Set(registration.Actor, new MultipleAttackPenaltyState(0));
-            facts.Stage(new StrikeCombatantRegisteredFact(registration.Actor));
-            return ReductionResult<bool>.Accept(true);
         }
     }
 }

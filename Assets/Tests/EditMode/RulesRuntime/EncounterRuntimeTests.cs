@@ -19,8 +19,8 @@ namespace Game.Rules.Runtime.Tests
         private static readonly EncounterId Encounter = new EncounterId("test-encounter");
         private static readonly RuleSource Source = RuleSource.FromSlug("encounter-test");
 
-        /// <summary>Identifies one state collection that can collide during a join preflight.</summary>
-        public enum JoinRegistrationCollision
+        /// <summary>Identifies one state collection that can collide during addition preflight.</summary>
+        public enum AdditionRegistrationCollision
         {
             /// <summary>The creature identity slice.</summary>
             Creature,
@@ -48,113 +48,58 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void StartRequestRequiresProtagonistMembershipAfterRosterCopy()
+        public async Task InitializationCreatesEmptyEncounterWithoutStartingIt()
         {
-            ArgumentException missing = Assert.Throws<ArgumentException>(() =>
-                new StartEncounterOp(
-                    Encounter,
-                    Players,
-                    new[] { new EncounterParticipant(Enemy, Enemies, 0) }
-                )
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(),
+                new RulesStateSeed()
             );
 
-            Assert.That(missing.ParamName, Is.EqualTo("participants"));
-            Assert.That(missing.Message, Does.Contain("protagonist team"));
-            Assert.DoesNotThrow(() =>
-                new StartEncounterOp(
-                    Encounter,
-                    Players,
-                    new[]
-                    {
-                        new EncounterParticipant(Hero, Players, 0),
-                        new EncounterParticipant(Enemy, Enemies, 0),
-                    }
-                )
+            OpResult<EncounterInitializationOutcome> result = await dispatcher.Dispatch(
+                new InitEncounterOp(Encounter, Players)
             );
-            Assert.DoesNotThrow(() =>
-                new StartEncounterOp(
-                    Encounter,
-                    Players,
-                    new[] { new EncounterParticipant(Hero, Players, 0) }
-                )
-            );
+
+            EncounterState initialized = Resolved(result).Value.State;
+            Assert.That(initialized.Phase, Is.EqualTo(EncounterPhase.Initialized));
+            Assert.That(initialized.Roster, Is.Empty);
+            Assert.That(initialized.Cursor, Is.EqualTo(-1));
+            Assert.That(initialized.CurrentTurn, Is.Null);
+            Assert.That(result.Facts.OfType<EncounterStartedFact>(), Is.Empty);
         }
 
         [Test]
-        public async Task CommitStartReducerRejectsRosterWithoutDesignatedProtagonist()
+        public async Task InitialAdditionCommitsBeforeExplicitAdvanceStartsEncounter()
         {
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService());
-            InitiativeEntry[] roster = { Entry(Enemy, Enemies, 10, 0) };
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(12, 10),
+                new RulesStateSeed()
+            );
+            await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players));
 
-            OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
-                new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
+            OpResult<CombatantsAddedOutcome> added = await dispatcher.Dispatch(
+                new AddCombatantsOp(
+                    Encounter,
+                    new[] { Registration(Hero, Players), Registration(Enemy, Enemies, 2) }
                 )
             );
-            OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<EncounterStartOutcome>>());
+            EncounterState roster = Resolved(added).Value.State;
+            Assert.That(roster.Phase, Is.EqualTo(EncounterPhase.Initialized));
             Assert.That(
-                ((InvalidOpResult<EncounterStartOutcome>)result).Reason,
-                Does.Contain("designated protagonist team")
+                roster.Roster.Select(entry => entry.Creature),
+                Is.EqualTo(new[] { Hero, Enemy })
             );
-            Assert.That(dispatcher.Snapshot.Encounters.Contains(Encounter), Is.False);
-        }
+            Assert.That(roster.CurrentTurn, Is.Null);
+            Assert.That(added.Facts.OfType<InitiativeAssignedFact>().Count(), Is.EqualTo(2));
 
-        [Test]
-        public async Task CommitStartReducerRejectsTeamConflictWithoutMutation()
-        {
-            RulesStateSeed seed = BaseSeed()
-                .SeedCreature(new CreatureState(Hero, Enemies))
-                .SeedCreature(new CreatureState(Enemy, Enemies));
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
-            InitiativeEntry[] roster = { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) };
-
-            OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
-                new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
-                )
+            OpResult<EncounterAdvanceOutcome> advanced = await dispatcher.Dispatch(
+                new AdvanceEncounterOp(Encounter)
             );
-            OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<EncounterStartOutcome>>());
-            Assert.That(
-                ((InvalidOpResult<EncounterStartOutcome>)result).Reason,
-                Does.Contain("conflicts with its authoritative creature state")
-            );
-            Assert.That(dispatcher.Snapshot.Encounters.Contains(Encounter), Is.False);
-        }
-
-        [Test]
-        public async Task CommitStartReducerRejectsOutcomeBindingCollisionWithoutMutation()
-        {
-            BindingId bindingId = EncounterRuleRuntime.OutcomeBindingId(Encounter);
-            ActiveRuleBinding existing = new ActiveRuleBinding(
-                bindingId,
-                EncounterRuleRuntime.OutcomeDefinitionId,
-                Enemy,
-                null,
-                Source,
-                99
-            );
-            RulesStateSeed seed = BaseSeed().SeedRuleBinding(existing);
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed);
-            InitiativeEntry[] roster = { Entry(Hero, Players, 10, 0), Entry(Enemy, Enemies, 9, 1) };
-
-            OpResult<OpResult<EncounterStartOutcome>> workflow = await dispatcher.Dispatch(
-                new CommitEncounterStartWorkflowOp(
-                    new CommitEncounterStartOp(Encounter, Players, Array.AsReadOnly(roster))
-                )
-            );
-            OpResult<EncounterStartOutcome> result = Resolved(workflow).Value;
-
-            Assert.That(result, Is.TypeOf<InvalidOpResult<EncounterStartOutcome>>());
-            Assert.That(
-                ((InvalidOpResult<EncounterStartOutcome>)result).Reason,
-                Does.Contain("already registered")
-            );
-            Assert.That(dispatcher.Snapshot.Encounters.Contains(Encounter), Is.False);
-            Assert.That(dispatcher.Snapshot.RuleBindings[bindingId], Is.EqualTo(existing));
+            EncounterState active = Resolved(advanced).Value.State;
+            Assert.That(active.Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(active.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+            Assert.That(advanced.Facts.OfType<EncounterStartedFact>().Count(), Is.EqualTo(1));
         }
 
         [Test]
@@ -186,7 +131,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(12, 10));
 
-            OpResult<EncounterStartOutcome> result = await dispatcher.Dispatch(
+            OpResult<EncounterAdvanceOutcome> result = await dispatcher.Dispatch(
                 Start(
                     new EncounterParticipant(Hero, Players, 0),
                     new EncounterParticipant(Enemy, Enemies, 2)
@@ -204,16 +149,12 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(new[] { 12, 10 })
             );
             Assert.That(state.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+            Assert.That(result.Facts.OfType<EncounterInitializedFact>().Count(), Is.EqualTo(1));
+            Assert.That(result.Facts.OfType<InitiativeAssignedFact>().Count(), Is.EqualTo(2));
+            Assert.That(result.Facts.OfType<EncounterStartedFact>().Count(), Is.EqualTo(1));
             Assert.That(
-                result.Facts.Select(fact => fact.GetType()),
-                Is.EqualTo(
-                    new[]
-                    {
-                        typeof(EncounterStartedFact),
-                        typeof(InitiativeAssignedFact),
-                        typeof(InitiativeAssignedFact),
-                    }
-                )
+                result.Facts.ToList().FindIndex(fact => fact is EncounterInitializedFact),
+                Is.LessThan(result.Facts.ToList().FindIndex(fact => fact is EncounterStartedFact))
             );
             Assert.That(dispatcher.Trace.GetRolls(new OpId(1)), Has.Count.EqualTo(2));
         }
@@ -499,7 +440,7 @@ namespace Game.Rules.Runtime.Tests
             dispatcher.RegisterFactObserver<EncounterOutcomeCommittedFact>(ended);
             dispatcher.RegisterFactObserver<TurnBeganFact>(began);
 
-            OpResult<EncounterStartOutcome> result = await dispatcher.Dispatch(
+            OpResult<EncounterAdvanceOutcome> result = await dispatcher.Dispatch(
                 Start(
                     new EncounterParticipant(Hero, Players, 0),
                     new EncounterParticipant(Enemy, Enemies, 0)
@@ -710,7 +651,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10, 20),
-                JoinSeed()
+                AdditionSeed()
             );
             EncounterState heroTurn = Resolved(
                 await dispatcher.Dispatch(
@@ -720,21 +661,12 @@ namespace Game.Rules.Runtime.Tests
                     )
                 )
             ).Value.State;
-            EncounterState joined = Resolved(
+            EncounterState added = Resolved(
                 await dispatcher.Dispatch(
-                    new JoinEncounterOp(
-                        Encounter,
-                        new[]
-                        {
-                            new EncounterJoinParticipant(
-                                new EncounterParticipant(Reinforcement, Enemies, 0),
-                                new HealthState(10, 10, 0)
-                            ),
-                        }
-                    )
+                    new AddCombatantsOp(Encounter, new[] { Registration(Reinforcement, Enemies) })
                 )
             ).Value.State;
-            InitiativeEntry reinforcement = joined.Roster.Single(entry =>
+            InitiativeEntry reinforcement = added.Roster.Single(entry =>
                 entry.Creature == Reinforcement
             );
             EncounterState enemyTurn = Resolved(
@@ -749,17 +681,65 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(reinforcementTurn.CurrentTurn.Value.Actor, Is.EqualTo(Reinforcement));
         }
 
-        /// <summary>Verifies every join-owned state slice is preflighted before any write.</summary>
-        [TestCase(JoinRegistrationCollision.Creature)]
-        [TestCase(JoinRegistrationCollision.Health)]
-        [TestCase(JoinRegistrationCollision.Position)]
-        [TestCase(JoinRegistrationCollision.LandSpeed)]
-        [TestCase(JoinRegistrationCollision.ActionEconomy)]
-        [TestCase(JoinRegistrationCollision.MultipleAttackPenalty)]
-        [TestCase(JoinRegistrationCollision.SpellSlot)]
-        [TestCase(JoinRegistrationCollision.RuleBinding)]
-        public async Task JoinRegistrationCollisionRejectsBeforeAnyStateMutation(
-            JoinRegistrationCollision collision
+        [Test]
+        public async Task ActiveAdditionReanchorsCursorWithoutChangingExactTurnIdentity()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 20, 5),
+                new RulesStateSeed()
+            );
+            Resolved(await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players)));
+            Resolved(
+                await dispatcher.Dispatch(
+                    new AddCombatantsOp(
+                        Encounter,
+                        new[] { Registration(Hero, Players), Registration(Enemy, Enemies) }
+                    )
+                )
+            );
+            EncounterState active = Resolved(
+                await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
+            ).Value.State;
+            TurnIdentity exactTurn = active.CurrentTurn.Value;
+
+            EncounterState added = Resolved(
+                await dispatcher.Dispatch(
+                    new AddCombatantsOp(
+                        Encounter,
+                        new[]
+                        {
+                            Registration(Reinforcement, Enemies),
+                            Registration(SecondReinforcement, Enemies),
+                        }
+                    )
+                )
+            ).Value.State;
+
+            Assert.That(added.CurrentTurn.Value, Is.EqualTo(exactTurn));
+            Assert.That(added.Roster[added.Cursor].Creature, Is.EqualTo(Hero));
+            Assert.That(
+                added.Roster.Single(entry => entry.Creature == Reinforcement).EligibleFromRound,
+                Is.EqualTo(new RoundNumber(2))
+            );
+            Assert.That(
+                added
+                    .Roster.Single(entry => entry.Creature == SecondReinforcement)
+                    .EligibleFromRound,
+                Is.EqualTo(RoundNumber.First)
+            );
+        }
+
+        /// <summary>Verifies every addition-owned state slice is preflighted before any write.</summary>
+        [TestCase(AdditionRegistrationCollision.Creature)]
+        [TestCase(AdditionRegistrationCollision.Health)]
+        [TestCase(AdditionRegistrationCollision.Position)]
+        [TestCase(AdditionRegistrationCollision.LandSpeed)]
+        [TestCase(AdditionRegistrationCollision.ActionEconomy)]
+        [TestCase(AdditionRegistrationCollision.MultipleAttackPenalty)]
+        [TestCase(AdditionRegistrationCollision.SpellSlot)]
+        [TestCase(AdditionRegistrationCollision.RuleBinding)]
+        public async Task AdditionRegistrationCollisionRejectsBeforeAnyStateMutation(
+            AdditionRegistrationCollision collision
         )
         {
             SpellSlotPoolId slotId = new SpellSlotPoolId("reinforcement-slot");
@@ -779,37 +759,41 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(3, 0, 2),
                 new GridDistance(25),
+                0,
                 new[] { new SpellSlotState(slotId, Reinforcement, 1, 1) },
-                new[] { binding }
+                new[] { binding },
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                Array.Empty<ActiveEffectInstance>()
             );
-            RulesStateSeed seed = JoinSeed();
+            RulesStateSeed seed = AdditionSeed();
             switch (collision)
             {
-                case JoinRegistrationCollision.Creature:
+                case AdditionRegistrationCollision.Creature:
                     seed.SeedCreature(new CreatureState(Reinforcement, Enemies));
                     break;
-                case JoinRegistrationCollision.Health:
+                case AdditionRegistrationCollision.Health:
                     seed.SeedHealth(Reinforcement, new HealthState(7, 10));
                     break;
-                case JoinRegistrationCollision.Position:
+                case AdditionRegistrationCollision.Position:
                     seed.SeedPosition(Reinforcement, new GridPosition(9, 0, 9));
                     break;
-                case JoinRegistrationCollision.LandSpeed:
+                case AdditionRegistrationCollision.LandSpeed:
                     seed.SeedLandSpeed(Reinforcement, new GridDistance(30));
                     break;
-                case JoinRegistrationCollision.ActionEconomy:
+                case AdditionRegistrationCollision.ActionEconomy:
                     seed.SeedActionEconomy(Reinforcement, new ActionEconomyState(2, true));
                     break;
-                case JoinRegistrationCollision.MultipleAttackPenalty:
+                case AdditionRegistrationCollision.MultipleAttackPenalty:
                     seed.SeedMultipleAttackPenalty(
                         Reinforcement,
                         new MultipleAttackPenaltyState(1)
                     );
                     break;
-                case JoinRegistrationCollision.SpellSlot:
+                case AdditionRegistrationCollision.SpellSlot:
                     seed.SeedSpellSlot(new SpellSlotState(slotId, Reinforcement, 0, 1));
                     break;
-                case JoinRegistrationCollision.RuleBinding:
+                case AdditionRegistrationCollision.RuleBinding:
                     seed.SeedRuleBinding(binding);
                     break;
                 default:
@@ -835,21 +819,17 @@ namespace Game.Rules.Runtime.Tests
                 RoundNumber.First
             );
 
-            OpResult<OpResult<EncounterJoinOutcome>> workflow = await dispatcher.Dispatch(
-                new CommitEncounterJoinWorkflowOp(
-                    new CommitEncounterJoinOp(
+            OpResult<OpResult<CombatantsAddedOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitCombatantsAdditionWorkflowOp(
+                    new CommitCombatantsAdditionOp(
                         Encounter,
-                        Array.AsReadOnly(new[] { addition }),
-                        new Dictionary<CreatureId, CombatantRulesState>
-                        {
-                            [Reinforcement] = registration,
-                        }
+                        Array.AsReadOnly(new[] { new CombatantAddition(addition, registration) })
                     )
                 )
             );
-            OpResult<EncounterJoinOutcome> result = Resolved(workflow).Value;
+            OpResult<CombatantsAddedOutcome> result = Resolved(workflow).Value;
 
-            Assert.That(result, Is.TypeOf<InvalidOpResult<EncounterJoinOutcome>>());
+            Assert.That(result, Is.TypeOf<InvalidOpResult<CombatantsAddedOutcome>>());
             Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
             Assert.That(
                 dispatcher.Snapshot.Encounters[Encounter].Roster,
@@ -889,25 +869,25 @@ namespace Game.Rules.Runtime.Tests
         /// <summary>Verifies feature IDs must also be unique across one reinforcement batch.</summary>
         [TestCase(true)]
         [TestCase(false)]
-        public async Task JoinRegistrationRejectsIdentifiersDuplicatedAcrossReinforcements(
+        public async Task AdditionRejectsIdentifiersDuplicatedAcrossCombatants(
             bool duplicateSpellSlot
         )
         {
             SpellSlotPoolId sharedSlot = new SpellSlotPoolId("shared-reinforcement-slot");
             BindingId sharedBinding = new BindingId("shared-reinforcement-binding");
-            CombatantRulesState first = CreateJoinRegistration(
+            CombatantRulesState first = CreateAdditionRegistration(
                 Reinforcement,
                 sharedSlot,
                 duplicateSpellSlot ? new BindingId("first-reinforcement-binding") : sharedBinding
             );
-            CombatantRulesState second = CreateJoinRegistration(
+            CombatantRulesState second = CreateAdditionRegistration(
                 SecondReinforcement,
                 duplicateSpellSlot ? sharedSlot : new SpellSlotPoolId("second-reinforcement-slot"),
                 duplicateSpellSlot ? new BindingId("second-reinforcement-binding") : sharedBinding
             );
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10),
-                JoinSeed()
+                AdditionSeed()
             );
             EncounterState active = Resolved(
                 await dispatcher.Dispatch(
@@ -938,23 +918,24 @@ namespace Game.Rules.Runtime.Tests
             };
             RulesSnapshot before = dispatcher.Snapshot;
 
-            OpResult<OpResult<EncounterJoinOutcome>> workflow = await dispatcher.Dispatch(
-                new CommitEncounterJoinWorkflowOp(
-                    new CommitEncounterJoinOp(
+            OpResult<OpResult<CombatantsAddedOutcome>> workflow = await dispatcher.Dispatch(
+                new CommitCombatantsAdditionWorkflowOp(
+                    new CommitCombatantsAdditionOp(
                         Encounter,
-                        Array.AsReadOnly(additions),
-                        new Dictionary<CreatureId, CombatantRulesState>
-                        {
-                            [Reinforcement] = first,
-                            [SecondReinforcement] = second,
-                        }
+                        Array.AsReadOnly(
+                            new[]
+                            {
+                                new CombatantAddition(additions[0], first),
+                                new CombatantAddition(additions[1], second),
+                            }
+                        )
                     )
                 )
             );
 
             Assert.That(
                 Resolved(workflow).Value,
-                Is.TypeOf<InvalidOpResult<EncounterJoinOutcome>>()
+                Is.TypeOf<InvalidOpResult<CombatantsAddedOutcome>>()
             );
             Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
             Assert.That(
@@ -1297,9 +1278,8 @@ namespace Game.Rules.Runtime.Tests
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(20, 10));
             Resolved(
                 await dispatcher.Dispatch(
-                    new StartEncounterOp(
+                    new StartTestEncounterOp(
                         Encounter,
-                        Players,
                         new[]
                         {
                             new EncounterParticipant(Hero, Players, 0),
@@ -1351,7 +1331,7 @@ namespace Game.Rules.Runtime.Tests
         [TestCase(EffectDurationKind.Rounds, 2, false)]
         [TestCase(EffectDurationKind.Minutes, 10, false)]
         [TestCase(EffectDurationKind.Encounter, 0, true)]
-        public async Task StartAdoptsFinitePrecombatEffect(
+        public async Task InitialAdditionCommitsRestoredFiniteEffect(
             EffectDurationKind kind,
             int expectedBoundaries,
             bool expiresWithEncounter
@@ -1380,7 +1360,7 @@ namespace Game.Rules.Runtime.Tests
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
-                BaseSeed(),
+                new RulesStateSeed(),
                 registry,
                 true
             );
@@ -1403,17 +1383,34 @@ namespace Game.Rules.Runtime.Tests
                 1
             );
 
-            Resolved(await dispatcher.Dispatch(new CreateEffectWorkflowOp(effect, binding)));
-            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
-
-            Resolved(
-                await dispatcher.Dispatch(
-                    Start(
-                        new EncounterParticipant(Hero, Players, 0),
-                        new EncounterParticipant(Enemy, Enemies, 0)
-                    )
+            Resolved(await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players)));
+            OpResult<CombatantsAddedOutcome> added = await dispatcher.Dispatch(
+                new AddCombatantsOp(
+                    Encounter,
+                    new[]
+                    {
+                        Registration(Hero, Players),
+                        new CombatantRulesState(
+                            new CreatureState(Enemy, Enemies),
+                            new HealthState(10, 10),
+                            new GridPosition(0, 0, 0),
+                            new GridDistance(25),
+                            0,
+                            Array.Empty<SpellSlotState>(),
+                            new[] { binding },
+                            Array.Empty<EquipmentState>(),
+                            Array.Empty<AmmunitionState>(),
+                            new[] { effect }
+                        ),
+                    }
                 )
             );
+
+            Assert.That(
+                added.Facts.OfType<ActiveEffectCreatedFact>().Single().EffectId,
+                Is.EqualTo(effectId)
+            );
+            Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
 
             ActiveEffectTimingState timing = dispatcher.Snapshot.ActiveEffectTimings[effectId];
             Assert.That(timing.Encounter, Is.EqualTo(Encounter));
@@ -1668,14 +1665,14 @@ namespace Game.Rules.Runtime.Tests
                 EncounterId resumed = new EncounterId("resumed-encounter");
                 Resolved(
                     await dispatcher.Dispatch(
-                        new StartEncounterOp(
+                        new StartTestEncounterOp(
                             resumed,
-                            Players,
                             new[]
                             {
                                 new EncounterParticipant(Hero, Players, 0),
                                 new EncounterParticipant(Enemy, Enemies, 0),
-                            }
+                            },
+                            EncounterConclusionPolicy.VictoryOrDefeat
                         )
                     )
                 );
@@ -1705,8 +1702,30 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(dispatcher.Snapshot.RuleBindings[permanentBindingId].IsEnabled, Is.True);
         }
 
-        private static StartEncounterOp Start(params EncounterParticipant[] participants) =>
-            new StartEncounterOp(Encounter, Players, participants);
+        private static StartTestEncounterOp Start(params EncounterParticipant[] participants) =>
+            new StartTestEncounterOp(
+                Encounter,
+                participants,
+                EncounterConclusionPolicy.VictoryOrDefeat
+            );
+
+        private static CombatantRulesState Registration(
+            CreatureId creature,
+            PlayerId team,
+            int initiativeModifier = 0
+        ) =>
+            new CombatantRulesState(
+                new CreatureState(creature, team),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                initiativeModifier,
+                Array.Empty<SpellSlotState>(),
+                Array.Empty<ActiveRuleBinding>(),
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                Array.Empty<ActiveEffectInstance>()
+            );
 
         private static EncounterState ActiveTurnEncounter() =>
             new EncounterState(
@@ -1734,12 +1753,12 @@ namespace Game.Rules.Runtime.Tests
                 .SeedHealth(Enemy, new HealthState(10, 10))
                 .SeedHealth(Reinforcement, new HealthState(10, 10));
 
-        private static RulesStateSeed JoinSeed() =>
+        private static RulesStateSeed AdditionSeed() =>
             new RulesStateSeed()
                 .SeedHealth(Hero, new HealthState(10, 10))
                 .SeedHealth(Enemy, new HealthState(10, 10));
 
-        private static CombatantRulesState CreateJoinRegistration(
+        private static CombatantRulesState CreateAdditionRegistration(
             CreatureId creature,
             SpellSlotPoolId slot,
             BindingId binding
@@ -1749,6 +1768,7 @@ namespace Game.Rules.Runtime.Tests
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
+                0,
                 new[] { new SpellSlotState(slot, creature, 1, 1) },
                 new[]
                 {
@@ -1761,7 +1781,10 @@ namespace Game.Rules.Runtime.Tests
                         0,
                         false
                     ),
-                }
+                },
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                Array.Empty<ActiveEffectInstance>()
             );
 
         private static RuleDispatcher CreateDispatcher(
@@ -1782,13 +1805,18 @@ namespace Game.Rules.Runtime.Tests
                 .UseActiveEffectRules(selected)
                 .UseMultipleAttackPenaltyRules()
                 .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>());
-            builder.RegisterHandler<
-                CommitEncounterStartWorkflowOp,
-                OpResult<EncounterStartOutcome>
-            >(new CommitEncounterStartWorkflowHandler());
-            builder.RegisterHandler<CommitEncounterJoinWorkflowOp, OpResult<EncounterJoinOutcome>>(
-                new CommitEncounterJoinWorkflowHandler()
-            );
+            builder
+                .RegisterHandler<StartTestEncounterOp, EncounterAdvanceOutcome>(
+                    new StartTestEncounterHandler()
+                )
+                .RegisterReducer<CommitTestRosterOp, EncounterInitializationOutcome>(
+                    new CommitTestRosterReducer(),
+                    Source
+                )
+                .RegisterHandler<
+                    CommitCombatantsAdditionWorkflowOp,
+                    OpResult<CombatantsAddedOutcome>
+                >(new CommitCombatantsAdditionWorkflowHandler());
             if (includeEffectWorkflow)
                 builder.RegisterHandler<CreateEffectWorkflowOp, ActiveEffectCreationOutcome>(
                     new CreateEffectWorkflowHandler()
@@ -2147,37 +2175,153 @@ namespace Game.Rules.Runtime.Tests
 
         private sealed class TestEffectState : IEffectState { }
 
-        private sealed class CommitEncounterStartWorkflowOp
-            : IRuleOp<OpResult<EncounterStartOutcome>>
+        private sealed class EncounterParticipant
         {
-            public CommitEncounterStartOp Commit { get; }
+            public EncounterParticipant(CreatureId creature, PlayerId team, int modifier)
+            {
+                Creature = creature;
+                Team = team;
+                Modifier = modifier;
+            }
 
-            public CommitEncounterStartWorkflowOp(CommitEncounterStartOp commit) =>
-                Commit = commit ?? throw new ArgumentNullException(nameof(commit));
+            public CreatureId Creature { get; }
+            public PlayerId Team { get; }
+            public int Modifier { get; }
         }
 
-        private sealed class CommitEncounterStartWorkflowHandler
-            : IOpHandler<CommitEncounterStartWorkflowOp, OpResult<EncounterStartOutcome>>
+        private sealed class StartTestEncounterOp : IRuleOp<EncounterAdvanceOutcome>
         {
-            public async ValueTask<OpResult<EncounterStartOutcome>> Handle(
-                OpFrame<CommitEncounterStartWorkflowOp> frame,
+            public StartTestEncounterOp(
+                EncounterId encounter,
+                IEnumerable<EncounterParticipant> participants,
+                EncounterConclusionPolicy conclusionPolicy
+            )
+            {
+                Encounter = encounter;
+                Participants = participants.ToArray();
+                ConclusionPolicy = conclusionPolicy;
+            }
+
+            public EncounterId Encounter { get; }
+            public IReadOnlyList<EncounterParticipant> Participants { get; }
+            public EncounterConclusionPolicy ConclusionPolicy { get; }
+        }
+
+        private sealed class StartTestEncounterHandler
+            : IOpHandler<StartTestEncounterOp, EncounterAdvanceOutcome>
+        {
+            public async ValueTask<EncounterAdvanceOutcome> Handle(
+                OpFrame<StartTestEncounterOp> frame,
                 OpHandlerContext context
-            ) => await context.Dispatch(frame.Op.Commit);
+            )
+            {
+                EncounterHandlerResults.Require(
+                    await context.Dispatch(
+                        new InitEncounterOp(frame.Op.Encounter, Players, frame.Op.ConclusionPolicy)
+                    ),
+                    "test encounter initialization"
+                );
+                InitiativeEntry[] roster = frame
+                    .Op.Participants.Select(
+                        (participant, index) =>
+                            new InitiativeEntry(
+                                participant.Creature,
+                                participant.Team,
+                                context.Rolls.Roll(DiceExpressions.D20).Total,
+                                participant.Modifier,
+                                index,
+                                RoundNumber.First
+                            )
+                    )
+                    .OrderByDescending(entry => entry.Total)
+                    .ThenBy(entry => entry.RegistrationOrder)
+                    .ToArray();
+                EncounterHandlerResults.Require(
+                    await context.Dispatch(new CommitTestRosterOp(frame.Op.Encounter, roster)),
+                    "test roster setup"
+                );
+                EncounterHandlerResults.Require(
+                    await context.Dispatch(
+                        new CommitInitiativeAssignmentsOp(frame.Op.Encounter, roster)
+                    ),
+                    "test initiative assignments"
+                );
+                return EncounterHandlerResults.Require(
+                    await context.Dispatch(new AdvanceEncounterOp(frame.Op.Encounter)),
+                    "test encounter advance"
+                );
+            }
         }
 
-        private sealed class CommitEncounterJoinWorkflowOp : IRuleOp<OpResult<EncounterJoinOutcome>>
+        private sealed class CommitTestRosterOp : IRuleOp<EncounterInitializationOutcome>
         {
-            public CommitEncounterJoinWorkflowOp(CommitEncounterJoinOp commit) =>
+            public CommitTestRosterOp(EncounterId encounter, IReadOnlyList<InitiativeEntry> roster)
+            {
+                Encounter = encounter;
+                Roster = roster;
+            }
+
+            public EncounterId Encounter { get; }
+            public IReadOnlyList<InitiativeEntry> Roster { get; }
+        }
+
+        private sealed class CommitTestRosterReducer
+            : IOpReducer<CommitTestRosterOp, EncounterInitializationOutcome>
+        {
+            public ReductionResult<EncounterInitializationOutcome> Reduce(
+                ReductionContext<CommitTestRosterOp> context,
+                RulesStateDraft state,
+                FactSink facts
+            )
+            {
+                if (!state.Encounters.TryGet(context.Op.Encounter, out EncounterState encounter))
+                    return ReductionResult<EncounterInitializationOutcome>.Reject(
+                        "The test encounter is missing."
+                    );
+                foreach (InitiativeEntry entry in context.Op.Roster)
+                {
+                    if (!state.Creatures.Contains(entry.Creature))
+                        state.Creatures.Set(
+                            entry.Creature,
+                            new CreatureState(entry.Creature, entry.Team)
+                        );
+                    if (!state.Health.Contains(entry.Creature))
+                        state.Health.Set(entry.Creature, new HealthState(10, 10));
+                    if (!state.Positions.Contains(entry.Creature))
+                        state.Positions.Set(entry.Creature, new GridPosition(0, 0, 0));
+                    if (!state.LandSpeeds.Contains(entry.Creature))
+                        state.LandSpeeds.Set(entry.Creature, new GridDistance(25));
+                    state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
+                    state.MultipleAttackPenalty.Set(
+                        entry.Creature,
+                        new MultipleAttackPenaltyState(0)
+                    );
+                }
+                EncounterState populated = encounter.Replace(roster: context.Op.Roster);
+                state.Encounters.Set(context.Op.Encounter, populated);
+                facts.Stage(new TestRosterCommittedFact());
+                return ReductionResult<EncounterInitializationOutcome>.Accept(
+                    new EncounterInitializationOutcome(populated)
+                );
+            }
+        }
+
+        private sealed class TestRosterCommittedFact : RuleFact { }
+
+        private sealed class CommitCombatantsAdditionWorkflowOp
+            : IRuleOp<OpResult<CombatantsAddedOutcome>>
+        {
+            public CommitCombatantsAdditionWorkflowOp(CommitCombatantsAdditionOp commit) =>
                 Commit = commit ?? throw new ArgumentNullException(nameof(commit));
 
-            public CommitEncounterJoinOp Commit { get; }
+            public CommitCombatantsAdditionOp Commit { get; }
         }
 
-        private sealed class CommitEncounterJoinWorkflowHandler
-            : IOpHandler<CommitEncounterJoinWorkflowOp, OpResult<EncounterJoinOutcome>>
+        private sealed class CommitCombatantsAdditionWorkflowHandler
+            : IOpHandler<CommitCombatantsAdditionWorkflowOp, OpResult<CombatantsAddedOutcome>>
         {
-            public async ValueTask<OpResult<EncounterJoinOutcome>> Handle(
-                OpFrame<CommitEncounterJoinWorkflowOp> frame,
+            public async ValueTask<OpResult<CombatantsAddedOutcome>> Handle(
+                OpFrame<CommitCombatantsAdditionWorkflowOp> frame,
                 OpHandlerContext context
             ) => await context.Dispatch(frame.Op.Commit);
         }

@@ -83,7 +83,7 @@ public class Pf2eBarbarianSmokeTests
         );
     }
 
-    /// <summary>Verifies Quick-Tempered observes initiative assigned after a same-store join.</summary>
+    /// <summary>Verifies Quick-Tempered observes initiative assigned after a same-store addition.</summary>
     [UnityTest]
     public IEnumerator TorgrimQuickTemperedRagesWhenJoiningAsReinforcement()
     {
