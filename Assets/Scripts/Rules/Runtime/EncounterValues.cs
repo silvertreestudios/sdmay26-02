@@ -494,8 +494,8 @@ namespace Game.Rules.Runtime
     /// <see cref="ActiveEffectInstance"/> and <see cref="ActiveRuleBinding"/>. Keeping the effect,
     /// binding, source creature, duration behavior (encounter-scoped or boundary-counted), and
     /// creation order on the schedule lets encounter reducers filter and order timed effects
-    /// without loading related state on every boundary, and gives removal the binding ID directly
-    /// instead of requiring a reverse binding search.
+    /// without loading related state on every boundary, and gives expiry and removal logic the
+    /// binding ID directly instead of requiring a reverse binding search.
     /// <see cref="RemainingBoundaries"/> is the schedule's only evolving value.
     /// </para>
     /// <para>
