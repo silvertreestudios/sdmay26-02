@@ -94,6 +94,40 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void CreateRejectsExistingBindingAssociatedWithProposedEffectId()
+        {
+            ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
+            BindingId existingBindingId = new BindingId("existing-binding");
+            ActiveRuleBinding existingBinding = new ActiveRuleBinding(
+                existingBindingId,
+                effect.DefinitionId,
+                Owner,
+                effect.Id,
+                effect.Source,
+                1
+            );
+            InMemoryRulesStore store = new InMemoryRulesStore(
+                new RulesStateSeed().SeedRuleBinding(existingBinding)
+            );
+
+            ReductionResult<ActiveEffectCreationOutcome> result = store.Reduce(
+                Context(new CreateActiveEffectOp(effect, CreateBinding(effect))),
+                new CreateActiveEffectReducer(CreateRegistry())
+            );
+
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.RejectionReason, Does.Contain(effect.Id.Value));
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(result.Snapshot.RuleBindings, Has.Count.EqualTo(1));
+            Assert.That(
+                result.Snapshot.RuleBindings[existingBindingId],
+                Is.SameAs(existingBinding)
+            );
+            Assert.That(result.Facts, Is.Empty);
+        }
+
+        [Test]
         public void RemovalFactRejectsUndefinedReason()
         {
             ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
@@ -207,15 +241,8 @@ namespace Game.Rules.Runtime.Tests
                     .SeedActiveEffect(effect)
                     .SeedRuleBinding(binding)
                     .SeedActiveEffectTiming(
-                        new ActiveEffectTimingState(
-                            EffectId,
-                            new EncounterId("timing-encounter"),
-                            BindingId,
-                            SourceCreature,
-                            1,
-                            false,
-                            1
-                        )
+                        EffectId,
+                        new ActiveEffectTimingState(new EncounterId("timing-encounter"), 1)
                     )
                     .SeedFrequency(
                         BindingId,

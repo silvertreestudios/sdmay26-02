@@ -463,26 +463,58 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         )
         {
-            ActiveEffectTimingState[] timings = context
-                .Snapshot.ActiveEffectTimings.Where(pair => pair.Value.Encounter == encounter)
-                .Select(pair => pair.Value)
-                .OrderBy(value => value.CreationOrder)
-                .ThenBy(value => value.Effect.Value, StringComparer.Ordinal)
-                .ToArray();
-            foreach (ActiveEffectTimingState timing in timings)
+            List<(ActiveEffectInstance Effect, ActiveRuleBinding Binding)> effects =
+                new List<(ActiveEffectInstance, ActiveRuleBinding)>();
+            foreach (
+                KeyValuePair<
+                    ActiveEffectId,
+                    ActiveEffectTimingState
+                > timing in context.Snapshot.ActiveEffectTimings.Where(pair =>
+                    pair.Value.Encounter == encounter
+                )
+            )
             {
                 if (
                     !context.Snapshot.ActiveEffects.TryGet(
-                        timing.Effect,
+                        timing.Key,
                         out ActiveEffectInstance effect
                     )
                 )
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Active effect {timing.Key.Value} is unknown."
+                    );
+                if (
+                    !ActiveEffectReduction.TryGetSingleAssociatedBinding(
+                        context.Snapshot.RuleBindings.Select(pair => pair.Value),
+                        effect,
+                        false,
+                        out ActiveRuleBinding binding,
+                        out string rejection
+                    )
+                )
+                    throw new InvalidOperationException(rejection);
+                effects.Add((effect, binding));
+            }
+            effects.Sort(
+                (left, right) =>
+                {
+                    int order = left.Binding.CreationOrder.CompareTo(right.Binding.CreationOrder);
+                    return order != 0
+                        ? order
+                        : string.Compare(
+                            left.Effect.Id.Value,
+                            right.Effect.Id.Value,
+                            StringComparison.Ordinal
+                        );
+                }
+            );
+            foreach ((ActiveEffectInstance effect, ActiveRuleBinding binding) in effects)
+            {
                 EncounterHandlerResults.Require(
                     await context.Dispatch(
                         new RemoveActiveEffectOp(
                             effect.Id,
-                            timing.Binding,
+                            binding.Id,
                             effect.EffectStateVersion,
                             ActiveEffectRemovalReason.Expired,
                             effect.Source

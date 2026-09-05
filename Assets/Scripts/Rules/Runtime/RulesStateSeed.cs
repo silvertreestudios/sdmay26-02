@@ -54,13 +54,21 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>Seeds an active-effect timing schedule for deterministic fixtures.</summary>
+        /// <param name="effectId">The effect identified by the timing-slice key.</param>
         /// <param name="value">The complete effect timing schedule.</param>
         /// <returns>This seed so deterministic fixture composition can continue.</returns>
-        public RulesStateSeed SeedActiveEffectTiming(ActiveEffectTimingState value)
+        /// <exception cref="ArgumentException"><paramref name="effectId"/> is empty.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+        public RulesStateSeed SeedActiveEffectTiming(
+            ActiveEffectId effectId,
+            ActiveEffectTimingState value
+        )
         {
+            if (effectId.IsEmpty)
+                throw new ArgumentException("An active effect ID is required.", nameof(effectId));
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
-            ActiveEffectTimings[value.Effect] = value;
+            ActiveEffectTimings[effectId] = value;
             return this;
         }
 

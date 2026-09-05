@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Game.Rules.Runtime
@@ -79,6 +80,38 @@ namespace Game.Rules.Runtime
                 rejection = $"Active binding {bindingId.Value} is unknown.";
                 return false;
             }
+            return TryValidateAssociatedBinding(effect, binding, false, out rejection);
+        }
+
+        public static bool TryGetSingleAssociatedBinding(
+            IEnumerable<ActiveRuleBinding> bindings,
+            ActiveEffectInstance effect,
+            bool requireEnabled,
+            out ActiveRuleBinding binding,
+            out string rejection
+        )
+        {
+            ActiveRuleBinding[] matches = bindings
+                .Where(candidate => candidate.EffectId == effect.Id)
+                .ToArray();
+            if (matches.Length != 1)
+            {
+                binding = null;
+                rejection =
+                    $"Active effect {effect.Id.Value} requires exactly one associated binding.";
+                return false;
+            }
+            binding = matches[0];
+            return TryValidateAssociatedBinding(effect, binding, requireEnabled, out rejection);
+        }
+
+        public static bool TryValidateAssociatedBinding(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            bool requireEnabled,
+            out string rejection
+        )
+        {
             if (
                 !binding.EffectId.HasValue
                 || binding.EffectId.Value != effect.Id
@@ -87,7 +120,12 @@ namespace Game.Rules.Runtime
             )
             {
                 rejection =
-                    $"Active binding {bindingId.Value} is not associated with effect {effect.Id.Value}.";
+                    $"Active binding {binding.Id.Value} is not associated with effect {effect.Id.Value}.";
+                return false;
+            }
+            if (requireEnabled && !binding.IsEnabled)
+            {
+                rejection = $"Active effect {effect.Id.Value} requires an enabled binding.";
                 return false;
             }
             rejection = string.Empty;
@@ -123,6 +161,16 @@ namespace Game.Rules.Runtime
                     $"Active binding {binding.Id.Value} already exists."
                 );
             }
+            if (
+                state
+                    .RuleBindings.Select(pair => pair.Value)
+                    .Any(existing => existing.EffectId == effect.Id)
+            )
+            {
+                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
+                    $"An active binding already references effect {effect.Id.Value}."
+                );
+            }
             if (!registry.TryGetDefinition(effect.DefinitionId, out _))
             {
                 return ReductionResult<ActiveEffectCreationOutcome>.Reject(
@@ -136,21 +184,15 @@ namespace Game.Rules.Runtime
                 );
             }
             if (
-                !binding.EffectId.HasValue
-                || binding.EffectId.Value != effect.Id
-                || binding.DefinitionId != effect.DefinitionId
-                || binding.Source != effect.Source
+                !ActiveEffectReduction.TryValidateAssociatedBinding(
+                    effect,
+                    binding,
+                    true,
+                    out string bindingRejection
+                )
             )
             {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    $"Active binding {binding.Id.Value} does not match effect {effect.Id.Value}."
-                );
-            }
-            if (!binding.IsEnabled)
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    "A new active effect requires an enabled binding."
-                );
+                return ReductionResult<ActiveEffectCreationOutcome>.Reject(bindingRejection);
             }
 
             if (effect.Duration.Kind != EffectDurationKind.Indefinite)
@@ -169,7 +211,7 @@ namespace Game.Rules.Runtime
                         );
                     state.ActiveEffectTimings.Set(
                         effect.Id,
-                        ActiveEffectTimingState.ForEncounter(effect, binding, encounter)
+                        ActiveEffectTimingState.ForEncounter(effect, encounter)
                     );
                 }
             }

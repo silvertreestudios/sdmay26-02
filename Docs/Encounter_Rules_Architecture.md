@@ -23,7 +23,7 @@ controller and creature are attached to that exact bridge, the following state i
 | Health | `HealthState`; `CreatureComponent.Health`, `hp`, `maxHp`, and `tempHp` read it while attached. Health Facts project committed values and presentation back to Unity. |
 | Position and movement | `RulesSnapshot.Positions`, movement budgets, permissions, and movement reducers. Token movement is a committed-Fact projection. |
 | Encounter roster, initiative, round, and outcome | `EncounterState`, its roster, cursor, and `EncounterConclusionPolicy`, plus encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
-| Active-effect timing | Membership in `ActiveEffects` means an effect is active. `ActiveEffectTimingState` advances at encounter initiative boundaries; expiration atomically removes the effect and associated state. |
+| Active-effect timing | Membership in `ActiveEffects` means an effect is active. Each `ActiveEffectTimings` key identifies the scheduled effect, while its `ActiveEffectTimingState` stores only encounter ownership and remaining boundaries. Source and duration semantics come from the authoritative effect; binding identity and simultaneous-expiration order come from its single associated binding. Expiration atomically removes the effect and associated state. |
 | Migrated action slices | Stride, Strike, Reload, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
 
 Cutover never means “try rules, then fall back.” A detached `ActionController` exposes deliberately
@@ -210,9 +210,10 @@ encounter handlers and engine reducers. Its current division of responsibility i
 - `JoinEncounterHandler`: validate an active turn, roll reinforcement initiative, commit full
   combatant states, and publish assignments from a later frame so new bindings can observe them.
 - `AdvanceEncounterHandler`: evaluate immediate outcomes, then request the next initiative boundary.
-  The boundary reducer advances the cursor and effect countdowns, removes every due effect and its
-  associated binding/frequency/timing state in deterministic order, and finally stages
-  `InitiativeBoundaryReachedFact` in the same atomic commit.
+  The boundary reducer joins each timing key to its authoritative effect and single associated
+  binding, advances countdowns using the effect's source and duration, removes every due effect and
+  its associated binding/frequency/timing state in binding-creation order followed by effect ID, and
+  finally stages `InitiativeBoundaryReachedFact` in the same atomic commit.
 - `BeginInitiativeTurnHandler`: reset movement budget, run ordered turn-start adapters, stop if the
   actor is defeated, then commit the exact turn and final action contribution.
 - `EndTurnHandler`: require the exact current `TurnIdentity`, run turn-end work, reset movement,

@@ -1348,13 +1348,12 @@ namespace Game.Rules.Runtime.Tests
             );
         }
 
-        [TestCase(EffectDurationKind.Rounds, 2, false)]
-        [TestCase(EffectDurationKind.Minutes, 10, false)]
-        [TestCase(EffectDurationKind.Encounter, 0, true)]
+        [TestCase(EffectDurationKind.Rounds, 2)]
+        [TestCase(EffectDurationKind.Minutes, 10)]
+        [TestCase(EffectDurationKind.Encounter, 0)]
         public async Task StartAdoptsFinitePrecombatEffect(
             EffectDurationKind kind,
-            int expectedBoundaries,
-            bool expiresWithEncounter
+            int expectedBoundaries
         )
         {
             EffectDuration duration;
@@ -1416,10 +1415,10 @@ namespace Game.Rules.Runtime.Tests
             );
 
             ActiveEffectTimingState timing = dispatcher.Snapshot.ActiveEffectTimings[effectId];
-            Assert.That(timing.Encounter, Is.EqualTo(Encounter));
-            Assert.That(timing.Binding, Is.EqualTo(bindingId));
-            Assert.That(timing.RemainingBoundaries, Is.EqualTo(expectedBoundaries));
-            Assert.That(timing.ExpiresWithEncounter, Is.EqualTo(expiresWithEncounter));
+            Assert.That(
+                timing,
+                Is.EqualTo(new ActiveEffectTimingState(Encounter, expectedBoundaries))
+            );
         }
 
         [Test]
@@ -1498,9 +1497,9 @@ namespace Game.Rules.Runtime.Tests
                 1,
                 null
             );
-            ActiveEffectId firstId = new ActiveEffectId("atomic-effect-first");
+            ActiveEffectId firstId = new ActiveEffectId("z-atomic-effect-created-first");
             BindingId firstBindingId = new BindingId("atomic-binding-first");
-            ActiveEffectId secondId = new ActiveEffectId("atomic-effect-second");
+            ActiveEffectId secondId = new ActiveEffectId("a-atomic-effect-created-second");
             BindingId secondBindingId = new BindingId("atomic-binding-second");
             ActiveEffectInstance first = new ActiveEffectInstance(
                 firstId,
@@ -1540,28 +1539,8 @@ namespace Game.Rules.Runtime.Tests
                 )
                 .SeedFrequency(firstBindingId, new FrequencyState(Encounter, 1, 1))
                 .SeedFrequency(secondBindingId, new FrequencyState(Encounter, 1, 1))
-                .SeedActiveEffectTiming(
-                    new ActiveEffectTimingState(
-                        firstId,
-                        Encounter,
-                        firstBindingId,
-                        Hero,
-                        1,
-                        false,
-                        1
-                    )
-                )
-                .SeedActiveEffectTiming(
-                    new ActiveEffectTimingState(
-                        secondId,
-                        Encounter,
-                        secondBindingId,
-                        Hero,
-                        1,
-                        false,
-                        2
-                    )
-                );
+                .SeedActiveEffectTiming(secondId, new ActiveEffectTimingState(Encounter, 1))
+                .SeedActiveEffectTiming(firstId, new ActiveEffectTimingState(Encounter, 1));
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed, registry);
             AtomicExpirationObserver observer = new AtomicExpirationObserver(
                 firstId,

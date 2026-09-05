@@ -486,71 +486,32 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Schedules one active effect against its source's initiative boundaries in one encounter.
+    /// Stores one active effect's encounter-clock ownership and remaining initiative boundaries.
+    /// The owning state-slice key identifies the effect whose source and duration define the clock.
     /// </summary>
     public sealed class ActiveEffectTimingState : IEquatable<ActiveEffectTimingState>
     {
-        /// <summary>Gets the scheduled effect instance.</summary>
-        public ActiveEffectId Effect { get; }
-
         /// <summary>Gets the encounter supplying its clock.</summary>
         public EncounterId Encounter { get; }
-
-        /// <summary>Gets the binding removed by automatic expiry.</summary>
-        public BindingId Binding { get; }
-
-        /// <summary>Gets the creature whose initiative boundaries count down the effect.</summary>
-        public CreatureId SourceCreature { get; }
 
         /// <summary>Gets the remaining future source boundaries.</summary>
         public int RemainingBoundaries { get; }
 
-        /// <summary>
-        /// Gets whether the source duration was encounter-scoped instead of boundary-counted.
-        /// All finite timings retire when their owning encounter closes because no later encounter
-        /// can advance that timing identity.
-        /// </summary>
-        public bool ExpiresWithEncounter { get; }
-
-        /// <summary>Gets the deterministic simultaneous-expiry ordering key.</summary>
-        public long CreationOrder { get; }
-
         /// <summary>Creates a validated active-effect timing schedule.</summary>
-        /// <param name="effect">The scheduled effect instance.</param>
         /// <param name="encounter">The encounter supplying initiative boundaries.</param>
-        /// <param name="binding">The binding removed when automatic expiry commits.</param>
-        /// <param name="sourceCreature">The creature whose future boundaries count down.</param>
         /// <param name="remainingBoundaries">The non-negative boundaries remaining.</param>
-        /// <param name="expiresWithEncounter">
-        /// Whether the source duration was encounter-scoped instead of boundary-counted.
-        /// </param>
-        /// <param name="creationOrder">The deterministic simultaneous-expiry order.</param>
-        public ActiveEffectTimingState(
-            ActiveEffectId effect,
-            EncounterId encounter,
-            BindingId binding,
-            CreatureId sourceCreature,
-            int remainingBoundaries,
-            bool expiresWithEncounter,
-            long creationOrder
-        )
+        public ActiveEffectTimingState(EncounterId encounter, int remainingBoundaries)
         {
-            if (effect.IsEmpty || encounter.IsEmpty || binding.IsEmpty || sourceCreature.IsEmpty)
-                throw new ArgumentException("Effect timing requires complete stable identity.");
-            if (remainingBoundaries < 0 || creationOrder < 0)
-                throw new ArgumentOutOfRangeException();
-            Effect = effect;
+            if (encounter.IsEmpty)
+                throw new ArgumentException("An encounter ID is required.", nameof(encounter));
+            if (remainingBoundaries < 0)
+                throw new ArgumentOutOfRangeException(nameof(remainingBoundaries));
             Encounter = encounter;
-            Binding = binding;
-            SourceCreature = sourceCreature;
             RemainingBoundaries = remainingBoundaries;
-            ExpiresWithEncounter = expiresWithEncounter;
-            CreationOrder = creationOrder;
         }
 
         internal static ActiveEffectTimingState ForEncounter(
             ActiveEffectInstance effect,
-            ActiveRuleBinding binding,
             EncounterState encounter
         )
         {
@@ -559,53 +520,23 @@ namespace Game.Rules.Runtime
                 : effect.Duration.Kind == EffectDurationKind.Minutes
                     ? checked(effect.Duration.Amount * 10)
                 : 0;
-            return new ActiveEffectTimingState(
-                effect.Id,
-                encounter.Id,
-                binding.Id,
-                effect.SourceCreature,
-                boundaries,
-                effect.Duration.Kind == EffectDurationKind.Encounter,
-                binding.CreationOrder
-            );
+            return new ActiveEffectTimingState(encounter.Id, boundaries);
         }
 
         internal ActiveEffectTimingState WithRemaining(int remaining) =>
-            new ActiveEffectTimingState(
-                Effect,
-                Encounter,
-                Binding,
-                SourceCreature,
-                remaining,
-                ExpiresWithEncounter,
-                CreationOrder
-            );
+            new ActiveEffectTimingState(Encounter, remaining);
 
         /// <inheritdoc/>
         public bool Equals(ActiveEffectTimingState other) =>
             other != null
-            && Effect == other.Effect
             && Encounter == other.Encounter
-            && Binding == other.Binding
-            && SourceCreature == other.SourceCreature
-            && RemainingBoundaries == other.RemainingBoundaries
-            && ExpiresWithEncounter == other.ExpiresWithEncounter
-            && CreationOrder == other.CreationOrder;
+            && RemainingBoundaries == other.RemainingBoundaries;
 
         /// <inheritdoc/>
         public override bool Equals(object obj) =>
             obj is ActiveEffectTimingState other && Equals(other);
 
         /// <inheritdoc/>
-        public override int GetHashCode() =>
-            HashCode.Combine(
-                Effect,
-                Encounter,
-                Binding,
-                SourceCreature,
-                RemainingBoundaries,
-                ExpiresWithEncounter,
-                CreationOrder
-            );
+        public override int GetHashCode() => HashCode.Combine(Encounter, RemainingBoundaries);
     }
 }

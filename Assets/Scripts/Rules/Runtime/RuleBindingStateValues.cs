@@ -34,8 +34,10 @@ namespace Game.Rules.Runtime
     /// Stores definition-declared duration metadata without owning encounter-clock behavior.
     /// </summary>
     /// <remarks>
-    /// This value deliberately does not track remaining time. Encounter timing reducers interpret
-    /// it and dispatch the explicit expiration operation added by this lifecycle slice.
+    /// This value remains on the authoritative <see cref="ActiveEffectInstance"/> and deliberately
+    /// does not track remaining time. The active-effect timing slice stores only encounter ownership
+    /// and remaining boundaries; reducers derive duration semantics and source identity from the
+    /// effect, then derive binding identity and ordering from its associated binding.
     /// </remarks>
     public readonly struct EffectDuration : IEquatable<EffectDuration>
     {

@@ -828,8 +828,16 @@ Membership in `ActiveEffects` means an effect is active; expiration is not retai
 state. `RemoveActiveEffectOp` carries the feature-known reason (`Expired` or `Ended`). Its reducer
 atomically removes the effect, binding, frequency, and timing state and emits one self-contained
 `ActiveEffectRemovedFact` carrying the immutable removed effect and binding. At an initiative
-boundary, the encounter reducer performs those removals in deterministic effect order in the same
-transaction as cursor and countdown advancement, then stages `InitiativeBoundaryReachedFact`.
+boundary, the encounter reducer performs those removals in binding-creation order followed by
+effect ID in the same transaction as cursor and countdown advancement, then stages
+`InitiativeBoundaryReachedFact`.
+
+The `ActiveEffectTimings` slice is keyed by `ActiveEffectId`; each timing value stores only its
+owning `EncounterId` and mutable remaining-boundary count. The keyed `ActiveEffectInstance` remains
+authoritative for source creature and duration semantics. Timing reducers resolve exactly one
+associated `ActiveRuleBinding` for binding identity and simultaneous-expiration ordering, using
+binding creation order followed by effect ID. The schedule therefore does not duplicate identity,
+duration, source, binding, or ordering state.
 
 ### 6.2 Active effects own typed instance state
 

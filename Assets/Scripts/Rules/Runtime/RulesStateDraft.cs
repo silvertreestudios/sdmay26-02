@@ -130,7 +130,7 @@ namespace Game.Rules.Runtime
             );
             ActiveEffectTimings = new StateSliceDraft<ActiveEffectId, ActiveEffectTimingState>(
                 data.ActiveEffectTimings,
-                (id, value) => !id.IsEmpty && value != null && id == value.Effect
+                (id, value) => !id.IsEmpty && value != null
             );
         }
 

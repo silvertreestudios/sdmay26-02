@@ -211,7 +211,6 @@ namespace Game.Rules.Runtime
                 1,
                 null
             );
-            List<ActiveEffectTimingState> adoptedTimings = new List<ActiveEffectTimingState>();
             HashSet<CreatureId> rosterCreatures = new HashSet<CreatureId>(
                 context.Op.Roster.Select(entry => entry.Creature)
             );
@@ -229,24 +228,19 @@ namespace Game.Rules.Runtime
                     return ReductionResult<EncounterStartOutcome>.Reject(
                         $"Active effect {effect.Id.Value} already has encounter timing."
                     );
-                ActiveRuleBinding[] bindings = state
-                    .RuleBindings.Select(pair => pair.Value)
-                    .Where(binding =>
-                        binding.IsEnabled
-                        && binding.EffectId.HasValue
-                        && binding.EffectId.Value == effect.Id
-                    )
-                    .ToArray();
                 if (
-                    bindings.Length != 1
-                    || bindings[0].DefinitionId != effect.DefinitionId
-                    || bindings[0].Source != effect.Source
+                    !ActiveEffectReduction.TryGetSingleAssociatedBinding(
+                        state.RuleBindings.Select(pair => pair.Value),
+                        effect,
+                        true,
+                        out _,
+                        out string bindingRejection
+                    )
                 )
-                    return ReductionResult<EncounterStartOutcome>.Reject(
-                        $"Active effect {effect.Id.Value} requires one matching enabled binding."
-                    );
-                adoptedTimings.Add(
-                    ActiveEffectTimingState.ForEncounter(effect, bindings[0], encounter)
+                    return ReductionResult<EncounterStartOutcome>.Reject(bindingRejection);
+                state.ActiveEffectTimings.Set(
+                    effect.Id,
+                    ActiveEffectTimingState.ForEncounter(effect, encounter)
                 );
             }
             state.Encounters.Set(encounter.Id, encounter);
@@ -261,8 +255,6 @@ namespace Game.Rules.Runtime
                     0
                 )
             );
-            foreach (ActiveEffectTimingState timing in adoptedTimings)
-                state.ActiveEffectTimings.Set(timing.Effect, timing);
             foreach (InitiativeEntry entry in encounter.Roster)
             {
                 state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
@@ -460,7 +452,8 @@ namespace Game.Rules.Runtime
                 clearCurrentTurn: true
             );
             state.Encounters.Set(updated.Id, updated);
-            List<ActiveEffectTimingState> due = new List<ActiveEffectTimingState>();
+            List<(ActiveEffectInstance Effect, ActiveRuleBinding Binding)> due =
+                new List<(ActiveEffectInstance, ActiveRuleBinding)>();
             foreach (
                 KeyValuePair<
                     ActiveEffectId,
@@ -469,10 +462,16 @@ namespace Game.Rules.Runtime
             )
             {
                 ActiveEffectTimingState timing = pair.Value;
+                if (timing.Encounter != encounter.Id)
+                    continue;
+                if (!state.ActiveEffects.TryGet(pair.Key, out ActiveEffectInstance effect))
+                    return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                        $"Active effect {pair.Key.Value} is unknown."
+                    );
                 if (
-                    timing.Encounter != encounter.Id
-                    || timing.ExpiresWithEncounter
-                    || timing.SourceCreature != entry.Creature
+                    effect.Duration.Kind == EffectDurationKind.Encounter
+                    || effect.Duration.Kind == EffectDurationKind.Indefinite
+                    || effect.SourceCreature != entry.Creature
                     || timing.RemainingBoundaries <= 0
                 )
                     continue;
@@ -480,32 +479,40 @@ namespace Game.Rules.Runtime
                 ActiveEffectTimingState changed = timing.WithRemaining(remaining);
                 state.ActiveEffectTimings.Set(pair.Key, changed);
                 if (remaining == 0)
-                    due.Add(changed);
+                {
+                    if (
+                        !ActiveEffectReduction.TryGetSingleAssociatedBinding(
+                            state.RuleBindings.Select(binding => binding.Value),
+                            effect,
+                            false,
+                            out ActiveRuleBinding binding,
+                            out string bindingRejection
+                        )
+                    )
+                        return ReductionResult<EncounterAdvanceOutcome>.Reject(bindingRejection);
+                    due.Add((effect, binding));
+                }
             }
             due.Sort(
                 (left, right) =>
                 {
-                    int order = left.CreationOrder.CompareTo(right.CreationOrder);
+                    int order = left.Binding.CreationOrder.CompareTo(right.Binding.CreationOrder);
                     return order != 0
                         ? order
                         : string.Compare(
-                            left.Effect.Value,
-                            right.Effect.Value,
+                            left.Effect.Id.Value,
+                            right.Effect.Id.Value,
                             StringComparison.Ordinal
                         );
                 }
             );
-            foreach (ActiveEffectTimingState timing in due)
+            foreach ((ActiveEffectInstance effect, ActiveRuleBinding binding) in due)
             {
-                if (!state.ActiveEffects.TryGet(timing.Effect, out ActiveEffectInstance effect))
-                    return ReductionResult<EncounterAdvanceOutcome>.Reject(
-                        $"Active effect {timing.Effect.Value} is unknown."
-                    );
                 if (
                     !ActiveEffectReduction.TryRemove(
                         state,
-                        timing.Effect,
-                        timing.Binding,
+                        effect.Id,
+                        binding.Id,
                         effect.EffectStateVersion,
                         ActiveEffectRemovalReason.Expired,
                         facts,
