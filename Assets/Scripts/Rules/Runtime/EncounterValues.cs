@@ -334,6 +334,11 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(conclusionPolicy));
             InitiativeEntry[] copied =
                 roster?.ToArray() ?? throw new ArgumentNullException(nameof(roster));
+            if (copied.Length == 0 && phase != EncounterPhase.Initialized)
+                throw new ArgumentException(
+                    "Only an initialized encounter may have an empty roster.",
+                    nameof(roster)
+                );
             if (copied.Any(entry => entry == null))
                 throw new ArgumentException(
                     "An encounter roster cannot contain null.",

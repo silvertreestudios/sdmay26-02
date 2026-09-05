@@ -554,15 +554,19 @@ namespace Game.Tests.EditMode.RulesRuntime
                 .ToArray();
 
             registryBuilder.AddOutcomeRule();
+            RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
                 new InMemoryRulesStore(new RulesStateSeed()),
                 rolls
             )
                 .UseHealthRules()
                 .UseMultipleAttackPenaltyRules()
-                .UseActiveEffectRules(registryBuilder.Build())
+                .UseActiveEffectRules(registry)
                 .UseMovementBudgetResetRules()
-                .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>())
+                .UseEncounterRules(
+                    registry,
+                    turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>()
+                )
                 .UseActionLifecycle(definition)
                 .UseRageRules(definition)
                 .Build();

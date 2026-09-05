@@ -68,6 +68,46 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void EmptyInitializedEncounterStateIsValid()
+        {
+            Assert.DoesNotThrow(() =>
+                new EncounterState(
+                    Encounter,
+                    EncounterPhase.Initialized,
+                    Players,
+                    RoundNumber.First,
+                    Array.Empty<InitiativeEntry>(),
+                    -1,
+                    null,
+                    1,
+                    null
+                )
+            );
+        }
+
+        [TestCase(EncounterPhase.Active)]
+        [TestCase(EncounterPhase.Suspended)]
+        [TestCase(EncounterPhase.Ended)]
+        public void NonInitializedEncounterStateRejectsEmptyRoster(EncounterPhase phase)
+        {
+            ArgumentException rejected = Assert.Throws<ArgumentException>(() =>
+                new EncounterState(
+                    Encounter,
+                    phase,
+                    Players,
+                    RoundNumber.First,
+                    Array.Empty<InitiativeEntry>(),
+                    -1,
+                    null,
+                    1,
+                    null
+                )
+            );
+
+            Assert.That(rejected.ParamName, Is.EqualTo("roster"));
+        }
+
+        [Test]
         public async Task InitialAdditionCommitsBeforeExplicitAdvanceStartsEncounter()
         {
             RuleDispatcher dispatcher = CreateDispatcher(
@@ -711,6 +751,235 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task AdditionRejectsUnknownStandaloneBindingWithoutMutation()
+        {
+            RuleDefinitionId unknown = new RuleDefinitionId("unknown-added-binding");
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("unknown-added-binding-instance"),
+                unknown,
+                Reinforcement,
+                null,
+                Source,
+                0
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(15, 10, 5));
+            await dispatcher.Dispatch(
+                Start(Registration(Hero, Players), Registration(Enemy, Enemies))
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
+                dispatcher,
+                before,
+                Registration(
+                    Reinforcement,
+                    Enemies,
+                    new[] { binding },
+                    Array.Empty<ActiveEffectInstance>()
+                )
+            );
+
+            Assert.That(rejected.Message, Does.Contain(unknown.Value));
+        }
+
+        [Test]
+        public async Task AdditionRejectsUnknownEffectDefinitionWithoutMutation()
+        {
+            RuleDefinitionId unknown = new RuleDefinitionId("unknown-added-effect");
+            ActiveEffectId effectId = new ActiveEffectId("unknown-added-effect-instance");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                unknown,
+                Reinforcement,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("unknown-added-effect-binding"),
+                unknown,
+                Reinforcement,
+                effectId,
+                Source,
+                0
+            );
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(15, 10, 5));
+            await dispatcher.Dispatch(
+                Start(Registration(Hero, Players), Registration(Enemy, Enemies))
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
+                dispatcher,
+                before,
+                Registration(Reinforcement, Enemies, new[] { binding }, new[] { effect })
+            );
+
+            Assert.That(rejected.Message, Does.Contain(unknown.Value));
+        }
+
+        [Test]
+        public async Task AdditionRejectsNonInitialEffectVersionWithoutMutation()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("versioned-added-effect");
+            ActiveEffectId effectId = new ActiveEffectId("versioned-added-effect-instance");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Reinforcement,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState(),
+                new EffectStateVersion(1)
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("versioned-added-effect-binding"),
+                definition,
+                Reinforcement,
+                effectId,
+                Source,
+                0
+            );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 5),
+                registry: registryBuilder.Build()
+            );
+            await dispatcher.Dispatch(
+                Start(Registration(Hero, Players), Registration(Enemy, Enemies))
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
+                dispatcher,
+                before,
+                Registration(Reinforcement, Enemies, new[] { binding }, new[] { effect })
+            );
+
+            Assert.That(rejected.Message, Does.Contain("initial state version"));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task AdditionRejectsEffectBackedBindingWithoutSameBatchEffect(
+            bool effectAlreadyExists
+        )
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("dangling-added-effect-binding");
+            ActiveEffectId effectId = new ActiveEffectId("dangling-added-effect-instance");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 5),
+                registry: registryBuilder.Build(),
+                includeEffectWorkflow: effectAlreadyExists
+            );
+            await dispatcher.Dispatch(
+                Start(Registration(Hero, Players), Registration(Enemy, Enemies))
+            );
+            if (effectAlreadyExists)
+            {
+                ActiveEffectInstance existing = new ActiveEffectInstance(
+                    effectId,
+                    definition,
+                    Hero,
+                    Source,
+                    EffectDuration.Rounds(1),
+                    new TestEffectState()
+                );
+                ActiveRuleBinding existingBinding = new ActiveRuleBinding(
+                    new BindingId("existing-effect-binding"),
+                    definition,
+                    Hero,
+                    effectId,
+                    Source,
+                    0
+                );
+                Resolved(
+                    await dispatcher.Dispatch(new CreateEffectWorkflowOp(existing, existingBinding))
+                );
+            }
+            ActiveRuleBinding dangling = new ActiveRuleBinding(
+                new BindingId("dangling-added-effect-binding-instance"),
+                definition,
+                Reinforcement,
+                effectId,
+                Source,
+                1
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
+                dispatcher,
+                before,
+                Registration(
+                    Reinforcement,
+                    Enemies,
+                    new[] { dangling },
+                    Array.Empty<ActiveEffectInstance>()
+                )
+            );
+
+            Assert.That(rejected.Message, Does.Contain("same batch"));
+        }
+
+        [Test]
+        public async Task AdditionRejectsCrossRegistrationDuplicateEffectBindings()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("cross-registration-effect");
+            ActiveEffectId effectId = new ActiveEffectId("cross-registration-effect-instance");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Reinforcement,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveRuleBinding first = new ActiveRuleBinding(
+                new BindingId("cross-registration-effect-first"),
+                definition,
+                Reinforcement,
+                effectId,
+                Source,
+                0
+            );
+            ActiveRuleBinding second = new ActiveRuleBinding(
+                new BindingId("cross-registration-effect-second"),
+                definition,
+                SecondReinforcement,
+                effectId,
+                Source,
+                1
+            );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 5, 4),
+                registry: registryBuilder.Build()
+            );
+            await dispatcher.Dispatch(
+                Start(Registration(Hero, Players), Registration(Enemy, Enemies))
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
+                dispatcher,
+                before,
+                Registration(Reinforcement, Enemies, new[] { first }, new[] { effect }),
+                Registration(
+                    SecondReinforcement,
+                    Enemies,
+                    new[] { second },
+                    Array.Empty<ActiveEffectInstance>()
+                )
+            );
+
+            Assert.That(rejected.Message, Does.Contain("exactly one associated binding"));
+        }
+
+        [Test]
         public async Task AdditionRejectsEffectSourceOutsideEncounterAndIncomingBatch()
         {
             CreatureId outsider = new CreatureId("unrelated-state-creature");
@@ -739,9 +1008,12 @@ namespace Game.Rules.Runtime.Tests
                 new[] { binding },
                 new[] { effect }
             );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10),
-                new RulesStateSeed().SeedCreature(new CreatureState(outsider, Enemies))
+                new RulesStateSeed().SeedCreature(new CreatureState(outsider, Enemies)),
+                registryBuilder.Build()
             );
             EncounterState active = Resolved(
                 await dispatcher.Dispatch(
@@ -784,6 +1056,7 @@ namespace Game.Rules.Runtime.Tests
         public async Task AdditionRejectsMultipleBindingsAssociatedWithOneEffectBeforeMutation()
         {
             RuleDefinitionId definition = new RuleDefinitionId("restored-binding-cardinality");
+            RuleDefinitionId wrongDefinition = new RuleDefinitionId("wrong-restored-definition");
             ActiveEffectId effectId = new ActiveEffectId("restored-binding-cardinality-effect");
             ActiveEffectInstance effect = new ActiveEffectInstance(
                 effectId,
@@ -803,7 +1076,7 @@ namespace Game.Rules.Runtime.Tests
             );
             ActiveRuleBinding extra = new ActiveRuleBinding(
                 new BindingId("restored-binding-cardinality-extra"),
-                new RuleDefinitionId("wrong-restored-definition"),
+                wrongDefinition,
                 Reinforcement,
                 effectId,
                 Source,
@@ -816,7 +1089,13 @@ namespace Game.Rules.Runtime.Tests
                 new[] { valid, extra },
                 new[] { effect }
             );
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(15, 10));
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            registryBuilder.Define(wrongDefinition);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10),
+                registry: registryBuilder.Build()
+            );
             EncounterState active = Resolved(
                 await dispatcher.Dispatch(
                     Start(Registration(Hero, Players), Registration(Enemy, Enemies))
@@ -925,7 +1204,13 @@ namespace Game.Rules.Runtime.Tests
                     throw new ArgumentOutOfRangeException(nameof(collision), collision, null);
             }
 
-            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(15, 10), seed);
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definitionId);
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10),
+                seed,
+                registryBuilder.Build()
+            );
             EncounterState active = Resolved(
                 await dispatcher.Dispatch(
                     Start(Registration(Hero, Players), Registration(Enemy, Enemies))
@@ -1007,9 +1292,12 @@ namespace Game.Rules.Runtime.Tests
                 duplicateSpellSlot ? sharedSlot : new SpellSlotPoolId("second-reinforcement-slot"),
                 duplicateSpellSlot ? new BindingId("second-reinforcement-binding") : sharedBinding
             );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(new RuleDefinitionId("reinforcement-rule"));
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10),
-                new RulesStateSeed()
+                new RulesStateSeed(),
+                registryBuilder.Build()
             );
             EncounterState active = Resolved(
                 await dispatcher.Dispatch(
@@ -1811,6 +2099,43 @@ namespace Game.Rules.Runtime.Tests
                 EncounterConclusionPolicy.VictoryOrDefeat
             );
 
+        private static void AssertAdditionDidNotMutate(
+            RuleDispatcher dispatcher,
+            RulesSnapshot before,
+            params CreatureId[] rejectedCreatures
+        )
+        {
+            Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
+            Assert.That(
+                dispatcher.Snapshot.Encounters[Encounter],
+                Is.EqualTo(before.Encounters[Encounter])
+            );
+            foreach (CreatureId creature in rejectedCreatures)
+            {
+                Assert.That(dispatcher.Snapshot.Creatures.Contains(creature), Is.False);
+                Assert.That(dispatcher.Snapshot.Health.Contains(creature), Is.False);
+                Assert.That(dispatcher.Snapshot.ActionEconomy.Contains(creature), Is.False);
+            }
+        }
+
+        private static InvalidOperationException AssertAdditionRejectedWithoutMutation(
+            RuleDispatcher dispatcher,
+            RulesSnapshot before,
+            params CombatantRulesState[] rejected
+        )
+        {
+            InvalidOperationException exception = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(new AddCombatantsOp(Encounter, rejected))
+            );
+            AssertAdditionDidNotMutate(
+                dispatcher,
+                before,
+                rejected.Select(combatant => combatant.Creature.Id).ToArray()
+            );
+            return exception;
+        }
+
         private static CombatantRulesState Registration(
             CreatureId creature,
             PlayerId team,
@@ -1935,7 +2260,10 @@ namespace Game.Rules.Runtime.Tests
                 .UseHealthRules()
                 .UseActiveEffectRules(selected)
                 .UseMultipleAttackPenaltyRules()
-                .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>());
+                .UseEncounterRules(
+                    selected,
+                    turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>()
+                );
             builder
                 .RegisterHandler<StartTestEncounterOp, EncounterAdvanceOutcome>(
                     new StartTestEncounterHandler()

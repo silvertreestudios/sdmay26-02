@@ -195,6 +195,11 @@ namespace Game.Rules.Runtime
     internal sealed class CommitCombatantsAdditionReducer
         : IOpReducer<CommitCombatantsAdditionOp, CombatantsAddedOutcome>
     {
+        private readonly RuleRegistry registry;
+
+        public CommitCombatantsAdditionReducer(RuleRegistry registry) =>
+            this.registry = registry ?? throw new ArgumentNullException(nameof(registry));
+
         public ReductionResult<CombatantsAddedOutcome> Reduce(
             ReductionContext<CommitCombatantsAdditionOp> context,
             RulesStateDraft state,
@@ -220,7 +225,11 @@ namespace Game.Rules.Runtime
             HashSet<BindingId> incomingRuleBindings = new HashSet<BindingId>();
             HashSet<ItemId> incomingEquipment = new HashSet<ItemId>();
             HashSet<ItemId> incomingAmmunition = new HashSet<ItemId>();
-            HashSet<ActiveEffectId> incomingEffects = new HashSet<ActiveEffectId>();
+            Dictionary<ActiveEffectId, ActiveEffectInstance> incomingEffects =
+                new Dictionary<ActiveEffectId, ActiveEffectInstance>();
+            Dictionary<ActiveEffectId, ActiveRuleBinding> incomingEffectBindings =
+                new Dictionary<ActiveEffectId, ActiveRuleBinding>();
+            HashSet<ActiveEffectId> duplicateEffectBindings = new HashSet<ActiveEffectId>();
             HashSet<CreatureId> incomingCreatures = new HashSet<CreatureId>(
                 context.Op.Additions.Select(addition => addition.Combatant.Creature.Id)
             );
@@ -256,6 +265,7 @@ namespace Game.Rules.Runtime
                             $"Spell-slot pool {slot.Id.Value} is already registered."
                         );
                 foreach (ActiveRuleBinding binding in registration.RuleBindings)
+                {
                     if (
                         state.RuleBindings.Contains(binding.Id)
                         || !incomingRuleBindings.Add(binding.Id)
@@ -263,6 +273,16 @@ namespace Game.Rules.Runtime
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Rule binding {binding.Id.Value} is already registered."
                         );
+                    if (!registry.TryGetDefinition(binding.DefinitionId, out _))
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Rule definition {binding.DefinitionId.Value} is unknown."
+                        );
+                    if (
+                        binding.EffectId.HasValue
+                        && !incomingEffectBindings.TryAdd(binding.EffectId.Value, binding)
+                    )
+                        duplicateEffectBindings.Add(binding.EffectId.Value);
+                }
                 foreach (EquipmentState item in registration.Equipment)
                     if (state.Equipment.Contains(item.Id) || !incomingEquipment.Add(item.Id))
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
@@ -278,11 +298,19 @@ namespace Game.Rules.Runtime
                     if (
                         state.ActiveEffects.Contains(effect.Id)
                         || state.ActiveEffectTimings.Contains(effect.Id)
-                        || !incomingEffects.Add(effect.Id)
+                        || !incomingEffects.TryAdd(effect.Id, effect)
                     )
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Active effect {effect.Id.Value} is already registered."
                         );
+                    if (
+                        !ActiveEffectReduction.TryValidateCreationState(
+                            registry,
+                            effect,
+                            out string rejection
+                        )
+                    )
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(rejection);
                     if (
                         !rosterCreatures.Contains(effect.SourceCreature)
                         && !incomingCreatures.Contains(effect.SourceCreature)
@@ -290,21 +318,30 @@ namespace Game.Rules.Runtime
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Active effect {effect.Id.Value} has an unenrolled source."
                         );
-                    ActiveRuleBinding[] associated = registration
-                        .RuleBindings.Where(binding =>
-                            binding.EffectId.HasValue && binding.EffectId.Value == effect.Id
-                        )
-                        .ToArray();
-                    if (
-                        associated.Length != 1
-                        || !associated[0].IsEnabled
-                        || associated[0].DefinitionId != effect.DefinitionId
-                        || associated[0].Source != effect.Source
-                    )
-                        return ReductionResult<CombatantsAddedOutcome>.Reject(
-                            $"Active effect {effect.Id.Value} requires one matching enabled binding."
-                        );
                 }
+            }
+            foreach (KeyValuePair<ActiveEffectId, ActiveRuleBinding> pair in incomingEffectBindings)
+                if (!incomingEffects.ContainsKey(pair.Key))
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(
+                        $"Rule binding {pair.Value.Id.Value} must reference an active effect in the same batch."
+                    );
+            foreach (KeyValuePair<ActiveEffectId, ActiveEffectInstance> pair in incomingEffects)
+            {
+                if (
+                    duplicateEffectBindings.Contains(pair.Key)
+                    || !incomingEffectBindings.TryGetValue(pair.Key, out ActiveRuleBinding binding)
+                )
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(
+                        $"Active effect {pair.Key.Value} requires exactly one associated binding in the batch."
+                    );
+                if (
+                    !ActiveEffectReduction.TryValidateCreationBinding(
+                        pair.Value,
+                        binding,
+                        out string rejection
+                    )
+                )
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(rejection);
             }
             foreach (CombatantAddition addition in context.Op.Additions)
             {
@@ -324,9 +361,7 @@ namespace Game.Rules.Runtime
                     state.Ammunition.Set(pool.Item, pool);
                 foreach (ActiveEffectInstance effect in registration.ActiveEffects)
                 {
-                    ActiveRuleBinding binding = registration.RuleBindings.Single(value =>
-                        value.EffectId.HasValue && value.EffectId.Value == effect.Id
-                    );
+                    ActiveRuleBinding binding = incomingEffectBindings[effect.Id];
                     state.ActiveEffects.Set(effect.Id, effect);
                     if (effect.Duration.Kind != EffectDurationKind.Indefinite)
                         state.ActiveEffectTimings.Set(
@@ -367,9 +402,7 @@ namespace Game.Rules.Runtime
             foreach (CombatantAddition addition in context.Op.Additions)
             foreach (ActiveEffectInstance effect in addition.Combatant.ActiveEffects)
             {
-                ActiveRuleBinding binding = addition.Combatant.RuleBindings.Single(value =>
-                    value.EffectId.HasValue && value.EffectId.Value == effect.Id
-                );
+                ActiveRuleBinding binding = incomingEffectBindings[effect.Id];
                 facts.Stage(new ActiveEffectCreatedFact(effect, binding.Id));
             }
             return ReductionResult<CombatantsAddedOutcome>.Accept(

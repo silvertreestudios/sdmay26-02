@@ -42,27 +42,38 @@ namespace Game.Rules.Runtime
 
         /// <summary>Registers encounter handlers and reducer-owned transitions on one dispatcher.</summary>
         /// <param name="builder">The shared dispatcher builder.</param>
+        /// <param name="registry">
+        /// The exact immutable registry used to validate every combatant enrollment binding.
+        /// </param>
         /// <returns>The same builder with encounter rules and no transitional start adapters.</returns>
-        /// <exception cref="ArgumentNullException"><paramref name="builder"/> is null.</exception>
-        public static RuleDispatcherBuilder UseEncounterRules(this RuleDispatcherBuilder builder) =>
-            UseEncounterRules(builder, Array.Empty<IEncounterTurnStartAdapter>());
+        /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+        public static RuleDispatcherBuilder UseEncounterRules(
+            this RuleDispatcherBuilder builder,
+            RuleRegistry registry
+        ) => UseEncounterRules(builder, registry, Array.Empty<IEncounterTurnStartAdapter>());
 
         /// <summary>
         /// Registers encounter transitions plus ordered adapters for unmigrated turn-start behavior.
         /// </summary>
         /// <param name="builder">The shared dispatcher builder that owns all encounter rules.</param>
+        /// <param name="registry">
+        /// The exact immutable registry used by the dispatcher and enrollment reducer.
+        /// </param>
         /// <param name="turnStartAdapters">
         /// The spell, aura, and action-contribution adapters to await in exact registration order.
         /// </param>
         /// <returns>The same builder so composition can continue.</returns>
-        /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
         public static RuleDispatcherBuilder UseEncounterRules(
             this RuleDispatcherBuilder builder,
+            RuleRegistry registry,
             IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters
         )
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
+            if (registry == null)
+                throw new ArgumentNullException(nameof(registry));
             IEncounterTurnStartAdapter[] copied =
                 turnStartAdapters?.ToArray()
                 ?? throw new ArgumentNullException(nameof(turnStartAdapters));
@@ -109,7 +120,7 @@ namespace Game.Rules.Runtime
                     EncounterInitializationOutcome
                 >(new CommitEncounterInitializationReducer(), Source)
                 .RegisterEngineReducer<CommitCombatantsAdditionOp, CombatantsAddedOutcome>(
-                    new CommitCombatantsAdditionReducer(),
+                    new CommitCombatantsAdditionReducer(registry),
                     Source
                 )
                 .RegisterEngineReducer<CommitEncounterActivationOp, EncounterAdvanceOutcome>(

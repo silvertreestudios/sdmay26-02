@@ -71,8 +71,9 @@ explicit static-composition pass that feature modules cannot defer to `Configure
 
 `RuleRegistry` is immutable. `CombatActionCatalog` is instead a stable composed interface over
 encounter-live adapters. Both are constructed before `UnityCombatRulesBridge` supplies them to
-`UseActionLifecycle(modules.ActionCatalog)` and `UseActiveEffectRules(modules.Registry)`, and before
-any module's `ConfigureDispatcher` pass. The catalog's composed capabilities are stable, but
+`UseActionLifecycle(modules.ActionCatalog)`, `UseActiveEffectRules(modules.Registry)`, and
+`UseEncounterRules(modules.Registry, ...)`, and before any module's `ConfigureDispatcher` pass.
+The catalog's composed capabilities are stable, but
 combatant-specific data remains encounter-live:
 `UnityStrikeContext` adds item definitions during any combatant preparation, and
 `UnitySpellBookProvider` reads the live creature map. Do not snapshot combatant-specific catalog
@@ -175,15 +176,18 @@ of precomputed data and must not repeat fallible discovery or validation.
 Initial participants and reinforcements call the same `UnityCombatantEnrollmentPlan.Commit`, which
 dispatches one `AddCombatantsOp` containing a normalized immutable list of complete registrations.
 Its handler rolls initiative and derives stable order and round eligibility. One reducer validates
-the whole batch, commits every state slice, inserts the initiative entries, initializes action
-economy and MAP, preserves an active exact turn, and stages `CombatantsAddedFact` plus any restored
-`ActiveEffectCreatedFact` values. Initiative assignments are published from a later frame so newly
-committed bindings observe their own assignment exactly once.
+the whole batch against the exact composed registry, requires each effect-backed binding and active
+effect to form exactly one matching same-batch pair, commits every state slice, inserts the
+initiative entries, initializes action economy and MAP, preserves an active exact turn, and stages
+`CombatantsAddedFact` plus any restored `ActiveEffectCreatedFact` values. Initiative assignments
+are published from a later frame so newly committed bindings observe their own assignment exactly
+once.
 
-An initialized encounter has an empty roster, cursor `-1`, and no current turn. Initial additions
-naturally qualify for round one. An active-turn addition inserted at or before the reached actor waits
-until the next round; one inserted after it remains eligible in the current round. Adding combatants
-never advances, begins, or ends a turn.
+An initialized encounter may have an empty roster, cursor `-1`, and no current turn; every other
+phase requires at least one roster entry. Initial additions naturally qualify for round one. An
+active-turn addition inserted at or before the reached actor waits until the next round; one inserted
+after it remains eligible in the current round. Adding combatants never advances, begins, or ends a
+turn.
 
 After a successful rules commit, the plan immediately retains its identity and registration-map
 reservations because the combatants now exist in `RulesState`. It then calls `AttachAndInstall`

@@ -106,7 +106,7 @@ namespace Game.Rules.Unity
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
                     .UseActiveEffectRules(modules.Registry)
-                    .UseEncounterRules(composition.CreateTurnStartAdapters())
+                    .UseEncounterRules(modules.Registry, composition.CreateTurnStartAdapters())
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)
                     .UseStrideRules(strideDefinition);
