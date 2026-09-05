@@ -195,10 +195,7 @@ public sealed class UnityCombatRulesBridgeTests
             }
 
             Assert.That(targetEffects.HasEffect<BlessSpellEffect>(), Is.False);
-            Assert.That(
-                bridge.Snapshot.ActiveEffects[adopted.Id].Status,
-                Is.EqualTo(ActiveEffectStatus.Expired)
-            );
+            Assert.That(bridge.Snapshot.ActiveEffects.Contains(adopted.Id), Is.False);
             Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(adopted.Id), Is.False);
             bridge.ReleaseOwnership();
         }

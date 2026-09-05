@@ -118,14 +118,10 @@ namespace Game.Rules.Runtime
                     new CommitInitiativeAssignmentsReducer(),
                     Source
                 )
-                .RegisterEngineReducer<CommitInitiativeBoundaryOp, InitiativeBoundaryOutcome>(
+                .RegisterEngineReducer<CommitInitiativeBoundaryOp, EncounterAdvanceOutcome>(
                     new CommitInitiativeBoundaryReducer(),
                     Source
                 )
-                .RegisterEngineReducer<
-                    CommitInitiativeBoundaryPublicationOp,
-                    EncounterAdvanceOutcome
-                >(new CommitInitiativeBoundaryPublicationReducer(), Source)
                 .RegisterEngineReducer<CommitTurnBeginOp, EncounterAdvanceOutcome>(
                     new CommitTurnBeginReducer(),
                     Source
@@ -322,10 +318,6 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException(
                     "Encounter advancement requires an active encounter without a current turn."
                 );
-            await ExpireEffects(PendingExpirations(context.Snapshot, initial.Id), context);
-            initial = EncounterRuleRuntime.RequireEncounter(context.Snapshot, frame.Op.Encounter);
-            if (initial.Phase != EncounterPhase.Active)
-                return new EncounterAdvanceOutcome(initial);
             EncounterOutcome? immediate = EncounterRuleRuntime.Evaluate(context.Snapshot, initial);
             if (immediate.HasValue)
             {
@@ -335,93 +327,13 @@ namespace Game.Rules.Runtime
                 );
                 return new EncounterAdvanceOutcome(ended.State);
             }
-            if (initial.IsInitiativeBoundaryPending)
-            {
-                await PublishBoundary(initial, context);
-                return new EncounterAdvanceOutcome(
-                    EncounterRuleRuntime.RequireEncounter(context.Snapshot, frame.Op.Encounter)
-                );
-            }
-            InitiativeBoundaryOutcome boundary = EncounterHandlerResults.Require(
+            EncounterHandlerResults.Require(
                 await context.Dispatch(new CommitInitiativeBoundaryOp(frame.Op.Encounter)),
                 "initiative boundary"
             );
-            await ExpireEffects(boundary.DueEffects, context);
-            EncounterState reached = EncounterRuleRuntime.RequireEncounter(
-                context.Snapshot,
-                frame.Op.Encounter
-            );
-            if (reached.Phase == EncounterPhase.Active)
-                await PublishBoundary(reached, context);
             return new EncounterAdvanceOutcome(
                 EncounterRuleRuntime.RequireEncounter(context.Snapshot, frame.Op.Encounter)
             );
-        }
-
-        private static ActiveEffectTimingState[] PendingExpirations(
-            RulesSnapshot snapshot,
-            EncounterId encounter
-        ) =>
-            snapshot
-                // Zero remains durable until ExpireActiveEffectOp commits. A later Advance request
-                // therefore resumes deterministic expiration before it consumes another boundary
-                // when an earlier expiration callback failed after the boundary transaction.
-                .ActiveEffectTimings.Where(pair =>
-                    pair.Value.Encounter == encounter
-                    && !pair.Value.ExpiresWithEncounter
-                    && pair.Value.RemainingBoundaries == 0
-                )
-                .Select(pair => pair.Value)
-                .OrderBy(value => value.CreationOrder)
-                .ThenBy(value => value.Effect.Value, StringComparer.Ordinal)
-                .ToArray();
-
-        private static async ValueTask PublishBoundary(
-            EncounterState encounter,
-            OpHandlerContext context
-        )
-        {
-            InitiativeEntry entry = encounter.Roster[encounter.Cursor];
-            EncounterHandlerResults.Require(
-                await context.Dispatch(
-                    new CommitInitiativeBoundaryPublicationOp(
-                        encounter.Id,
-                        encounter.Round,
-                        encounter.Cursor,
-                        entry.Creature
-                    )
-                ),
-                "initiative boundary publication"
-            );
-        }
-
-        private static async ValueTask ExpireEffects(
-            IEnumerable<ActiveEffectTimingState> timings,
-            OpHandlerContext context
-        )
-        {
-            foreach (ActiveEffectTimingState timing in timings)
-            {
-                if (
-                    !context.Snapshot.ActiveEffects.TryGet(
-                        timing.Effect,
-                        out ActiveEffectInstance effect
-                    )
-                    || effect.Status != ActiveEffectStatus.Active
-                )
-                    continue;
-                EncounterHandlerResults.Require(
-                    await context.Dispatch(
-                        new ExpireActiveEffectOp(
-                            effect.Id,
-                            timing.Binding,
-                            effect.EffectStateVersion,
-                            effect.Source
-                        )
-                    ),
-                    "timed effect expiration"
-                );
-            }
         }
     }
 
@@ -440,7 +352,6 @@ namespace Game.Rules.Runtime
             if (
                 encounter.Phase != EncounterPhase.Active
                 || encounter.CurrentTurn.HasValue
-                || encounter.IsInitiativeBoundaryPending
                 || encounter.Round != frame.Op.Round
                 || encounter.Cursor != frame.Op.Slot
                 || encounter.Roster[encounter.Cursor].Creature != frame.Op.Actor
@@ -565,15 +476,15 @@ namespace Game.Rules.Runtime
                         timing.Effect,
                         out ActiveEffectInstance effect
                     )
-                    || effect.Status != ActiveEffectStatus.Active
                 )
                     continue;
                 EncounterHandlerResults.Require(
                     await context.Dispatch(
-                        new ExpireActiveEffectOp(
+                        new RemoveActiveEffectOp(
                             effect.Id,
                             timing.Binding,
                             effect.EffectStateVersion,
+                            ActiveEffectRemovalReason.Expired,
                             effect.Source
                         )
                     ),
@@ -813,7 +724,6 @@ namespace Game.Rules.Runtime
                 return;
             if (
                 encounter.Cursor < 0
-                || encounter.IsInitiativeBoundaryPending
                 || encounter.Round != fact.Round
                 || encounter.Roster[encounter.Cursor].Creature != fact.Creature
             )

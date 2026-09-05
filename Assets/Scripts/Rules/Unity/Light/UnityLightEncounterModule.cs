@@ -28,7 +28,6 @@ namespace Game.Rules.Unity.Light
                 UnityLightEffectPresentationObserver.Create(catalog, creatures);
             lifetime.Add(presentation);
             lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(presentation));
-            lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(presentation));
             lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(presentation));
             lifetime.Add(
                 dispatcher.RegisterFactObserver<EncounterOutcomeCommittedFact>(presentation)

@@ -94,15 +94,14 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void RemovalFactRejectsUndefinedLifecycleStatus()
+        public void RemovalFactRejectsUndefinedReason()
         {
+            ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
             Assert.Throws<ArgumentOutOfRangeException>(() =>
                 new ActiveEffectRemovedFact(
-                    EffectId,
-                    DefinitionId,
-                    BindingId,
-                    EffectStateVersion.Initial,
-                    (ActiveEffectStatus)99
+                    effect,
+                    CreateBinding(effect),
+                    (ActiveEffectRemovalReason)99
                 )
             );
         }
@@ -163,7 +162,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void UpdateRejectsUnknownWrongTypeAndExpiredEffectsAsTypedResults()
+        public void UpdateRejectsUnknownAndWrongStateTypeAsTypedResults()
         {
             ActiveEffectInstance active = CreateEffect(new AuraEffectState(1));
             InMemoryRulesStore store = CreateSeededStore(active);
@@ -191,44 +190,15 @@ namespace Game.Rules.Runtime.Tests
                 ),
                 reducer
             );
-            ActiveEffectInstance expired = new ActiveEffectInstance(
-                EffectId,
-                DefinitionId,
-                SourceCreature,
-                Source,
-                EffectDuration.OneMinute,
-                new AuraEffectState(1),
-                new EffectStateVersion(4),
-                ActiveEffectStatus.Expired
-            );
-            InMemoryRulesStore expiredStore = CreateSeededStore(
-                expired,
-                CreateBinding(expired).WithEnabled(false)
-            );
-            ReductionResult<ActiveEffectStateUpdateOutcome> expiredResult = expiredStore.Reduce(
-                Context(
-                    UpdateActiveEffectStateOp.Create(
-                        EffectId,
-                        new EffectStateVersion(4),
-                        new AuraEffectState(2),
-                        Source
-                    )
-                ),
-                reducer
-            );
-
             Assert.That(unknown.IsRejected, Is.True);
             Assert.That(unknown.RejectionReason, Does.Contain("unknown"));
             Assert.That(wrongType.IsRejected, Is.True);
             Assert.That(wrongType.RejectionReason, Does.Contain(nameof(OtherEffectState)));
-            Assert.That(expiredResult.IsRejected, Is.True);
-            Assert.That(expiredResult.RejectionReason, Does.Contain("expired"));
             Assert.That(store.Snapshot.Version, Is.Zero);
-            Assert.That(expiredStore.Snapshot.Version, Is.Zero);
         }
 
         [Test]
-        public void ExpireDisablesBindingAndRemoveDeletesBothInAtomicTransactions()
+        public void RemoveDeletesAssociatedStateAndEmitsSelfContainedFact()
         {
             ActiveEffectInstance effect = CreateEffect(new AuraEffectState(1));
             ActiveRuleBinding binding = CreateBinding(effect);
@@ -236,46 +206,53 @@ namespace Game.Rules.Runtime.Tests
                 new RulesStateSeed()
                     .SeedActiveEffect(effect)
                     .SeedRuleBinding(binding)
+                    .SeedActiveEffectTiming(
+                        new ActiveEffectTimingState(
+                            EffectId,
+                            new EncounterId("timing-encounter"),
+                            BindingId,
+                            SourceCreature,
+                            1,
+                            false,
+                            1
+                        )
+                    )
                     .SeedFrequency(
                         BindingId,
                         new FrequencyState(new EncounterId("frequency-encounter"), 3, 1)
                     )
             );
 
-            ReductionResult<ActiveEffectExpirationOutcome> expired = store.Reduce(
+            ReductionResult<ActiveEffectRemovalOutcome> stale = store.Reduce(
                 Context(
-                    new ExpireActiveEffectOp(
+                    new RemoveActiveEffectOp(
                         EffectId,
                         BindingId,
-                        EffectStateVersion.Initial,
+                        new EffectStateVersion(1),
+                        ActiveEffectRemovalReason.Ended,
                         Source
                     )
                 ),
-                new ExpireActiveEffectReducer()
+                new RemoveActiveEffectReducer()
             );
 
-            Assert.That(expired.IsAccepted, Is.True);
-            Assert.That(expired.Value.Version, Is.EqualTo(new EffectStateVersion(1)));
-            Assert.That(
-                expired.Snapshot.ActiveEffects[EffectId].Status,
-                Is.EqualTo(ActiveEffectStatus.Expired)
-            );
-            Assert.That(expired.Snapshot.RuleBindings[BindingId].IsEnabled, Is.False);
-            Assert.That(expired.Snapshot.Frequencies.Contains(BindingId), Is.True);
-            Assert.That(expired.Facts.Single(), Is.TypeOf<ActiveEffectExpiredFact>());
-
-            ReductionResult<ActiveEffectExpirationOutcome> repeatedExpiration = store.Reduce(
-                Context(
-                    new ExpireActiveEffectOp(EffectId, BindingId, new EffectStateVersion(1), Source)
-                ),
-                new ExpireActiveEffectReducer()
-            );
-            Assert.That(repeatedExpiration.IsRejected, Is.True);
-            Assert.That(repeatedExpiration.RejectionReason, Does.Contain("expired"));
+            Assert.That(stale.IsRejected, Is.True);
+            Assert.That(stale.DidCommit, Is.False);
+            Assert.That(stale.Facts, Is.Empty);
+            Assert.That(stale.Snapshot.ActiveEffects.Contains(EffectId), Is.True);
+            Assert.That(stale.Snapshot.RuleBindings.Contains(BindingId), Is.True);
+            Assert.That(stale.Snapshot.ActiveEffectTimings.Contains(EffectId), Is.True);
+            Assert.That(stale.Snapshot.Frequencies.Contains(BindingId), Is.True);
 
             ReductionResult<ActiveEffectRemovalOutcome> removed = store.Reduce(
                 Context(
-                    new RemoveActiveEffectOp(EffectId, BindingId, new EffectStateVersion(1), Source)
+                    new RemoveActiveEffectOp(
+                        EffectId,
+                        BindingId,
+                        EffectStateVersion.Initial,
+                        ActiveEffectRemovalReason.Ended,
+                        Source
+                    )
                 ),
                 new RemoveActiveEffectReducer()
             );
@@ -283,10 +260,13 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(removed.IsAccepted, Is.True);
             Assert.That(removed.Snapshot.ActiveEffects.Contains(EffectId), Is.False);
             Assert.That(removed.Snapshot.RuleBindings.Contains(BindingId), Is.False);
+            Assert.That(removed.Snapshot.ActiveEffectTimings.Contains(EffectId), Is.False);
             Assert.That(removed.Snapshot.Frequencies.Contains(BindingId), Is.False);
             ActiveEffectRemovedFact fact = (ActiveEffectRemovedFact)removed.Facts.Single();
-            Assert.That(fact.RemovedStatus, Is.EqualTo(ActiveEffectStatus.Expired));
-            Assert.That(fact.RemovedVersion, Is.EqualTo(new EffectStateVersion(1)));
+            Assert.That(fact.Effect, Is.SameAs(effect));
+            Assert.That(fact.Binding, Is.SameAs(binding));
+            Assert.That(fact.Reason, Is.EqualTo(ActiveEffectRemovalReason.Ended));
+            Assert.That(fact.RemovedVersion, Is.EqualTo(EffectStateVersion.Initial));
         }
 
         [Test]

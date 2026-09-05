@@ -488,7 +488,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator GenericExpirationThenRemovalAndDisposeAreIdempotentAndIsolated()
+    public IEnumerator GenericRemovalReasonsAndDisposeAreIdempotentAndIsolated()
     {
         CreatureComponent owner = CreateCreature("Effect Owner", 0, prepared: false);
         CreatureId ownerId = new("effect-owner");
@@ -522,22 +522,32 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
 
         observer.OnFactCommitted(
-            new ActiveEffectExpiredFact(
-                effect.Id,
-                effect.DefinitionId,
-                new BindingId("binding-light"),
-                EffectStateVersion.Initial,
-                EffectStateVersion.Initial.Next()
+            new ActiveEffectRemovedFact(
+                effect,
+                new ActiveRuleBinding(
+                    new BindingId("binding-light"),
+                    effect.DefinitionId,
+                    ownerId,
+                    effect.Id,
+                    effect.Source,
+                    1
+                ),
+                ActiveEffectRemovalReason.Expired
             ),
             snapshot
         );
         observer.OnFactCommitted(
             new ActiveEffectRemovedFact(
-                effect.Id,
-                effect.DefinitionId,
-                new BindingId("binding-light"),
-                EffectStateVersion.Initial.Next(),
-                ActiveEffectStatus.Expired
+                effect,
+                new ActiveRuleBinding(
+                    new BindingId("binding-light"),
+                    effect.DefinitionId,
+                    ownerId,
+                    effect.Id,
+                    effect.Source,
+                    1
+                ),
+                ActiveEffectRemovalReason.Ended
             ),
             snapshot
         );

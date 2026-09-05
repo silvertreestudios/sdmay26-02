@@ -463,7 +463,10 @@ namespace Game.Tests.EditMode.RulesRuntime
                 ended.Facts.OfType<TemporaryHitPointImmunityAddedFact>().Count(),
                 Is.EqualTo(1)
             );
-            Assert.That(ended.Facts.OfType<ActiveEffectRemovedFact>().Count(), Is.EqualTo(1));
+            ActiveEffectRemovedFact removal = ended
+                .Facts.OfType<ActiveEffectRemovedFact>()
+                .Single();
+            Assert.That(removal.Reason, Is.EqualTo(ActiveEffectRemovalReason.Ended));
             Assert.That(restarted.Value.TemporaryHitPointsGranted, Is.False);
             Assert.That(restarted.Value.TemporaryHitPoints, Is.Zero);
             Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.Zero);

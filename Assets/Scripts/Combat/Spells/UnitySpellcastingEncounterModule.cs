@@ -71,7 +71,6 @@ namespace Game.Combat.Spells
             );
             RestoredSpellEffectTimingObserver restored = new(restoredEffects);
             lifetime.Add(dispatcher.RegisterFactObserver<InitiativeBoundaryReachedFact>(restored));
-            lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(restored));
             lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(restored));
         }
 
@@ -374,7 +373,6 @@ namespace Game.Combat.Spells
 
     internal sealed class RestoredSpellEffectTimingObserver
         : IFactObserver<InitiativeBoundaryReachedFact>,
-            IFactObserver<ActiveEffectExpiredFact>,
             IFactObserver<ActiveEffectRemovedFact>
     {
         private readonly IReadOnlyDictionary<
@@ -393,15 +391,6 @@ namespace Game.Combat.Spells
         {
             foreach (RestoredSpellEffectProjection projection in projections.Values)
                 projection.ProjectRemaining(currentSnapshot);
-            return default;
-        }
-
-        public ValueTask OnFactCommitted(
-            ActiveEffectExpiredFact fact,
-            RulesSnapshot currentSnapshot
-        )
-        {
-            Remove(fact.EffectId);
             return default;
         }
 
