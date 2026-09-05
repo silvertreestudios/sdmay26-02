@@ -488,6 +488,18 @@ namespace Game.Rules.Runtime
     /// <summary>
     /// Schedules one active effect against its source's initiative boundaries in one encounter.
     /// </summary>
+    /// <remarks>
+    /// This value intentionally materializes immutable scheduling metadata from the associated
+    /// <see cref="ActiveEffectInstance"/> and <see cref="ActiveRuleBinding"/>. Keeping the effect,
+    /// binding, source creature, duration mode, and creation order on the schedule lets encounter
+    /// reducers filter and order timed effects without loading related state on every boundary, and
+    /// gives removal the binding ID directly instead of requiring a reverse binding search.
+    /// <see cref="RemainingBoundaries"/> is the schedule's only evolving value.
+    ///
+    /// Production construction must copy matching effect and binding values. If any copied source
+    /// property becomes mutable during an effect's lifetime, redesign the timing update boundary
+    /// instead of treating this materialized value as automatically synchronized.
+    /// </remarks>
     public sealed class ActiveEffectTimingState : IEquatable<ActiveEffectTimingState>
     {
         /// <summary>Gets the scheduled effect instance.</summary>
