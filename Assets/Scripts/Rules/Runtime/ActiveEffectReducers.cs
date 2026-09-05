@@ -9,7 +9,6 @@ namespace Game.Rules.Runtime
             RulesStateDraft state,
             ActiveEffectId effectId,
             EffectStateVersion expectedVersion,
-            bool requireActive,
             out ActiveEffectInstance effect,
             out string rejection
         )
@@ -17,11 +16,6 @@ namespace Game.Rules.Runtime
             if (!state.ActiveEffects.TryGet(effectId, out effect))
             {
                 rejection = $"Active effect {effectId.Value} is unknown.";
-                return false;
-            }
-            if (requireActive && effect.Status == ActiveEffectStatus.Expired)
-            {
-                rejection = $"Active effect {effectId.Value} has expired.";
                 return false;
             }
             if (effect.EffectStateVersion != expectedVersion)
@@ -36,11 +30,46 @@ namespace Game.Rules.Runtime
             return true;
         }
 
+        public static bool TryRemove(
+            RulesStateDraft state,
+            ActiveEffectId effectId,
+            BindingId bindingId,
+            EffectStateVersion expectedVersion,
+            ActiveEffectRemovalReason reason,
+            FactSink facts,
+            out string rejection
+        )
+        {
+            if (
+                !TryGetCurrent(
+                    state,
+                    effectId,
+                    expectedVersion,
+                    out ActiveEffectInstance effect,
+                    out rejection
+                )
+                || !TryGetAssociatedBinding(
+                    state,
+                    effect,
+                    bindingId,
+                    out ActiveRuleBinding binding,
+                    out rejection
+                )
+            )
+                return false;
+
+            state.ActiveEffects.Remove(effect.Id);
+            state.RuleBindings.Remove(binding.Id);
+            state.Frequencies.Remove(binding.Id);
+            state.ActiveEffectTimings.Remove(effect.Id);
+            facts.Stage(new ActiveEffectRemovedFact(effect, binding, reason));
+            return true;
+        }
+
         public static bool TryGetAssociatedBinding(
             RulesStateDraft state,
             ActiveEffectInstance effect,
             BindingId bindingId,
-            bool requireEnabled,
             out ActiveRuleBinding binding,
             out string rejection
         )
@@ -61,12 +90,6 @@ namespace Game.Rules.Runtime
                     $"Active binding {bindingId.Value} is not associated with effect {effect.Id.Value}.";
                 return false;
             }
-            if (requireEnabled && !binding.IsEnabled)
-            {
-                rejection = $"Active binding {bindingId.Value} is already disabled.";
-                return false;
-            }
-
             rejection = string.Empty;
             return true;
         }
@@ -110,12 +133,6 @@ namespace Game.Rules.Runtime
             {
                 return ReductionResult<ActiveEffectCreationOutcome>.Reject(
                     "A new active effect must use the initial state version."
-                );
-            }
-            if (effect.Status != ActiveEffectStatus.Active)
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    "A new active effect must begin active."
                 );
             }
             if (
@@ -180,7 +197,6 @@ namespace Game.Rules.Runtime
                     state,
                     context.Op.EffectId,
                     context.Op.ExpectedVersion,
-                    true,
                     out ActiveEffectInstance effect,
                     out string rejection
                 )
@@ -217,59 +233,6 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class ExpireActiveEffectReducer
-        : IOpReducer<ExpireActiveEffectOp, ActiveEffectExpirationOutcome>
-    {
-        public ReductionResult<ActiveEffectExpirationOutcome> Reduce(
-            ReductionContext<ExpireActiveEffectOp> context,
-            RulesStateDraft state,
-            FactSink facts
-        )
-        {
-            if (
-                !ActiveEffectReduction.TryGetCurrent(
-                    state,
-                    context.Op.EffectId,
-                    context.Op.ExpectedVersion,
-                    true,
-                    out ActiveEffectInstance effect,
-                    out string rejection
-                )
-                || !ActiveEffectReduction.TryGetAssociatedBinding(
-                    state,
-                    effect,
-                    context.Op.BindingId,
-                    true,
-                    out ActiveRuleBinding binding,
-                    out rejection
-                )
-            )
-            {
-                return ReductionResult<ActiveEffectExpirationOutcome>.Reject(rejection);
-            }
-
-            EffectStateVersion nextVersion = effect.EffectStateVersion.Next();
-            state.ActiveEffects.Set(
-                effect.Id,
-                effect.WithStatus(ActiveEffectStatus.Expired, nextVersion)
-            );
-            state.RuleBindings.Set(binding.Id, binding.WithEnabled(false));
-            state.ActiveEffectTimings.Remove(effect.Id);
-            facts.Stage(
-                new ActiveEffectExpiredFact(
-                    effect.Id,
-                    effect.DefinitionId,
-                    binding.Id,
-                    effect.EffectStateVersion,
-                    nextVersion
-                )
-            );
-            return ReductionResult<ActiveEffectExpirationOutcome>.Accept(
-                new ActiveEffectExpirationOutcome(effect.Id, nextVersion)
-            );
-        }
-    }
-
     internal sealed class RemoveActiveEffectReducer
         : IOpReducer<RemoveActiveEffectOp, ActiveEffectRemovalOutcome>
     {
@@ -280,42 +243,19 @@ namespace Game.Rules.Runtime
         )
         {
             if (
-                !ActiveEffectReduction.TryGetCurrent(
+                !ActiveEffectReduction.TryRemove(
                     state,
                     context.Op.EffectId,
+                    context.Op.BindingId,
                     context.Op.ExpectedVersion,
-                    false,
-                    out ActiveEffectInstance effect,
+                    context.Op.Reason,
+                    facts,
                     out string rejection
                 )
-                || !ActiveEffectReduction.TryGetAssociatedBinding(
-                    state,
-                    effect,
-                    context.Op.BindingId,
-                    false,
-                    out ActiveRuleBinding binding,
-                    out rejection
-                )
             )
-            {
                 return ReductionResult<ActiveEffectRemovalOutcome>.Reject(rejection);
-            }
-
-            state.ActiveEffects.Remove(effect.Id);
-            state.RuleBindings.Remove(binding.Id);
-            state.Frequencies.Remove(binding.Id);
-            state.ActiveEffectTimings.Remove(effect.Id);
-            facts.Stage(
-                new ActiveEffectRemovedFact(
-                    effect.Id,
-                    effect.DefinitionId,
-                    binding.Id,
-                    effect.EffectStateVersion,
-                    effect.Status
-                )
-            );
             return ReductionResult<ActiveEffectRemovalOutcome>.Accept(
-                new ActiveEffectRemovalOutcome(effect.Id, binding.Id)
+                new ActiveEffectRemovalOutcome(context.Op.EffectId, context.Op.BindingId)
             );
         }
     }

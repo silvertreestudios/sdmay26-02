@@ -12,7 +12,6 @@ namespace Game.Rules.Unity.Light
     /// </summary>
     public sealed class UnityLightEffectPresentationObserver
         : IFactObserver<ActiveEffectCreatedFact>,
-            IFactObserver<ActiveEffectExpiredFact>,
             IFactObserver<ActiveEffectRemovedFact>,
             IFactObserver<EncounterOutcomeCommittedFact>,
             IDisposable
@@ -102,16 +101,6 @@ namespace Game.Rules.Unity.Light
                 Destroy(visual);
                 Debug.LogException(exception);
             }
-            return default;
-        }
-
-        /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
-            ActiveEffectExpiredFact fact,
-            RulesSnapshot currentSnapshot
-        )
-        {
-            Remove(fact.EffectId);
             return default;
         }
 

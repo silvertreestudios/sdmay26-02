@@ -340,12 +340,6 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the committed outcome after the encounter ends.</summary>
         public EncounterOutcome? Outcome { get; }
 
-        /// <summary>
-        /// Gets whether the current initiative boundary is committed but cannot publish turn
-        /// authority until all effects due at that boundary finish expiring.
-        /// </summary>
-        public bool IsInitiativeBoundaryPending { get; }
-
         /// <summary>Creates a validated immutable encounter snapshot.</summary>
         /// <param name="id">The stable encounter identity.</param>
         /// <param name="phase">The committed lifecycle phase.</param>
@@ -356,10 +350,6 @@ namespace Game.Rules.Runtime
         /// <param name="currentTurn">The exact open turn, when one exists.</param>
         /// <param name="nextTurnSequence">The next positive turn sequence.</param>
         /// <param name="outcome">The committed result for an ended encounter.</param>
-        /// <param name="isInitiativeBoundaryPending">
-        /// Whether <paramref name="cursor"/> identifies a boundary whose due effects must settle
-        /// before its <see cref="InitiativeBoundaryReachedFact"/> can publish.
-        /// </param>
         public EncounterState(
             EncounterId id,
             EncounterPhase phase,
@@ -369,8 +359,7 @@ namespace Game.Rules.Runtime
             int cursor,
             TurnIdentity? currentTurn,
             long nextTurnSequence,
-            EncounterOutcome? outcome,
-            bool isInitiativeBoundaryPending = false
+            EncounterOutcome? outcome
         )
             : this(
                 id,
@@ -382,8 +371,7 @@ namespace Game.Rules.Runtime
                 cursor,
                 currentTurn,
                 nextTurnSequence,
-                outcome,
-                isInitiativeBoundaryPending
+                outcome
             ) { }
 
         /// <summary>Creates encounter state with an explicit automatic conclusion policy.</summary>
@@ -397,7 +385,6 @@ namespace Game.Rules.Runtime
         /// <param name="currentTurn">The exact open turn, when one exists.</param>
         /// <param name="nextTurnSequence">The next positive turn sequence.</param>
         /// <param name="outcome">The committed result for an ended encounter.</param>
-        /// <param name="isInitiativeBoundaryPending">Whether the reached boundary is awaiting effect expiration.</param>
         public EncounterState(
             EncounterId id,
             EncounterPhase phase,
@@ -408,8 +395,7 @@ namespace Game.Rules.Runtime
             int cursor,
             TurnIdentity? currentTurn,
             long nextTurnSequence,
-            EncounterOutcome? outcome,
-            bool isInitiativeBoundaryPending = false
+            EncounterOutcome? outcome
         )
         {
             if (id.IsEmpty || protagonistTeam.IsEmpty)
@@ -428,14 +414,6 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(cursor));
             if (nextTurnSequence <= 0)
                 throw new ArgumentOutOfRangeException(nameof(nextTurnSequence));
-            if (
-                isInitiativeBoundaryPending
-                && (phase != EncounterPhase.Active || cursor < 0 || currentTurn.HasValue)
-            )
-                throw new ArgumentException(
-                    "A pending initiative boundary requires an active encounter, a reached cursor, and no open turn.",
-                    nameof(isInitiativeBoundaryPending)
-                );
             Id = id;
             Phase = phase;
             ProtagonistTeam = protagonistTeam;
@@ -446,7 +424,6 @@ namespace Game.Rules.Runtime
             CurrentTurn = currentTurn;
             NextTurnSequence = nextTurnSequence;
             Outcome = outcome;
-            IsInitiativeBoundaryPending = isInitiativeBoundaryPending;
         }
 
         internal EncounterState Replace(
@@ -457,8 +434,7 @@ namespace Game.Rules.Runtime
             TurnIdentity? currentTurn = null,
             bool clearCurrentTurn = false,
             long? nextTurnSequence = null,
-            EncounterOutcome? outcome = null,
-            bool? isInitiativeBoundaryPending = null
+            EncounterOutcome? outcome = null
         ) =>
             new EncounterState(
                 Id,
@@ -470,8 +446,7 @@ namespace Game.Rules.Runtime
                 cursor ?? Cursor,
                 clearCurrentTurn ? (TurnIdentity?)null : currentTurn ?? CurrentTurn,
                 nextTurnSequence ?? NextTurnSequence,
-                outcome ?? Outcome,
-                isInitiativeBoundaryPending ?? IsInitiativeBoundaryPending
+                outcome ?? Outcome
             );
 
         /// <inheritdoc/>
@@ -486,7 +461,6 @@ namespace Game.Rules.Runtime
             && CurrentTurn == other.CurrentTurn
             && NextTurnSequence == other.NextTurnSequence
             && Outcome == other.Outcome
-            && IsInitiativeBoundaryPending == other.IsInitiativeBoundaryPending
             && roster.SequenceEqual(other.roster);
 
         /// <inheritdoc/>
@@ -505,7 +479,6 @@ namespace Game.Rules.Runtime
             hash.Add(CurrentTurn);
             hash.Add(NextTurnSequence);
             hash.Add(Outcome);
-            hash.Add(IsInitiativeBoundaryPending);
             foreach (InitiativeEntry entry in roster)
                 hash.Add(entry);
             return hash.ToHashCode();
@@ -523,7 +496,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the encounter supplying its clock.</summary>
         public EncounterId Encounter { get; }
 
-        /// <summary>Gets the binding disabled by automatic expiry.</summary>
+        /// <summary>Gets the binding removed by automatic expiry.</summary>
         public BindingId Binding { get; }
 
         /// <summary>Gets the creature whose initiative boundaries count down the effect.</summary>
@@ -545,7 +518,7 @@ namespace Game.Rules.Runtime
         /// <summary>Creates a validated active-effect timing schedule.</summary>
         /// <param name="effect">The scheduled effect instance.</param>
         /// <param name="encounter">The encounter supplying initiative boundaries.</param>
-        /// <param name="binding">The binding disabled when automatic expiry commits.</param>
+        /// <param name="binding">The binding removed when automatic expiry commits.</param>
         /// <param name="sourceCreature">The creature whose future boundaries count down.</param>
         /// <param name="remainingBoundaries">The non-negative boundaries remaining.</param>
         /// <param name="expiresWithEncounter">

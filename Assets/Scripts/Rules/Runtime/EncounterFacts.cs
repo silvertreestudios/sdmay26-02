@@ -46,27 +46,6 @@ namespace Game.Rules.Runtime
         }
     }
 
-    // This internal audit Fact makes the cursor/timing transaction observable to the store without
-    // exposing an actionable timing signal. InitiativeBoundaryReachedFact publishes only after all
-    // effects due at this committed boundary settle.
-    internal sealed class InitiativeBoundaryPendingFact : RuleFact
-    {
-        public EncounterId Encounter { get; }
-        public RoundNumber Round { get; }
-        public CreatureId Creature { get; }
-
-        public InitiativeBoundaryPendingFact(
-            EncounterId encounter,
-            RoundNumber round,
-            CreatureId creature
-        )
-        {
-            Encounter = encounter;
-            Round = round;
-            Creature = creature;
-        }
-    }
-
     /// <summary>Reports a source-initiative timing boundary, including zero-HP slots.</summary>
     public sealed class InitiativeBoundaryReachedFact : RuleFact
     {

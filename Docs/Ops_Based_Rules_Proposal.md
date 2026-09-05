@@ -824,6 +824,13 @@ public sealed record ActiveRuleBinding(
 
 At each operation frame boundary, the registry selects registrations whose bindings are active and enabled in the frame's start snapshot. Removing a condition, expiring a spell, unequipping an item, or spending a temporary granted reaction removes or disables its binding without rebuilding global listener lists. A binding activated during an operation begins participating with the next frame; a binding disabled or removed by a committed child operation is skipped immediately if its turn in the current middleware or listener plan has not begun. Fact delivery additionally preserves each source frame's selection as described in Section 5.3, preventing later activation from retroactively observing earlier commits in the same root.
 
+Membership in `ActiveEffects` means an effect is active; expiration is not retained as tombstone
+state. `RemoveActiveEffectOp` carries the feature-known reason (`Expired` or `Ended`). Its reducer
+atomically removes the effect, binding, frequency, and timing state and emits one self-contained
+`ActiveEffectRemovedFact` carrying the immutable removed effect and binding. At an initiative
+boundary, the encounter reducer performs those removals in deterministic effect order in the same
+transaction as cursor and countdown advancement, then stages `InitiativeBoundaryReachedFact`.
+
 ### 6.2 Active effects own typed instance state
 
 ```csharp
@@ -2313,7 +2320,7 @@ production composition and operational procedure.
 | Strike and Reload | Implemented production slice | `StrikeActionOp`, `ResolveStrikeOp`, action costs, rules rolls/damage, ammunition/loaded state, MAP, validation, Unity action installation, and presentation are rules-backed. |
 | Movement and Stride | Implemented production slice | Authoritative positions, budgets, permissions, topology provider, movement timing Ops/Facts, relocation, selection, and Stride are rules-backed. Step and Tumble Through are not production actions. |
 | Checks and saves | Foundation implemented | Generic check, skill-check, saving-throw, modifier collection, deterministic roll, and degree-of-success paths exist. Additional action/content integrations remain vertical work. |
-| Active effects and bindings | Foundation implemented | Generic create/update/expire/remove state, encounter timing, restored finite spell-effect adoption, and typed binding selection exist. The conceptual Bless aura state and Sustain workflow do not. |
+| Active effects and bindings | Foundation implemented | Generic create/update/remove state, reasoned self-contained removal Facts, atomic encounter-boundary expiration, restored finite spell-effect adoption, and typed binding selection exist. The conceptual Bless aura state and Sustain workflow do not. |
 | Rage | Implemented production slice | Rules own availability, costs, active effect/binding behavior, temporary HP interaction, and Quick-Tempered listener behavior; Unity prepared-character extraction remains an adapter. |
 | Spellcasting | Partially implemented production slice | Generic Cast a Spell lifecycle, spell slots, supported definitions/variants, spell attacks, selected effects, restored-effect timing, action installation, and presentation are rules-backed. The full spell catalog and every targeting/effect form are not migrated. |
 | Reactions | Runtime capability implemented; content deferred | Reaction costs and `ActionBegunOp` middleware timing exist. The Reactive Strike example is not implemented. |

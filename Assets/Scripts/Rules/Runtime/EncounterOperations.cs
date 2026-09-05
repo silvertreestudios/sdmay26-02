@@ -570,32 +570,11 @@ namespace Game.Rules.Runtime
         public int Count { get; }
     }
 
-    internal sealed class CommitInitiativeBoundaryOp : IRuleOp<InitiativeBoundaryOutcome>
+    internal sealed class CommitInitiativeBoundaryOp : IRuleOp<EncounterAdvanceOutcome>
     {
         public EncounterId Encounter { get; }
 
         public CommitInitiativeBoundaryOp(EncounterId encounter) => Encounter = encounter;
-    }
-
-    internal sealed class CommitInitiativeBoundaryPublicationOp : IRuleOp<EncounterAdvanceOutcome>
-    {
-        public EncounterId Encounter { get; }
-        public RoundNumber Round { get; }
-        public int Slot { get; }
-        public CreatureId Actor { get; }
-
-        public CommitInitiativeBoundaryPublicationOp(
-            EncounterId encounter,
-            RoundNumber round,
-            int slot,
-            CreatureId actor
-        )
-        {
-            Encounter = encounter;
-            Round = round;
-            Slot = slot;
-            Actor = actor;
-        }
     }
 
     internal sealed class BeginInitiativeTurnOp : IRuleOp<EncounterAdvanceOutcome>
@@ -674,24 +653,6 @@ namespace Game.Rules.Runtime
             Actor = actor;
             Amount = amount;
             RequiredLivingTargets = requiredLivingTargets;
-        }
-    }
-
-    internal readonly struct InitiativeBoundaryOutcome
-    {
-        public EncounterState State { get; }
-        public InitiativeEntry Entry { get; }
-        public IReadOnlyList<ActiveEffectTimingState> DueEffects { get; }
-
-        public InitiativeBoundaryOutcome(
-            EncounterState state,
-            InitiativeEntry entry,
-            IReadOnlyList<ActiveEffectTimingState> dueEffects
-        )
-        {
-            State = state;
-            Entry = entry;
-            DueEffects = dueEffects;
         }
     }
 }

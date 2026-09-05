@@ -486,7 +486,6 @@ namespace Game.Rules.Runtime
             return snapshot.ActiveEffects.Any(pair =>
                 pair.Value.DefinitionId == RageActionDefinition.EffectDefinitionId
                 && pair.Value.SourceCreature == actor
-                && pair.Value.Status == ActiveEffectStatus.Active
             );
         }
 
@@ -597,17 +596,14 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class EndRageOnExpirationListener : IRuleFactListener<ActiveEffectExpiredFact>
+    internal sealed class EndRageOnExpirationListener : IRuleFactListener<ActiveEffectRemovedFact>
     {
-        public async ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, FactContext context)
+        public async ValueTask OnFactCommitted(ActiveEffectRemovedFact fact, FactContext context)
         {
             if (
-                fact.DefinitionId != RageActionDefinition.EffectDefinitionId
-                || !context.Snapshot.ActiveEffects.TryGet(
-                    fact.EffectId,
-                    out ActiveEffectInstance effect
-                )
-                || effect.SourceCreature != context.Binding.Owner
+                fact.Reason != ActiveEffectRemovalReason.Expired
+                || fact.Effect.DefinitionId != RageActionDefinition.EffectDefinitionId
+                || fact.Effect.SourceCreature != context.Binding.Owner
             )
                 return;
             await RageHandlerSupport.RequireResolved(
@@ -746,7 +742,6 @@ namespace Game.Rules.Runtime
                 .Where(effect =>
                     effect.DefinitionId == RageActionDefinition.EffectDefinitionId
                     && effect.SourceCreature == frame.Op.Actor
-                    && effect.Status == ActiveEffectStatus.Active
                 )
                 .ToArray();
             if (effects.Length == 0)
@@ -821,6 +816,7 @@ namespace Game.Rules.Runtime
                         effect.Id,
                         bindings[0].Id,
                         effect.EffectStateVersion,
+                        ActiveEffectRemovalReason.Ended,
                         RageRules.Source
                     )
                 )

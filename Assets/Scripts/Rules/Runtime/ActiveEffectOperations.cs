@@ -114,45 +114,7 @@ namespace Game.Rules.Runtime
             new UpdateActiveEffectStateOp(effectId, expectedVersion, state, source);
     }
 
-    /// <summary>
-    /// Requests explicit effect expiration and binding deactivation at an expected version.
-    /// </summary>
-    public sealed class ExpireActiveEffectOp
-        : IRuleOp<ActiveEffectExpirationOutcome>,
-            IRuleSourcedOp
-    {
-        /// <summary>Gets the effect to expire.</summary>
-        public ActiveEffectId EffectId { get; }
-
-        /// <summary>Gets the associated binding to deactivate atomically.</summary>
-        public BindingId BindingId { get; }
-
-        /// <summary>Gets the version that must still be current.</summary>
-        public EffectStateVersion ExpectedVersion { get; }
-
-        /// <inheritdoc/>
-        public RuleSource Source { get; }
-
-        /// <summary>Initializes one nested optimistic expiration request.</summary>
-        /// <param name="effectId">The effect to expire.</param>
-        /// <param name="bindingId">The associated binding to deactivate.</param>
-        /// <param name="expectedVersion">The version read by the requesting workflow.</param>
-        /// <param name="source">The rule source stamped onto a committed expiration Fact.</param>
-        public ExpireActiveEffectOp(
-            ActiveEffectId effectId,
-            BindingId bindingId,
-            EffectStateVersion expectedVersion,
-            RuleSource source
-        )
-        {
-            EffectId = ActiveEffectOperationValidation.RequireEffect(effectId);
-            BindingId = ActiveEffectOperationValidation.RequireBinding(bindingId);
-            ExpectedVersion = expectedVersion;
-            Source = ActiveEffectOperationValidation.RequireSource(source);
-        }
-    }
-
-    /// <summary>Requests atomic removal of one effect tombstone and its associated binding.</summary>
+    /// <summary>Requests atomic removal of one active effect and its associated binding.</summary>
     public sealed class RemoveActiveEffectOp : IRuleOp<ActiveEffectRemovalOutcome>, IRuleSourcedOp
     {
         /// <summary>Gets the effect to remove.</summary>
@@ -164,6 +126,9 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the version that must still be current.</summary>
         public EffectStateVersion ExpectedVersion { get; }
 
+        /// <summary>Gets why rules code is ending the effect.</summary>
+        public ActiveEffectRemovalReason Reason { get; }
+
         /// <inheritdoc/>
         public RuleSource Source { get; }
 
@@ -171,17 +136,23 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to remove.</param>
         /// <param name="bindingId">The associated binding to remove.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
+        /// <param name="reason">Why rules code is ending the effect.</param>
         /// <param name="source">The rule source stamped onto a committed removal Fact.</param>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="reason"/> is undefined.</exception>
         public RemoveActiveEffectOp(
             ActiveEffectId effectId,
             BindingId bindingId,
             EffectStateVersion expectedVersion,
+            ActiveEffectRemovalReason reason,
             RuleSource source
         )
         {
+            if (!Enum.IsDefined(typeof(ActiveEffectRemovalReason), reason))
+                throw new ArgumentOutOfRangeException(nameof(reason));
             EffectId = ActiveEffectOperationValidation.RequireEffect(effectId);
             BindingId = ActiveEffectOperationValidation.RequireBinding(bindingId);
             ExpectedVersion = expectedVersion;
+            Reason = reason;
             Source = ActiveEffectOperationValidation.RequireSource(source);
         }
     }

@@ -149,16 +149,6 @@ namespace Game.Rules.Runtime
             !left.Equals(right);
     }
 
-    /// <summary>Describes whether an effect still participates in rules resolution.</summary>
-    public enum ActiveEffectStatus
-    {
-        /// <summary>The effect and its rule binding are active.</summary>
-        Active,
-
-        /// <summary>The effect is retained as an inactive tombstone until explicit removal.</summary>
-        Expired,
-    }
-
     /// <summary>
     /// Stores one immutable, typed active-effect instance in authoritative rules state.
     /// </summary>
@@ -185,9 +175,6 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the immutable instance-owned state value.</summary>
         public IEffectState State { get; }
 
-        /// <summary>Gets whether this instance is active or retained after expiration.</summary>
-        public ActiveEffectStatus Status { get; }
-
         /// <summary>Initializes one immutable typed active-effect instance.</summary>
         /// <param name="id">The stable effect identity.</param>
         /// <param name="definitionId">The static definition backing the effect.</param>
@@ -196,10 +183,8 @@ namespace Game.Rules.Runtime
         /// <param name="duration">The duration metadata interpreted by encounter timing.</param>
         /// <param name="state">The immutable state value whose exact type this instance preserves.</param>
         /// <param name="effectStateVersion">The current optimistic-concurrency token.</param>
-        /// <param name="status">Whether the instance is active or expired.</param>
         /// <exception cref="ArgumentException">A required ID or source is empty.</exception>
         /// <exception cref="ArgumentNullException"><paramref name="state"/> is <see langword="null"/>.</exception>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="status"/> is undefined.</exception>
         public ActiveEffectInstance(
             ActiveEffectId id,
             RuleDefinitionId definitionId,
@@ -207,8 +192,7 @@ namespace Game.Rules.Runtime
             RuleSource source,
             EffectDuration duration,
             IEffectState state,
-            EffectStateVersion effectStateVersion = default,
-            ActiveEffectStatus status = ActiveEffectStatus.Active
+            EffectStateVersion effectStateVersion = default
         )
         {
             if (id.IsEmpty)
@@ -227,8 +211,6 @@ namespace Game.Rules.Runtime
                 throw new ArgumentException("A rule source is required.", nameof(source));
             if (state == null)
                 throw new ArgumentNullException(nameof(state));
-            if (!Enum.IsDefined(typeof(ActiveEffectStatus), status))
-                throw new ArgumentOutOfRangeException(nameof(status));
             Id = id;
             DefinitionId = definitionId;
             SourceCreature = sourceCreature;
@@ -236,7 +218,6 @@ namespace Game.Rules.Runtime
             Duration = duration;
             State = state;
             EffectStateVersion = effectStateVersion;
-            Status = status;
         }
 
         /// <summary>
@@ -268,23 +249,7 @@ namespace Game.Rules.Runtime
                 Source,
                 Duration,
                 state,
-                effectStateVersion,
-                Status
-            );
-
-        internal ActiveEffectInstance WithStatus(
-            ActiveEffectStatus status,
-            EffectStateVersion effectStateVersion
-        ) =>
-            new ActiveEffectInstance(
-                Id,
-                DefinitionId,
-                SourceCreature,
-                Source,
-                Duration,
-                State,
-                effectStateVersion,
-                status
+                effectStateVersion
             );
 
         /// <inheritdoc/>
@@ -296,8 +261,7 @@ namespace Game.Rules.Runtime
             && Source == other.Source
             && Duration == other.Duration
             && EffectStateVersion == other.EffectStateVersion
-            && Equals(State, other.State)
-            && Status == other.Status;
+            && Equals(State, other.State);
 
         /// <inheritdoc/>
         public override bool Equals(object obj) =>
@@ -312,8 +276,7 @@ namespace Game.Rules.Runtime
                 Source,
                 Duration,
                 EffectStateVersion,
-                State,
-                Status
+                State
             );
     }
 

@@ -10,7 +10,7 @@ namespace Game.Rules.Runtime
         );
 
         /// <summary>
-        /// Adds typed create, update, expire, and remove reducers backed by one static registry.
+        /// Adds typed create, update, and remove reducers backed by one static registry.
         /// </summary>
         /// <param name="builder">The dispatcher builder being composed.</param>
         /// <param name="registry">
@@ -19,7 +19,7 @@ namespace Game.Rules.Runtime
         /// <returns>The supplied builder for fluent composition.</returns>
         /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
         /// <remarks>
-        /// All four operations are reducer registrations and therefore nested-only. Feature handlers
+        /// All three operations are reducer registrations and therefore nested-only. Feature handlers
         /// authorize their use; presentation and encounter-clock code may only request work through
         /// those workflows. This method also attaches the same registry to the dispatcher so an
         /// effect cannot create a binding for a definition unavailable to runtime extensions.
@@ -42,10 +42,6 @@ namespace Game.Rules.Runtime
                 )
                 .RegisterReducer<UpdateActiveEffectStateOp, ActiveEffectStateUpdateOutcome>(
                     new UpdateActiveEffectStateReducer(),
-                    LifecycleSource
-                )
-                .RegisterReducer<ExpireActiveEffectOp, ActiveEffectExpirationOutcome>(
-                    new ExpireActiveEffectReducer(),
                     LifecycleSource
                 )
                 .RegisterReducer<RemoveActiveEffectOp, ActiveEffectRemovalOutcome>(

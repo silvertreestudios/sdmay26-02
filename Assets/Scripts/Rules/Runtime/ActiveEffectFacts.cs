@@ -6,29 +6,24 @@ namespace Game.Rules.Runtime
     public abstract class ActiveEffectFact : RuleFact
     {
         /// <summary>Gets the affected effect.</summary>
-        public ActiveEffectId EffectId { get; }
+        public abstract ActiveEffectId EffectId { get; }
 
         /// <summary>Gets the static definition backing the effect.</summary>
-        public RuleDefinitionId DefinitionId { get; }
-
-        /// <summary>Initializes lifecycle identity shared by active-effect Facts.</summary>
-        /// <param name="effectId">The affected effect.</param>
-        /// <param name="definitionId">The static definition backing the effect.</param>
-        protected ActiveEffectFact(ActiveEffectId effectId, RuleDefinitionId definitionId)
-        {
-            EffectId = ActiveEffectOperationValidation.RequireEffect(effectId);
-            if (definitionId.IsEmpty)
-                throw new ArgumentException(
-                    "A rule definition ID is required.",
-                    nameof(definitionId)
-                );
-            DefinitionId = definitionId;
-        }
+        public abstract RuleDefinitionId DefinitionId { get; }
     }
 
     /// <summary>Records atomic creation of an effect and activation of its rule binding.</summary>
     public sealed class ActiveEffectCreatedFact : ActiveEffectFact
     {
+        private readonly ActiveEffectId effectId;
+        private readonly RuleDefinitionId definitionId;
+
+        /// <inheritdoc/>
+        public override ActiveEffectId EffectId => effectId;
+
+        /// <inheritdoc/>
+        public override RuleDefinitionId DefinitionId => definitionId;
+
         /// <summary>Gets the binding activated in the same transaction.</summary>
         public BindingId BindingId { get; }
 
@@ -40,11 +35,11 @@ namespace Game.Rules.Runtime
 
         /// <summary>Initializes one committed effect-creation record.</summary>
         public ActiveEffectCreatedFact(ActiveEffectInstance effect, BindingId bindingId)
-            : base(
-                effect?.Id ?? throw new ArgumentNullException(nameof(effect)),
-                effect.DefinitionId
-            )
         {
+            if (effect == null)
+                throw new ArgumentNullException(nameof(effect));
+            effectId = effect.Id;
+            definitionId = effect.DefinitionId;
             BindingId = ActiveEffectOperationValidation.RequireBinding(bindingId);
             Version = effect.EffectStateVersion;
             Duration = effect.Duration;
@@ -54,6 +49,12 @@ namespace Game.Rules.Runtime
     /// <summary>Records an optimistic replacement of an active effect's typed state.</summary>
     public sealed class ActiveEffectStateUpdatedFact : ActiveEffectFact
     {
+        /// <inheritdoc/>
+        public override ActiveEffectId EffectId { get; }
+
+        /// <inheritdoc/>
+        public override RuleDefinitionId DefinitionId { get; }
+
         /// <summary>Gets the version replaced by the update.</summary>
         public EffectStateVersion PreviousVersion { get; }
 
@@ -67,71 +68,87 @@ namespace Game.Rules.Runtime
             EffectStateVersion previousVersion,
             EffectStateVersion currentVersion
         )
-            : base(effectId, definitionId)
         {
+            EffectId = ActiveEffectOperationValidation.RequireEffect(effectId);
+            if (definitionId.IsEmpty)
+                throw new ArgumentException(
+                    "A rule definition ID is required.",
+                    nameof(definitionId)
+                );
+            DefinitionId = definitionId;
             PreviousVersion = previousVersion;
             CurrentVersion = currentVersion;
         }
     }
 
-    /// <summary>Records explicit expiration and atomic deactivation of an effect binding.</summary>
-    public sealed class ActiveEffectExpiredFact : ActiveEffectFact
+    /// <summary>Identifies why an active effect left authoritative rules state.</summary>
+    public enum ActiveEffectRemovalReason
     {
-        /// <summary>Gets the binding deactivated in the same transaction.</summary>
-        public BindingId BindingId { get; }
+        /// <summary>The effect's declared duration or encounter-owned lifetime ended.</summary>
+        Expired,
 
-        /// <summary>Gets the version replaced by expiration.</summary>
-        public EffectStateVersion PreviousVersion { get; }
-
-        /// <summary>Gets the expired tombstone's version.</summary>
-        public EffectStateVersion CurrentVersion { get; }
-
-        /// <summary>Initializes one committed expiration record.</summary>
-        public ActiveEffectExpiredFact(
-            ActiveEffectId effectId,
-            RuleDefinitionId definitionId,
-            BindingId bindingId,
-            EffectStateVersion previousVersion,
-            EffectStateVersion currentVersion
-        )
-            : base(effectId, definitionId)
-        {
-            BindingId = ActiveEffectOperationValidation.RequireBinding(bindingId);
-            PreviousVersion = previousVersion;
-            CurrentVersion = currentVersion;
-        }
+        /// <summary>The owning feature explicitly ended the effect early.</summary>
+        Ended,
     }
 
     /// <summary>Records atomic removal of an effect instance and its rule binding.</summary>
     public sealed class ActiveEffectRemovedFact : ActiveEffectFact
     {
-        /// <summary>Gets the binding removed in the same transaction.</summary>
-        public BindingId BindingId { get; }
+        /// <inheritdoc/>
+        public override ActiveEffectId EffectId => Effect.Id;
 
-        /// <summary>Gets the final version that was removed.</summary>
-        public EffectStateVersion RemovedVersion { get; }
+        /// <inheritdoc/>
+        public override RuleDefinitionId DefinitionId => Effect.DefinitionId;
 
-        /// <summary>Gets whether the removed instance was active or expired.</summary>
-        public ActiveEffectStatus RemovedStatus { get; }
+        /// <summary>Gets the immutable effect removed from authoritative state.</summary>
+        public ActiveEffectInstance Effect { get; }
+
+        /// <summary>Gets the immutable binding removed in the same transaction.</summary>
+        public ActiveRuleBinding Binding { get; }
+
+        /// <summary>Gets why rules code removed the effect.</summary>
+        public ActiveEffectRemovalReason Reason { get; }
+
+        /// <summary>Gets the removed binding's identity.</summary>
+        public BindingId BindingId => Binding.Id;
+
+        /// <summary>Gets the final effect-state version that was removed.</summary>
+        public EffectStateVersion RemovedVersion => Effect.EffectStateVersion;
 
         /// <summary>Initializes one committed effect-removal record.</summary>
+        /// <param name="effect">The immutable effect removed from authoritative state.</param>
+        /// <param name="binding">The immutable associated binding removed with the effect.</param>
+        /// <param name="reason">Why rules code removed the effect.</param>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="effect"/> or <paramref name="binding"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="binding"/> is not associated with <paramref name="effect"/>.
+        /// </exception>
         /// <exception cref="ArgumentOutOfRangeException">
-        /// <paramref name="removedStatus"/> is not a defined lifecycle status.
+        /// <paramref name="reason"/> is not a defined removal reason.
         /// </exception>
         public ActiveEffectRemovedFact(
-            ActiveEffectId effectId,
-            RuleDefinitionId definitionId,
-            BindingId bindingId,
-            EffectStateVersion removedVersion,
-            ActiveEffectStatus removedStatus
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            ActiveEffectRemovalReason reason
         )
-            : base(effectId, definitionId)
         {
-            if (!Enum.IsDefined(typeof(ActiveEffectStatus), removedStatus))
-                throw new ArgumentOutOfRangeException(nameof(removedStatus));
-            BindingId = ActiveEffectOperationValidation.RequireBinding(bindingId);
-            RemovedVersion = removedVersion;
-            RemovedStatus = removedStatus;
+            if (!Enum.IsDefined(typeof(ActiveEffectRemovalReason), reason))
+                throw new ArgumentOutOfRangeException(nameof(reason));
+            Effect = effect ?? throw new ArgumentNullException(nameof(effect));
+            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            if (
+                !Binding.EffectId.HasValue
+                || Binding.EffectId.Value != Effect.Id
+                || Binding.DefinitionId != Effect.DefinitionId
+                || Binding.Source != Effect.Source
+            )
+                throw new ArgumentException(
+                    "The removed binding must be associated with the removed effect.",
+                    nameof(binding)
+                );
+            Reason = reason;
         }
     }
 
@@ -182,23 +199,6 @@ namespace Game.Rules.Runtime
             EffectId = effectId;
             PreviousVersion = previousVersion;
             CurrentVersion = currentVersion;
-        }
-    }
-
-    /// <summary>Describes a committed effect expiration.</summary>
-    public readonly struct ActiveEffectExpirationOutcome
-    {
-        /// <summary>Gets the expired effect ID.</summary>
-        public ActiveEffectId EffectId { get; }
-
-        /// <summary>Gets the expired tombstone's version.</summary>
-        public EffectStateVersion Version { get; }
-
-        /// <summary>Initializes a successful expiration outcome.</summary>
-        public ActiveEffectExpirationOutcome(ActiveEffectId effectId, EffectStateVersion version)
-        {
-            EffectId = effectId;
-            Version = version;
         }
     }
 

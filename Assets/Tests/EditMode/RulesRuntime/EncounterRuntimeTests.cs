@@ -1247,7 +1247,7 @@ namespace Game.Rules.Runtime.Tests
             Resolved(await dispatcher.Dispatch(new CreateEffectWorkflowOp(effect, binding)));
             EncounterState beforeInvalid = dispatcher.Snapshot.Encounters[Encounter];
             EncounterEndFactOrderObserver endFacts = new EncounterEndFactOrderObserver();
-            dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(endFacts);
+            dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(endFacts);
             dispatcher.RegisterFactObserver<EncounterOutcomeCommittedFact>(endFacts);
 
             OpResult<EncounterEndOutcome> invalid = await dispatcher.Dispatch(
@@ -1285,12 +1285,9 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Snapshot.Encounters[Encounter].Outcome,
                 Is.EqualTo(EncounterOutcome.PlayerVictory)
             );
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffects[effectId].Status,
-                Is.EqualTo(ActiveEffectStatus.Expired)
-            );
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
             Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
-            Assert.That(dispatcher.Snapshot.RuleBindings[bindingId].IsEnabled, Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(bindingId), Is.False);
             Assert.That(endFacts.Order, Is.EqualTo(new[] { "expired", "ended" }));
         }
 
@@ -1466,7 +1463,8 @@ namespace Game.Rules.Runtime.Tests
             );
             Resolved(await dispatcher.Dispatch(new CreateEffectWorkflowOp(effect, binding)));
             InitiativeExpirationOrderObserver order = new InitiativeExpirationOrderObserver();
-            dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(order);
+            dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(order);
+            dispatcher.RegisterFactObserver<InitiativeBoundaryReachedFact>(order);
             dispatcher.RegisterFactObserver<TurnBeganFact>(order);
 
             EncounterState enemyTurn = Resolved(
@@ -1474,18 +1472,18 @@ namespace Game.Rules.Runtime.Tests
             ).Value.State;
             await dispatcher.Dispatch(new EndTurnOp(enemyTurn.CurrentTurn.Value));
 
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffects[effectId].Status,
-                Is.EqualTo(ActiveEffectStatus.Expired)
-            );
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
             Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
-            Assert.That(order.Order, Is.EqualTo(new[] { "turn", "expired", "turn" }));
+            Assert.That(
+                order.Order,
+                Is.EqualTo(new[] { "boundary", "turn", "expired", "boundary", "turn" })
+            );
         }
 
         [Test]
-        public async Task FailedExpirationLeavesLaterDueEffectsRetryableBeforeNextBoundary()
+        public void ObserverFailureCannotPartiallyExpireOneInitiativeBoundary()
         {
-            RuleDefinitionId definition = new RuleDefinitionId("retryable-timed-effect");
+            RuleDefinitionId definition = new RuleDefinitionId("atomic-timed-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
             registryBuilder.Define(definition);
             RuleRegistry registry = registryBuilder.Build();
@@ -1500,10 +1498,10 @@ namespace Game.Rules.Runtime.Tests
                 1,
                 null
             );
-            ActiveEffectId firstId = new ActiveEffectId("retryable-effect-first");
-            BindingId firstBindingId = new BindingId("retryable-binding-first");
-            ActiveEffectId secondId = new ActiveEffectId("retryable-effect-second");
-            BindingId secondBindingId = new BindingId("retryable-binding-second");
+            ActiveEffectId firstId = new ActiveEffectId("atomic-effect-first");
+            BindingId firstBindingId = new BindingId("atomic-binding-first");
+            ActiveEffectId secondId = new ActiveEffectId("atomic-effect-second");
+            BindingId secondBindingId = new BindingId("atomic-binding-second");
             ActiveEffectInstance first = new ActiveEffectInstance(
                 firstId,
                 definition,
@@ -1540,6 +1538,8 @@ namespace Game.Rules.Runtime.Tests
                 .SeedRuleBinding(
                     new ActiveRuleBinding(secondBindingId, definition, Hero, secondId, Source, 2)
                 )
+                .SeedFrequency(firstBindingId, new FrequencyState(Encounter, 1, 1))
+                .SeedFrequency(secondBindingId, new FrequencyState(Encounter, 1, 1))
                 .SeedActiveEffectTiming(
                     new ActiveEffectTimingState(
                         firstId,
@@ -1563,46 +1563,36 @@ namespace Game.Rules.Runtime.Tests
                     )
                 );
             RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(), seed, registry);
-            ThrowOnceExpirationObserver observer = new ThrowOnceExpirationObserver();
-            dispatcher.RegisterFactObserver<ActiveEffectExpiredFact>(observer);
+            AtomicExpirationObserver observer = new AtomicExpirationObserver(
+                firstId,
+                firstBindingId,
+                secondId,
+                secondBindingId
+            );
+            dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(observer);
+            dispatcher.RegisterFactObserver<InitiativeBoundaryReachedFact>(observer);
 
             Assert.ThrowsAsync<ApplicationException>(async () =>
                 await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
             );
 
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffects[firstId].Status,
-                Is.EqualTo(ActiveEffectStatus.Expired)
-            );
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffects[secondId].Status,
-                Is.EqualTo(ActiveEffectStatus.Active)
-            );
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffectTimings[secondId].RemainingBoundaries,
-                Is.Zero
-            );
-            EncounterState pending = dispatcher.Snapshot.Encounters[Encounter];
-            Assert.That(pending.Cursor, Is.Zero);
-            Assert.That(pending.CurrentTurn, Is.Null);
-            Assert.That(pending.IsInitiativeBoundaryPending, Is.True);
-
-            Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
-
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffects[secondId].Status,
-                Is.EqualTo(ActiveEffectStatus.Expired)
-            );
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(firstId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(secondId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(firstId), Is.False);
             Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(secondId), Is.False);
-            Assert.That(
-                dispatcher.Snapshot.Encounters[Encounter].CurrentTurn.Value.Actor,
-                Is.EqualTo(Hero)
-            );
-            Assert.That(
-                dispatcher.Snapshot.Encounters[Encounter].IsInitiativeBoundaryPending,
-                Is.False
-            );
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(firstBindingId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(secondBindingId), Is.False);
+            Assert.That(dispatcher.Snapshot.Frequencies.Contains(firstBindingId), Is.False);
+            Assert.That(dispatcher.Snapshot.Frequencies.Contains(secondBindingId), Is.False);
+            EncounterState reached = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(reached.Cursor, Is.Zero);
+            Assert.That(reached.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
             Assert.That(observer.Calls, Is.EqualTo(2));
+            Assert.That(observer.AllEffectsRemovedAtFirstCall, Is.True);
+            Assert.That(
+                observer.Order,
+                Is.EqualTo(new[] { firstId.Value, secondId.Value, "boundary" })
+            );
         }
 
         [TestCase(false, false)]
@@ -1708,16 +1698,10 @@ namespace Game.Rules.Runtime.Tests
                 );
             }
 
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffects[countedId].Status,
-                Is.EqualTo(ActiveEffectStatus.Expired)
-            );
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(countedId), Is.False);
             Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(countedId), Is.False);
-            Assert.That(dispatcher.Snapshot.RuleBindings[countedBindingId].IsEnabled, Is.False);
-            Assert.That(
-                dispatcher.Snapshot.ActiveEffects[permanentId].Status,
-                Is.EqualTo(ActiveEffectStatus.Active)
-            );
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(countedBindingId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(permanentId), Is.True);
             Assert.That(dispatcher.Snapshot.RuleBindings[permanentBindingId].IsEnabled, Is.True);
         }
 
@@ -1979,15 +1963,60 @@ namespace Game.Rules.Runtime.Tests
             public void Release() => release.TrySetResult(true);
         }
 
-        private sealed class ThrowOnceExpirationObserver : IFactObserver<ActiveEffectExpiredFact>
+        private sealed class AtomicExpirationObserver
+            : IFactObserver<ActiveEffectRemovedFact>,
+                IFactObserver<InitiativeBoundaryReachedFact>
         {
-            public int Calls { get; private set; }
+            private readonly ActiveEffectId first;
+            private readonly BindingId firstBinding;
+            private readonly ActiveEffectId second;
+            private readonly BindingId secondBinding;
+            private readonly List<string> order = new List<string>();
 
-            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public AtomicExpirationObserver(
+                ActiveEffectId first,
+                BindingId firstBinding,
+                ActiveEffectId second,
+                BindingId secondBinding
+            )
             {
+                this.first = first;
+                this.firstBinding = firstBinding;
+                this.second = second;
+                this.secondBinding = secondBinding;
+            }
+
+            public int Calls { get; private set; }
+            public bool AllEffectsRemovedAtFirstCall { get; private set; }
+            public IReadOnlyList<string> Order => order;
+
+            public ValueTask OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot snapshot)
+            {
+                Assert.That(fact.Reason, Is.EqualTo(ActiveEffectRemovalReason.Expired));
                 Calls++;
+                order.Add(fact.EffectId.Value);
                 if (Calls == 1)
+                {
+                    AllEffectsRemovedAtFirstCall =
+                        !snapshot.ActiveEffects.Contains(first)
+                        && !snapshot.ActiveEffects.Contains(second)
+                        && !snapshot.ActiveEffectTimings.Contains(first)
+                        && !snapshot.ActiveEffectTimings.Contains(second)
+                        && !snapshot.RuleBindings.Contains(firstBinding)
+                        && !snapshot.RuleBindings.Contains(secondBinding)
+                        && !snapshot.Frequencies.Contains(firstBinding)
+                        && !snapshot.Frequencies.Contains(secondBinding);
                     throw new ApplicationException("first expiration callback failed");
+                }
+                return default;
+            }
+
+            public ValueTask OnFactCommitted(
+                InitiativeBoundaryReachedFact fact,
+                RulesSnapshot snapshot
+            )
+            {
+                order.Add("boundary");
                 return default;
             }
         }
@@ -2022,15 +2051,16 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class EncounterEndFactOrderObserver
-            : IFactObserver<ActiveEffectExpiredFact>,
+            : IFactObserver<ActiveEffectRemovedFact>,
                 IFactObserver<EncounterOutcomeCommittedFact>
         {
             private readonly List<string> order = new List<string>();
 
             public IReadOnlyList<string> Order => order;
 
-            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public ValueTask OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot snapshot)
             {
+                Assert.That(fact.Reason, Is.EqualTo(ActiveEffectRemovalReason.Expired));
                 order.Add("expired");
                 return default;
             }
@@ -2046,16 +2076,27 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class InitiativeExpirationOrderObserver
-            : IFactObserver<ActiveEffectExpiredFact>,
+            : IFactObserver<ActiveEffectRemovedFact>,
+                IFactObserver<InitiativeBoundaryReachedFact>,
                 IFactObserver<TurnBeganFact>
         {
             private readonly List<string> order = new List<string>();
 
             public IReadOnlyList<string> Order => order;
 
-            public ValueTask OnFactCommitted(ActiveEffectExpiredFact fact, RulesSnapshot snapshot)
+            public ValueTask OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot snapshot)
             {
+                Assert.That(fact.Reason, Is.EqualTo(ActiveEffectRemovalReason.Expired));
                 order.Add("expired");
+                return default;
+            }
+
+            public ValueTask OnFactCommitted(
+                InitiativeBoundaryReachedFact fact,
+                RulesSnapshot snapshot
+            )
+            {
+                order.Add("boundary");
                 return default;
             }
 
