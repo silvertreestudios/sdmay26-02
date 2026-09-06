@@ -97,14 +97,17 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Requests iterative progression to the next living initiative slot.</summary>
+    /// <summary>
+    /// Activates a populated initialized encounter if necessary, then advances to the next living
+    /// initiative slot. The encounter must not have an open turn.
+    /// </summary>
     public sealed class AdvanceEncounterOp : IRuleOp<EncounterAdvanceOutcome>
     {
-        /// <summary>Gets the active encounter whose next boundary should be reached.</summary>
+        /// <summary>Gets the initialized or active encounter whose next boundary should be reached.</summary>
         public EncounterId Encounter { get; }
 
         /// <summary>Creates an iterative advance request for an encounter without an open turn.</summary>
-        /// <param name="encounter">The active encounter identity.</param>
+        /// <param name="encounter">The initialized or active encounter identity.</param>
         public AdvanceEncounterOp(EncounterId encounter) =>
             Encounter = encounter.IsEmpty
                 ? throw new ArgumentException("An encounter ID is required.", nameof(encounter))

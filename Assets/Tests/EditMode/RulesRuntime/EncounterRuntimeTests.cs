@@ -763,6 +763,43 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task InitialAdditionRejectsReservedOutcomeBindingBeforeMutation()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(new ScriptedRollService(15, 15, 10));
+            Resolved(await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players)));
+            RulesSnapshot before = dispatcher.Snapshot;
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                EncounterRuleRuntime.OutcomeBindingId(Encounter),
+                EncounterRuleRuntime.OutcomeDefinitionId,
+                Hero,
+                null,
+                Source,
+                0
+            );
+
+            AssertAdditionRejectedWithoutMutation(
+                dispatcher,
+                before,
+                Registration(Hero, Players, new[] { binding }, Array.Empty<ActiveEffectInstance>())
+            );
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(binding.Id), Is.False);
+            Resolved(
+                await dispatcher.Dispatch(
+                    new AddCombatantsOp(
+                        Encounter,
+                        new[] { Registration(Hero, Players), Registration(Enemy, Enemies) }
+                    )
+                )
+            );
+            Assert.That(
+                Resolved(
+                    await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
+                ).Value.State.Phase,
+                Is.EqualTo(EncounterPhase.Active)
+            );
+        }
+
+        [Test]
         public async Task AdditionRejectsUnknownStandaloneBindingWithoutMutation()
         {
             RuleDefinitionId unknown = new RuleDefinitionId("unknown-added-binding");
@@ -991,8 +1028,13 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(rejected.Message, Does.Contain("exactly one associated binding"));
         }
 
-        [Test]
-        public async Task AdditionRejectsEffectSourceOutsideEncounterAndIncomingBatch()
+        [TestCase(true, false)]
+        [TestCase(false, false)]
+        [TestCase(false, true)]
+        public async Task AdditionRejectsEffectSourceOrBindingOwnerOutsideEncounterAndIncomingBatch(
+            bool invalidSource,
+            bool missingOwner
+        )
         {
             CreatureId outsider = new CreatureId("unrelated-state-creature");
             RuleDefinitionId definition = new RuleDefinitionId("restored-source-membership");
@@ -1001,7 +1043,7 @@ namespace Game.Rules.Runtime.Tests
             ActiveEffectInstance effect = new ActiveEffectInstance(
                 effectId,
                 definition,
-                outsider,
+                invalidSource ? outsider : Hero,
                 Source,
                 EffectDuration.Rounds(1),
                 new TestEffectState()
@@ -1009,7 +1051,7 @@ namespace Game.Rules.Runtime.Tests
             ActiveRuleBinding binding = new ActiveRuleBinding(
                 bindingId,
                 definition,
-                outsider,
+                invalidSource ? Hero : outsider,
                 effectId,
                 Source,
                 0
@@ -1024,7 +1066,9 @@ namespace Game.Rules.Runtime.Tests
             registryBuilder.Define(definition);
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10),
-                new RulesStateSeed().SeedCreature(new CreatureState(outsider, Enemies)),
+                missingOwner
+                    ? new RulesStateSeed()
+                    : new RulesStateSeed().SeedCreature(new CreatureState(outsider, Enemies)),
                 registryBuilder.Build()
             );
             EncounterState active = Resolved(
@@ -1056,6 +1100,10 @@ namespace Game.Rules.Runtime.Tests
             ).Value;
 
             Assert.That(result, Is.TypeOf<InvalidOpResult<CombatantsAddedOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<CombatantsAddedOutcome>)result).Reason,
+                Does.Contain(invalidSource ? "unenrolled source" : "unenrolled owner")
+            );
             Assert.That(dispatcher.Snapshot.Version, Is.EqualTo(before.Version));
             Assert.That(
                 dispatcher.Snapshot.Encounters[Encounter].Roster,

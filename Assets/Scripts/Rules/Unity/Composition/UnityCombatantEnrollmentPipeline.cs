@@ -151,14 +151,23 @@ namespace Game.Rules.Unity.Composition
         /// <summary>Commits every prepared batch through the common rules-owned addition.</summary>
         internal void Commit()
         {
-            owner.DispatchRequired(
-                new AddCombatantsOp(
-                    owner.EncounterId,
-                    combatants.Select(combatant => combatant.State)
-                )
-            );
-            foreach (RegistrationToken reservation in durableReservations)
-                reservation.Retain();
+            try
+            {
+                owner.DispatchRequired(
+                    new AddCombatantsOp(
+                        owner.EncounterId,
+                        combatants.Select(combatant => combatant.State)
+                    )
+                );
+            }
+            finally
+            {
+                // Preparation requires new identities and addition commits the whole batch.
+                // The snapshot, not successful notification, determines whether maps are durable.
+                if (owner.Snapshot.Creatures.Contains(combatants[0].State.Creature.Id))
+                    foreach (RegistrationToken reservation in durableReservations)
+                        reservation.Retain();
+            }
         }
 
         /// <summary>Seeds the isolated non-encounter Stride composition.</summary>

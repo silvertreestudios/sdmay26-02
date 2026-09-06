@@ -834,8 +834,9 @@ public sealed class UnityCombatRulesBridgeTests
         }
     }
 
-    [Test]
-    public void PostCommitInstallationFailureKeepsRegistrationAndCleansLocalAuthority()
+    [TestCase(false)]
+    [TestCase(true)]
+    public void PostCommitFailureKeepsRegistrationAndCleansLocalAuthority(bool notificationFailure)
     {
         GameObject hostObject = new GameObject("post-commit-host");
         GameObject anchorObject = new GameObject("post-commit-anchor");
@@ -896,11 +897,28 @@ public sealed class UnityCombatRulesBridgeTests
                 true
             );
 
-            enrollment.Commit();
-            ApplicationException error = Assert.Throws<ApplicationException>(() =>
-                enrollment.AttachAndInstall()
-            );
-            Assert.That(error.Message, Does.Contain("post-commit installation"));
+            if (notificationFailure)
+            {
+                ApplicationException expected = new ApplicationException(
+                    "post-commit notification"
+                );
+                using IDisposable observer = GetDispatcher(encounter)
+                    .RegisterFactObserver<CombatantsAddedFact>(
+                        new CompletedFailureObserver(expected)
+                    );
+                Assert.That(
+                    Assert.Throws<ApplicationException>(() => enrollment.Commit()),
+                    Is.SameAs(expected)
+                );
+            }
+            else
+            {
+                enrollment.Commit();
+                ApplicationException error = Assert.Throws<ApplicationException>(() =>
+                    enrollment.AttachAndInstall()
+                );
+                Assert.That(error.Message, Does.Contain("post-commit installation"));
+            }
             Assert.DoesNotThrow(() => enrollment.Dispose());
 
             CreatureId reinforcementId = encounter.GetCreatureId(reinforcement);
@@ -1542,13 +1560,18 @@ public sealed class UnityCombatRulesBridgeTests
         return (RuleDispatcher)field.GetValue(bridge);
     }
 
-    private sealed class CompletedFailureObserver : IFactObserver<HealthFact>
+    private sealed class CompletedFailureObserver
+        : IFactObserver<HealthFact>,
+            IFactObserver<CombatantsAddedFact>
     {
         private readonly Exception failure;
 
         public CompletedFailureObserver(Exception failure) => this.failure = failure;
 
         public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot) =>
+            new ValueTask(Task.FromException(failure));
+
+        public ValueTask OnFactCommitted(CombatantsAddedFact fact, RulesSnapshot currentSnapshot) =>
             new ValueTask(Task.FromException(failure));
     }
 

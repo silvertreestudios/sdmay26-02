@@ -223,6 +223,7 @@ namespace Game.Rules.Runtime
             HashSet<CreatureId> existing = new HashSet<CreatureId>(rosterCreatures);
             HashSet<SpellSlotPoolId> incomingSpellSlots = new HashSet<SpellSlotPoolId>();
             HashSet<BindingId> incomingRuleBindings = new HashSet<BindingId>();
+            BindingId outcomeBindingId = EncounterRuleRuntime.OutcomeBindingId(encounter.Id);
             HashSet<ItemId> incomingEquipment = new HashSet<ItemId>();
             HashSet<ItemId> incomingAmmunition = new HashSet<ItemId>();
             Dictionary<ActiveEffectId, ActiveEffectInstance> incomingEffects =
@@ -266,7 +267,8 @@ namespace Game.Rules.Runtime
                 foreach (ActiveRuleBinding binding in registration.RuleBindings)
                 {
                     if (
-                        state.RuleBindings.Contains(binding.Id)
+                        binding.Id == outcomeBindingId
+                        || state.RuleBindings.Contains(binding.Id)
                         || !incomingRuleBindings.Add(binding.Id)
                     )
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
@@ -275,6 +277,13 @@ namespace Game.Rules.Runtime
                     if (!registry.TryGetDefinition(binding.DefinitionId, out _))
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Rule definition {binding.DefinitionId.Value} is unknown."
+                        );
+                    if (
+                        !rosterCreatures.Contains(binding.Owner)
+                        && !incomingCreatures.Contains(binding.Owner)
+                    )
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Rule binding {binding.Id.Value} has an unenrolled owner."
                         );
                     if (
                         binding.EffectId.HasValue

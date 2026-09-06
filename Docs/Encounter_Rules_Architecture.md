@@ -189,8 +189,9 @@ active-turn addition inserted at or before the reached actor waits until the nex
 after it remains eligible in the current round. Adding combatants never advances, begins, or ends a
 turn.
 
-After a successful rules commit, the plan immediately retains its identity and registration-map
-reservations because the combatants now exist in `RulesState`. It then calls `AttachAndInstall`
+When dispatch exits, including when post-commit notification throws, the plan checks committed
+`RulesState` to retain identity and registration-map reservations for the atomic batch. A dispatch
+exception does not imply rollback. On success it then calls `AttachAndInstall`
 before `TransferTo(encounterLifetime)`, which transfers lifetime ownership only. If installation
 throws, the failure surfaces and locally owned attachment and feature resources are disposed, but
 the durable rules registration and maps are not rolled back. A new feature contributes complete
