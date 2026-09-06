@@ -221,12 +221,11 @@ translate those objects into stable rules values before dispatch and project com
 afterward.
 
 Synchronous external Fact observation may feed a host-owned ordered presentation sequence. The host
-opens that sequence from `ActionBegunFact<TResult>`, appends feature presentation and visual
-reactions in committed Fact order, then drains the exact immutable action after synchronous
-dispatch. Observers enqueue and return immediately; the dispatcher never awaits Unity frames. The
-first presenter execution failure is logged once, aborts the action's remaining presentation, and
-releases its action/root correlation so the caller can unlock. Presentation has no retry or
-recovery state.
+opens that sequence from `ActionBegunFact<TResult>`, records feature presentation and visual
+reactions from committed Facts, then drains the exact immutable action after synchronous dispatch.
+Observers enqueue and return immediately; the dispatcher never awaits Unity frames. The first
+presenter execution failure is logged once, aborts the action's remaining presentation, and releases
+its action/root correlation so the caller can unlock. Presentation has no retry or recovery state.
 
 Authoritative health changes at reducer commit time. Each committed health Fact immediately projects
 its exact snapshot into the Unity component, and HUD reads use that authoritative health. Only hit
