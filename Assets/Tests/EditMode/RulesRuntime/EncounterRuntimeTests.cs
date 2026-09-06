@@ -702,11 +702,16 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(reinforcementTurn.CurrentTurn.Value.Actor, Is.EqualTo(Reinforcement));
         }
 
-        [Test]
-        public async Task ActiveAdditionReanchorsCursorWithoutChangingExactTurnIdentity()
+        [TestCase(20, 2)]
+        [TestCase(15, 1)]
+        [TestCase(5, 1)]
+        public async Task ActiveAdditionReanchorsCursorWithoutChangingExactTurnIdentity(
+            int reinforcementRoll,
+            int eligibleRound
+        )
         {
             RuleDispatcher dispatcher = CreateDispatcher(
-                new ScriptedRollService(15, 10, 20, 5),
+                new ScriptedRollService(15, 10, reinforcementRoll, 5),
                 new RulesStateSeed()
             );
             Resolved(await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players)));
@@ -740,7 +745,14 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(added.Roster[added.Cursor].Creature, Is.EqualTo(Hero));
             Assert.That(
                 added.Roster.Single(entry => entry.Creature == Reinforcement).EligibleFromRound,
-                Is.EqualTo(new RoundNumber(2))
+                Is.EqualTo(new RoundNumber(eligibleRound))
+            );
+            Assert.That(added.Roster.Select(entry => entry.Total), Is.Ordered.Descending);
+            Assert.That(
+                added
+                    .Roster.Where(entry => entry.Total == reinforcementRoll)
+                    .Select(entry => entry.RegistrationOrder),
+                Is.Ordered
             );
             Assert.That(
                 added

@@ -229,7 +229,6 @@ namespace Game.Rules.Runtime
                 new Dictionary<ActiveEffectId, ActiveEffectInstance>();
             Dictionary<ActiveEffectId, ActiveRuleBinding> incomingEffectBindings =
                 new Dictionary<ActiveEffectId, ActiveRuleBinding>();
-            HashSet<ActiveEffectId> duplicateEffectBindings = new HashSet<ActiveEffectId>();
             HashSet<CreatureId> incomingCreatures = new HashSet<CreatureId>(
                 context.Op.Additions.Select(addition => addition.Combatant.Creature.Id)
             );
@@ -281,7 +280,9 @@ namespace Game.Rules.Runtime
                         binding.EffectId.HasValue
                         && !incomingEffectBindings.TryAdd(binding.EffectId.Value, binding)
                     )
-                        duplicateEffectBindings.Add(binding.EffectId.Value);
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Active effect {binding.EffectId.Value.Value} requires exactly one associated binding in the batch."
+                        );
                 }
                 foreach (EquipmentState item in registration.Equipment)
                     if (state.Equipment.Contains(item.Id) || !incomingEquipment.Add(item.Id))
@@ -327,10 +328,7 @@ namespace Game.Rules.Runtime
                     );
             foreach (KeyValuePair<ActiveEffectId, ActiveEffectInstance> pair in incomingEffects)
             {
-                if (
-                    duplicateEffectBindings.Contains(pair.Key)
-                    || !incomingEffectBindings.TryGetValue(pair.Key, out ActiveRuleBinding binding)
-                )
+                if (!incomingEffectBindings.TryGetValue(pair.Key, out ActiveRuleBinding binding))
                     return ReductionResult<CombatantsAddedOutcome>.Reject(
                         $"Active effect {pair.Key.Value} requires exactly one associated binding in the batch."
                     );
@@ -351,6 +349,8 @@ namespace Game.Rules.Runtime
                 state.Health.Set(entry.Creature, registration.Health);
                 state.Positions.Set(entry.Creature, registration.Position);
                 state.LandSpeeds.Set(entry.Creature, registration.LandSpeed);
+                state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
+                state.MultipleAttackPenalty.Set(entry.Creature, new MultipleAttackPenaltyState(0));
                 foreach (SpellSlotState slot in registration.SpellSlots)
                     state.SpellSlots.Set(slot.Id, slot);
                 foreach (ActiveRuleBinding binding in registration.RuleBindings)
@@ -387,12 +387,6 @@ namespace Game.Rules.Runtime
                 currentTurn: encounter.CurrentTurn
             );
             state.Encounters.Set(updated.Id, updated);
-            foreach (CombatantAddition addition in context.Op.Additions)
-            {
-                InitiativeEntry entry = addition.Initiative;
-                state.ActionEconomy.Set(entry.Creature, new ActionEconomyState(0, false));
-                state.MultipleAttackPenalty.Set(entry.Creature, new MultipleAttackPenaltyState(0));
-            }
             facts.Stage(
                 new CombatantsAddedFact(
                     updated,

@@ -263,48 +263,28 @@ namespace Game.Rules.Runtime
                 encounter.Roster.Count == 0
                     ? 0
                     : checked(encounter.Roster.Max(entry => entry.RegistrationOrder) + 1);
-            InitiativeEntry[] rolled = frame
+            CombatantAddition[] additions = frame
                 .Op.Combatants.Select(
                     (combatant, index) =>
-                        new InitiativeEntry(
-                            combatant.Creature.Id,
-                            combatant.Creature.Player,
-                            context.Rolls.Roll(DiceExpressions.D20).Total,
-                            combatant.InitiativeModifier,
-                            checked(nextRegistrationOrder + index),
-                            encounter.Round
-                        )
-                )
-                .ToArray();
-            InitiativeEntry[] ordered = encounter
-                .Roster.Concat(rolled)
-                .OrderByDescending(entry => entry.Total)
-                .ThenBy(entry => entry.RegistrationOrder)
-                .ToArray();
-            int reachedIndex = encounter.CurrentTurn.HasValue
-                ? Array.FindIndex(
-                    ordered,
-                    entry => entry.Creature == encounter.CurrentTurn.Value.Actor
-                )
-                : -1;
-            CombatantAddition[] additions = rolled
-                .Select(
-                    (entry, index) =>
                     {
-                        int insertionIndex = Array.IndexOf(ordered, entry);
+                        int natural = context.Rolls.Roll(DiceExpressions.D20).Total;
+                        int total = checked(natural + combatant.InitiativeModifier);
+                        // Later registration orders place ties after existing combatants. Only a
+                        // higher total inserts before the current actor and waits for next round.
                         RoundNumber eligible =
-                            reachedIndex >= 0 && insertionIndex <= reachedIndex
+                            encounter.CurrentTurn.HasValue
+                            && total > encounter.Roster[encounter.Cursor].Total
                                 ? encounter.Round.Next()
                                 : encounter.Round;
-                        InitiativeEntry normalized = new InitiativeEntry(
-                            entry.Creature,
-                            entry.Team,
-                            entry.NaturalRoll,
-                            entry.Modifier,
-                            entry.RegistrationOrder,
+                        InitiativeEntry initiative = new InitiativeEntry(
+                            combatant.Creature.Id,
+                            combatant.Creature.Player,
+                            natural,
+                            combatant.InitiativeModifier,
+                            checked(nextRegistrationOrder + index),
                             eligible
                         );
-                        return new CombatantAddition(normalized, frame.Op.Combatants[index]);
+                        return new CombatantAddition(initiative, combatant);
                     }
                 )
                 .ToArray();

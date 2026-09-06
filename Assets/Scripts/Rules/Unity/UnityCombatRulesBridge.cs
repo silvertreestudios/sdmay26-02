@@ -127,14 +127,9 @@ namespace Game.Rules.Unity
                         new InitEncounterOp(encounterId, protagonistTeam, conclusionPolicy)
                     );
                     enrollment.Commit();
-                    enrollment.AttachAndInstall();
-                    enrollment.TransferTo(encounterLifetime);
                 }
-                else
-                {
-                    enrollment.AttachAndInstall();
-                    enrollment.TransferTo(encounterLifetime);
-                }
+                enrollment.AttachAndInstall();
+                enrollment.TransferTo(encounterLifetime);
             }
             catch (Exception constructionFailure)
             {
