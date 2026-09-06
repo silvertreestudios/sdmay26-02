@@ -1,5 +1,21 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
 namespace Game.Rules.Runtime
 {
+    /// <summary>Reports creation of an empty encounter before initiative begins.</summary>
+    public sealed class EncounterInitializedFact : RuleFact
+    {
+        /// <summary>Gets the initialized encounter.</summary>
+        public EncounterState Encounter { get; }
+
+        /// <summary>Creates a fact for an empty initialized encounter.</summary>
+        /// <param name="encounter">The committed initialized state.</param>
+        public EncounterInitializedFact(EncounterState encounter) =>
+            Encounter = encounter ?? throw new ArgumentNullException(nameof(encounter));
+    }
+
     /// <summary>Reports the immutable roster and round committed for a new encounter.</summary>
     public sealed class EncounterStartedFact : RuleFact
     {
@@ -11,15 +27,27 @@ namespace Game.Rules.Runtime
         public EncounterStartedFact(EncounterState encounter) => Encounter = encounter;
     }
 
-    /// <summary>Reports an immutable same-store reinforcement roster replacement.</summary>
-    public sealed class EncounterJoinedFact : RuleFact
+    /// <summary>Reports one committed combatant batch and its resulting roster.</summary>
+    public sealed class CombatantsAddedFact : RuleFact
     {
-        /// <summary>Gets the encounter after its reinforcements joined.</summary>
+        private readonly IReadOnlyList<InitiativeEntry> additions;
+
+        /// <summary>Gets the encounter after the combatants were added.</summary>
         public EncounterState Encounter { get; }
 
-        /// <summary>Creates a fact for the replaced roster.</summary>
+        /// <summary>Gets the initiative entries committed by this batch.</summary>
+        public IReadOnlyList<InitiativeEntry> Additions => additions;
+
+        /// <summary>Creates a fact for one committed roster addition.</summary>
         /// <param name="encounter">The encounter state containing all accepted additions.</param>
-        public EncounterJoinedFact(EncounterState encounter) => Encounter = encounter;
+        /// <param name="additions">The entries added by the source operation.</param>
+        public CombatantsAddedFact(EncounterState encounter, IEnumerable<InitiativeEntry> additions)
+        {
+            Encounter = encounter ?? throw new ArgumentNullException(nameof(encounter));
+            InitiativeEntry[] copied =
+                additions?.ToArray() ?? throw new ArgumentNullException(nameof(additions));
+            this.additions = Array.AsReadOnly(copied);
+        }
     }
 
     /// <summary>Reports that one creature received its immutable encounter initiative slot.</summary>

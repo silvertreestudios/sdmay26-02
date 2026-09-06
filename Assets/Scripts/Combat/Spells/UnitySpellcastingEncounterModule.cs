@@ -49,11 +49,7 @@ namespace Game.Combat.Spells
         /// <inheritdoc/>
         public void ConfigureDispatcher(RuleDispatcherBuilder builder)
         {
-            builder
-                .UseSpellcastingRules(catalog, attackContext)
-                .RegisterHandler<AdoptRestoredSpellEffectsOp, bool>(
-                    new AdoptRestoredSpellEffectsHandler()
-                );
+            builder.UseSpellcastingRules(catalog, attackContext);
         }
 
         /// <inheritdoc/>
@@ -97,11 +93,15 @@ namespace Game.Combat.Spells
                     .Where(projection => projection != null)
                     .ToArray();
                 if (projections.Length > 0)
-                    builder.AddState(
-                        builder.Own(
-                            new RestoredSpellEffectContribution(owner, restoredEffects, projections)
-                        )
-                    );
+                {
+                    (ActiveEffectInstance Effect, ActiveRuleBinding Binding)[] registrations =
+                        projections
+                            .Select(projection => projection.CreateRegistration(owner))
+                            .ToArray();
+                    builder.AddActiveEffects(registrations.Select(value => value.Effect));
+                    builder.AddRuleBindings(registrations.Select(value => value.Binding));
+                    builder.Own(new RestoredSpellEffectPreparation(restoredEffects, projections));
+                }
             }
             builder.AddSpellSlots(
                 catalog.GetSpellBook(builder.CreatureId).CreateInitialSlotStates(builder.CreatureId)
@@ -115,64 +115,20 @@ namespace Game.Combat.Spells
     }
 
     /// <summary>
-    /// Carries restored finite spell effects through the feature-owned root workflow used for
-    /// reinforcement enrollment.
-    /// </summary>
-    internal sealed class AdoptRestoredSpellEffectsOp : IRuleOp<bool>
-    {
-        internal AdoptRestoredSpellEffectsOp(
-            IEnumerable<RestoredSpellEffectRegistration> registrations
-        )
-        {
-            Registrations =
-                registrations?.ToArray() ?? throw new ArgumentNullException(nameof(registrations));
-        }
-
-        internal IReadOnlyList<RestoredSpellEffectRegistration> Registrations { get; }
-    }
-
-    internal sealed class AdoptRestoredSpellEffectsHandler
-        : IOpHandler<AdoptRestoredSpellEffectsOp, bool>
-    {
-        public async ValueTask<bool> Handle(
-            OpFrame<AdoptRestoredSpellEffectsOp> frame,
-            OpHandlerContext context
-        )
-        {
-            foreach (RestoredSpellEffectRegistration registration in frame.Op.Registrations)
-            {
-                OpResult<ActiveEffectCreationOutcome> result = await context.Dispatch(
-                    new CreateActiveEffectOp(registration.Effect, registration.Binding)
-                );
-                if (result is not ResolvedOpResult<ActiveEffectCreationOutcome>)
-                    throw new InvalidOperationException(
-                        "Restored spell-effect adoption did not resolve."
-                    );
-            }
-            return true;
-        }
-    }
-
-    /// <summary>
     /// Owns pre-encounter restored spell-effect state until the encounter releases its complete
     /// composition.
     /// </summary>
-    internal sealed class RestoredSpellEffectContribution
-        : IUnityCombatantStateContribution,
-            IDisposable
+    internal sealed class RestoredSpellEffectPreparation : IDisposable
     {
-        private readonly UnityCombatRulesBridge owner;
         private readonly IDictionary<ActiveEffectId, RestoredSpellEffectProjection> projections;
         private readonly IReadOnlyList<RestoredSpellEffectProjection> owned;
         private bool isDisposed;
 
-        internal RestoredSpellEffectContribution(
-            UnityCombatRulesBridge owner,
+        internal RestoredSpellEffectPreparation(
             IDictionary<ActiveEffectId, RestoredSpellEffectProjection> projections,
             IEnumerable<RestoredSpellEffectProjection> owned
         )
         {
-            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.projections = projections ?? throw new ArgumentNullException(nameof(projections));
             RestoredSpellEffectProjection[] copied =
                 owned?.ToArray() ?? throw new ArgumentNullException(nameof(owned));
@@ -188,36 +144,6 @@ namespace Game.Combat.Spells
             this.owned = copied;
             foreach (RestoredSpellEffectProjection projection in copied)
                 projections.Add(projection.EffectId, projection);
-        }
-
-        /// <inheritdoc/>
-        public void Seed(RulesStateSeed seed)
-        {
-            if (seed == null)
-                throw new ArgumentNullException(nameof(seed));
-            foreach (RestoredSpellEffectProjection projection in owned)
-            {
-                RestoredSpellEffectRegistration registration = projection.CreateRegistration(owner);
-                seed.SeedActiveEffect(registration.Effect).SeedRuleBinding(registration.Binding);
-            }
-        }
-
-        /// <inheritdoc/>
-        public void Register(UnityCombatRulesBridge bridge)
-        {
-            if (bridge == null)
-                throw new ArgumentNullException(nameof(bridge));
-            RestoredSpellEffectRegistration[] registrations = owned
-                .Select(projection => projection.CreateRegistration(owner))
-                .ToArray();
-            OpResult<bool> result = bridge.Dispatch(new AdoptRestoredSpellEffectsOp(registrations));
-            if (result is ResolvedOpResult<bool>)
-                return;
-            if (result is InvalidOpResult<bool> invalid)
-                throw new InvalidOperationException(invalid.Reason);
-            throw new InvalidOperationException(
-                "Restored spell-effect enrollment did not resolve."
-            );
         }
 
         /// <inheritdoc/>
@@ -294,7 +220,9 @@ namespace Game.Combat.Spells
             return null;
         }
 
-        internal RestoredSpellEffectRegistration CreateRegistration(UnityCombatRulesBridge owner)
+        internal (ActiveEffectInstance Effect, ActiveRuleBinding Binding) CreateRegistration(
+            UnityCombatRulesBridge owner
+        )
         {
             if (Effect.Source == null)
                 throw new InvalidOperationException(
@@ -322,7 +250,7 @@ namespace Game.Combat.Spells
                 ruleSource,
                 CreationOrder
             );
-            return new RestoredSpellEffectRegistration(active, binding);
+            return (active, binding);
         }
 
         internal void ProjectRemaining(RulesSnapshot snapshot)
@@ -354,21 +282,6 @@ namespace Game.Combat.Spells
                 EffectDuration.Rounds(effect.RemainingTargetTurnStarts)
             );
         }
-    }
-
-    internal sealed class RestoredSpellEffectRegistration
-    {
-        internal RestoredSpellEffectRegistration(
-            ActiveEffectInstance effect,
-            ActiveRuleBinding binding
-        )
-        {
-            Effect = effect ?? throw new ArgumentNullException(nameof(effect));
-            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
-        }
-
-        internal ActiveEffectInstance Effect { get; }
-        internal ActiveRuleBinding Binding { get; }
     }
 
     internal sealed class RestoredSpellEffectTimingObserver

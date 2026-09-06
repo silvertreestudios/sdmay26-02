@@ -144,6 +144,7 @@ public sealed class DungeonActorStateAdapterTests
         );
         sourceCreature.Prepared.RollOptions.Remove("feat:quick-tempered");
         sourceObject.AddComponent<Conditions>();
+        sourceObject.AddComponent<Team>().Name = "players";
         DungeonPersistenceTestActionController sourceController =
             sourceObject.AddComponent<DungeonPersistenceTestActionController>();
         effectSourceObject = new GameObject("Encounter Opponent");
@@ -157,7 +158,8 @@ public sealed class DungeonActorStateAdapterTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { sourceController, opponentController },
             CreateTiles(),
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "players"
         );
         CreatureId actor = bridge.GetCreatureId(sourceCreature);
         bridge.BeginTurn(actor, 3);

@@ -5,6 +5,60 @@ namespace Game.Rules.Runtime
 {
     internal static class ActiveEffectReduction
     {
+        /// <summary>
+        /// Validates definition availability and the initial optimistic-concurrency version shared
+        /// by every active-effect creation path.
+        /// </summary>
+        internal static bool TryValidateCreationState(
+            RuleRegistry registry,
+            ActiveEffectInstance effect,
+            out string rejection
+        )
+        {
+            if (!registry.TryGetDefinition(effect.DefinitionId, out _))
+            {
+                rejection = $"Rule definition {effect.DefinitionId.Value} is unknown.";
+                return false;
+            }
+            if (effect.EffectStateVersion != EffectStateVersion.Initial)
+            {
+                rejection = "A new active effect must use the initial state version.";
+                return false;
+            }
+            rejection = string.Empty;
+            return true;
+        }
+
+        /// <summary>
+        /// Validates the enabled one-to-one binding supplied by every active-effect creation path.
+        /// </summary>
+        internal static bool TryValidateCreationBinding(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            out string rejection
+        )
+        {
+            if (
+                !binding.EffectId.HasValue
+                || binding.EffectId.Value != effect.Id
+                || binding.DefinitionId != effect.DefinitionId
+                || binding.Source != effect.Source
+            )
+            {
+                rejection =
+                    $"Active binding {binding.Id.Value} does not match effect {effect.Id.Value}.";
+                return false;
+            }
+            if (!binding.IsEnabled)
+            {
+                rejection = "A new active effect requires an enabled binding.";
+                return false;
+            }
+
+            rejection = string.Empty;
+            return true;
+        }
+
         public static bool TryGetCurrent(
             RulesStateDraft state,
             ActiveEffectId effectId,
@@ -123,49 +177,32 @@ namespace Game.Rules.Runtime
                     $"Active binding {binding.Id.Value} already exists."
                 );
             }
-            if (!registry.TryGetDefinition(effect.DefinitionId, out _))
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    $"Rule definition {effect.DefinitionId.Value} is unknown."
-                );
-            }
-            if (effect.EffectStateVersion != EffectStateVersion.Initial)
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    "A new active effect must use the initial state version."
-                );
-            }
             if (
-                !binding.EffectId.HasValue
-                || binding.EffectId.Value != effect.Id
-                || binding.DefinitionId != effect.DefinitionId
-                || binding.Source != effect.Source
+                !ActiveEffectReduction.TryValidateCreationState(
+                    registry,
+                    effect,
+                    out string rejection
+                )
+                || !ActiveEffectReduction.TryValidateCreationBinding(effect, binding, out rejection)
             )
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    $"Active binding {binding.Id.Value} does not match effect {effect.Id.Value}."
-                );
-            }
-            if (!binding.IsEnabled)
-            {
-                return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                    "A new active effect requires an enabled binding."
-                );
-            }
+                return ReductionResult<ActiveEffectCreationOutcome>.Reject(rejection);
 
             if (effect.Duration.Kind != EffectDurationKind.Indefinite)
             {
                 EncounterState encounter = state
                     .Encounters.Select(pair => pair.Value)
-                    .FirstOrDefault(value => value.Phase == EncounterPhase.Active);
+                    .FirstOrDefault(value =>
+                        value.Phase == EncounterPhase.Initialized
+                        || value.Phase == EncounterPhase.Active
+                    );
                 // Exploration-owned effects retain their existing host-managed lifetime until an
-                // encounter clock exists. Once a clock exists, every finite effect is scheduled
-                // deterministically and its source must belong to that exact roster.
+                // encounter roster exists. Once it does, every finite effect is scheduled before
+                // any initiative boundary can occur and its source must belong to that roster.
                 if (encounter != null)
                 {
                     if (!encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature))
                         return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                            "The effect source is not in the active encounter roster."
+                            "The effect source is not in the encounter roster."
                         );
                     state.ActiveEffectTimings.Set(
                         effect.Id,

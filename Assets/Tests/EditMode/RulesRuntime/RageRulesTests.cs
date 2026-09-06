@@ -191,6 +191,44 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
+        public async Task QuickTemperedRageKeepsPreFirstTurnTimingAndExpiresNormally()
+        {
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new TestRageActorStateProvider(CreateActorState(ownsQuickTempered: true)),
+                new ScriptedRollService(20, 1),
+                actorInitiativeModifier: 0,
+                enemyInitiativeModifier: 0,
+                advanceEncounter: false
+            );
+
+            EncounterState initialized = dispatcher.Snapshot.Encounters[Encounter];
+            ActiveEffectInstance rage = dispatcher
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single(effect =>
+                    effect.DefinitionId == RageActionDefinition.EffectDefinitionId
+                    && effect.SourceCreature == Actor
+                );
+            ActiveEffectTimingState timing = dispatcher.Snapshot.ActiveEffectTimings[rage.Id];
+            Assert.That(initialized.Phase, Is.EqualTo(EncounterPhase.Initialized));
+            Assert.That(initialized.CurrentTurn, Is.Null);
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.True);
+            Assert.That(timing.RemainingBoundaries, Is.EqualTo(10));
+
+            RequireResolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
+            int turnsEnded = 0;
+            while (RageRules.IsRaging(dispatcher.Snapshot, Actor) && turnsEnded < 20)
+            {
+                EncounterState active = dispatcher.Snapshot.Encounters[Encounter];
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(active.CurrentTurn.Value)));
+                turnsEnded++;
+            }
+
+            Assert.That(turnsEnded, Is.LessThan(20));
+            Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(rage.Id), Is.False);
+        }
+
+        [Test]
         public void EncounterStartAppliesQuickTemperedBeforeHigherInitiativeTurn()
         {
             RuleDispatcher dispatcher = CreateDispatcher(
@@ -504,54 +542,54 @@ namespace Game.Tests.EditMode.RulesRuntime
             ScriptedRollService rolls,
             int actorInitiativeModifier,
             int enemyInitiativeModifier,
-            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null
+            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null,
+            bool advanceEncounter = true
         )
         {
             RageActionDefinition definition = new RageActionDefinition(provider);
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
-            RulesStateSeed seed = new RulesStateSeed()
-                .SeedCreature(new CreatureState(Actor, Party))
-                .SeedCreature(new CreatureState(Enemy, Opposition))
-                .SeedHealth(Actor, new HealthState(10, 10))
-                .SeedHealth(Enemy, new HealthState(10, 10))
-                .SeedActionEconomy(Actor, new ActionEconomyState(3, true));
-            foreach (
-                ActiveRuleBinding binding in RageRules.CreateInitialBindings(
-                    Actor,
-                    provider.Get(Actor)
-                )
-            )
-            {
-                seed.SeedRuleBinding(binding);
-            }
+            ActiveRuleBinding[] actorBindings = RageRules
+                .CreateInitialBindings(Actor, provider.Get(Actor))
+                .ToArray();
 
             registryBuilder.AddOutcomeRule();
+            RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                new InMemoryRulesStore(seed),
+                new InMemoryRulesStore(new RulesStateSeed()),
                 rolls
             )
                 .UseHealthRules()
                 .UseMultipleAttackPenaltyRules()
-                .UseActiveEffectRules(registryBuilder.Build())
+                .UseActiveEffectRules(registry)
                 .UseMovementBudgetResetRules()
-                .UseEncounterRules(turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>())
+                .UseEncounterRules(
+                    registry,
+                    turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>()
+                )
                 .UseActionLifecycle(definition)
                 .UseRageRules(definition)
                 .Build();
             RequireResolved(
                 dispatcher
+                    .Dispatch(new InitEncounterOp(Encounter, Party))
+                    .AsTask()
+                    .GetAwaiter()
+                    .GetResult()
+            );
+            RequireResolved(
+                dispatcher
                     .Dispatch(
-                        new StartEncounterOp(
+                        new AddCombatantsOp(
                             Encounter,
-                            Party,
                             new[]
                             {
-                                new EncounterParticipant(Actor, Party, actorInitiativeModifier),
-                                new EncounterParticipant(
+                                Registration(Actor, Party, actorInitiativeModifier, actorBindings),
+                                Registration(
                                     Enemy,
                                     Opposition,
-                                    enemyInitiativeModifier
+                                    enemyInitiativeModifier,
+                                    Array.Empty<ActiveRuleBinding>()
                                 ),
                             }
                         )
@@ -560,8 +598,35 @@ namespace Game.Tests.EditMode.RulesRuntime
                     .GetAwaiter()
                     .GetResult()
             );
+            if (advanceEncounter)
+                RequireResolved(
+                    dispatcher
+                        .Dispatch(new AdvanceEncounterOp(Encounter))
+                        .AsTask()
+                        .GetAwaiter()
+                        .GetResult()
+                );
             return dispatcher;
         }
+
+        private static CombatantRulesState Registration(
+            CreatureId creature,
+            PlayerId team,
+            int initiativeModifier,
+            IReadOnlyList<ActiveRuleBinding> bindings
+        ) =>
+            new CombatantRulesState(
+                new CreatureState(creature, team),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                initiativeModifier,
+                Array.Empty<SpellSlotState>(),
+                bindings,
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                Array.Empty<ActiveEffectInstance>()
+            );
 
         private static RageActorState CreateActorState(
             bool ownsRage = true,

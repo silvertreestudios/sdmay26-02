@@ -182,7 +182,7 @@ public class CombatManager : CombatManagerInterface
             foreach (ActionController addition in additions)
                 addition.SetDungeonExploration(false);
             Pf2eRulesEngine.ApplyCombatStartRules(additions);
-            combatRules.RegisterCombatants(additions);
+            combatRules.AddCombatants(additions);
             activeCombatants.AddRange(additions);
         }
         catch
@@ -293,11 +293,16 @@ public class CombatManager : CombatManagerInterface
             Pf2eRulesEngine.ApplyCombatStartRules(selected);
             dungeonDirectedCombat = dungeonDirected;
             pendingOutcomePresentation = null;
-            combatRules = UnityCombatRulesBridge.Create(activeCombatants, tiles);
+            combatRules = UnityCombatRulesBridge.Create(
+                activeCombatants,
+                tiles,
+                protagonistTeamName,
+                conclusionPolicy
+            );
             combatRules.EncounterStarted += PresentEncounterStarted;
             combatRules.TurnBegan += PresentTurnBegan;
             combatRules.EncounterEnded += PresentEncounterOutcome;
-            combatRules.StartEncounter(protagonistTeamName, conclusionPolicy);
+            combatRules.AdvanceEncounter();
         }
         catch
         {

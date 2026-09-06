@@ -7,6 +7,9 @@ namespace Game.Rules.Runtime
     /// <summary>Identifies the committed lifecycle phase of an encounter.</summary>
     public enum EncounterPhase
     {
+        /// <summary>The encounter exists but has not reached its first initiative boundary.</summary>
+        Initialized,
+
         /// <summary>The encounter may advance turns and accept rules work.</summary>
         Active,
 
@@ -78,83 +81,6 @@ namespace Game.Rules.Runtime
 
         /// <summary>Compares two round numbers by their one-based value.</summary>
         public static bool operator !=(RoundNumber left, RoundNumber right) => !left.Equals(right);
-    }
-
-    /// <summary>Captures one creature's immutable encounter registration inputs.</summary>
-    public sealed class EncounterParticipant
-    {
-        /// <summary>Gets the registered creature.</summary>
-        public CreatureId Creature { get; }
-
-        /// <summary>Gets the creature's team.</summary>
-        public PlayerId Team { get; }
-
-        /// <summary>Gets the initiative modifier captured before rolling.</summary>
-        public int InitiativeModifier { get; }
-
-        /// <summary>Initializes a validated participant registration.</summary>
-        /// <param name="creature">The stable creature identity.</param>
-        /// <param name="team">The creature's collision-safe team identity.</param>
-        /// <param name="initiativeModifier">The modifier captured before initiative is rolled.</param>
-        public EncounterParticipant(CreatureId creature, PlayerId team, int initiativeModifier)
-        {
-            if (creature.IsEmpty)
-                throw new ArgumentException("A creature is required.", nameof(creature));
-            if (team.IsEmpty)
-                throw new ArgumentException("A team is required.", nameof(team));
-            Creature = creature;
-            Team = team;
-            InitiativeModifier = initiativeModifier;
-        }
-    }
-
-    /// <summary>Captures a reinforcement and its health when it joins the same encounter store.</summary>
-    public sealed class EncounterJoinParticipant
-    {
-        /// <summary>Gets the captured identity, team, and initiative modifier.</summary>
-        public EncounterParticipant Participant { get; }
-
-        /// <summary>Gets the health seeded atomically when the creature is new to the store.</summary>
-        public HealthState InitialHealth { get; }
-
-        /// <summary>Gets the complete same-store rules registration.</summary>
-        public CombatantRulesState Combatant { get; }
-
-        /// <summary>Creates a complete same-store reinforcement registration.</summary>
-        /// <param name="participant">The reinforcement's identity and initiative inputs.</param>
-        /// <param name="initialHealth">The health to seed if the creature is new to the store.</param>
-        public EncounterJoinParticipant(EncounterParticipant participant, HealthState initialHealth)
-        {
-            Participant = participant ?? throw new ArgumentNullException(nameof(participant));
-            InitialHealth = initialHealth;
-            Combatant = new CombatantRulesState(
-                new CreatureState(participant.Creature, participant.Team),
-                initialHealth,
-                new GridPosition(0, 0, 0),
-                new GridDistance(0),
-                Array.Empty<SpellSlotState>(),
-                Array.Empty<ActiveRuleBinding>()
-            );
-        }
-
-        /// <summary>Creates a reinforcement from its complete same-store registration.</summary>
-        public EncounterJoinParticipant(
-            EncounterParticipant participant,
-            CombatantRulesState combatant
-        )
-        {
-            Participant = participant ?? throw new ArgumentNullException(nameof(participant));
-            Combatant = combatant ?? throw new ArgumentNullException(nameof(combatant));
-            if (
-                combatant.Creature.Id != participant.Creature
-                || combatant.Creature.Player != participant.Team
-            )
-                throw new ArgumentException(
-                    "The reinforcement registration must match its initiative participant.",
-                    nameof(combatant)
-                );
-            InitialHealth = combatant.Health;
-        }
     }
 
     /// <summary>Stores one deterministic initiative entry for the encounter lifetime.</summary>
@@ -408,8 +334,16 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(conclusionPolicy));
             InitiativeEntry[] copied =
                 roster?.ToArray() ?? throw new ArgumentNullException(nameof(roster));
-            if (copied.Length == 0 || copied.Any(entry => entry == null))
-                throw new ArgumentException("An encounter roster cannot be empty.", nameof(roster));
+            if (copied.Length == 0 && phase != EncounterPhase.Initialized)
+                throw new ArgumentException(
+                    "Only an initialized encounter may have an empty roster.",
+                    nameof(roster)
+                );
+            if (copied.Any(entry => entry == null))
+                throw new ArgumentException(
+                    "An encounter roster cannot contain null.",
+                    nameof(roster)
+                );
             if (cursor < -1 || cursor >= copied.Length)
                 throw new ArgumentOutOfRangeException(nameof(cursor));
             if (nextTurnSequence <= 0)

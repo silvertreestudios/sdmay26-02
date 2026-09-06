@@ -32,10 +32,6 @@ namespace Game.Rules.Runtime
                     RuleLifecyclePhase.Prevention,
                     new EncounterEndValidationMiddleware()
                 )
-                .FactBatchListener(
-                    RuleLifecyclePhase.Observation,
-                    new EncounterInitiativeAssignmentsListener()
-                )
                 .FactListener(
                     RuleLifecyclePhase.Observation,
                     new EncounterInitiativeBoundaryListener()
@@ -46,27 +42,38 @@ namespace Game.Rules.Runtime
 
         /// <summary>Registers encounter handlers and reducer-owned transitions on one dispatcher.</summary>
         /// <param name="builder">The shared dispatcher builder.</param>
+        /// <param name="registry">
+        /// The exact immutable registry used to validate every combatant enrollment binding.
+        /// </param>
         /// <returns>The same builder with encounter rules and no transitional start adapters.</returns>
-        /// <exception cref="ArgumentNullException"><paramref name="builder"/> is null.</exception>
-        public static RuleDispatcherBuilder UseEncounterRules(this RuleDispatcherBuilder builder) =>
-            UseEncounterRules(builder, Array.Empty<IEncounterTurnStartAdapter>());
+        /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+        public static RuleDispatcherBuilder UseEncounterRules(
+            this RuleDispatcherBuilder builder,
+            RuleRegistry registry
+        ) => UseEncounterRules(builder, registry, Array.Empty<IEncounterTurnStartAdapter>());
 
         /// <summary>
         /// Registers encounter transitions plus ordered adapters for unmigrated turn-start behavior.
         /// </summary>
         /// <param name="builder">The shared dispatcher builder that owns all encounter rules.</param>
+        /// <param name="registry">
+        /// The exact immutable registry used by the dispatcher and enrollment reducer.
+        /// </param>
         /// <param name="turnStartAdapters">
         /// The spell, aura, and action-contribution adapters to await in exact registration order.
         /// </param>
         /// <returns>The same builder so composition can continue.</returns>
-        /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
         public static RuleDispatcherBuilder UseEncounterRules(
             this RuleDispatcherBuilder builder,
+            RuleRegistry registry,
             IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters
         )
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
+            if (registry == null)
+                throw new ArgumentNullException(nameof(registry));
             IEncounterTurnStartAdapter[] copied =
                 turnStartAdapters?.ToArray()
                 ?? throw new ArgumentNullException(nameof(turnStartAdapters));
@@ -77,10 +84,12 @@ namespace Game.Rules.Runtime
                 );
             return builder
                 .UseMovementBudgetResetRules()
-                .RegisterHandler<StartEncounterOp, EncounterStartOutcome>(
-                    new StartEncounterHandler()
+                .RegisterHandler<InitEncounterOp, EncounterInitializationOutcome>(
+                    new InitEncounterHandler()
                 )
-                .RegisterHandler<JoinEncounterOp, EncounterJoinOutcome>(new JoinEncounterHandler())
+                .RegisterHandler<AddCombatantsOp, CombatantsAddedOutcome>(
+                    new AddCombatantsHandler()
+                )
                 .RegisterHandler<AdvanceEncounterOp, EncounterAdvanceOutcome>(
                     new AdvanceEncounterHandler()
                 )
@@ -106,12 +115,16 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<SpendEncounterActionsOp, EncounterActionSpendOutcome>(
                     new SpendEncounterActionsHandler()
                 )
-                .RegisterEngineReducer<CommitEncounterStartOp, EncounterStartOutcome>(
-                    new CommitEncounterStartReducer(),
+                .RegisterEngineReducer<
+                    CommitEncounterInitializationOp,
+                    EncounterInitializationOutcome
+                >(new CommitEncounterInitializationReducer(), Source)
+                .RegisterEngineReducer<CommitCombatantsAdditionOp, CombatantsAddedOutcome>(
+                    new CommitCombatantsAdditionReducer(registry),
                     Source
                 )
-                .RegisterEngineReducer<CommitEncounterJoinOp, EncounterJoinOutcome>(
-                    new CommitEncounterJoinReducer(),
+                .RegisterEngineReducer<CommitEncounterActivationOp, EncounterAdvanceOutcome>(
+                    new CommitEncounterActivationReducer(),
                     Source
                 )
                 .RegisterEngineReducer<CommitInitiativeAssignmentsOp, InitiativeAssignmentsOutcome>(
@@ -185,63 +198,41 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class StartEncounterHandler
-        : IOpHandler<StartEncounterOp, EncounterStartOutcome>
+    internal sealed class InitEncounterHandler
+        : IOpHandler<InitEncounterOp, EncounterInitializationOutcome>
     {
-        public async ValueTask<EncounterStartOutcome> Handle(
-            OpFrame<StartEncounterOp> frame,
+        public async ValueTask<EncounterInitializationOutcome> Handle(
+            OpFrame<InitEncounterOp> frame,
             OpHandlerContext context
         )
         {
             if (
                 context.Snapshot.Encounters.Contains(frame.Op.Encounter)
                 || context.Snapshot.Encounters.Any(pair =>
-                    pair.Value.Phase == EncounterPhase.Active
+                    pair.Value.Phase == EncounterPhase.Initialized
+                    || pair.Value.Phase == EncounterPhase.Active
                 )
             )
                 throw new InvalidOperationException(
-                    "The encounter is duplicate or another encounter is active."
+                    "The encounter is duplicate or another encounter is active or initialized."
                 );
-            InitiativeEntry[] roster = frame
-                .Op.Participants.Select(
-                    (participant, index) =>
-                        new InitiativeEntry(
-                            participant.Creature,
-                            participant.Team,
-                            context.Rolls.Roll(DiceExpressions.D20).Total,
-                            participant.InitiativeModifier,
-                            index,
-                            RoundNumber.First
-                        )
-                )
-                .OrderByDescending(entry => entry.Total)
-                .ThenBy(entry => entry.RegistrationOrder)
-                .ToArray();
-            EncounterStartOutcome started = EncounterHandlerResults.Require(
+            return EncounterHandlerResults.Require(
                 await context.Dispatch(
-                    new CommitEncounterStartOp(
+                    new CommitEncounterInitializationOp(
                         frame.Op.Encounter,
                         frame.Op.ProtagonistTeam,
-                        frame.Op.ConclusionPolicy,
-                        Array.AsReadOnly(roster)
+                        frame.Op.ConclusionPolicy
                     )
                 ),
-                "encounter start"
+                "encounter initialization"
             );
-            EncounterHandlerResults.Require(
-                await context.Dispatch(
-                    new CommitInitiativeAssignmentsOp(frame.Op.Encounter, Array.AsReadOnly(roster))
-                ),
-                "initial initiative assignment"
-            );
-            return started;
         }
     }
 
-    internal sealed class JoinEncounterHandler : IOpHandler<JoinEncounterOp, EncounterJoinOutcome>
+    internal sealed class AddCombatantsHandler : IOpHandler<AddCombatantsOp, CombatantsAddedOutcome>
     {
-        public async ValueTask<EncounterJoinOutcome> Handle(
-            OpFrame<JoinEncounterOp> frame,
+        public async ValueTask<CombatantsAddedOutcome> Handle(
+            OpFrame<AddCombatantsOp> frame,
             OpHandlerContext context
         )
         {
@@ -249,56 +240,73 @@ namespace Game.Rules.Runtime
                 context.Snapshot,
                 frame.Op.Encounter
             );
-            if (encounter.Phase != EncounterPhase.Active || !encounter.CurrentTurn.HasValue)
+            if (
+                encounter.Phase != EncounterPhase.Initialized
+                && encounter.Phase != EncounterPhase.Active
+            )
                 throw new InvalidOperationException(
-                    "Reinforcements require an active encounter turn."
+                    "Combatants can be added only to an initialized or active encounter."
                 );
-            InitiativeEntry current = encounter.Roster[encounter.Cursor];
-            InitiativeEntry[] additions = frame
-                .Op.Participants.Select(
-                    (participant, index) =>
+            if (encounter.Phase == EncounterPhase.Active && !encounter.CurrentTurn.HasValue)
+                throw new InvalidOperationException(
+                    "Combatants require the active encounter's exact current turn."
+                );
+            HashSet<CreatureId> existing = new HashSet<CreatureId>(
+                encounter.Roster.Select(entry => entry.Creature)
+            );
+            if (frame.Op.Combatants.Any(combatant => existing.Contains(combatant.Creature.Id)))
+                throw new InvalidOperationException(
+                    "A combatant is already in the encounter roster."
+                );
+
+            long nextRegistrationOrder =
+                encounter.Roster.Count == 0
+                    ? 0
+                    : checked(encounter.Roster.Max(entry => entry.RegistrationOrder) + 1);
+            CombatantAddition[] additions = frame
+                .Op.Combatants.Select(
+                    (combatant, index) =>
                     {
                         int natural = context.Rolls.Roll(DiceExpressions.D20).Total;
-                        int total = checked(natural + participant.Participant.InitiativeModifier);
+                        int total = checked(natural + combatant.InitiativeModifier);
+                        // Later registration orders place ties after existing combatants. Only a
+                        // higher total inserts before the current actor and waits for next round.
                         RoundNumber eligible =
-                            total > current.Total ? encounter.Round.Next() : encounter.Round;
-                        return new InitiativeEntry(
-                            participant.Participant.Creature,
-                            participant.Participant.Team,
+                            encounter.CurrentTurn.HasValue
+                            && total > encounter.Roster[encounter.Cursor].Total
+                                ? encounter.Round.Next()
+                                : encounter.Round;
+                        InitiativeEntry initiative = new InitiativeEntry(
+                            combatant.Creature.Id,
+                            combatant.Creature.Player,
                             natural,
-                            participant.Participant.InitiativeModifier,
-                            encounter.Roster.Count + index,
+                            combatant.InitiativeModifier,
+                            checked(nextRegistrationOrder + index),
                             eligible
                         );
+                        return new CombatantAddition(initiative, combatant);
                     }
                 )
                 .ToArray();
-            EncounterJoinOutcome joined = EncounterHandlerResults.Require(
+            CombatantsAddedOutcome added = EncounterHandlerResults.Require(
                 await context.Dispatch(
-                    new CommitEncounterJoinOp(
-                        frame.Op.Encounter,
-                        Array.AsReadOnly(additions),
-                        frame.Op.Participants.ToDictionary(
-                            value => value.Participant.Creature,
-                            value => value.Combatant
-                        )
-                    )
+                    new CommitCombatantsAdditionOp(frame.Op.Encounter, Array.AsReadOnly(additions))
                 ),
-                "encounter join"
+                "combatant addition"
             );
-            // A binding created by the join reducer cannot observe Facts sourced from that same
+            // A binding created by the addition reducer cannot observe Facts sourced from that same
             // frame. Publishing assignments from this later authoritative frame lets every
-            // reinforcement feature observe its committed initiative exactly once.
+            // newly added feature observe its committed initiative exactly once.
             EncounterHandlerResults.Require(
                 await context.Dispatch(
                     new CommitInitiativeAssignmentsOp(
                         frame.Op.Encounter,
-                        Array.AsReadOnly(additions)
+                        Array.AsReadOnly(additions.Select(value => value.Initiative).ToArray())
                     )
                 ),
-                "reinforcement initiative assignment"
+                "initiative assignment"
             );
-            return joined;
+            return added;
         }
     }
 
@@ -314,6 +322,14 @@ namespace Game.Rules.Runtime
                 context.Snapshot,
                 frame.Op.Encounter
             );
+            if (initial.Phase == EncounterPhase.Initialized)
+            {
+                EncounterHandlerResults.Require(
+                    await context.Dispatch(new CommitEncounterActivationOp(initial.Id)),
+                    "encounter activation"
+                );
+                initial = EncounterRuleRuntime.RequireEncounter(context.Snapshot, initial.Id);
+            }
             if (initial.Phase != EncounterPhase.Active || initial.CurrentTurn.HasValue)
                 throw new InvalidOperationException(
                     "Encounter advancement requires an active encounter without a current turn."
@@ -674,36 +690,6 @@ namespace Game.Rules.Runtime
             EncounterHandlerResults.Require(
                 await context.Dispatch(new EvaluateEncounterOutcomeOp(encounter.Id)),
                 "encounter outcome evaluation"
-            );
-        }
-    }
-
-    internal sealed class EncounterInitiativeAssignmentsListener
-        : IRuleFactBatchListener<InitiativeAssignedFact>
-    {
-        public async ValueTask OnFactsCommitted(
-            CommittedFactBatch<InitiativeAssignedFact> batch,
-            FactContext context
-        )
-        {
-            EncounterId encounterId = batch.Facts[0].Encounter;
-            if (batch.Facts.Any(fact => fact.Encounter != encounterId))
-                throw new InvalidOperationException(
-                    "One initiative-assignment batch cannot span encounters."
-                );
-            EncounterState encounter = EncounterRuleRuntime.RequireEncounter(
-                context.Snapshot,
-                encounterId
-            );
-            if (
-                encounter.Phase != EncounterPhase.Active
-                || encounter.CurrentTurn.HasValue
-                || encounter.Cursor >= 0
-            )
-                return;
-            EncounterHandlerResults.Require(
-                await context.Dispatch(new AdvanceEncounterOp(encounter.Id)),
-                "first initiative boundary"
             );
         }
     }

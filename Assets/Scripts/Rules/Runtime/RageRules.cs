@@ -565,7 +565,10 @@ namespace Game.Rules.Runtime
             if (
                 fact.Entry.Creature != context.Binding.Owner
                 || !context.Snapshot.Encounters.TryGet(fact.Encounter, out EncounterState encounter)
-                || encounter.Phase != EncounterPhase.Active
+                || (
+                    encounter.Phase != EncounterPhase.Initialized
+                    && encounter.Phase != EncounterPhase.Active
+                )
                 || !encounter.Roster.Any(entry => entry.Creature == context.Binding.Owner)
             )
                 return;

@@ -418,7 +418,8 @@ public sealed class DungeonEncounterMaterializerTests
         }
         UnityCombatRulesBridge.Create(
             new ActionController[] { instance.GetComponent<TestActionController>() },
-            tiles
+            tiles,
+            DungeonEncounterCreatureCatalog.HostileTeamName
         );
         Assert.That(instance.GetComponent<TestActionController>().GetActions(), Is.Not.Empty);
         Assert.That(

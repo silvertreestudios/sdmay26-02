@@ -110,9 +110,10 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { initialController, noncasterController },
-            tiles
+            tiles,
+            "players"
         );
-        bridge.StartEncounter("players");
+        bridge.AdvanceEncounter();
 
         Assert.That(LightActions(initialController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(initialController, "divine-lance"), Has.Count.EqualTo(1));
@@ -129,7 +130,7 @@ public sealed class SpellcastingPresentationPlayModeTests
             reinforcement.gameObject.AddComponent<TestActionController>();
         yield return null;
         Occupy(tiles, reinforcement.gameObject);
-        bridge.RegisterCombatants(new[] { reinforcementController });
+        bridge.AddCombatants(new[] { reinforcementController });
         CreatureId reinforcementId = bridge.GetCreatureId(reinforcementController);
         TestSpellActionCatalog repeatCatalog = new(
             UnitySpellDefinitionCatalog.Load(),
@@ -231,7 +232,11 @@ public sealed class SpellcastingPresentationPlayModeTests
         yield return null;
         Tile[,] tiles = CreateTiles(1);
         Occupy(tiles, caster.gameObject);
-        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(new[] { controller }, tiles);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new[] { controller },
+            tiles,
+            "players"
+        );
         CreatureId owner = bridge.GetCreatureId(controller);
         SpellReference unsupported = Reference("unsupported-native");
         Game.Rules.Runtime.SpellDefinition definition = new(
@@ -273,7 +278,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { controller, opponentController },
             tiles,
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "players"
         );
         RulesCastSpellAction light = LightActions(controller).Single();
         CreatureId actor = bridge.GetCreatureId(controller);
@@ -334,7 +340,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(20, 10, 10, 2, 3, 1)
+            new ScriptedRollService(20, 10, 10, 2, 3, 1),
+            "players"
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         CreatureId actor = bridge.GetCreatureId(cleric);
@@ -407,7 +414,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(20, 10, 20)
+            new ScriptedRollService(20, 10, 20),
+            "players"
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         grid.Target = target.gameObject;
@@ -453,7 +461,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, opponentController },
             tiles,
-            new ScriptedRollService(20, 10, 20)
+            new ScriptedRollService(20, 10, 20),
+            "players"
         );
         RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
         CreatureId actor = bridge.GetCreatureId(cleric);

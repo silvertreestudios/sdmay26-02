@@ -43,7 +43,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge.Create(
             new[] { controller },
             CreateTiles(1),
-            new ScriptedRollService()
+            new ScriptedRollService(10),
+            "heroes"
         );
 
         List<RulesStrikeAction> first = controller
@@ -104,7 +105,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { torgrimController, lenaController, targetController },
             tiles,
-            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4, 5, 3)
+            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4, 5, 3),
+            "heroes"
         );
         CreatureId torgrimId = bridge.GetCreatureId(torgrim);
         CreatureId lenaId = bridge.GetCreatureId(lena);
@@ -175,7 +177,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { archerController, targetController },
             tiles,
-            new ScriptedRollService(20, 10, 10, 4)
+            new ScriptedRollService(20, 10, 10, 4),
+            "heroes"
         );
         CreatureId actor = bridge.GetCreatureId(archer);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -233,7 +236,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { controller, opponentController },
             reloadTiles,
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "heroes"
         );
         CreatureId actor = bridge.GetCreatureId(archer);
         bridge.BeginTurn(actor, 3);
@@ -278,7 +282,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { attackerController, targetController, opponentController },
             tiles,
-            rolls
+            rolls,
+            "heroes"
         );
         CreatureId actor = bridge.GetCreatureId(attacker);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -338,7 +343,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { attackerController, targetController, reserveController },
             tiles,
-            new ScriptedRollService(20, 15, 10, 20)
+            new ScriptedRollService(20, 15, 10, 20),
+            "heroes"
         );
         CreatureId actor = bridge.GetCreatureId(attacker);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -373,7 +379,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new[] { attached },
             CreateTiles(1),
-            new ScriptedRollService()
+            new ScriptedRollService(10),
+            "heroes"
         );
         CreatureId actor = bridge.GetCreatureId(attacker);
 
@@ -404,7 +411,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { attackerController, targetController },
             tiles,
-            new ScriptedRollService(20, 10, 2)
+            new ScriptedRollService(20, 10, 2),
+            "heroes"
         );
         CreatureId actor = bridge.GetCreatureId(attacker);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -458,7 +466,8 @@ public sealed class RulesStrikeUnityTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { archerController, targetController },
             tiles,
-            rolls
+            rolls,
+            "heroes"
         );
         CreatureId actor = bridge.GetCreatureId(archer);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -497,6 +506,7 @@ public sealed class RulesStrikeUnityTests
     {
         GameObject gameObject = CreatureJsonConverter.CreateFromFile(path);
         created.Add(gameObject);
+        gameObject.AddComponent<Team>().Name = "heroes";
         return gameObject.GetComponent<CreatureComponent>();
     }
 

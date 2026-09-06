@@ -64,7 +64,9 @@ namespace Game.Rules.Unity
             IReadOnlyList<ActionController> encounterControllers,
             Tile[,] tiles,
             bool attachControllers,
-            IRollService rollService
+            IRollService rollService,
+            string protagonistTeamName,
+            EncounterConclusionPolicy conclusionPolicy
         )
         {
             currentTiles = tiles;
@@ -94,7 +96,8 @@ namespace Game.Rules.Unity
             try
             {
                 RulesStateSeed seed = new RulesStateSeed();
-                enrollment.SeedInitial(seed);
+                if (!attachControllers)
+                    enrollment.SeedExploration(seed);
                 RuleDispatcherBuilder dispatcherBuilder = new RuleDispatcherBuilder(
                     new InMemoryRulesStore(seed),
                     rollService ?? throw new ArgumentNullException(nameof(rollService))
@@ -103,13 +106,28 @@ namespace Game.Rules.Unity
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
                     .UseActiveEffectRules(modules.Registry)
-                    .UseEncounterRules(composition.CreateTurnStartAdapters())
+                    .UseEncounterRules(modules.Registry, composition.CreateTurnStartAdapters())
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)
                     .UseStrideRules(strideDefinition);
                 composition.ConfigureDispatcher(dispatcherBuilder);
                 dispatcher = dispatcherBuilder.Build();
                 composition.RegisterRuntime(dispatcher, encounterLifetime);
+                if (attachControllers)
+                {
+                    if (
+                        string.IsNullOrWhiteSpace(protagonistTeamName)
+                        || !playerIds.TryGetValue(protagonistTeamName, out PlayerId protagonistTeam)
+                    )
+                        throw new ArgumentException(
+                            "The protagonist team must be registered in this composition.",
+                            nameof(protagonistTeamName)
+                        );
+                    DispatchNow(
+                        new InitEncounterOp(encounterId, protagonistTeam, conclusionPolicy)
+                    );
+                    enrollment.Commit();
+                }
                 enrollment.AttachAndInstall();
                 enrollment.TransferTo(encounterLifetime);
             }
@@ -125,11 +143,22 @@ namespace Game.Rules.Unity
         /// <summary>Creates the complete rules composition for one combat encounter.</summary>
         /// <param name="encounterControllers">The non-empty, unique participant sequence.</param>
         /// <param name="tiles">The initialized live grid used to take an immutable topology snapshot.</param>
+        /// <param name="protagonistTeamName">The registered team whose survival prevents defeat.</param>
+        /// <param name="conclusionPolicy">The automatic encounter-conclusion behavior.</param>
         /// <returns>The initialized encounter rules bridge.</returns>
         public static UnityCombatRulesBridge Create(
             IEnumerable<ActionController> encounterControllers,
-            Tile[,] tiles
-        ) => Create(encounterControllers, tiles, new RandomRollService());
+            Tile[,] tiles,
+            string protagonistTeamName,
+            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
+        ) =>
+            Create(
+                encounterControllers,
+                tiles,
+                new RandomRollService(),
+                protagonistTeamName,
+                conclusionPolicy
+            );
 
         /// <summary>
         /// Creates combat rules with an explicit deterministic or production roll source.
@@ -137,18 +166,34 @@ namespace Game.Rules.Unity
         /// <param name="encounterControllers">The non-empty, unique participant sequence.</param>
         /// <param name="tiles">The initialized live grid.</param>
         /// <param name="rollService">The required source for all rules-owned rolls.</param>
+        /// <param name="protagonistTeamName">The registered team whose survival prevents defeat.</param>
+        /// <param name="conclusionPolicy">The automatic encounter-conclusion behavior.</param>
         /// <returns>The initialized encounter rules bridge.</returns>
         public static UnityCombatRulesBridge Create(
             IEnumerable<ActionController> encounterControllers,
             Tile[,] tiles,
-            IRollService rollService
+            IRollService rollService,
+            string protagonistTeamName,
+            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
         )
         {
             if (encounterControllers == null)
                 throw new ArgumentNullException(nameof(encounterControllers));
             ActionController[] copied = encounterControllers.ToArray();
             ValidateTiles(tiles);
-            return new UnityCombatRulesBridge(copied, tiles, true, rollService);
+            if (string.IsNullOrWhiteSpace(protagonistTeamName))
+                throw new ArgumentException(
+                    "A protagonist team name is required.",
+                    nameof(protagonistTeamName)
+                );
+            return new UnityCombatRulesBridge(
+                copied,
+                tiles,
+                true,
+                rollService,
+                protagonistTeamName,
+                conclusionPolicy
+            );
         }
 
         /// <summary>
@@ -180,7 +225,9 @@ namespace Game.Rules.Unity
                 FindExplorationControllers(controller, tiles, exploration),
                 tiles,
                 false,
-                new RandomRollService()
+                new RandomRollService(),
+                string.Empty,
+                EncounterConclusionPolicy.VictoryOrDefeat
             );
         }
 
@@ -326,55 +373,10 @@ namespace Game.Rules.Unity
             && encounter.CurrentTurn.HasValue
             && encounter.CurrentTurn.Value.Actor == creature;
 
-        /// <summary>Starts initiative and advances to the first eligible turn.</summary>
-        /// <param name="protagonistTeamName">The registered team used for player-relative outcome.</param>
-        /// <param name="conclusionPolicy">The rules-owned automatic conclusion policy.</param>
-        /// <returns>The authoritative state after start-turn causal work settles.</returns>
-        public EncounterState StartEncounter(
-            string protagonistTeamName,
-            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
-        )
-        {
-            if (
-                string.IsNullOrWhiteSpace(protagonistTeamName)
-                || !playerIds.TryGetValue(protagonistTeamName, out PlayerId protagonistTeam)
-            )
-                throw new ArgumentException(
-                    "The protagonist team must be registered in this composition.",
-                    nameof(protagonistTeamName)
-                );
-            return StartEncounter(protagonistTeam, conclusionPolicy);
-        }
-
-        /// <summary>Starts initiative for a registered protagonist team identity.</summary>
-        /// <param name="protagonistTeam">The registered player-relative protagonist team.</param>
-        /// <param name="conclusionPolicy">The rules-owned automatic conclusion policy.</param>
-        /// <returns>The authoritative state after start-turn causal work settles.</returns>
-        public EncounterState StartEncounter(
-            PlayerId protagonistTeam,
-            EncounterConclusionPolicy conclusionPolicy = EncounterConclusionPolicy.VictoryOrDefeat
-        )
-        {
-            if (
-                protagonistTeam.IsEmpty
-                || !Snapshot.Creatures.Any(pair => pair.Value.Player == protagonistTeam)
-            )
-                throw new ArgumentException(
-                    "The protagonist team must be registered in this composition.",
-                    nameof(protagonistTeam)
-                );
-            EncounterParticipant[] participants = controllers
-                .Select(pair => new EncounterParticipant(
-                    pair.Key,
-                    Snapshot.Creatures[pair.Key].Player,
-                    creatures[pair.Key].GetInitiative()
-                ))
-                .ToArray();
-            EncounterStartOutcome outcome = DispatchNow(
-                new StartEncounterOp(encounterId, protagonistTeam, participants, conclusionPolicy)
-            );
-            return outcome.State;
-        }
+        /// <summary>Explicitly activates the initialized encounter and reaches its first turn.</summary>
+        /// <returns>The authoritative state after first-turn causal work settles.</returns>
+        public EncounterState AdvanceEncounter() =>
+            DispatchNow(new AdvanceEncounterOp(encounterId)).State;
 
         /// <summary>Ends the exact current turn owned by a registered creature.</summary>
         /// <param name="creature">The creature expected to own the current exact turn.</param>
@@ -408,7 +410,7 @@ namespace Game.Rules.Unity
         public EncounterState GetEncounter()
         {
             if (!Snapshot.Encounters.TryGet(encounterId, out EncounterState encounter))
-                throw new InvalidOperationException("The encounter has not started.");
+                throw new InvalidOperationException("The encounter has not been initialized.");
             return encounter;
         }
 
@@ -427,17 +429,17 @@ namespace Game.Rules.Unity
             return DispatchResultNow(operation);
         }
 
-        /// <summary>Registers dungeon reinforcements in the existing encounter store.</summary>
-        /// <param name="reinforcements">New, unique controllers not already registered.</param>
-        public void RegisterCombatants(IEnumerable<ActionController> reinforcements)
+        /// <summary>Adds a prepared combatant batch to the existing encounter store.</summary>
+        /// <param name="combatants">New, unique controllers not already registered.</param>
+        public void AddCombatants(IEnumerable<ActionController> combatants)
         {
             UnityCombatantEnrollmentPlan enrollment = enrollmentPipeline.Prepare(
-                reinforcements,
-                nameof(reinforcements)
+                combatants,
+                nameof(combatants)
             );
             try
             {
-                enrollment.CommitReinforcements();
+                enrollment.Commit();
                 enrollment.AttachAndInstall();
                 enrollment.TransferTo(encounterLifetime);
             }
@@ -450,7 +452,7 @@ namespace Game.Rules.Unity
                 catch (Exception cleanupFailure)
                 {
                     throw new AggregateException(
-                        "Combatant registration and rollback both failed.",
+                        "Combatant registration and local cleanup both failed.",
                         registrationFailure,
                         cleanupFailure
                     );
@@ -898,19 +900,25 @@ namespace Game.Rules.Unity
             creatures.Remove(id);
         }
 
-        internal static void Seed(RulesStateSeed seed, CombatantRulesState state)
+        internal static void SeedExploration(RulesStateSeed seed, CombatantRulesState state)
         {
             CreatureId id = state.Creature.Id;
             seed.SeedCreature(state.Creature)
                 .SeedHealth(id, state.Health)
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)
-                .SeedActionEconomy(id, new ActionEconomyState(0, false))
                 .SeedMultipleAttackPenalty(id, new MultipleAttackPenaltyState(0));
             foreach (SpellSlotState slot in state.SpellSlots)
                 seed.SeedSpellSlot(slot);
             foreach (ActiveRuleBinding binding in state.RuleBindings)
                 seed.SeedRuleBinding(binding);
+            foreach (EquipmentState item in state.Equipment)
+                seed.SeedEquipment(item);
+            foreach (AmmunitionState pool in state.Ammunition)
+                seed.SeedAmmunition(pool);
+            foreach (ActiveEffectInstance effect in state.ActiveEffects)
+                seed.SeedActiveEffect(effect);
+            seed.SeedActionEconomy(id, new ActionEconomyState(1, false));
         }
 
         internal static void ValidateControllers(

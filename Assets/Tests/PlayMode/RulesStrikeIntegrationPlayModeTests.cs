@@ -76,7 +76,8 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { controller, opponentController },
             tiles,
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "players"
         );
         CreatureId actor = bridge.GetCreatureId(actorCreature);
         bridge.BeginTurn(actor, 3);
@@ -145,7 +146,8 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { actorController, hitController, defeatController },
             tiles,
-            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4)
+            new ScriptedRollService(20, 15, 10, 10, 4, 10, 4),
+            "presentation-heroes"
         );
         AttackStartObserver attackStart = new(sharedAnimation);
         GetDispatcher(bridge)
@@ -241,7 +243,8 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { actorController, targetController, opponentController },
             tiles,
-            rolls
+            rolls,
+            "presentation-heroes"
         );
         CreatureId actorId = bridge.GetCreatureId(actor);
         RulesStrikeAction shortbow = actorController
@@ -300,7 +303,8 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge.Create(
             new ActionController[] { ai, opponentController },
             tiles,
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "strike-test-ai"
         );
         Assert.That(CombatManagerInterface.TryGetInstance(out _), Is.False);
         MethodInfo bestLegalStrike = typeof(MindlessController).GetMethod(
@@ -360,7 +364,8 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { ai, targetController },
             tiles,
-            new ScriptedRollService(20, 10)
+            new ScriptedRollService(20, 10),
+            "strike-test-ai"
         );
         CreatureId actorId = bridge.GetCreatureId(actor);
         bridge.BeginTurn(actorId, 3);
@@ -427,7 +432,8 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { ai, targetController },
             tiles,
-            new ScriptedRollService(20, 10, 10, 4)
+            new ScriptedRollService(20, 10, 10, 4),
+            "strike-test-ai"
         );
         CreatureId actor = bridge.GetCreatureId(archer);
         CreatureId targetId = bridge.GetCreatureId(target);
@@ -485,7 +491,8 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
             new ActionController[] { clericController, targetController },
             tiles,
-            new ScriptedRollService(20, 10, 10, 2, 10, 2, 2, 10, 2, 2, 10)
+            new ScriptedRollService(20, 10, 10, 2, 10, 2, 2, 10, 2, 2, 10),
+            "player"
         );
         CreatureId actor = bridge.GetCreatureId(cleric);
         CreatureId targetId = bridge.GetCreatureId(target);

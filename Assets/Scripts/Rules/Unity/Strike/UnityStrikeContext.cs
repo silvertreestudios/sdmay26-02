@@ -62,16 +62,19 @@ namespace Game.Rules.Unity.Strike
         /// <summary>
         /// Prepares reversible Unity mappings and typed authoritative state for one combatant.
         /// </summary>
-        internal IUnityCombatantStateContribution PrepareCombatant(
+        internal IDisposable PrepareCombatant(
             CreatureId actor,
-            CreatureComponent creature
+            CreatureComponent creature,
+            out IReadOnlyList<EquipmentState> equipment,
+            out IReadOnlyList<AmmunitionState> ammunition
         )
         {
-            return new StrikeCombatantPreparation(this, Register(actor, creature));
+            Register(actor, creature, out equipment, out ammunition);
+            return new StrikeCombatantPreparation(this, actor);
         }
 
-        /// <summary>Rolls back provisional Unity Strike mappings for a failed reinforcement join.</summary>
-        /// <param name="actor">The reinforcement whose uncommitted mappings are removed.</param>
+        /// <summary>Rolls back provisional Unity Strike mappings for a failed combatant addition.</summary>
+        /// <param name="actor">The combatant whose uncommitted mappings are removed.</param>
         private void UnregisterCombatant(CreatureId actor)
         {
             if (!actorItems.TryGetValue(actor, out List<ItemId> items))
@@ -281,7 +284,12 @@ namespace Game.Rules.Unity.Strike
             return default;
         }
 
-        private StrikeCombatantRegistration Register(CreatureId actor, CreatureComponent creature)
+        private void Register(
+            CreatureId actor,
+            CreatureComponent creature,
+            out IReadOnlyList<EquipmentState> registeredEquipment,
+            out IReadOnlyList<AmmunitionState> registeredAmmunition
+        )
         {
             if (creature == null)
                 throw new ArgumentException("A registered Strike creature cannot be null.");
@@ -404,7 +412,8 @@ namespace Game.Rules.Unity.Strike
                         }
                     }
                 }
-                return new StrikeCombatantRegistration(actor, equipment, pools);
+                registeredEquipment = Array.AsReadOnly(equipment.ToArray());
+                registeredAmmunition = Array.AsReadOnly(pools.ToArray());
             }
             catch
             {
@@ -434,52 +443,18 @@ namespace Game.Rules.Unity.Strike
         }
 
         /// <summary>
-        /// Owns provisional Strike mappings and exposes the same typed state to initial seeding and
-        /// reinforcement registration.
+        /// Owns provisional Strike mappings until enrollment transfers their cleanup lifetime.
         /// </summary>
-        private sealed class StrikeCombatantPreparation
-            : IUnityCombatantStateContribution,
-                IDisposable
+        private sealed class StrikeCombatantPreparation : IDisposable
         {
             private readonly UnityStrikeContext owner;
-            private readonly StrikeCombatantRegistration registration;
+            private readonly CreatureId actor;
             private bool isDisposed;
 
-            internal StrikeCombatantPreparation(
-                UnityStrikeContext owner,
-                StrikeCombatantRegistration registration
-            )
+            internal StrikeCombatantPreparation(UnityStrikeContext owner, CreatureId actor)
             {
                 this.owner = owner;
-                this.registration = registration;
-            }
-
-            /// <inheritdoc/>
-            public void Seed(RulesStateSeed seed)
-            {
-                if (seed == null)
-                    throw new ArgumentNullException(nameof(seed));
-                foreach (EquipmentState item in registration.Equipment)
-                    seed.SeedEquipment(item);
-                foreach (AmmunitionState pool in registration.Ammunition)
-                    seed.SeedAmmunition(pool);
-            }
-
-            /// <inheritdoc/>
-            public void Register(UnityCombatRulesBridge bridge)
-            {
-                if (bridge == null)
-                    throw new ArgumentNullException(nameof(bridge));
-                OpResult<bool> result = bridge.Dispatch(
-                    new RegisterStrikeCombatantOp(registration)
-                );
-                if (result is ResolvedOpResult<bool>)
-                    return;
-                if (result is InvalidOpResult<bool> invalid)
-                    throw new InvalidOperationException(invalid.Reason);
-                throw new InvalidOperationException(
-                    "Strike combatant registration did not resolve."
-                );
+                this.actor = actor;
             }
 
             /// <inheritdoc/>
@@ -488,7 +463,7 @@ namespace Game.Rules.Unity.Strike
                 if (isDisposed)
                     return;
                 isDisposed = true;
-                owner.UnregisterCombatant(registration.Actor);
+                owner.UnregisterCombatant(actor);
             }
         }
 
