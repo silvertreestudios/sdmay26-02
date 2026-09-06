@@ -25,7 +25,7 @@ namespace Game.Rules.Unity.Strike
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly UnityStrikeContext strikeContext;
 
-        /// <summary>Creates an observer over explicit encounter identity mappings.</summary>
+        /// <summary>Creates a presenter over explicit encounter identity mappings.</summary>
         /// <param name="controllers">Rules-to-Unity attacker mappings.</param>
         /// <param name="creatures">Rules-to-Unity creature mappings.</param>
         /// <param name="strikeContext">The feature context owning item and weapon mappings.</param>
