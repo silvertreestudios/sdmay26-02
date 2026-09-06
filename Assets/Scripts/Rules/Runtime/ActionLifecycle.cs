@@ -254,6 +254,81 @@ namespace Game.Rules.Runtime
         }
     }
 
+    /// <summary>Provides type-erased routing data for an action lifecycle occurrence Fact.</summary>
+    public interface IActionLifecycleFact
+    {
+        /// <summary>Gets the stable action definition selected for the invocation.</summary>
+        ActionDefinitionId DefinitionId { get; }
+    }
+
+    /// <summary>
+    /// Reports that one action passed validation, committed all costs, and completed its
+    /// action-begun timing window immediately before feature-owned mechanics execute.
+    /// </summary>
+    /// <remarks>
+    /// The occurrence carries the original immutable action rather than a presentation or history
+    /// copy. Invalid, interrupted, and cancelled actions do not produce it.
+    /// </remarks>
+    public interface IActionBegunFact : IActionLifecycleFact { }
+
+    /// <inheritdoc cref="IActionBegunFact"/>
+    /// <typeparam name="TResult">The action's feature-owned result type.</typeparam>
+    public sealed class ActionBegunFact<TResult> : RuleFact, IActionBegunFact
+    {
+        internal ActionBegunFact(ActionOpInfo actionInfo, ActionOp<TResult> action)
+        {
+            ActionInfo = actionInfo ?? throw new ArgumentNullException(nameof(actionInfo));
+            Action = action ?? throw new ArgumentNullException(nameof(action));
+        }
+
+        /// <summary>Gets dispatcher-owned identity and provenance for the begun action.</summary>
+        public ActionOpInfo ActionInfo { get; }
+
+        /// <summary>Gets the actual immutable action request and selection object.</summary>
+        public ActionOp<TResult> Action { get; }
+
+        ActionDefinitionId IActionLifecycleFact.DefinitionId => ActionInfo.DefinitionId;
+    }
+
+    /// <summary>Provides type-erased routing data for a structurally resolved action Fact.</summary>
+    public interface IActionResolvedFact : IActionLifecycleFact { }
+
+    /// <summary>
+    /// Reports that one action structurally resolved after its handler and awaited child mechanics,
+    /// carrying the handler's concrete feature-owned outcome.
+    /// </summary>
+    /// <typeparam name="TResult">The action's existing feature-owned outcome type.</typeparam>
+    /// <remarks>
+    /// This committed occurrence does not imply that state changed. A miss and another successful
+    /// action outcome still resolve structurally. Invalid, interrupted, and cancelled actions do
+    /// not produce this Fact. The action and outcome are the original immutable values; consumers
+    /// should not create parallel invocation or result DTOs for presentation.
+    /// </remarks>
+    public sealed class ActionResolvedFact<TResult> : RuleFact, IActionResolvedFact
+    {
+        internal ActionResolvedFact(
+            ActionOpInfo actionInfo,
+            ActionOp<TResult> action,
+            TResult outcome
+        )
+        {
+            ActionInfo = actionInfo ?? throw new ArgumentNullException(nameof(actionInfo));
+            Action = action ?? throw new ArgumentNullException(nameof(action));
+            Outcome = outcome;
+        }
+
+        /// <summary>Gets dispatcher-owned identity and provenance for the resolved action.</summary>
+        public ActionOpInfo ActionInfo { get; }
+
+        /// <summary>Gets the actual immutable action request and selection object.</summary>
+        public ActionOp<TResult> Action { get; }
+
+        /// <summary>Gets the existing feature-owned outcome returned by the action handler.</summary>
+        public TResult Outcome { get; }
+
+        ActionDefinitionId IActionLifecycleFact.DefinitionId => ActionInfo.DefinitionId;
+    }
+
     /// <summary>
     /// Describes the trusted identity of one action invocation before its profile is frozen.
     /// </summary>

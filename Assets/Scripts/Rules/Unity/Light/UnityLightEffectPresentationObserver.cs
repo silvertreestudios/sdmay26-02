@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
 using UnityEngine;
@@ -61,8 +60,9 @@ namespace Game.Rules.Unity.Light
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
+        public void OnFactCommitted(
             ActiveEffectCreatedFact fact,
+            OpId rootId,
             RulesSnapshot currentSnapshot
         )
         {
@@ -72,7 +72,7 @@ namespace Game.Rules.Unity.Light
                     out ActiveEffectInstance effect
                 )
             )
-                return default;
+                return;
             if (
                 effect.DefinitionId != presentedDefinition
                 || visuals.ContainsKey(effect.Id)
@@ -80,12 +80,11 @@ namespace Game.Rules.Unity.Light
                 || !creatures.TryGetValue(state.Target, out CreatureComponent owner)
                 || owner == null
             )
-                return default;
+                return;
 
-            GameObject visual = null;
+            GameObject visual = new("Spell Effect Light");
             try
             {
-                visual = new GameObject("Spell Effect Light");
                 visual.transform.SetParent(owner.transform, false);
                 visual.transform.localPosition = Vector3.up;
                 UnityEngine.Light light = visual.AddComponent<UnityEngine.Light>();
@@ -96,34 +95,33 @@ namespace Game.Rules.Unity.Light
                 light.shadows = LightShadows.Soft;
                 visuals.Add(effect.Id, visual);
             }
-            catch (Exception exception)
+            catch
             {
                 Destroy(visual);
-                Debug.LogException(exception);
+                throw;
             }
-            return default;
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
+        public void OnFactCommitted(
             ActiveEffectRemovedFact fact,
+            OpId rootId,
             RulesSnapshot currentSnapshot
         )
         {
             Remove(fact.EffectId);
-            return default;
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
+        public void OnFactCommitted(
             EncounterOutcomeCommittedFact fact,
+            OpId rootId,
             RulesSnapshot currentSnapshot
         )
         {
             List<ActiveEffectId> owned = new(visuals.Keys);
             foreach (ActiveEffectId effect in owned)
                 Remove(effect);
-            return default;
         }
 
         /// <summary>Removes every remaining encounter-owned presentation object.</summary>

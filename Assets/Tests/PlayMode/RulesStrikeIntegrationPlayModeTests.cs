@@ -101,7 +101,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator StrikeBeginsAttackBeforeHitAndDefeatPresentations()
+    public IEnumerator StrikeProjectsHealthImmediatelyThenOrdersHitAndDefeatPresentations()
     {
         InstallCombatManager();
         InstallCoroutineRunner();
@@ -130,12 +130,20 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         yield return null;
         Assert.That(actorPresentation.AnimationController, Is.Not.Null);
         CreatureAnimationController sharedAnimation = actorPresentation.AnimationController;
+        GameObject defeatVisual = Object.Instantiate(sharedAnimation.gameObject);
+        created.Add(defeatVisual);
+        CreatureAnimationController defeatAnimation =
+            defeatVisual.GetComponent<CreatureAnimationController>();
+        string clipAtDamagePresentation = null;
+        void CaptureDamagePresentation(string _) =>
+            clipAtDamagePresentation = sharedAnimation.CurrentClipId;
+        OnDamageDealt.AddListener(CaptureDamagePresentation);
         hitTarget
             .gameObject.AddComponent<CreaturePresentation>()
             .Bind(sharedAnimation, equipmentVisuals: null);
         defeatTarget
             .gameObject.AddComponent<CreaturePresentation>()
-            .Bind(sharedAnimation, equipmentVisuals: null);
+            .Bind(defeatAnimation, equipmentVisuals: null);
         Place(actor.gameObject, 0);
         Place(hitTarget.gameObject, 1);
         Place(defeatTarget.gameObject, 2);
@@ -149,9 +157,6 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             new ScriptedRollService(20, 15, 10, 10, 4, 10, 4),
             "presentation-heroes"
         );
-        AttackStartObserver attackStart = new(sharedAnimation);
-        GetDispatcher(bridge)
-            .RegisterResolvedOpObserver<ResolveStrikeOp, StrikeResolution>(attackStart);
         CreatureId actorId = bridge.GetCreatureId(actor);
         RulesStrikeAction shortbow = actorController
             .GetActions()
@@ -163,48 +168,61 @@ public sealed class RulesStrikeIntegrationPlayModeTests
         grid.Target = hitTarget.gameObject;
         actorController.IsTakingAction = true;
         shortbow.Invoke(actor.gameObject);
-        for (int frame = 0; frame < 10 && actorController.IsTakingAction; frame++)
-            yield return null;
+        yield return null;
+
+        Assert.That(hitTarget.Health.Current, Is.LessThan(20));
+        Assert.That(actorController.IsTakingAction, Is.True);
+        yield return new WaitForSeconds(5.1f);
+        yield return null;
 
         Assert.That(actorController.IsTakingAction, Is.False);
         Assert.That(hitTarget.hp, Is.LessThan(20));
         Assert.That(
-            sharedAnimation.CurrentClipId,
+            clipAtDamagePresentation,
             Is.EqualTo("animation/general/hit_a"),
-            "The hit reaction must be the last presentation started after the shared attack."
+            "The target reaction must start after the attack and before the damage summary."
         );
+        OnDamageDealt.RemoveListener(CaptureDamagePresentation);
 
         sharedAnimation.StopAction();
         bridge.BeginTurn(actorId, 3);
         grid.Target = defeatTarget.gameObject;
+        List<string> lethalPresentationOrder = new();
+        void CaptureLethalResult(string _) => lethalPresentationOrder.Add("result");
+        OnDamageDealt.AddListener(CaptureLethalResult);
         actorController.IsTakingAction = true;
         shortbow.Invoke(actor.gameObject);
-        for (int frame = 0; frame < 10 && actorController.IsTakingAction; frame++)
+        yield return null;
+
+        Assert.That(defeatTarget.Health.Current, Is.Zero, "Rules health must commit immediately.");
+        Assert.That(sharedAnimation.IsActionPlaying, Is.True);
+        Assert.That(
+            defeatAnimation.IsDeathPlaying,
+            Is.False,
+            "Defeat presentation must wait behind the attack-begin step."
+        );
+        lethalPresentationOrder.Add("begin");
+        bool sawDeathPresentation = false;
+        float deadline = Time.realtimeSinceStartup + 10.5f;
+        while (actorController.IsTakingAction && Time.realtimeSinceStartup < deadline)
+        {
+            if (!sawDeathPresentation && defeatAnimation.IsDeathPlaying)
+            {
+                sawDeathPresentation = true;
+                lethalPresentationOrder.Add("defeat");
+            }
             yield return null;
+        }
 
         Assert.That(actorController.IsTakingAction, Is.False);
         Assert.That(defeatTarget.hp, Is.Zero);
+        Assert.That(sawDeathPresentation, Is.True);
         Assert.That(
-            attackStart.ClipIds,
-            Is.EqualTo(
-                new[]
-                {
-                    "animation/combatranged/ranged_bow_release",
-                    "animation/combatranged/ranged_bow_release",
-                }
-            ),
-            "The feature presentation observer must start each attack before parent continuation."
+            lethalPresentationOrder,
+            Is.EqualTo(new[] { "begin", "result", "defeat" }),
+            "Lethal Strike defeat must follow the action's queued beginning and result."
         );
-        Assert.That(
-            attackStart.TargetHitPoints,
-            Is.EqualTo(new[] { 20, 1 }),
-            "ResolveStrike observation must run before hit or defeat commits authoritative HP."
-        );
-        Assert.That(
-            sharedAnimation.CurrentClipId,
-            Is.EqualTo("animation/general/death_a"),
-            "The defeat reaction must be the last presentation started after the shared attack."
-        );
+        OnDamageDealt.RemoveListener(CaptureLethalResult);
     }
 
     [UnityTest]
@@ -535,29 +553,6 @@ public sealed class RulesStrikeIntegrationPlayModeTests
             BindingFlags.Instance | BindingFlags.NonPublic
         );
         return (RuleDispatcher)field.GetValue(bridge);
-    }
-
-    private sealed class AttackStartObserver
-        : IResolvedOpObserver<ResolveStrikeOp, StrikeResolution>
-    {
-        private readonly CreatureAnimationController animation;
-
-        public AttackStartObserver(CreatureAnimationController animation) =>
-            this.animation = animation;
-
-        public List<string> ClipIds { get; } = new();
-        public List<int> TargetHitPoints { get; } = new();
-
-        public System.Threading.Tasks.ValueTask OnOperationResolved(
-            ResolveStrikeOp operation,
-            StrikeResolution result,
-            RulesSnapshot currentSnapshot
-        )
-        {
-            ClipIds.Add(animation.CurrentClipId);
-            TargetHitPoints.Add(currentSnapshot.Health[operation.Target].Current);
-            return default;
-        }
     }
 
     private CreatureComponent CreateCreature(string name, string teamName, int hp, int ac)

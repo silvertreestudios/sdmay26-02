@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.ExceptionServices;
@@ -36,6 +37,7 @@ namespace Game.Rules.Unity
         private readonly UnityEncounterComposition composition;
         private readonly UnityCombatantEnrollmentPipeline enrollmentPipeline;
         private readonly CompositeLifetime encounterLifetime = new();
+        private readonly UnityActionPresentationCoordinator actionPresentationCoordinator = new();
         private readonly Dictionary<OpId, Queue<Action>> encounterPresentationByRoot = new();
         private readonly Dictionary<OpId, List<OpId>> encounterPresentationChildren = new();
         private readonly HashSet<OpId> settledEncounterPresentationRoots = new();
@@ -77,6 +79,7 @@ namespace Game.Rules.Unity
             );
             UnityEncounterModuleSet modules = UnityEncounterModuleSet.Create(
                 this,
+                actionPresentationCoordinator,
                 creatures,
                 controllers,
                 tiles,
@@ -429,6 +432,20 @@ namespace Game.Rules.Unity
             return DispatchResultNow(operation);
         }
 
+        /// <summary>Drains committed presentation for one exact action invocation.</summary>
+        /// <typeparam name="TResult">The action's feature-owned result type.</typeparam>
+        /// <param name="action">The same immutable action instance supplied to dispatch.</param>
+        /// <returns>
+        /// A coroutine that releases the sequence after all recorded steps succeed or the first
+        /// presenter execution fails. Missing sequences complete immediately.
+        /// </returns>
+        public IEnumerator DrainActionPresentation<TResult>(ActionOp<TResult> action)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+            return actionPresentationCoordinator.Drain(action);
+        }
+
         /// <summary>Adds a prepared combatant batch to the existing encounter store.</summary>
         /// <param name="combatants">New, unique controllers not already registered.</param>
         public void AddCombatants(IEnumerable<ActionController> combatants)
@@ -596,14 +613,14 @@ namespace Game.Rules.Unity
         }
 
         /// <summary>
-        /// Dispatches Stride while awaiting one Unity projection for each committed movement Fact.
+        /// Dispatches Stride while one root-scoped observer queues committed movement projection.
         /// </summary>
         /// <param name="creature">The registered mover.</param>
         /// <param name="path">The exact completed selection.</param>
         /// <param name="projection">The projection observer retained for this root only.</param>
         /// <returns>
-        /// Whether the rules root resolved, including a committed exploration step whose obsolete
-        /// temporary suffix was intentionally abandoned.
+        /// Whether the rules root resolved. Presentation and exploration route continuation are
+        /// owned by the caller after this mechanically complete dispatch.
         /// </returns>
         public async ValueTask<bool> DispatchProjectedStride(
             CreatureId creature,
@@ -615,18 +632,8 @@ namespace Game.Rules.Unity
                 throw new ArgumentNullException(nameof(projection));
             using (dispatcher.RegisterFactObserver(projection))
             {
-                try
-                {
-                    OpResult<MovePathOutcome> result = await DispatchStride(creature, path);
-                    return result is ResolvedOpResult<MovePathOutcome>;
-                }
-                catch (ExplorationStrideProjectionInterruptedException)
-                {
-                    // The committed leader step has already projected. Cancellation, encounter
-                    // startup, or a known partial follower failure makes both the temporary Stride
-                    // suffix and the outer destination route obsolete.
-                    return true;
-                }
+                OpResult<MovePathOutcome> result = await DispatchStride(creature, path);
+                return result is ResolvedOpResult<MovePathOutcome>;
             }
         }
 
@@ -818,21 +825,19 @@ namespace Game.Rules.Unity
             }
         }
 
-        internal void EnqueueEncounterPresentation(RuleFact fact, Action presentation)
+        internal void EnqueueEncounterPresentation(OpId rootId, Action presentation)
         {
-            if (fact == null || !fact.IsStamped)
+            if (rootId.IsEmpty)
                 throw new ArgumentException(
-                    "Encounter presentation requires a committed root-owned Fact.",
-                    nameof(fact)
+                    "Encounter presentation requires a non-empty root ID.",
+                    nameof(rootId)
                 );
             if (presentation == null)
                 throw new ArgumentNullException(nameof(presentation));
-            if (
-                !encounterPresentationByRoot.TryGetValue(fact.RootOpId, out Queue<Action> callbacks)
-            )
+            if (!encounterPresentationByRoot.TryGetValue(rootId, out Queue<Action> callbacks))
             {
                 callbacks = new Queue<Action>();
-                encounterPresentationByRoot.Add(fact.RootOpId, callbacks);
+                encounterPresentationByRoot.Add(rootId, callbacks);
             }
             callbacks.Enqueue(presentation);
         }

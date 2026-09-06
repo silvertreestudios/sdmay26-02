@@ -68,8 +68,9 @@ Unity or another client
 ```
 
 The operation describes what is being attempted. The rules snapshot describes what is true. The
-result describes how the attempt ended. Facts describe changes that already committed. Unity
-projects those outcomes; it does not silently decide them for a migrated state slice.
+result describes how the attempt ended. Facts describe committed state changes or narrow committed
+rules occurrences. Unity projects those outcomes; it does not silently decide them for a migrated
+state slice.
 
 ## Core contracts
 
@@ -105,17 +106,35 @@ Handlers, middleware, listeners, and observers do not mutate state directly.
 
 ### Facts and timing
 
-A `RuleFact` reports something that has committed. It is not a request and it is not a preview.
-Fact listeners may react by dispatching more rules work. External observers may update presentation,
-audio, animation, or Unity projections.
+A `RuleFact` is an immutable domain payload reporting something that has committed. It carries no
+store-assigned identity, mutable commit marker, or dispatcher provenance. Most Facts are emitted by
+reducers for state changes. The action lifecycle runner also emits one
+`ActionBegunFact<TResult>` occurrence after validation, atomic costs, and the action-begun timing
+window succeed, immediately before the feature handler, plus one `ActionResolvedFact<TResult>`
+occurrence after a structurally resolved action and all of its awaited child mechanics. Neither is
+a request or preview. Both reuse the exact immutable action and its `ActionOpInfo`; the resolved
+occurrence also carries the existing feature outcome. Fact listeners may react by dispatching more
+rules work. External observers may update presentation, audio, animation, or Unity projections.
 
 The distinction matters:
 
 - middleware participates while an operation is resolving;
 - reducers commit authoritative state;
-- Facts expose the committed transition;
-- rule listeners create follow-up rules work; and
-- observers perform external side effects after the rules event exists.
+- Facts expose the committed transition or occurrence;
+- binding-scoped rule listeners are asynchronous, awaited, and may create authoritative follow-up
+  rules work; and
+- external Fact observers are synchronous, non-authoritative notifications that project immediately
+  or enqueue host-owned presentation.
+
+The dispatcher keeps exact source/root provenance, listener eligibility, delivery ordering, and
+each delivery's exact snapshot in internal orchestration records. External observers receive only
+the immutable payload, an observation-root `OpId`, and the exact snapshot. An independent dispatch
+or causally dispatched action uses its exact root as the observation root; supporting causal roots
+inherit that transient correlation so host presentation can retain one sequence across the causal
+tree without putting provenance in Fact payloads. Observer exceptions are isolated and logged
+directly to `System.Diagnostics.Trace` on a best-effort basis; neither the observer nor logging
+failure stops handlers, reducers, rules Fact listeners, or other observers. Presentation does not
+have retry, pending, recovery, or durable rules state.
 
 Code that needs to veto or alter a transition belongs before the commit. Code that merely responds
 to the committed result belongs after it.
@@ -129,7 +148,7 @@ Use the narrowest extension point that matches the behavior:
 | Orchestrate a multi-step feature workflow | `IOpHandler<TOp, TResult>` |
 | Alter or interrupt a selected operation while it resolves | `IOpMiddleware<TOp, TResult>` |
 | React to a committed Fact with more rules work | `IRuleFactListener<TFact>` or batch listener |
-| Project committed or resolved work outside the rules model | Fact or resolved-operation observer |
+| Project committed work outside the rules model | synchronous Fact observer |
 | Read a derived answer without changing state | selector over `RulesSnapshot` |
 | Perform a small authoritative mutation | `IOpReducer<TOp, TResult>` |
 
@@ -144,8 +163,16 @@ Every rules-backed action follows the same engine-owned boundary:
 1. resolve the base `ActionProfile` and any legitimate profile changes;
 2. run action validators against the snapshot;
 3. commit all action and rule-resource costs atomically;
-4. resolve `ActionBegunOp`; and
-5. invoke the feature handler.
+4. resolve `ActionBegunOp`;
+5. publish exactly one `ActionBegunFact<TResult>` occurrence; and
+6. invoke the feature handler.
+
+After the handler and every awaited child mechanic complete, a structurally resolved action emits
+exactly one `ActionResolvedFact<TResult>`. An action rejected or interrupted before feature
+execution emits neither lifecycle occurrence; a feature-level outcome such as a missed Strike emits
+both. Once the begun occurrence is published, the lifecycle requires structural resolution or
+propagates an exceptional dispatcher failure. These Facts are not action history or a second result
+model.
 
 The feature handler owns the action's semantics after that boundary. It should dispatch existing
 generic operations for shared work rather than reimplementing checks, damage, movement, resources,
@@ -193,6 +220,18 @@ Unity owns scene references, input, visuals, animation, and component installati
 translate those objects into stable rules values before dispatch and project committed results back
 afterward.
 
+Synchronous external Fact observation may feed a host-owned ordered presentation sequence. The host
+opens that sequence from `ActionBegunFact<TResult>`, records feature presentation and visual
+reactions from committed Facts, then drains the exact immutable action after synchronous dispatch.
+Observers enqueue and return immediately; the dispatcher never awaits Unity frames. The first
+presenter execution failure is logged once, aborts the action's remaining presentation, and releases
+its action/root correlation so the caller can unlock. Presentation has no retry or recovery state.
+
+Authoritative health changes at reducer commit time. Each committed health Fact immediately projects
+its exact snapshot into the Unity component, and HUD reads use that authoritative health. Only hit
+and defeat reactions wait in an active action presentation sequence; without one, they present
+immediately.
+
 For a migrated slice:
 
 - Unity may seed the initial value;
@@ -221,7 +260,8 @@ The following are architectural constraints, not optional conventions:
 
 - A migrated state slice has exactly one writable authority.
 - Only reducers mutate authoritative state.
-- Facts describe committed state and are published after commit.
+- Facts describe committed state changes or explicit lifecycle occurrences and are published only
+  after their owning commit or lifecycle boundary, without mutating their payloads.
 - Every action operation passes through the action lifecycle exactly once.
 - Feature semantics remain in the feature module, not shared bridges or managers.
 - Composition is explicit and deterministic; no static discovery or self-registration.

@@ -766,28 +766,24 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
     }
 
-    /// <summary>Verifies a failed committed startup releases ownership so the host can retry.</summary>
+    /// <summary>Verifies presentation failure cannot undo or interrupt committed startup.</summary>
     [Test]
-    public void LegacyStartCombat_FailedPresentationDoesNotLeaveManagerActive()
+    public void LegacyStartCombat_FailedPresentationDoesNotStopCommittedEncounter()
     {
         CombatantFixture first = CreateCombatant("First", "TeamA", 300);
-        CombatantFixture second = CreateCombatant("Second", "TeamB", 200);
+        CreateCombatant("Second", "TeamB", 200);
         UnityAction failingPresentation = () =>
             throw new InvalidOperationException("Synthetic encounter-start presentation failure.");
         OnCombatStart.AddListener(failingPresentation);
         try
         {
-            Assert.Catch<Exception>(() => manager.StartCombat());
-            Assert.That(manager.IsCombatActive, Is.False);
-            AssertTransientTurnStateCleared(first.Controller);
-            AssertTransientTurnStateCleared(second.Controller);
+            Assert.DoesNotThrow(() => manager.StartCombat());
         }
         finally
         {
             OnCombatStart.RemoveListener(failingPresentation);
         }
 
-        Assert.DoesNotThrow(() => manager.StartCombat());
         Assert.That(manager.IsCombatActive, Is.True);
         Assert.That(manager.WhosTurn(), Is.SameAs(first.GameObject));
     }

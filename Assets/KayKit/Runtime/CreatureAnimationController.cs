@@ -127,10 +127,18 @@ namespace Game.KayKit
             animator.SetFloat(SpeedParameter, Mathf.Clamp(speed / 25.0f, 0.1f, 3.0f));
         }
 
-        public void PlayAttack(AnimationStyle style)
+        /// <summary>Starts the attack clip for one presentation style when it is available.</summary>
+        /// <param name="style">The equipment-derived animation style to play.</param>
+        /// <returns>
+        /// <see langword="true"/> when playback started and the caller should await
+        /// <see cref="IsActionPlaying"/>; otherwise, <see langword="false"/> when there is no
+        /// animation to await.
+        /// </returns>
+        public bool PlayAttack(AnimationStyle style)
         {
             if (AttackClipIds.TryGetValue(style, out string clipId))
-                PlayClip(clipId);
+                return PlayClip(clipId);
+            return false;
         }
 
         public void PlayHit()

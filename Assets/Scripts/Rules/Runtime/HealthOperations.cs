@@ -201,7 +201,7 @@ namespace Game.Rules.Runtime
         /// <param name="target">The creature whose health is authoritative.</param>
         /// <param name="finalDamage">Damage after all upstream calculation.</param>
         /// <param name="origin">The encounter-stable cause identifier.</param>
-        /// <param name="source">The rules source stamped onto committed Facts.</param>
+        /// <param name="source">The rules source recorded for committed Fact deliveries.</param>
         public CommitDamageOp(
             CreatureId target,
             int finalDamage,
@@ -255,7 +255,7 @@ namespace Game.Rules.Runtime
         /// <param name="target">The creature to heal.</param>
         /// <param name="healing">The non-negative healing offered.</param>
         /// <param name="origin">The encounter-stable cause identifier.</param>
-        /// <param name="source">The rules source stamped onto committed Facts.</param>
+        /// <param name="source">The rules source recorded for committed Fact deliveries.</param>
         public CommitHealingOp(
             CreatureId target,
             int healing,

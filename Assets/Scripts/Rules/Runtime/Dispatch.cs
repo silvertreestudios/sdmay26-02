@@ -405,7 +405,7 @@ namespace Game.Rules.Runtime
                 {
                     RequireActiveResolution(resolution);
                     rootId = ids.Next();
-                    resolution.Initialize(rootId);
+                    resolution.Initialize(rootId, rootId);
                 }
 
                 return await DispatchRoot(
@@ -530,7 +530,10 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException(ownershipFailure);
                 owner = activeRoot;
                 rootId = ids.Next();
-                triggered.Initialize(rootId);
+                // An action opens its own external presentation sequence even when a rule Fact
+                // caused it. Supporting causal work retains the sequence that already owns it.
+                OpId observationRootId = op is IActionOpMetadata ? rootId : owner.ObservationRootId;
+                triggered.Initialize(rootId, observationRootId);
                 activeRoot = triggered;
             }
 

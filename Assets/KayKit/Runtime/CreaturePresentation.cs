@@ -25,33 +25,59 @@ namespace Game.KayKit
             AnimationController?.SetMoving(moving, speed);
         }
 
-        public void PlayAttack(AnimationStyle style)
+        /// <summary>Starts an attack using an explicit animation style.</summary>
+        /// <param name="style">The animation style to play.</param>
+        /// <returns>
+        /// <see langword="true"/> when animation playback started and should be awaited;
+        /// otherwise, <see langword="false"/> when there is no animation to await.
+        /// </returns>
+        public bool PlayAttack(AnimationStyle style)
         {
             if (style == AnimationStyle.Unarmed)
                 EquipmentVisuals?.SetActiveWeapon(null);
-            AnimationController?.PlayAttack(style);
+            return AnimationController?.PlayAttack(style) == true;
         }
 
-        public void PlayAttack(EquipmentWeapon weapon)
+        /// <summary>Starts an attack using the equipped weapon's presentation style.</summary>
+        /// <param name="weapon">The weapon whose visuals and animation style are presented.</param>
+        /// <returns>
+        /// <see langword="true"/> when animation playback started and should be awaited;
+        /// otherwise, <see langword="false"/> when there is no animation to await.
+        /// </returns>
+        public bool PlayAttack(EquipmentWeapon weapon)
         {
             EquipmentVisuals?.SetActiveWeapon(weapon);
             AnimationStyle style =
                 EquipmentVisuals != null
                     ? EquipmentVisuals.GetAnimationStyle(weapon)
                     : AnimationStyle.Unarmed;
-            AnimationController?.PlayAttack(style);
+            return AnimationController?.PlayAttack(style) == true;
         }
 
-        public void PlayAttack(AnimationStyle style, Vector3 targetPosition)
+        /// <summary>Faces a target position and starts an attack with an explicit style.</summary>
+        /// <param name="style">The animation style to play.</param>
+        /// <param name="targetPosition">The world position the presenter should face.</param>
+        /// <returns>
+        /// <see langword="true"/> when animation playback started and should be awaited;
+        /// otherwise, <see langword="false"/> when there is no animation to await.
+        /// </returns>
+        public bool PlayAttack(AnimationStyle style, Vector3 targetPosition)
         {
             FaceTowards(targetPosition);
-            PlayAttack(style);
+            return PlayAttack(style);
         }
 
-        public void PlayAttack(EquipmentWeapon weapon, Vector3 targetPosition)
+        /// <summary>Faces a target position and starts a weapon attack.</summary>
+        /// <param name="weapon">The weapon whose visuals and animation style are presented.</param>
+        /// <param name="targetPosition">The world position the presenter should face.</param>
+        /// <returns>
+        /// <see langword="true"/> when animation playback started and should be awaited;
+        /// otherwise, <see langword="false"/> when there is no animation to await.
+        /// </returns>
+        public bool PlayAttack(EquipmentWeapon weapon, Vector3 targetPosition)
         {
             FaceTowards(targetPosition);
-            PlayAttack(weapon);
+            return PlayAttack(weapon);
         }
 
         public bool FaceTowards(Vector3 targetPosition)

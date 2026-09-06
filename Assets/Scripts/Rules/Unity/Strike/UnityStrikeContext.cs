@@ -261,16 +261,20 @@ namespace Game.Rules.Unity.Strike
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(AmmunitionSpentFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(
+            AmmunitionSpentFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        )
         {
             if (ammunition.TryGetValue(fact.Item, out AmmunitionProjection projection))
                 projection.Creature.SetAmmoQuantity(projection.AmmoName, fact.Remaining);
-            return default;
         }
 
         /// <inheritdoc/>
-        public ValueTask OnFactCommitted(
+        public void OnFactCommitted(
             StrikeItemLoadedChangedFact fact,
+            OpId rootId,
             RulesSnapshot currentSnapshot
         )
         {
@@ -281,7 +285,6 @@ namespace Game.Rules.Unity.Strike
             {
                 owner.ProjectWeaponLoaded(weapon, fact.IsLoaded);
             }
-            return default;
         }
 
         private void Register(
