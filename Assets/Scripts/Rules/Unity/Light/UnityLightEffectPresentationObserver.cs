@@ -82,17 +82,24 @@ namespace Game.Rules.Unity.Light
             )
                 return;
 
-            GameObject visual = null;
-            visual = new GameObject("Spell Effect Light");
-            visual.transform.SetParent(owner.transform, false);
-            visual.transform.localPosition = Vector3.up;
-            UnityEngine.Light light = visual.AddComponent<UnityEngine.Light>();
-            light.type = LightType.Point;
-            light.range = 4f;
-            light.intensity = 2f;
-            light.color = new Color(1f, 0.95f, 0.8f);
-            light.shadows = LightShadows.Soft;
-            visuals.Add(effect.Id, visual);
+            GameObject visual = new("Spell Effect Light");
+            try
+            {
+                visual.transform.SetParent(owner.transform, false);
+                visual.transform.localPosition = Vector3.up;
+                UnityEngine.Light light = visual.AddComponent<UnityEngine.Light>();
+                light.type = LightType.Point;
+                light.range = 4f;
+                light.intensity = 2f;
+                light.color = new Color(1f, 0.95f, 0.8f);
+                light.shadows = LightShadows.Soft;
+                visuals.Add(effect.Id, visual);
+            }
+            catch
+            {
+                Destroy(visual);
+                throw;
+            }
         }
 
         /// <inheritdoc/>
