@@ -181,9 +181,10 @@ namespace Game.Rules.Unity
     }
 
     /// <summary>
-    /// Retains encounter-scoped Unity coroutine steps in committed Fact order until the exact
-    /// action caller drains them. The first execution failure is logged once, abandons the
-    /// remaining steps, and releases both action and root correlation.
+    /// Retains encounter-scoped Unity coroutine steps until the exact action caller drains them.
+    /// Normal steps retain enqueue order; post-action reactions run after them. The first
+    /// execution failure is logged once, abandons the remaining steps, and releases both action
+    /// and root correlation.
     /// </summary>
     internal sealed class UnityActionPresentationCoordinator : IDisposable
     {
@@ -232,6 +233,16 @@ namespace Game.Rules.Unity
             return true;
         }
 
+        internal bool TryEnqueueAfterAction(OpId rootId, Func<IEnumerator> step)
+        {
+            if (step == null)
+                throw new ArgumentNullException(nameof(step));
+            if (!byRoot.TryGetValue(rootId, out Sequence sequence))
+                return false;
+            sequence.AfterActionSteps.Enqueue(step);
+            return true;
+        }
+
         internal IEnumerator Drain(object action)
         {
             if (action == null)
@@ -241,9 +252,11 @@ namespace Game.Rules.Unity
 
             try
             {
-                while (sequence.Steps.Count > 0)
+                while (sequence.Steps.Count > 0 || sequence.AfterActionSteps.Count > 0)
                 {
-                    Func<IEnumerator> createStep = sequence.Steps.Dequeue();
+                    Queue<Func<IEnumerator>> steps =
+                        sequence.Steps.Count > 0 ? sequence.Steps : sequence.AfterActionSteps;
+                    Func<IEnumerator> createStep = steps.Dequeue();
                     IEnumerator step = null;
                     Exception failure;
                     while (TryMoveNext(createStep, ref step, out object current, out failure))
@@ -312,6 +325,7 @@ namespace Game.Rules.Unity
             internal object Action { get; }
             internal OpId RootId { get; }
             internal Queue<Func<IEnumerator>> Steps { get; } = new();
+            internal Queue<Func<IEnumerator>> AfterActionSteps { get; } = new();
         }
 
         private sealed class ReferenceComparer : IEqualityComparer<object>

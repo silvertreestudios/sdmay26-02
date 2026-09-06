@@ -73,7 +73,9 @@ namespace Game.Rules.Unity.Composition
             )
             {
                 CreatureComponent creature = RequireCreature(fact.Creature);
-                if (!actionPresentation.TryEnqueue(rootId, () => PresentDefeat(creature)))
+                if (
+                    !actionPresentation.TryEnqueueAfterAction(rootId, () => PresentDefeat(creature))
+                )
                     creature.PresentCommittedDefeat();
             }
 

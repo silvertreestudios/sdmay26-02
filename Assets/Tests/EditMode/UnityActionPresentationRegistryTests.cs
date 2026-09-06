@@ -74,6 +74,29 @@ public sealed class UnityActionPresentationRegistryTests
         Assert.That(secondDrain.MoveNext(), Is.False, "The failed sequence must be released.");
     }
 
+    [Test]
+    public void DrainsPostActionReactionAfterLaterLifecycleStep()
+    {
+        UnityActionPresentationCoordinator coordinator = new();
+        object action = new();
+        OpId rootId = new(42);
+        List<string> calls = new();
+        coordinator.Begin(action, rootId);
+        coordinator.Enqueue(action, () => RecordPresentation(() => calls.Add("begin")));
+        Assert.That(
+            coordinator.TryEnqueueAfterAction(
+                rootId,
+                () => RecordPresentation(() => calls.Add("reaction"))
+            ),
+            Is.True
+        );
+        coordinator.Enqueue(action, () => RecordPresentation(() => calls.Add("resolved")));
+
+        Drain(coordinator.Drain(action));
+
+        Assert.That(calls, Is.EqualTo(new[] { "begin", "resolved", "reaction" }));
+    }
+
     private static RuleDispatcher CreateDispatcher() =>
         new RuleDispatcherBuilder(new InMemoryRulesStore())
             .RegisterHandler<TestActionOp, TestOutcome>(new TestActionHandler())
