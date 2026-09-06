@@ -43,7 +43,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     {
         OnGameplayStateCommitted.RemoveListener(CountGameplayCommit);
         OnActionComplete.RemoveListener(CountActionComplete);
-        OnDamageDealt.RemoveListener(CountDamageEvent);
+        OnDamageDealt.RemoveAllListeners();
         OnAttackMiss.RemoveListener(CountMissEvent);
         foreach (GameObject value in created)
             if (value != null)

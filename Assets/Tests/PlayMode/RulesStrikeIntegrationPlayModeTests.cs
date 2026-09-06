@@ -43,7 +43,7 @@ public sealed class RulesStrikeIntegrationPlayModeTests
     [UnityTearDown]
     public IEnumerator TearDown()
     {
-        OnDamageDealt.RemoveListener(CountDamagePresentation);
+        OnDamageDealt.RemoveAllListeners();
         OnAttackMiss.RemoveListener(CountMissPresentation);
         OnGameplayStateCommitted.RemoveListener(CountGameplayCommit);
         foreach (GameObject gameObject in created)

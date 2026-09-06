@@ -829,7 +829,7 @@ namespace Game.Rules.Unity
         {
             if (rootId.IsEmpty)
                 throw new ArgumentException(
-                    "Encounter presentation requires a committed root-owned Fact.",
+                    "Encounter presentation requires a non-empty root ID.",
                     nameof(rootId)
                 );
             if (presentation == null)
