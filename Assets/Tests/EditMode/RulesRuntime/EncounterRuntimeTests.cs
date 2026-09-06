@@ -1931,7 +1931,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void ObserverFailureCannotPartiallyExpireOneInitiativeBoundary()
+        public async Task ObserverFailureCannotPartiallyExpireOneInitiativeBoundary()
         {
             RuleDefinitionId definition = new RuleDefinitionId("atomic-timed-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
@@ -2022,9 +2022,7 @@ namespace Game.Rules.Runtime.Tests
             dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(observer);
             dispatcher.RegisterFactObserver<InitiativeBoundaryReachedFact>(observer);
 
-            Assert.ThrowsAsync<ApplicationException>(async () =>
-                await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter))
-            );
+            Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
 
             Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(firstId), Is.False);
             Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(secondId), Is.False);
@@ -2464,10 +2462,9 @@ namespace Game.Rules.Runtime.Tests
         {
             public int Calls { get; private set; }
 
-            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 Calls++;
-                return default;
             }
         }
 
@@ -2478,32 +2475,10 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<TFact> Facts => facts;
 
-            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 facts.Add(fact);
-                return default;
             }
-        }
-
-        private sealed class BlockingFactObserver<TFact> : IFactObserver<TFact>
-            where TFact : RuleFact
-        {
-            private readonly TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously
-            );
-            private readonly TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously
-            );
-
-            public Task Started => started.Task;
-
-            public ValueTask OnFactCommitted(TFact fact, RulesSnapshot snapshot)
-            {
-                started.TrySetResult(true);
-                return new ValueTask(release.Task);
-            }
-
-            public void Release() => release.TrySetResult(true);
         }
 
         private sealed class AtomicExpirationObserver
@@ -2533,7 +2508,11 @@ namespace Game.Rules.Runtime.Tests
             public bool AllEffectsRemovedAtFirstCall { get; private set; }
             public IReadOnlyList<string> Order => order;
 
-            public ValueTask OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectRemovedFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 Assert.That(fact.Reason, Is.EqualTo(ActiveEffectRemovalReason.Expired));
                 Calls++;
@@ -2551,16 +2530,15 @@ namespace Game.Rules.Runtime.Tests
                         && !snapshot.Frequencies.Contains(secondBinding);
                     throw new ApplicationException("first expiration callback failed");
                 }
-                return default;
             }
 
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 InitiativeBoundaryReachedFact fact,
+                OpId rootId,
                 RulesSnapshot snapshot
             )
             {
                 order.Add("boundary");
-                return default;
             }
         }
 
@@ -2570,10 +2548,9 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<CreatureId> Actors => actors;
 
-            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 actors.Add(fact.Turn.Actor);
-                return default;
             }
         }
 
@@ -2585,11 +2562,10 @@ namespace Game.Rules.Runtime.Tests
 
             public int ActionsAtFact { get; private set; } = -1;
 
-            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 ActionsAtFact = snapshot.ActionEconomy[fact.Turn.Actor].ActionsRemaining;
                 order.Add("fact");
-                return default;
             }
         }
 
@@ -2601,20 +2577,23 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<string> Order => order;
 
-            public ValueTask OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectRemovedFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 Assert.That(fact.Reason, Is.EqualTo(ActiveEffectRemovalReason.Expired));
                 order.Add("expired");
-                return default;
             }
 
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 EncounterOutcomeCommittedFact fact,
+                OpId rootId,
                 RulesSnapshot snapshot
             )
             {
                 order.Add("ended");
-                return default;
             }
         }
 
@@ -2627,26 +2606,28 @@ namespace Game.Rules.Runtime.Tests
 
             public IReadOnlyList<string> Order => order;
 
-            public ValueTask OnFactCommitted(ActiveEffectRemovedFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                ActiveEffectRemovedFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 Assert.That(fact.Reason, Is.EqualTo(ActiveEffectRemovalReason.Expired));
                 order.Add("expired");
-                return default;
             }
 
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 InitiativeBoundaryReachedFact fact,
+                OpId rootId,
                 RulesSnapshot snapshot
             )
             {
                 order.Add("boundary");
-                return default;
             }
 
-            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(TurnBeganFact fact, OpId rootId, RulesSnapshot snapshot)
             {
                 order.Add("turn");
-                return default;
             }
         }
 
@@ -2669,14 +2650,18 @@ namespace Game.Rules.Runtime.Tests
             public int EnemyAtOutcome { get; private set; } = -1;
             public int EndCalls { get; private set; }
 
-            public ValueTask OnFactCommitted(CreatureReducedToZeroFact fact, RulesSnapshot snapshot)
+            public void OnFactCommitted(
+                CreatureReducedToZeroFact fact,
+                OpId rootId,
+                RulesSnapshot snapshot
+            )
             {
                 order.Add($"zero:{fact.Creature.Value}");
-                return default;
             }
 
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 EncounterOutcomeCommittedFact fact,
+                OpId rootId,
                 RulesSnapshot snapshot
             )
             {
@@ -2684,7 +2669,6 @@ namespace Game.Rules.Runtime.Tests
                 HeroAtOutcome = snapshot.Health[hero].Current;
                 EnemyAtOutcome = snapshot.Health[enemy].Current;
                 order.Add("ended");
-                return default;
             }
         }
 

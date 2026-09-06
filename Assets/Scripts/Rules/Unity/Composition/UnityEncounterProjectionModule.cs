@@ -39,40 +39,46 @@ namespace Game.Rules.Unity.Composition
                 this.owner = owner;
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 EncounterStartedFact fact,
+                OpId rootId,
                 RulesSnapshot currentSnapshot
             )
             {
                 owner.ProjectEncounterStarted();
-                return default;
             }
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(TurnBeganFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                TurnBeganFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
-                owner.EnqueueEncounterPresentation(fact, () => owner.ProjectTurnBegan(fact.Turn));
-                return default;
+                owner.EnqueueEncounterPresentation(rootId, () => owner.ProjectTurnBegan(fact.Turn));
             }
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(TurnEndedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                TurnEndedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
-                owner.EnqueueEncounterPresentation(fact, () => owner.ProjectTurnEnded(fact.Turn));
-                return default;
+                owner.EnqueueEncounterPresentation(rootId, () => owner.ProjectTurnEnded(fact.Turn));
             }
 
             /// <inheritdoc/>
-            public ValueTask OnFactCommitted(
+            public void OnFactCommitted(
                 EncounterOutcomeCommittedFact fact,
+                OpId rootId,
                 RulesSnapshot currentSnapshot
             )
             {
                 owner.EnqueueEncounterPresentation(
-                    fact,
+                    rootId,
                     () => owner.ProjectEncounterEnded(fact.Outcome)
                 );
-                return default;
             }
         }
 
