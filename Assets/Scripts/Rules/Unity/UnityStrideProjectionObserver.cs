@@ -51,7 +51,7 @@ namespace Game.Rules.Unity
                 CommittedStep step = committedSteps.Dequeue();
                 yield return Project(step.Fact, step.Snapshot);
                 if (WasRouteInterrupted)
-                    break;
+                    committedSteps.Clear();
             }
             if (explorationPresentation != null)
                 yield return explorationPresentation.DrainPresentation(character);
