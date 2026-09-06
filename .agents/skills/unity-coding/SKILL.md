@@ -9,7 +9,7 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
 
 ## Workflow
 
-1. Read `AGENTS.md`, `ProjectSettings/ProjectVersion.txt`, relevant asmdefs, and nearby code before editing. For encounter, action, effect, bridge, or enrollment work, also read the canonical as-built `Docs/Encounter_Rules_Architecture.md`; use `Docs/Ops_Based_Rules_Proposal.md` for rationale and deferred concepts.
+1. Read `AGENTS.md`, `ProjectSettings/ProjectVersion.txt`, relevant asmdefs, and nearby code before editing. For encounter, action, effect, bridge, or enrollment work, also read the canonical as-built `Docs/Encounter_Rules_Architecture.md` and the durable constraints in `Docs/Rules_Runtime_Design.md`.
 2. Create or use a task-specific Git worktree under `../sdmay26-02-worktrees/`; do not edit the main checkout directly.
 3. Keep changes within existing runtime and test assemblies unless a new boundary is clearly needed.
 4. Prefer pure, deterministic logic for combat/rules calculations and thin MonoBehaviour integration.
@@ -29,8 +29,9 @@ Use this skill for C# gameplay, tests, architecture refactors, compile fixes, an
   capability interfaces documented in `Docs/Encounter_Rules_Architecture.md`, and preserve supplied
   module order. In `UnityEncounterModuleSet.Create`, define every feature-used `RuleDefinitionId`
   and compose every required action profile or typed catalog before dispatcher construction. This
-  named root wiring is allowed, but features must not self-register. Enrollment must work for both
-  initial participants and reinforcements. Encounter-scoped module registrations and resources
+  named root wiring is allowed, but features must not self-register. Combatant registration must
+  use the unified addition path for both initial participants and reinforcements. Encounter-scoped
+  module registrations and resources
   belong to the one encounter `CompositeLifetime`; root-scoped temporary registrations stay locally
   owned and end with their root.
 - Keep new Unity bridge, manager, and facade APIs feature-agnostic. Composition may install a named

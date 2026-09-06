@@ -1,52 +1,70 @@
-# Authoritative Encounter Rules Architecture
+# Encounter Rules Runtime Implementation Guide
 
-This is the canonical as-built guide for encounter rules in the Unity `6000.2.1f1` project. Use it
-when changing encounter lifecycle, combatant enrollment, a rules-backed action, or a feature module.
-The longer [operations-based rules architecture](Ops_Based_Rules_Proposal.md) explains the design
-model and contains conceptual examples; this guide records what production code does now.
+This is the as-built guide to the production encounter rules runtime. Use it when changing an
+encounter feature, action, effect, bridge, projection, or combatant-enrollment path. It records the
+current code locations, composition order, authority boundaries, migration status, and working
+recipes.
 
-The rules migration is intentionally incomplete. The claims below apply to encounter state and the
-named migrated action slices, not to every gameplay system or every conceptual example in the
-proposal.
+The [rules runtime design](Rules_Runtime_Design.md) defines the smaller, durable architecture. This
+guide deliberately documents some production mechanisms that are not universal design
+requirements. If this guide and production code disagree about current behavior, the code is the
+source of truth and this guide should be updated with the change.
 
-## Authority after encounter cutover
+## Authority in a live encounter
 
-`UnityCombatRulesBridge` owns one `RuleDispatcher` and its `RulesState` for an encounter. Once a
-controller and creature are attached to that exact bridge, the following state is authoritative in
-`RulesSnapshot`:
+`UnityCombatRulesBridge` owns one `RuleDispatcher`, one `RulesState`, and one encounter lifetime.
+After a controller and creature attach to that exact bridge, the rules store is authoritative for
+the state slices registered there. Unity objects provide initial data and then become
+clients or projections of the migrated state.
 
-| Slice | Authoritative rules state and boundary |
+| Concern | Production authority |
 | --- | --- |
-| Turn ownership | `EncounterState.CurrentTurn` and exact `TurnIdentity`; `ActionController.HasTurnAuthority` is a read projection. |
-| Actions and reactions | `ActionEconomyState`; `ActionController.ActionPoints` and `Reacted` project it. |
-| Multiple attack penalty | `MultipleAttackPenaltyState`; `ActionController.StrikePenalty` projects its attack count. |
-| Health | `HealthState`; `CreatureComponent.Health`, `hp`, `maxHp`, and `tempHp` read it while attached. Health Facts project committed values and presentation back to Unity. |
-| Position and movement | `RulesSnapshot.Positions`, movement budgets, permissions, and movement reducers. Token movement is a committed-Fact projection. |
-| Encounter roster, initiative, round, and outcome | `EncounterState`, its roster, cursor, and `EncounterConclusionPolicy`, plus encounter reducers/listeners. `CombatManager` orchestrates and presents this state; it is not a second encounter scheduler. |
+| Encounter phase, roster, initiative, round, and current turn | `EncounterState` in `RulesState` |
+| Encounter action economy | `ActionEconomyState`; controller values are read projections |
+| Health, temporary Hit Points, and defeat | `HealthState`; `CreatureComponent` receives committed projections |
+| Position, land Speed, and movement budget | Runtime movement slices; Unity transforms project committed movement |
+| Multiple attack penalty | `MultipleAttackPenaltyState` |
+| Strike equipment, ammunition, and loaded state | Runtime equipment/ammunition slices prepared by the Strike module |
+| Spell slots, Focus Points, active effects, and bindings | Runtime resource/effect slices prepared by feature modules |
 | Active-effect timing | Membership in `ActiveEffects` means an effect is active. `ActiveEffectTimingState` is an intentionally materialized schedule: it copies immutable effect and binding identifiers, source, duration behavior (encounter-scoped or boundary-counted), and creation order so boundary advancement can filter and order without loading related state on every boundary, and removal can address the binding directly rather than reverse-searching for it. Only `RemainingBoundaries` evolves. Expiration atomically removes the effect and associated state. |
-| Migrated action slices | Stride, Strike, Reload, Rage, and supported Cast a Spell variants use rules operations, validation, action lifecycle, reducers, and state. |
+| Rule checks and modifier stacking for migrated actions | Runtime check handlers and `ModifierCollection` |
 
-Cutover never means “try rules, then fall back.” A detached `ActionController` exposes deliberately
-unavailable read projections (`HasTurnAuthority == false`, zero action points, `Reacted == false`,
-and zero MAP). A rules-backed action reports unavailable when `TryGetCombatRules` fails. Operations
-that require authority, such as positive action spending or health mutation, throw when the bridge
-is absent or structurally incomplete. `CreatureComponent.Health` may still read serialized or
-initialized health before attachment and after final projection; that is an initialization and
-persistence boundary, not competing combat authority.
+Attachment is identity-sensitive. A read through a creature or controller is valid only for the
+bridge that currently owns it. Cleanup from an older encounter must not detach or overwrite a newer
+owner.
 
-Legacy-named `CombatManager` entry points still exist for scene compatibility, and many gameplay
-features remain Unity-native. They must not dual-write a migrated slice or revive a legacy fallback.
-The player-facing initiative mode is Tactics. Enemy-triggered Tactics uses automatic victory and
-defeat, while manually entered Tactics uses the rules-owned protagonist-defeat-only conclusion
-policy. Reinforcements do not replace that encounter-lifetime policy.
-Living enrolled opposition keeps Tactics and its hostile lifecycle active even when the party leaves
-the opponents' source rooms. Dormant or restored-suspended floor groups are not enrolled and do not
-block a manual Tactics session from returning to Exploration.
+The encounter is not fully rules-native. Rotting Aura and Slowed still enter turn-start resolution
+through Unity-backed adapters, prepared-character and component data are still read during
+enrollment, and some scene-compatible manager entry points remain. Treat those paths as migration
+seams, not alternative authorities.
+
+`UnityCombatRulesBridge.CreateExplorationStride` is a special temporary composition. It reuses the
+Stride rules without attaching combat authority or spending encounter action economy.
+
+## Production code map
+
+| Responsibility | Primary code |
+| --- | --- |
+| Typed operations, frames, and structural results | [`OperationContracts.cs`](../Assets/Scripts/Rules/Runtime/OperationContracts.cs), [`OperationFrames.cs`](../Assets/Scripts/Rules/Runtime/OperationFrames.cs), [`OperationResults.cs`](../Assets/Scripts/Rules/Runtime/OperationResults.cs) |
+| Dispatcher construction and execution | [`RuleDispatcherBuilder.cs`](../Assets/Scripts/Rules/Runtime/RuleDispatcherBuilder.cs), `RuleDispatcher*.cs`, [`Dispatch.cs`](../Assets/Scripts/Rules/Runtime/Dispatch.cs) |
+| Store, drafts, snapshots, reducers, and Facts | [`RulesState.cs`](../Assets/Scripts/Rules/Runtime/RulesState.cs), `RulesState*.cs`, [`Reduction.cs`](../Assets/Scripts/Rules/Runtime/Reduction.cs), [`RuleDispatcherFacts.cs`](../Assets/Scripts/Rules/Runtime/RuleDispatcherFacts.cs) |
+| Action lifecycle and costs | `ActionLifecycle*.cs`, [`ActionCosts.cs`](../Assets/Scripts/Rules/Runtime/ActionCosts.cs), [`ActionCostFacts.cs`](../Assets/Scripts/Rules/Runtime/ActionCostFacts.cs) |
+| Definitions, bindings, and active effects | [`RuleRegistry.cs`](../Assets/Scripts/Rules/Runtime/RuleRegistry.cs), [`RuleDefinitions.cs`](../Assets/Scripts/Rules/Runtime/RuleDefinitions.cs), [`RuleBindingStateValues.cs`](../Assets/Scripts/Rules/Runtime/RuleBindingStateValues.cs), `ActiveEffect*.cs` |
+| Shared health, checks, modifiers, movement, and encounter capabilities | `Health*.cs`, [`CheckHandlers.cs`](../Assets/Scripts/Rules/Runtime/CheckHandlers.cs), [`Modifiers.cs`](../Assets/Scripts/Rules/Runtime/Modifiers.cs), `Movement*.cs`, `Encounter*.cs` |
+| Current action and feature rules | [`StrideRules.cs`](../Assets/Scripts/Rules/Runtime/StrideRules.cs), [`StrikeRules.cs`](../Assets/Scripts/Rules/Runtime/StrikeRules.cs), [`SpellcastingRules.cs`](../Assets/Scripts/Rules/Runtime/SpellcastingRules.cs), [`SpellAttackRules.cs`](../Assets/Scripts/Rules/Runtime/SpellAttackRules.cs), [`RageRules.cs`](../Assets/Scripts/Rules/Runtime/RageRules.cs) |
+| Unity encounter composition | [`UnityEncounterModuleSet.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterModuleSet.cs), [`UnityEncounterComposition.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterComposition.cs) |
+| Enrollment and rollback | [`UnityCombatantEnrollmentPipeline.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityCombatantEnrollmentPipeline.cs) |
+| Unity authority and synchronous dispatch boundary | [`UnityCombatRulesBridge.cs`](../Assets/Scripts/Rules/Unity/UnityCombatRulesBridge.cs) |
+| Strike and spell Unity adapters | [`UnityStrikeEncounterModule.cs`](../Assets/Scripts/Rules/Unity/Strike/UnityStrikeEncounterModule.cs), [`UnitySpellcastingEncounterModule.cs`](../Assets/Scripts/Combat/Spells/UnitySpellcastingEncounterModule.cs) |
+| Health and encounter projection | [`UnityHealthProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityHealthProjectionModule.cs), [`UnityEncounterProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterProjectionModule.cs) |
+
+The wildcard families above are navigation hints, not Markdown links. Inspect the neighboring files
+for the selected capability rather than treating one large file as the entire subsystem.
 
 ## Production composition
 
-[`UnityEncounterModuleSet`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterModuleSet.cs)
-constructs the only production module sequence:
+`UnityEncounterModuleSet.Create` is the only production module list. Its order is part of the
+composition contract:
 
 1. `RottingAuraEncounterModule`
 2. `SlowedEncounterModule`
@@ -57,54 +75,48 @@ constructs the only production module sequence:
 7. `UnityHealthProjectionModule`
 8. `UnityEncounterProjectionModule`
 
-Before constructing that module array, `UnityEncounterModuleSet.Create` performs a separate,
-explicit static-composition pass that feature modules cannot defer to `ConfigureDispatcher`:
+Before constructing that list, the module set creates shared typed contexts and catalogs, defines
+every `RuleDefinitionId` required by this composition, and builds the `RuleRegistry`. Modules are
+supplied explicitly; they do not discover or register themselves. The bridge supplies that exact
+registry to active-effect and encounter runtime composition and supplies the composed action catalog
+to the action lifecycle before any module configures the dispatcher.
 
-- It constructs `CombatActionCatalog` from `strideDefinition`, `strikeContext`, `spellCatalog`,
-  `new UnitySpellBookProvider(creatures)`, and the Rage feature catalog, `rageDefinition`. The
-  result implements `IActionCatalog`, `IStrikeActionCatalog`, and `ISpellActionCatalog`.
-- It composes a `RuleRegistryBuilder` with `RageRules.DefineRuleBindings(registryBuilder)`,
-  `registryBuilder.AddOutcomeRule()`,
-  `registryBuilder.Define(UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId)`, and
-  each distinct spell-effect `DefinitionId` from `spellCatalog.Definitions`, then calls
-  `registryBuilder.Build()`.
+`UnityEncounterComposition` preserves the supplied order and invokes only the capability interfaces
+each module implements:
 
-`RuleRegistry` is immutable. `CombatActionCatalog` is instead a stable composed interface over
-encounter-live adapters. Both are constructed before `UnityCombatRulesBridge` supplies them to
-`UseActionLifecycle(modules.ActionCatalog)`, `UseActiveEffectRules(modules.Registry)`, and
-`UseEncounterRules(modules.Registry, ...)`, and before any module's `ConfigureDispatcher` pass.
-The catalog's composed capabilities are stable, but
-combatant-specific data remains encounter-live:
-`UnityStrikeContext` adds item definitions during any combatant preparation, and
-`UnitySpellBookProvider` reads the live creature map. Do not snapshot combatant-specific catalog
-data during static composition. This is an allowed named composition-root responsibility: the root
-may mention Rage and spell definitions to wire feature-owned catalogs and IDs, but it does not
-implement their conditions or workflow and does not permit static discovery or self-registration.
-
-[`UnityEncounterComposition`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterComposition.cs)
-copies that explicit sequence and never scans assemblies, scene objects, statics, or attributes.
-Each pass filters the same sequence by capability, preserving supplied order:
-
-| Capability | Responsibility |
+| Capability | Current purpose |
 | --- | --- |
-| `IUnityEncounterDispatcherModule.ConfigureDispatcher` | Register feature-owned handlers, reducers, validators, and engine composition with `RuleDispatcherBuilder`. |
-| `IUnityEncounterTurnStartModule.CreateTurnStartAdapter` | Supply a transitional `IEncounterTurnStartAdapter`. Adapters run sequentially in module order. |
-| `IUnityEncounterRuntimeModule.RegisterRuntime` | Register observers and other encounter-scoped resources into the supplied `CompositeLifetime`. |
-| `IUnityEncounterTopologyModule.RefreshTopology` | Refresh a feature-owned Unity topology adapter after a live grid change. |
-| `IUnityCombatantEnrollmentModule.PrepareCombatant` | Precompute state and Unity installation contributions for every enrolled combatant. |
+| `IUnityEncounterDispatcherModule` | Add feature handlers, reducers, validators, middleware, or listeners before `Build` |
+| `IUnityEncounterTurnStartModule` | Supply a transitional turn-start adapter |
+| `IUnityEncounterRuntimeModule` | Register observers or other encounter-owned runtime resources |
+| `IUnityEncounterTopologyModule` | Replace a feature's live Unity grid adapter after topology changes |
+| `IUnityCombatantEnrollmentModule` | Prepare feature state and Unity installation for both initial participants and reinforcements |
 
-Implement only the capabilities a module needs. Ordering dependencies must be visible in the module
-list or expressed through rules lifecycle phases and causal operations; do not invent priorities or
-registration side effects.
+Implement only the capabilities the feature needs. A presentation-only feature should not receive
+dispatcher or enrollment hooks merely for symmetry.
 
-## Construction responsibilities and order
+### Current module capabilities
 
-`UnityCombatRulesBridge.Create` performs these boundaries in order:
+| Module | Capabilities |
+| --- | --- |
+| Rotting Aura | Transitional turn-start adapter |
+| Slowed | Transitional turn-start adapter |
+| Rage | Dispatcher configuration and combatant enrollment |
+| Strike | Dispatcher, runtime observers, combatant enrollment, and topology refresh |
+| Spellcasting | Dispatcher, runtime observers, combatant enrollment, and topology refresh |
+| Light | Runtime effect presentation |
+| Health projection | Runtime Fact projection |
+| Encounter projection | Runtime Fact and settlement projection |
+
+## Construction order
+
+The private `UnityCombatRulesBridge` constructor performs these boundaries in order:
 
 1. Create the mutable topology provider, shared feature contexts, catalogs, registry, explicit
    module set, composition, and enrollment pipeline.
 2. Call `UnityCombatantEnrollmentPipeline.Prepare` for all initial participants.
-3. Build an empty `RulesState`; combat encounter construction does not seed combatant state.
+3. Build the dispatcher store from an empty `RulesStateSeed`; combat encounter construction does
+   not seed combatant state.
 4. Configure shared runtimes on `RuleDispatcherBuilder`: health, MAP, checks, active effects,
    encounter rules, action lifecycle, movement, and Stride.
 5. Invoke `ConfigureDispatcher` for feature modules in module order, build the dispatcher, then
@@ -115,41 +127,18 @@ registration side effects.
 7. The caller invokes `AdvanceEncounter` to dispatch `AdvanceEncounterOp`, activate the encounter,
    publish encounter-start presentation, and reach the first turn.
 
-`AttachAndInstall` is deliberately after authoritative state and runtime observers exist. For each
-combatant it attaches health authority first, attaches `ActionController` combat authority second,
-and applies already prepared feature installations last, in module contribution order. Do not move
-Unity attachment or action-list mutation into preparation. This post-authority Unity mutation is an
-adapter responsibility, not rules authority: installation plans may reconcile Unity action lists
-from frozen prepared data, and post-commit projections such as `UnityHealthProjectionModule` may
-update Unity health and presentation from committed Facts. Neither may mutate authoritative
-`RulesState` or maintain a competing feature mirror.
-
-### One cleanup boundary
-
-`UnityCombatRulesBridge` owns exactly one encounter-level `CompositeLifetime`. Encounter-scoped
-runtime observer registrations and every successfully transferred enrollment plan belong to it.
-`ReleaseOwnership` disposes it once in reverse registration order, attempts all cleanup even after
-failures, and only then runs release callbacks. Modules must add disposable registrations and
-resources to the lifetime they receive; they must not keep a second encounter cleanup list or
-manually unregister observers.
-
-That ownership rule applies to registrations and resources intended to remain active for the
-encounter. A temporary observer that exists for one rules root owns its registration locally and
-disposes it as soon as that root completes. `DispatchProjectedStride` intentionally uses a local
-`using` registration for this reason; adding that observer to the encounter lifetime would leak its
-delivery into later roots.
-
-`ActionController.DetachCombatRules` and `CreatureComponent.DetachHealthRules` use
-`ReferenceEquals` against the owning `UnityCombatRulesBridge`. Delayed cleanup from an older
-encounter therefore cannot detach a newer bridge or overwrite its health projection. Preserve this
-exact identity check at every ownership-release boundary.
+State, dispatcher registrations, and runtime observers therefore exist before Unity components are
+allowed to route reads or actions through the bridge. A failure during reversible preparation rolls
+back provisional mappings and resources. Once `AddCombatantsOp` commits, its rules state and
+registration maps are durable even if later notification or installation fails.
 
 ## Combatant enrollment
 
-[`UnityCombatantEnrollmentPipeline`](../Assets/Scripts/Rules/Unity/Composition/UnityCombatantEnrollmentPipeline.cs)
-is the one path for constructor-time participants and later reinforcements.
-
-### Reversible preparation
+Initial participants and reinforcements use the same preparation path. The pipeline validates the
+batch, allocates identities, captures required Unity data, installs provisional lookup maps, and
+asks enrollment-capable modules for typed contributions. It moves known fallible reads and
+preparation ahead of the authoritative commit, but the current Unity installation phase can still
+fail afterward.
 
 `Prepare` validates the complete controller batch, reserves creature/player identity allocation,
 creates every Unity-to-rules map provisionally, validates future attachments, invokes every
@@ -160,8 +149,11 @@ cross-combatant sources while preparation is still reversible.
 
 - `Own<TResource>` for reversible preparation resources;
 - `AddSpellSlots`, `AddRuleBindings`, `AddEquipment`, `AddAmmunition`, and `AddActiveEffects` for
-  rules state committed atomically with the combatant;
+  rules state committed atomically with the combatant; and
 - `AddInstallation(IUnityCombatantInstallationContribution)` for precomputed Unity changes.
+
+Do not expand that builder with a new feature-named field. Add feature-owned values to the complete
+registration, or avoid persisted state if the value can be derived.
 
 If any preparation read or preflight fails, the preparation `CompositeLifetime` rolls back maps,
 identity allocation, and feature-owned resources. Cleanup failures are retained with the original
@@ -191,10 +183,10 @@ turn.
 
 When dispatch exits, including when post-commit notification throws, the plan checks committed
 `RulesState` to retain identity and registration-map reservations for the atomic batch. A dispatch
-exception does not imply rollback. On success it then calls `AttachAndInstall`
-before `TransferTo(encounterLifetime)`, which transfers lifetime ownership only. If installation
-throws, the failure surfaces and locally owned attachment and feature resources are disposed, but
-the durable rules registration and maps are not rolled back. A new feature contributes complete
+exception does not imply rollback. On success it then calls `AttachAndInstall` before
+`TransferTo(encounterLifetime)`, which transfers lifetime ownership only. If installation throws,
+the failure surfaces and locally owned attachment and feature resources are disposed, but the
+durable rules registration and maps are not rolled back. A new feature contributes complete
 registration state and therefore supports both initial and later batches without a second state
 workflow.
 
@@ -202,23 +194,18 @@ workflow.
 
 `UnitySpellcastingEncounterModule` is the production example of state that crosses both enrollment
 routes. During preparation it converts supported `SpellEffectController` entries into paired
-`ActiveEffectInstance` and `ActiveRuleBinding` values with stable IDs.
-The complete combatant registration carries each restored effect and matching binding through the
-same addition reducer. That reducer creates encounter timing and emits the generic
-`ActiveEffectCreatedFact`. `RestoredSpellEffectTimingObserver` projects initiative-boundary counts
-and removes Unity effects when `ActiveEffectRemovedFact` commits.
-
-## Dispatcher and encounter runtime
-
-`RuleDispatcher` owns operation frames, external-root serialization, nested dispatch, causal
-fact-listener roots, deterministic middleware/listener selection, Fact aggregation, and settlement
-notifications. Handlers orchestrate; reducers are the only writers to `RulesStateDraft`; committed
-Facts are the notification contract.
+`ActiveEffectInstance` and `ActiveRuleBinding` values with stable IDs. The complete combatant
+registration carries each restored effect and matching binding through the same addition reducer.
+That reducer creates encounter timing and emits the generic `ActiveEffectCreatedFact`.
+`RestoredSpellEffectTimingObserver` projects initiative-boundary counts and removes Unity effects
+when `ActiveEffectRemovedFact` commits.
 
 Finite effects created for a source in a populated initialized encounter are scheduled immediately,
 before the first explicit advance, just as they are during an active encounter. This lets
 initiative-assignment listeners such as Quick-Tempered apply pre-first-turn behavior without
 creating an unscheduled effect.
+
+### Encounter operations
 
 [`EncounterRuleRuntime`](../Assets/Scripts/Rules/Runtime/EncounterRuleRuntime.cs) installs the
 encounter handlers and engine reducers. Its current division of responsibility is:
@@ -229,10 +216,9 @@ encounter handlers and engine reducers. Its current division of responsibility i
   complete combatant registrations, and publish assignments from a later frame.
 - `AdvanceEncounterHandler`: evaluate immediate outcomes, then request the next initiative boundary.
   Its first call activates a populated initialized encounter and emits `EncounterStartedFact` before
-  reaching the first boundary.
-  The boundary reducer advances the cursor and effect countdowns, removes every due effect and its
-  associated binding/frequency/timing state in deterministic order, and finally stages
-  `InitiativeBoundaryReachedFact` in the same atomic commit.
+  reaching the first boundary. The boundary reducer advances the cursor and effect countdowns,
+  removes every due effect and its associated binding/frequency/timing state in deterministic order,
+  and finally stages `InitiativeBoundaryReachedFact` in the same atomic commit.
 - `BeginInitiativeTurnHandler`: reset movement budget, run ordered turn-start adapters, stop if the
   actor is defeated, then commit the exact turn and final action contribution.
 - `EndTurnHandler`: require the exact current `TurnIdentity`, run turn-end work, reset movement,
@@ -245,163 +231,184 @@ encounter handlers and engine reducers. Its current division of responsibility i
   boundary, current turn, actions, reactions, MAP, movement reset state, phase, and outcome while
   emitting committed Facts.
 
-`ActionOp<TResult>` uses the engine-owned lifecycle implemented by `RuleDispatcher`: freeze the
-effective profile, validate, commit all costs atomically, dispatch `ActionBegunOp`, stop on
-disruption, and only then invoke feature middleware and the handler. Feature code must not spend the
-same costs or publish a parallel action-begun event.
+## Dispatch, action, and Fact timing
 
-## Projection, settlement, and topology
+The bridge exposes a synchronous Unity boundary. `Dispatch` returns structural operation results;
+internal convenience paths require resolution and translate invalid requests to
+`InvalidOperationException`. A Unity-originated synchronous request rejects unresolved asynchronous
+callback work.
 
-`UnityEncounterProjectionModule` observes `EncounterStartedFact`, `TurnBeganFact`, `TurnEndedFact`,
-and `EncounterOutcomeCommittedFact`. Turn and outcome callbacks are queued by `RootOpId`, not raised
-immediately. Its one settlement observer implements both `IRootSettlementObserver` and
-`ICausalTreeSettlementObserver`: root settlement records exact causal-parent links, and causal-tree
-settlement drains the root followed by children in recorded order. This ensures turn/outcome Unity
-presentation occurs only after fact-listener roots such as defeat finalization, healing reactions,
-and encounter outcome evaluation have settled. A duplicate settled root or an unsettled recorded
-child root is an invariant failure.
+Within the dispatcher:
 
-Other projections use the narrowest contract:
+- one root owns its operation frames and nested dispatches;
+- an action is validated, pays its complete costs atomically, resolves `ActionBegunOp`, and then
+  invokes its feature handler;
+- reducers commit state and stamp Facts;
+- resolved-operation observers run when an operation has resolved;
+- Fact listeners run from committed Facts and may create causal follow-up roots; and
+- settlement observers report when roots and their causal trees finish.
 
-- `IFactObserver<TFact>` for committed transitions and their current snapshot;
-- `IResolvedOpObserver<TOp,TResult>` only to pace external presentation from a resolved calculation
-  before its parent continues; it is not proof of mutation and has no dispatch authority;
-- `IRuleFactListener<TFact>` or `IRuleFactBatchListener<TFact>` for binding-selected rules behavior
-  that may causally dispatch more operations.
+For Strike, the production handler resolves the attack first, then the parent action dispatches
+damage, loaded-state changes, and multiple attack penalty work. Presentation may observe
+`ResolveStrikeOp` before those later child operations. Do not move the later commits into the
+resolution handler merely to make the workflow look shorter.
 
-`UnityCombatRulesBridge.RefreshTopology` first builds and installs a new immutable `GridTopology`,
-then calls every `IUnityEncounterTopologyModule` in module order and updates `CurrentTiles`.
-`MutableGridTopologyProvider` rejects replacement while a rules resolution is active, so one root
-sees one topology. Current Strike and spell-attack Unity contexts also refresh their feature-owned
-tile adapters through this capability. Refresh topology after any live grid mutation and before the
-next rules root.
+### Encounter presentation settlement
+
+`UnityEncounterProjectionModule` observes encounter Facts. Start is projected immediately; turn
+begin, turn end, and encounter outcome callbacks are queued by root and drained when the causal tree
+settles. This prevents visible encounter boundaries from running ahead of rules work caused by the
+same boundary.
+
+The root/child queue in `UnityCombatRulesBridge` is implementation-specific presentation machinery.
+Use it for the encounter boundaries it currently serves. Do not add causal IDs or settlement state
+to unrelated feature DTOs unless that feature demonstrably needs settlement-aware presentation.
+
+## Topology and ownership release
+
+`RefreshTopology` creates and installs a new immutable `GridTopology`, refreshes topology-capable
+feature adapters in module order, and then replaces the bridge's current tile array. Refresh only
+between rules roots; the mutable topology provider guards against replacement during resolution.
+
+The encounter owns one `CompositeLifetime`. Runtime observers and enrollment plans transfer their
+registrations into it. `ReleaseOwnership` waits until the outer synchronous dispatch boundary ends,
+projects final authoritative health, and disposes the lifetime. Detach operations verify exact
+bridge identity so delayed cleanup cannot disturb newer encounter ownership.
+
+Root-scoped temporary observers are different: keep their tokens locally owned and dispose them when
+that root ends. Do not transfer short-lived observation into the encounter lifetime.
+
+## Current implementation status
+
+| Area | Status |
+| --- | --- |
+| Dispatcher, typed operations/results, reducers, snapshots, Facts, and deterministic rolls | Production |
+| Action lifecycle and atomic action/rule-resource costs | Production |
+| Encounter roster, initiative, turn progression, action economy, and conclusion | Production authority |
+| Health, temporary Hit Points, defeat, and Unity health projection | Production authority |
+| Stride and movement topology/budget | Production; bridge still has first-slice Stride helpers |
+| Strike, checks, modifier collection, damage, ammunition/reload, and MAP | Production |
+| Spellcasting, spell attacks, resources, effects, restoration, and presentation | Production for implemented spells |
+| Rage bindings, action, effect state, and Unity enrollment | Production |
+| Light effect presentation | Production adapter |
+| Slowed and Rotting Aura turn-start semantics | Transitional Unity-backed adapters |
+| Hypothetical rules formerly used as architecture examples | Not contracts and not implied to be implemented |
+
+This table describes ownership and integration, not PF2e content completeness. An action being on the
+runtime does not mean every trait, feat interaction, or rules option for that action exists.
 
 ## Recipe: add or migrate a vertical feature
 
-Follow these steps in order. Use the existing production examples instead of adding a parallel
-framework.
+1. Trace the current behavior from input through Unity, rules calculations, state mutation, and
+   presentation. Identify the exact state authority being replaced.
+2. Decide whether new persistent state is necessary. Prefer a selector over existing state, an
+   operation-local value, or a feature-local adapter before adding a shared DTO or state slice.
+3. Put named rule semantics in a cohesive feature module: operations, outcomes, validators,
+   handlers, middleware/listeners, selectors, state, and Unity adapters.
+4. Reuse shared operations for shared work. Do not reimplement health, checks, modifier collection,
+   movement, resources, or active-effect lifecycle inside the feature.
+5. Define action profiles, typed catalog entries, and every feature-used `RuleDefinitionId` in the
+   explicit composition root before dispatcher construction.
+6. Add the feature once to `UnityEncounterModuleSet` and implement only the capability interfaces it
+   needs. Preserve deterministic module order.
+7. If the feature owns combatant state or installed actions, contribute complete registration state
+   through `IUnityCombatantEnrollmentModule` so the same addition path supports initial and later
+   batches.
+8. Transfer encounter-scoped observers/resources to the supplied `CompositeLifetime`. Keep
+   root-scoped registrations local.
+9. Project only committed Facts or resolved results. Keep feature presentation out of shared bridge
+   classes.
+10. Remove the old writer and fallback in the same change. Do not leave dual authority for the
+    migrated slice.
+11. Add deterministic EditMode tests for rules behavior and bridge composition. Add PlayMode
+    coverage when component attachment, scene lifecycle, input, animation, or presentation matters.
 
-1. **Define the rules-owned slice.** Put immutable Ops, results, validators, handlers, reducers,
-   Facts, selectors, and typed effect state with the feature. Use `ActionOp<TResult>` for a PF2e
-   action and ordinary `IRuleOp<TResult>` for nested work. `StrideRules`, `StrikeRules`,
-   `RageRules`, and `SpellcastingRules` show current contracts.
-2. **Register dispatcher behavior explicitly.** Implement
-   `IUnityEncounterDispatcherModule.ConfigureDispatcher(RuleDispatcherBuilder)` and call existing
-   `Use...Rules` extensions or exact `RegisterHandler`, `RegisterReducer`, and
-   `RegisterActionValidator` APIs. `UnityStrikeEncounterModule` and
-   `UnitySpellcastingEncounterModule` are production examples.
-3. **Model complete per-combatant enrollment.** Implement
-   `IUnityCombatantEnrollmentModule.PrepareCombatant(UnityCombatantEnrollmentBuilder)`. Add every
-   rules-owned state slice directly to the normalized registration and use `Own` for every
-   provisional disposable. Do not add a post-addition feature registration workflow.
-4. **Precompute Unity installation.** If the feature changes action lists or adapters, return an
-   `IUnityCombatantInstallationContribution` from preparation. Its `Apply` method may only apply
-   frozen work after rules authority is established. It may mutate Unity installation state, such as
-   action lists, but has no rules authority and must not maintain a competing feature mirror.
-   `UnityStrikeActionInstallationPlan` and `UnitySpellActionInstallationPlan` are the examples.
-5. **Register presentation with encounter ownership.** Implement
-   `IUnityEncounterRuntimeModule.RegisterRuntime(RuleDispatcher, CompositeLifetime)` and add every
-   encounter-scoped registration/disposable to that lifetime. Keep a root-scoped observer locally
-   owned and dispose it after that root. Strike uses resolved-operation observers for attack pacing;
-   health and Light use committed Fact observers.
-6. **Add topology or turn-start capabilities only if required.** Implement
-   `IUnityEncounterTopologyModule` for a live geometry adapter. Use
-   `IUnityEncounterTurnStartModule` only for a transitional Unity-owned calculation that cannot yet
-   be a rules feature; Rotting Aura and Slowed are current seams, not templates for new rules.
-7. **Complete static composition, then add the module once.** In
-   `UnityEncounterModuleSet.Create`, define every `RuleDefinitionId` used by an
-   `ActiveRuleBinding` or `ActiveEffectInstance` on the production `RuleRegistryBuilder` before
-   `registryBuilder.Build()`. `RageRules.DefineRuleBindings(registryBuilder)` defines Rage's effect
-   and listener bindings; spell composition explicitly defines
-   `UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId` and every distinct
-   `effect.DefinitionId` from `spellCatalog.Definitions`.
+### Rules-backed action
 
-   Also compose every action-profile dependency before dispatcher construction.
-   `ActionOp<TResult>.GetBaseProfile(IActionCatalog)` defaults to
-   `catalog.GetBaseProfile(DefinitionId)`, and the dispatcher freezes that profile before
-   validation. A feature using that default must implement `IActionCatalog` and pass its catalog to
-   the production `CombatActionCatalog`; `RageActionDefinition` and the `rageDefinition` constructor
-   argument are the current example. An override that needs a typed catalog must have that
-   capability composed too, as `CombatActionCatalog` does for `IStrikeActionCatalog` and
-   `ISpellActionCatalog`.
+- Use an `ActionOp<TResult>` and a feature-owned handler.
+- Supply its `ActionProfile` through the relevant typed catalog.
+- Put legality checks in action validators or nested shared operations.
+- Let the engine commit all costs before the handler.
+- Return the feature's structural outcome; do not throw for an ordinary illegal choice.
 
-   Finally, add the feature module to the explicit module array. Its array position is its position
-   in every applicable composition pass. These named root references are wiring, not feature
-   semantics; do not move rules into the root or self-register.
-8. **Test the vertical boundary.** Add deterministic EditMode tests for reducers, handlers,
-   lifecycle, initial and later additions, preparation rollback, ordering, exact identity,
-   and cleanup. Add PlayMode coverage only for scene/FSM/presentation behavior. Verify unavailable
-   projections and required-operation failures without a bridge.
-9. **Update this guide only if the shared architecture changed.** Feature-specific behavior belongs
-   with its feature documentation and tests; do not duplicate the conceptual proposal here.
+### Rule responding to committed state
 
-## Anti-patterns
+- Emit or reuse a Fact from the reducer that owns the transition.
+- Use a feature-owned Fact listener when the response creates more rules work.
+- Use an observer when the response is presentation or another external side effect.
+- Add middleware only when the rule must affect the selected operation before it commits.
 
-- No legacy fallback, dual reads, dual writes, or “rules when available” mutation for a migrated
-  slice.
-- No static discovery, singleton lookup, static event registration, scene scanning, or feature
-  self-registration during composition.
-- No manual cleanup list or unregister path for encounter-scoped module observers and resources;
-  add them to the provided encounter `CompositeLifetime`. Root-scoped temporary registrations stay
-  locally owned and must end with their root.
-- No new feature-named conditions, caches, trigger flags, dispatch helpers, or workflow semantics in
-  `UnityCombatRulesBridge`, `RuleDispatcher`, shared managers, or generic projection modules. The
-  existing Stride bridge helpers are the transitional exception described below, not a template.
-- No feature that handles only initial participants. Reinforcements must receive equivalent state,
-  bindings, installations, topology behavior, and lifetime ownership.
-- No Unity object, callback, or mutable collection in a rules Op; translate to stable IDs and plain
-  data at the adapter boundary.
-- No direct authoritative `RulesState` mutation from handlers, middleware, listeners, observers,
-  installers, or Unity components, and no competing feature-owned mirror. Dispatch an Op and let a
-  reducer commit. Precomputed post-authority Unity installation and post-commit Unity projection are
-  allowed adapter mutations; neither has rules authority.
-- No treating `IResolvedOpObserver` as a Fact or granting it dispatch authority.
-- No topology refresh during a root and no cached topology that ignores
-  `IUnityEncounterTopologyModule.RefreshTopology`.
+### Migrating a state slice
 
-## Current transitional seams
+- Seed or register the initial authoritative value through enrollment.
+- Route all reads through `RulesSnapshot` or an exact bridge projection.
+- Make one reducer family the only writer.
+- Project committed changes back to Unity where needed.
+- Delete or disable the former writer; do not reconcile two live values.
 
-The encounter is authoritative without being fully rules-native. Keep these seams explicit and
-shrink them through vertical migrations:
+## Complexity guardrails for current production machinery
 
-- `RottingAuraEncounterModule` calls the Unity aura resolver at `TurnStartingOp` timing, while final
-  damage still commits through encounter rules.
-- `SlowedEncounterModule` obtains the current action contribution through
-  `ActionController.CalculateTurnStartActions` and legacy `ResetActionPointsEvent` listeners.
-- `UnityStrikeContext` and `UnitySpellAttackContext` adapt current creature/equipment/team/grid data
-  into rule definitions and validation. They are feature-owned adapters, not alternate authorities.
-- Encounter preparation still reads serialized `CreatureComponent`, `ActionController`, `Team`,
-  prepared-character, spellbook, and restored-effect data to build authoritative state.
-- Unity action classes, selection coroutines, AI controllers, animation, combat logs, HUD, and scene
-  transforms remain input/presentation adapters. Supported spell and Strike installers reconcile
-  action lists at attachment.
-- Destination travel plans one complete exploration route, then repeatedly uses
-  `CreateExplorationStride` to create temporary, unattached rules compositions for each Stride
-  outside initiative. Each committed step is projected before the next Stride, preserving follower
-  occupancy and immediate encounter-boundary handoff.
-- `UnityCombatRulesBridge` still has the first-slice Stride fields and
-  `GetStrideAvailability`, `CreateStrideSelectionWorkflow`, `DispatchStride`, and
-  `DispatchProjectedStride` helpers. They are a transitional exception to the feature-agnostic
-  bridge direction and must not be copied, expanded, or used to justify new feature helpers; new
-  slices should use feature-owned adapters and the bridge's generic dispatch boundary.
-- Other actions, conditions, feats, spells, equipment behaviors, exploration systems, and scene
-  flows not named as migrated above can still be Unity-native. Migrate them one vertical slice at a
-  time; do not describe the whole game as rules-native.
+Several classes exist because the Unity integration has concrete rollback, ownership, or
+presentation requirements. Keep them narrowly scoped:
+
+- `UnityCombatantEnrollmentPlan`, complete registrations, and `RegistrationToken` make multi-object
+  preparation reversible while preserving committed additions. Do not mirror that object graph in
+  pure rules features.
+- Identity reservations and exact detach checks protect Unity ownership. Do not allocate new global
+  IDs for ordinary immutable values.
+- Root and causal-tree settlement support post-commit listener work and encounter presentation. Do
+  not make every outcome settlement-aware.
+- Restored spell-effect extraction and projection belong to spell restoration. Do not require its
+  Unity adapter records for effects created normally by rules operations.
+- `UnityCombatRulesBridge` still contains Stride-specific fields and helpers from the first migrated
+  slice. They are a transitional exception, not a template for more feature methods.
+- The complete state carried by `AddCombatantsOp` is an inventory of current implementation, not a
+  checklist that every feature must populate.
+
+When a feature appears to need new horizontal infrastructure, document the current use case and the
+smaller feature-local option in the change. The burden is on the shared abstraction, not on the
+feature to predict future reuse.
+
+## Prohibited patterns
+
+- Static discovery, self-registration, or Unity lifecycle order as rules composition.
+- Feature-named flags, caches, callbacks, or helper methods in shared runtime, bridge, manager, or
+  facade types.
+- Direct `RulesState` mutation outside reducers.
+- Unity components or mutable scene objects inside operations or state.
+- A second writable copy of migrated state.
+- Encounter-scoped registrations that are not owned by the encounter lifetime.
+- A combatant-addition contribution that handles only initial participants or only reinforcements.
+- Compatibility layers or schema dispatch for unshipped formats.
+- New DTOs or state added solely to support an unimplemented example or theoretical edge case.
 
 ## Tests that define the contract
 
-Start with these suites when changing the architecture:
+Start with the narrowest relevant suite:
 
-- [`UnityCombatRulesBridgeTests`](../Assets/Tests/EditMode/UnityCombatRulesBridgeTests.cs): module
-  order, shared enrollment, restored effects, preparation rollback, exact attachment, cleanup,
-  health, and
-  movement projection.
-- [`EncounterRuntimeTests`](../Assets/Tests/EditMode/RulesRuntime/EncounterRuntimeTests.cs): roster,
-  initiative, reinforcement eligibility, turn lifecycle, outcome, causal reactions, and effect
-  timing.
-- [`DispatcherTests`](../Assets/Tests/EditMode/RulesRuntime/DispatcherTests.cs): structural results,
-  `CompositeLifetime`, serialized roots, nested ownership, Facts, and settlement.
-- [`RulesStrikeUnityTests`](../Assets/Tests/EditMode/RulesStrikeUnityTests.cs),
-  [`RulesRageUnityTests`](../Assets/Tests/EditMode/RulesRageUnityTests.cs), and
-  [`RulesStrikeIntegrationPlayModeTests`](../Assets/Tests/PlayMode/RulesStrikeIntegrationPlayModeTests.cs):
-  current production feature-module and projection examples.
+- [`DispatcherTests.cs`](../Assets/Tests/EditMode/RulesRuntime/DispatcherTests.cs): dispatch,
+  middleware, Facts, observers, nested work, and settlement.
+- [`ActionLifecycleTests.cs`](../Assets/Tests/EditMode/RulesRuntime/ActionLifecycleTests.cs):
+  validation, atomic costs, `ActionBegunOp`, and handler order.
+- [`EncounterRuntimeTests.cs`](../Assets/Tests/EditMode/RulesRuntime/EncounterRuntimeTests.cs):
+  encounter state and turn progression.
+- [`ActiveEffectLifecycleTests.cs`](../Assets/Tests/EditMode/RulesRuntime/ActiveEffectLifecycleTests.cs):
+  definitions, bindings, effect state, and timing.
+- [`MovementPathRuleTests.cs`](../Assets/Tests/EditMode/RulesRuntime/MovementPathRuleTests.cs) and
+  [`StrideRulesTests.cs`](../Assets/Tests/EditMode/RulesRuntime/StrideRulesTests.cs): movement and
+  Stride.
+- [`StrikeRulesTests.cs`](../Assets/Tests/EditMode/RulesRuntime/StrikeRulesTests.cs),
+  [`CastSpellRulesTests.cs`](../Assets/Tests/EditMode/RulesRuntime/CastSpellRulesTests.cs), and
+  [`RageRulesTests.cs`](../Assets/Tests/EditMode/RulesRuntime/RageRulesTests.cs): current feature
+  semantics.
+- [`UnityCombatRulesBridgeTests.cs`](../Assets/Tests/EditMode/UnityCombatRulesBridgeTests.cs):
+  composition, enrollment, rollback, ownership, topology, projection, and release.
+- [`RulesStrikeUnityTests.cs`](../Assets/Tests/EditMode/RulesStrikeUnityTests.cs) and
+  [`RulesRageUnityTests.cs`](../Assets/Tests/EditMode/RulesRageUnityTests.cs): feature-to-Unity
+  authority boundaries.
+- [`RulesStrikeIntegrationPlayModeTests.cs`](../Assets/Tests/PlayMode/RulesStrikeIntegrationPlayModeTests.cs)
+  and [`SpellcastingPresentationPlayModeTests.cs`](../Assets/Tests/PlayMode/SpellcastingPresentationPlayModeTests.cs):
+  production presentation integration.
+
+Keep tests deterministic by injecting `ScriptedRollService` or otherwise saving and restoring Unity
+random state. Add a regression test at the lowest layer that owns the changed contract.
