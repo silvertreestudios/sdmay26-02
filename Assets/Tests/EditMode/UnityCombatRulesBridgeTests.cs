@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -543,6 +544,117 @@ public sealed class UnityCombatRulesBridgeTests
         }
         finally
         {
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    /// <summary>
+    /// Verifies reentrant host dispatch appends its encounter projections to the active FIFO.
+    /// </summary>
+    [Test]
+    public void TurnBeganPresentationMayEndTurnAndPreservesCommitOrder()
+    {
+        GameObject firstObject = new GameObject("presentation-fifo-first");
+        GameObject secondObject = new GameObject("presentation-fifo-second");
+        UnityCombatRulesBridge bridge = null;
+        try
+        {
+            BridgeTestActionController first = ConfigureCombatant(
+                firstObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController second = ConfigureCombatant(
+                secondObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, second },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                "Players"
+            );
+            List<string> order = new();
+            int began = 0;
+            int ended = 0;
+            bridge.TurnBegan += turn =>
+            {
+                began++;
+                order.Add($"begin-{began}");
+                if (began == 1)
+                    bridge.EndTurn(turn.Actor);
+            };
+            bridge.TurnEnded += _ =>
+            {
+                ended++;
+                order.Add($"end-{ended}");
+            };
+
+            Assert.DoesNotThrow(() => bridge.AdvanceEncounter());
+
+            Assert.That(order, Is.EqualTo(new[] { "begin-1", "end-1", "begin-2" }));
+            Assert.That(
+                bridge.GetEncounter().CurrentTurn.Value.Actor,
+                Is.EqualTo(bridge.GetCreatureId(second))
+            );
+        }
+        finally
+        {
+            bridge?.ReleaseOwnership();
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    /// <summary>
+    /// Verifies one failed encounter callback cannot suppress later committed presentation.
+    /// </summary>
+    [Test]
+    public void EncounterPresentationFailureDoesNotSuppressTurnProjection()
+    {
+        GameObject firstObject = new GameObject("presentation-failure-first");
+        GameObject secondObject = new GameObject("presentation-failure-second");
+        UnityCombatRulesBridge bridge = null;
+        try
+        {
+            BridgeTestActionController first = ConfigureCombatant(
+                firstObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController second = ConfigureCombatant(
+                secondObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, second },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                "Players"
+            );
+            int turnProjectionCount = 0;
+            bridge.EncounterStarted += () =>
+                throw new InvalidOperationException(
+                    "Synthetic encounter-start presentation failure."
+                );
+            bridge.TurnBegan += _ => turnProjectionCount++;
+            ExpectLog(
+                LogType.Exception,
+                new Regex("Synthetic encounter-start presentation failure\\.")
+            );
+
+            Assert.DoesNotThrow(() => bridge.AdvanceEncounter());
+
+            Assert.That(bridge.GetEncounter().Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(bridge.GetEncounter().CurrentTurn.HasValue, Is.True);
+            Assert.That(turnProjectionCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            bridge?.ReleaseOwnership();
             Object.DestroyImmediate(firstObject);
             Object.DestroyImmediate(secondObject);
         }
@@ -1414,6 +1526,17 @@ public sealed class UnityCombatRulesBridgeTests
         );
         Assert.That(field, Is.Not.Null);
         return (RuleDispatcher)field.GetValue(bridge);
+    }
+
+    private static void ExpectLog(LogType type, Regex message)
+    {
+        Type logAssert = AppDomain
+            .CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType("UnityEngine.TestTools.LogAssert"))
+            .First(candidate => candidate != null);
+        logAssert
+            .GetMethod("Expect", new[] { typeof(LogType), typeof(Regex) })
+            .Invoke(null, new object[] { type, message });
     }
 
     private sealed class CompletedFailureObserver

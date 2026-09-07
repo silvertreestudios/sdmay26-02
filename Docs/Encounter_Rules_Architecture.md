@@ -110,7 +110,7 @@ dispatcher or enrollment hooks merely for symmetry.
 | Action presentation | Runtime registration of the shared lifecycle Fact observer and encounter-owned coordinator |
 | Light | Runtime effect presentation |
 | Health projection | Runtime Fact projection |
-| Encounter projection | Runtime Fact and settlement projection |
+| Encounter projection | Runtime Fact projection into the Unity-owned presentation FIFO |
 
 ## Construction order
 
@@ -130,7 +130,8 @@ The private `UnityCombatRulesBridge` constructor performs these boundaries in or
    its now-durable identity and registration-map reservations, then call `AttachAndInstall` and
    transfer the plan to the encounter lifetime before `Create` returns.
 7. The caller invokes `AdvanceEncounter` to dispatch `AdvanceEncounterOp`, activate the encounter,
-   publish encounter-start presentation, and reach the first turn.
+   and reach the first turn. Its committed encounter and turn Facts enqueue presentation that the
+   bridge drains after authoritative dispatch finishes.
 
 State, dispatcher registrations, and runtime observers therefore exist before Unity components are
 allowed to route reads or actions through the bridge. A failure during reversible preparation rolls
@@ -257,8 +258,7 @@ Within the dispatcher:
   exact associated snapshot, independently log and swallow failures, and cannot fail or interrupt
   mechanics;
 - asynchronous binding-scoped Fact listeners preserve authoritative rules semantics and may create
-  causal follow-up roots; and
-- settlement observers report when roots and their causal trees finish.
+  causal follow-up roots.
 
 For Strike, the production handler resolves the attack first, then dispatches damage, loaded-state
 changes, and multiple attack penalty work. Presentation observes the parent Strike's resolved
@@ -284,17 +284,27 @@ reactions join the active action sequence or present immediately when no sequenc
 observation root. Hit reactions retain Fact order; terminal defeat runs after the action's normal
 presentation steps.
 
-### Encounter presentation settlement
+### Encounter presentation FIFO
 
-`UnityEncounterProjectionModule` observes encounter Facts. Start is projected immediately; turn
-begin, turn end, and encounter outcome callbacks are queued by observation root and drained when the
-causal tree settles. Exact root/child settlement provenance remains internal to the dispatcher and
-bridge. This prevents visible encounter boundaries from running ahead of rules work caused by the
-same boundary.
+`UnityEncounterProjectionModule` observes encounter-started, turn-began, turn-ended, and encounter-
+outcome Facts. Each synchronous observer appends one Unity callback to a single bridge-owned FIFO
+and returns immediately. The complete flow is:
 
-The root/child queue in `UnityCombatRulesBridge` is implementation-specific presentation machinery.
-Use it for the encounter boundaries it currently serves. Do not add causal IDs or settlement state
-to unrelated feature DTOs unless that feature demonstrably needs settlement-aware presentation.
+```text
+committed Fact -> synchronous observer enqueues Unity callback
+               -> dispatcher and authoritative listeners settle
+               -> bridge drains presentation FIFO
+```
+
+The drain runs outside authoritative rules resolution. If a presentation callback synchronously
+starts another bridge dispatch, that request is an independent host root. Its committed projections
+append to the active FIFO; the nested drain attempt returns, and the outer drain continues in commit
+order. Each callback failure is logged independently and later callbacks still run. Encounter
+presentation does not retry, persist failure state, aggregate presentation failures, or alter the
+returned rules result.
+
+This FIFO is separate from `UnityActionPresentationCoordinator`. Action presentation retains its
+caller-owned coroutine completion and failure contract.
 
 ## Topology and ownership release
 
@@ -303,9 +313,10 @@ feature adapters in module order, and then replaces the bridge's current tile ar
 between rules roots; the mutable topology provider guards against replacement during resolution.
 
 The encounter owns one `CompositeLifetime`. Runtime observers and enrollment plans transfer their
-registrations into it. `ReleaseOwnership` waits until the outer synchronous dispatch boundary ends,
-projects final authoritative health, and disposes the lifetime. Detach operations verify exact
-bridge identity so delayed cleanup cannot disturb newer encounter ownership.
+registrations into it. `ReleaseOwnership` waits until the outer synchronous dispatch and any active
+encounter-presentation drain end, projects final authoritative health, and disposes the lifetime.
+Detach operations verify exact bridge identity so delayed cleanup cannot disturb newer encounter
+ownership.
 
 Root-scoped temporary observers are different: keep their tokens locally owned and dispose them when
 that root ends. Do not transfer short-lived observation into the encounter lifetime.
@@ -392,8 +403,8 @@ presentation requirements. Keep them narrowly scoped:
   pure rules features.
 - Identity reservations and exact detach checks protect Unity ownership. Do not allocate new global
   IDs for ordinary immutable values.
-- Root and causal-tree settlement support post-commit listener work and encounter presentation. Do
-  not make every outcome settlement-aware.
+- The encounter presentation FIFO keeps Unity callbacks outside rules resolution and preserves
+  commit order. Do not merge it with caller-owned action presentation sequencing.
 - Restored spell-effect extraction and projection belong to spell restoration. Do not require its
   Unity adapter records for effects created normally by rules operations.
 - `UnityCombatRulesBridge` still contains Stride-specific fields and helpers from the first migrated
@@ -423,7 +434,7 @@ feature to predict future reuse.
 Start with the narrowest relevant suite:
 
 - [`DispatcherTests.cs`](../Assets/Tests/EditMode/RulesRuntime/DispatcherTests.cs): dispatch,
-  middleware, Facts, observers, nested work, and settlement.
+  middleware, Facts, observers, nested work, and callback ownership.
 - [`ActionLifecycleTests.cs`](../Assets/Tests/EditMode/RulesRuntime/ActionLifecycleTests.cs):
   validation, atomic costs, `ActionBegunOp`, and handler order.
 - [`EncounterRuntimeTests.cs`](../Assets/Tests/EditMode/RulesRuntime/EncounterRuntimeTests.cs):

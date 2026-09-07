@@ -45,10 +45,10 @@ Use these tests before expanding the shared runtime:
   paths for formats that have not shipped.
 - Remove obsolete state and adapters when authority moves. Do not synchronize two writable models.
 
-Production mechanisms such as causal-tree settlement, reversible Unity preparation, restored-effect
-extraction, and presentation queues solve current integration requirements. Their existence does not
-make them mandatory patterns for every feature, and new code should not copy their supporting state
-unless it has the same demonstrated requirement.
+Production mechanisms such as reversible Unity preparation, restored-effect extraction, and
+presentation queues solve current integration requirements. Their existence does not make them
+mandatory patterns for every feature, and new code should not copy their supporting state unless it
+has the same demonstrated requirement.
 
 ## Mental model
 
@@ -232,6 +232,13 @@ its exact snapshot into the Unity component, and HUD reads use that authoritativ
 and defeat reactions wait in an active action presentation sequence; without one, they present
 immediately.
 
+Encounter presentation uses a separate Unity-owned FIFO. A committed encounter Fact synchronously
+enqueues a Unity callback; the dispatcher and every authoritative binding-scoped listener settle;
+then the bridge drains the FIFO outside rules resolution. A presentation callback may synchronously
+start an independent host-request root, whose committed projections append to the same FIFO in
+order. Individual presentation failures are logged and do not change rules results or suppress
+later committed projections.
+
 For a migrated slice:
 
 - Unity may seed the initial value;
@@ -278,7 +285,7 @@ This design does not define:
 - every state slice or DTO present in production;
 - which features are fully migrated;
 - Unity enrollment, topology refresh, projection, or teardown steps;
-- exact settlement and presentation-queue mechanics;
+- exact action and encounter presentation-queue mechanics;
 - recipes for adding a production feature; or
 - speculative implementations of unbuilt Pathfinder rules.
 
