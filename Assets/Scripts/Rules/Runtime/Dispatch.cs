@@ -93,8 +93,9 @@ namespace Game.Rules.Runtime
         /// calls this public root API, or a handler violates nested-dispatch ownership.
         /// </exception>
         /// <remarks>
-        /// Resolver, middleware, observer, and post-commit listener exceptions propagate to the
-        /// caller. State already committed by a reducer is not rolled back. If resolution fails
+        /// Resolver, middleware, and post-commit listener exceptions propagate to the caller.
+        /// External Fact observer exceptions are logged and isolated from rules resolution.
+        /// State already committed by a reducer is not rolled back. If resolution fails
         /// after a commit, listeners receive the durable Facts before the resolution exception is
         /// rethrown. If that notification also fails, an <see cref="AggregateException"/> reports
         /// the resolution exception first and the notification exception second. The dispatcher
