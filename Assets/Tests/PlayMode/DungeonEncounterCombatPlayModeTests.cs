@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -402,12 +403,12 @@ public sealed class DungeonEncounterCombatPlayModeTests
 
     /// <summary>
     /// Verifies every completion channel observes inactive combat and cannot strand ended rules
-    /// ownership when a callback throws.
+    /// ownership when a callback throws and the bridge isolates the presentation failure.
     /// </summary>
     [TestCase("DungeonCombatEnded")]
     [TestCase("LegacyCombatEnded")]
     [TestCase("LegacyCombatOutcome")]
-    public void ThrowingCompletionCallback_ReleasesCombatBeforePropagating(string channel)
+    public void ThrowingCompletionCallback_ReleasesCombatAndLogsPresentationFailure(string channel)
     {
         CombatantFixture player = CreateCombatant("Player", "Players", 100);
         CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
@@ -440,14 +441,14 @@ public sealed class DungeonEncounterCombatPlayModeTests
             CombatantFixture nextPlayer = CreateCombatant("Next Player", "Players", 100);
             CombatantFixture nextEnemy = CreateCombatant("Next Enemy", "Enemies", 0);
 
-            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            LogAssert.Expect(LogType.Exception, new Regex("Completion callback failed\\."));
+            Assert.DoesNotThrow(() =>
                 enemy.Creature.ApplyFinalDamage(
                     enemy.Creature.hp,
                     RuleSource.FromSlug("test-throwing-completion")
                 )
             );
 
-            Assert.That(exception.Message, Is.EqualTo("Completion callback failed."));
             Assert.That(manager.IsCombatActive, Is.False);
             Assert.DoesNotThrow(() =>
                 manager.StartDungeonCombat(new[] { nextPlayer.Controller, nextEnemy.Controller })
@@ -593,7 +594,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
         }
     }
 
-    /// <summary>Verifies an all-zero player defeat rejects a fabricated presentation winner.</summary>
+    /// <summary>Verifies an all-zero player defeat logs presentation failure without a fake winner.</summary>
     [Test]
     public void DungeonDefeat_AllZeroRosterFailsPresentationAndReleasesOwnership()
     {
@@ -609,7 +610,11 @@ public sealed class DungeonEncounterCombatPlayModeTests
             UnityCombatRulesBridge bridge = GetCombatRules(manager);
             CreatureId playerId = bridge.GetCreatureId(player.Controller);
             CreatureId enemyId = bridge.GetCreatureId(enemy.Controller);
-            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("Player defeat requires a mapped living opposition team\\.")
+            );
+            Assert.DoesNotThrow(() =>
                 bridge.Dispatch(
                     new ApplyHealthBatchOp(
                         new[]
@@ -633,7 +638,6 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 )
             );
 
-            Assert.That(error.Message, Does.Contain("living opposition team"));
             Assert.That(winner, Is.EqualTo("not-reported"));
             Assert.That(manager.IsCombatActive, Is.False);
         }
@@ -777,6 +781,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
         OnCombatStart.AddListener(failingPresentation);
         try
         {
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex("Synthetic encounter-start presentation failure\\.")
+            );
             Assert.DoesNotThrow(() => manager.StartCombat());
         }
         finally
