@@ -376,9 +376,11 @@ namespace Game.Rules.Unity
             && encounter.CurrentTurn.Value.Actor == creature;
 
         /// <summary>Explicitly activates the initialized encounter and reaches its first turn.</summary>
-        /// <returns>The authoritative state after first-turn causal work settles.</returns>
-        public EncounterState AdvanceEncounter() =>
-            DispatchNow(new AdvanceEncounterOp(encounterId)).State;
+        /// <remarks>
+        /// The dispatch waits for authoritative initiative-boundary listeners. Read
+        /// <see cref="GetEncounter"/> afterward when current encounter state is needed.
+        /// </remarks>
+        public void AdvanceEncounter() => DispatchNow(new AdvanceEncounterOp(encounterId));
 
         /// <summary>Ends the exact current turn owned by a registered creature.</summary>
         /// <param name="creature">The creature expected to own the current exact turn.</param>

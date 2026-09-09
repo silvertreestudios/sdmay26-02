@@ -341,7 +341,6 @@ namespace Game.Rules.Runtime
 
     /// <summary>Returns the empty encounter snapshot produced by initialization.</summary>
     public readonly struct EncounterInitializationOutcome
-        : ISettledOperationResult<EncounterInitializationOutcome>
     {
         /// <summary>Gets the initialized encounter before combatants or turns are added.</summary>
         public EncounterState State { get; }
@@ -350,14 +349,10 @@ namespace Game.Rules.Runtime
         /// <param name="state">The non-null state represented by this outcome.</param>
         public EncounterInitializationOutcome(EncounterState state) =>
             State = state ?? throw new ArgumentNullException(nameof(state));
-
-        EncounterInitializationOutcome ISettledOperationResult<EncounterInitializationOutcome>.Settle(
-            RulesSnapshot snapshot
-        ) => new EncounterInitializationOutcome(snapshot.Encounters[State.Id]);
     }
 
     /// <summary>Returns the atomic roster replacement produced by accepted combatants.</summary>
-    public readonly struct CombatantsAddedOutcome : ISettledOperationResult<CombatantsAddedOutcome>
+    public readonly struct CombatantsAddedOutcome
     {
         /// <summary>Gets the encounter containing the retained roster plus additions.</summary>
         public EncounterState State { get; }
@@ -366,32 +361,27 @@ namespace Game.Rules.Runtime
         /// <param name="state">The non-null state represented by this outcome.</param>
         public CombatantsAddedOutcome(EncounterState state) =>
             State = state ?? throw new ArgumentNullException(nameof(state));
-
-        CombatantsAddedOutcome ISettledOperationResult<CombatantsAddedOutcome>.Settle(
-            RulesSnapshot snapshot
-        ) => new CombatantsAddedOutcome(snapshot.Encounters[State.Id]);
     }
 
     /// <summary>Returns the state produced by turn progression or encounter completion.</summary>
     public readonly struct EncounterAdvanceOutcome
-        : ISettledOperationResult<EncounterAdvanceOutcome>
     {
-        /// <summary>Gets the latest encounter, including its new turn or final outcome.</summary>
+        /// <summary>Gets the encounter state produced by the advance handler.</summary>
+        /// <remarks>
+        /// A reached initiative boundary has no current turn. Awaited boundary listeners may begin
+        /// a later turn, skip actors, or end the encounter before dispatch returns. Read the
+        /// dispatcher's current snapshot when the caller needs that later authoritative state.
+        /// </remarks>
         public EncounterState State { get; }
 
         /// <summary>Creates an outcome from one committed encounter snapshot.</summary>
         /// <param name="state">The non-null state represented by this outcome.</param>
         public EncounterAdvanceOutcome(EncounterState state) =>
             State = state ?? throw new ArgumentNullException(nameof(state));
-
-        EncounterAdvanceOutcome ISettledOperationResult<EncounterAdvanceOutcome>.Settle(
-            RulesSnapshot snapshot
-        ) => new EncounterAdvanceOutcome(snapshot.Encounters[State.Id]);
     }
 
     /// <summary>Returns the encounter after active resources are cleared for suspension.</summary>
     public readonly struct EncounterSuspensionOutcome
-        : ISettledOperationResult<EncounterSuspensionOutcome>
     {
         /// <summary>Gets the suspended encounter state.</summary>
         public EncounterState State { get; }
@@ -400,14 +390,10 @@ namespace Game.Rules.Runtime
         /// <param name="state">The non-null state represented by this outcome.</param>
         public EncounterSuspensionOutcome(EncounterState state) =>
             State = state ?? throw new ArgumentNullException(nameof(state));
-
-        EncounterSuspensionOutcome ISettledOperationResult<EncounterSuspensionOutcome>.Settle(
-            RulesSnapshot snapshot
-        ) => new EncounterSuspensionOutcome(snapshot.Encounters[State.Id]);
     }
 
     /// <summary>Returns the single committed player-relative encounter result.</summary>
-    public readonly struct EncounterEndOutcome : ISettledOperationResult<EncounterEndOutcome>
+    public readonly struct EncounterEndOutcome
     {
         /// <summary>Gets the ended encounter state.</summary>
         public EncounterState State { get; }
@@ -416,27 +402,18 @@ namespace Game.Rules.Runtime
         /// <param name="state">The non-null state represented by this outcome.</param>
         public EncounterEndOutcome(EncounterState state) =>
             State = state ?? throw new ArgumentNullException(nameof(state));
-
-        EncounterEndOutcome ISettledOperationResult<EncounterEndOutcome>.Settle(
-            RulesSnapshot snapshot
-        ) => new EncounterEndOutcome(snapshot.Encounters[State.Id]);
     }
 
-    /// <summary>Returns the latest state after settled health outcome evaluation.</summary>
+    /// <summary>Returns the encounter state produced by outcome evaluation.</summary>
     public readonly struct EncounterEvaluationOutcome
-        : ISettledOperationResult<EncounterEvaluationOutcome>
     {
-        /// <summary>Gets the active, advanced, or ended encounter state.</summary>
+        /// <summary>Gets the active, advanced, or ended state produced by the handler.</summary>
         public EncounterState State { get; }
 
         /// <summary>Creates an outcome from one committed encounter snapshot.</summary>
         /// <param name="state">The non-null state represented by this outcome.</param>
         public EncounterEvaluationOutcome(EncounterState state) =>
             State = state ?? throw new ArgumentNullException(nameof(state));
-
-        EncounterEvaluationOutcome ISettledOperationResult<EncounterEvaluationOutcome>.Settle(
-            RulesSnapshot snapshot
-        ) => new EncounterEvaluationOutcome(snapshot.Encounters[State.Id]);
     }
 
     /// <summary>Carries the final action count through ordered turn-start adapters.</summary>

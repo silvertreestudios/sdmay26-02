@@ -18,7 +18,10 @@ internal static class EncounterLifecycleTestExtensions
         EncounterState encounter = bridge.GetEncounter();
         bool startedNow = encounter.Phase == EncounterPhase.Initialized;
         if (startedNow)
-            encounter = bridge.AdvanceEncounter();
+        {
+            bridge.AdvanceEncounter();
+            encounter = bridge.GetEncounter();
+        }
 
         int remaining = bridge.Snapshot.Creatures.Count + 1;
         if (

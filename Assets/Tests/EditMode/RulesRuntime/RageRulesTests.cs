@@ -289,13 +289,11 @@ namespace Game.Tests.EditMode.RulesRuntime
             EncounterState turn = dispatcher.Snapshot.Encounters[Encounter];
             for (int round = 0; round < 10; round++)
             {
-                turn = RequireResolved(
-                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
-                ).Value.State;
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value)));
+                turn = dispatcher.Snapshot.Encounters[Encounter];
                 Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
-                turn = RequireResolved(
-                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
-                ).Value.State;
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value)));
+                turn = dispatcher.Snapshot.Encounters[Encounter];
                 Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Actor));
             }
 
@@ -516,13 +514,11 @@ namespace Game.Tests.EditMode.RulesRuntime
             EncounterState turn = dispatcher.Snapshot.Encounters[Encounter];
             for (int round = 0; round < 10; round++)
             {
-                turn = RequireResolved(
-                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
-                ).Value.State;
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value)));
+                turn = dispatcher.Snapshot.Encounters[Encounter];
                 Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
-                turn = RequireResolved(
-                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
-                ).Value.State;
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value)));
+                turn = dispatcher.Snapshot.Encounters[Encounter];
                 Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Actor));
             }
         }
