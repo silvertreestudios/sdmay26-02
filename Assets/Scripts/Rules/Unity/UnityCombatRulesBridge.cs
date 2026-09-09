@@ -108,7 +108,7 @@ namespace Game.Rules.Unity
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
                     .UseActiveEffectRules(modules.Registry)
-                    .UseEncounterRules(modules.Registry, composition.CreateTurnStartAdapters())
+                    .UseEncounterRules(modules.Registry)
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)
                     .UseStrideRules(strideDefinition);
@@ -949,9 +949,17 @@ namespace Game.Rules.Unity
         /// <summary>Raises the Unity encounter-start projection after its committed Fact.</summary>
         internal void ProjectEncounterStarted() => EncounterStarted.Invoke();
 
-        /// <summary>Projects one committed turn start into the Unity controller boundary.</summary>
-        internal void ProjectTurnBegan(TurnIdentity turn)
+        /// <summary>Activates Unity control after resources commit for the exact current turn.</summary>
+        internal void ProjectTurnResourcesRegained(TurnIdentity turn)
         {
+            if (
+                !Snapshot.Encounters.TryGet(turn.Encounter, out EncounterState encounter)
+                || encounter.Phase != EncounterPhase.Active
+                || !encounter.CurrentTurn.HasValue
+                || encounter.CurrentTurn.Value != turn
+                || !GetHealth(turn.Actor).IsLiving
+            )
+                return;
             GetController(turn.Actor).StartTurn();
             TurnBegan.Invoke(turn);
         }

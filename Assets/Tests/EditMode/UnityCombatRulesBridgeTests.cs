@@ -67,8 +67,6 @@ public sealed class UnityCombatRulesBridgeTests
                     secondLifetime
                 )
             );
-            IReadOnlyList<IEncounterTurnStartAdapter> adapters =
-                composition.CreateTurnStartAdapters();
             composition.RefreshTopology(CreateTiles(1));
 
             Assert.That(
@@ -85,7 +83,6 @@ public sealed class UnityCombatRulesBridgeTests
                     }
                 )
             );
-            Assert.That(adapters, Is.EqualTo(new[] { alpha.Adapter, beta.Adapter }));
         }
         finally
         {
@@ -600,6 +597,52 @@ public sealed class UnityCombatRulesBridgeTests
                 bridge.GetEncounter().CurrentTurn.Value.Actor,
                 Is.EqualTo(bridge.GetCreatureId(second))
             );
+        }
+        finally
+        {
+            bridge?.ReleaseOwnership();
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    [Test]
+    public void QueuedResourceProjectionSkipsTurnSupersededBeforeDrain()
+    {
+        GameObject firstObject = new GameObject("stale-resource-projection-first");
+        GameObject secondObject = new GameObject("stale-resource-projection-second");
+        UnityCombatRulesBridge bridge = null;
+        try
+        {
+            BridgeTestActionController first = ConfigureCombatant(
+                firstObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController second = ConfigureCombatant(
+                secondObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, second },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                "Players"
+            );
+            bridge.AdvanceEncounter();
+            TurnIdentity stale = bridge.GetEncounter().CurrentTurn.Value;
+            BridgeTestActionController staleController =
+                bridge.GetCreatureId(first) == stale.Actor ? first : second;
+            BridgeTestActionController nextController = staleController == first ? second : first;
+            int staleStarts = staleController.StartTurnCount;
+
+            bridge.EnqueueEncounterPresentation(() => bridge.ProjectTurnResourcesRegained(stale));
+            bridge.EndTurn(stale.Actor);
+
+            Assert.That(staleController.StartTurnCount, Is.EqualTo(staleStarts));
+            Assert.That(nextController.StartTurnCount, Is.EqualTo(1));
+            Assert.That(bridge.GetEncounter().CurrentTurn.Value.Actor, Is.Not.EqualTo(stale.Actor));
         }
         finally
         {
@@ -1569,8 +1612,7 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     private sealed class RecordingEncounterModule
-        : IUnityEncounterTurnStartModule,
-            IUnityEncounterTopologyModule,
+        : IUnityEncounterTopologyModule,
             IUnityCombatantEnrollmentModule
     {
         private readonly string name;
@@ -1580,25 +1622,12 @@ public sealed class UnityCombatRulesBridgeTests
         {
             this.name = name;
             this.order = order;
-            Adapter = new RecordingTurnStartAdapter();
         }
-
-        public IEncounterTurnStartAdapter Adapter { get; }
-
-        public IEncounterTurnStartAdapter CreateTurnStartAdapter() => Adapter;
 
         public void RefreshTopology(GridPrivate.Tile[,] tiles) => order.Add($"{name}:topology");
 
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) =>
             order.Add($"{name}:{builder.CreatureId.Value}");
-    }
-
-    private sealed class RecordingTurnStartAdapter : IEncounterTurnStartAdapter
-    {
-        public ValueTask<TurnStartContribution> Apply(
-            EncounterTurnStartContext context,
-            TurnStartContribution current
-        ) => new ValueTask<TurnStartContribution>(current);
     }
 
     private sealed class ThrowingInstallationContribution : IUnityCombatantInstallationContribution
@@ -1609,6 +1638,14 @@ public sealed class UnityCombatRulesBridgeTests
 
     private sealed class BridgeTestActionController : ActionController
     {
+        public int StartTurnCount { get; private set; }
+
+        public override void StartTurn()
+        {
+            StartTurnCount++;
+            base.StartTurn();
+        }
+
         public override void EndTurn() { }
     }
 

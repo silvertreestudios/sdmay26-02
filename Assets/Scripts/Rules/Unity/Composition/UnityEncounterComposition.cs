@@ -21,13 +21,6 @@ namespace Game.Rules.Unity.Composition
         void ConfigureDispatcher(RuleDispatcherBuilder builder);
     }
 
-    /// <summary>Contributes one transitional turn-start adapter owned by its feature.</summary>
-    internal interface IUnityEncounterTurnStartModule : IUnityEncounterModule
-    {
-        /// <summary>Creates the adapter installed at this module's deterministic position.</summary>
-        IEncounterTurnStartAdapter CreateTurnStartAdapter();
-    }
-
     /// <summary>Registers encounter-owned observers or disposable runtime adapters.</summary>
     internal interface IUnityEncounterRuntimeModule : IUnityEncounterModule
     {
@@ -188,13 +181,6 @@ namespace Game.Rules.Unity.Composition
                 );
             this.modules = Array.AsReadOnly(copied);
         }
-
-        /// <summary>Gets turn-start adapters in exact module order.</summary>
-        internal IReadOnlyList<IEncounterTurnStartAdapter> CreateTurnStartAdapters() =>
-            modules
-                .OfType<IUnityEncounterTurnStartModule>()
-                .Select(module => module.CreateTurnStartAdapter())
-                .ToArray();
 
         /// <summary>Configures dispatcher modules in exact module order.</summary>
         internal void ConfigureDispatcher(RuleDispatcherBuilder builder)
