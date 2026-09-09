@@ -535,21 +535,6 @@ namespace TestsState
             );
         }
 
-        private sealed class FixedDiceRoller : IPf2eDiceRoller
-        {
-            private readonly int valuePerDie;
-
-            public FixedDiceRoller(int valuePerDie)
-            {
-                this.valuePerDie = valuePerDie;
-            }
-
-            public int Roll(int numberOfDice, int sidesPerDie)
-            {
-                return numberOfDice * valuePerDie;
-            }
-        }
-
         private sealed class TestActionController : ActionController
         {
             public int HpAtStartTurn { get; private set; } = -1;

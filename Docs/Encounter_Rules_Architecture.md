@@ -33,10 +33,12 @@ Attachment is identity-sensitive. A read through a creature or controller is val
 bridge that currently owns it. Cleanup from an older encounter must not detach or overwrite a newer
 owner.
 
-The encounter is not fully rules-native. Rotting Aura and Slowed use standard binding-scoped rules
-extensions but still calculate from Unity-backed controller data, prepared-character and component
-data are still read during enrollment, and some scene-compatible manager entry points remain. Treat
-those paths as migration seams, not alternative authorities.
+The encounter is not fully rules-native. Rotting Aura owns its deterministic turn listener, dice,
+typed damage, and health workflow in the rules runtime, but a narrow feature adapter still captures
+its current Unity aura geometry and unmigrated creature traits, levels, weaknesses, and resistances.
+Slowed still calculates from Unity-backed controller data, prepared-character and component data are
+still read during enrollment, and some scene-compatible manager entry points remain. Treat those
+paths as migration seams, not alternative authorities.
 
 `UnityCombatRulesBridge.CreateExplorationStride` is a special temporary composition. It reuses the
 Stride rules without attaching combat authority or spending encounter action economy.
@@ -101,7 +103,7 @@ dispatcher or enrollment hooks merely for symmetry.
 
 | Module | Capabilities |
 | --- | --- |
-| Rotting Aura | Combatant enrollment; a binding-scoped `TurnBeganFact` listener is defined at composition |
+| Rotting Aura | Dispatcher, runtime Fact presentation, topology refresh, and combatant enrollment; a binding-scoped `TurnBeganFact` listener is defined at composition |
 | Slowed | Combatant enrollment; binding-scoped resource-calculation middleware is defined at composition |
 | Rage | Dispatcher configuration and combatant enrollment |
 | Strike | Dispatcher, action presentation, runtime state projection, combatant enrollment, and topology refresh |
@@ -277,6 +279,15 @@ lifecycle Fact only after that complete workflow. Spell presentation uses the ca
 `CastSpellOutcome`, including its actual `SpellAttackResolution` collection; shared infrastructure
 has no spell special case.
 
+Rotting Aura's ordinary `TurnBeganFact` listener checks the exact authoritative turn and wounded
+actor, obtains only spatial exposure and unmigrated creature values from its Unity adapter, and
+dispatches one ordered supporting tick operation per living source. Each tick rolls through its
+handler context, resolves shared typed damage, and delegates the sole health write to
+`ApplyDamageOp`. A feature-local completion reducer writes no state; it stages
+`RottingAuraResolvedFact` after health and zero-HP listeners settle, including fully resisted ticks,
+so the encounter-owned observer can preserve source, roll, defense, and zero-damage logging without
+a generic occurrence API or correlation cache.
+
 `UnityActionPresentationRegistry` is the generic Unity routing boundary. Feature modules explicitly
 register typed presenters by stable `ActionDefinitionId`; the registry verifies the concrete
 action/outcome pair. Its observer opens one encounter-owned sequence for the exact action at begin,
@@ -346,7 +357,8 @@ that root ends. Do not transfer short-lived observation into the encounter lifet
 | Spellcasting, spell attacks, resources, effects, restoration, and presentation | Production for implemented spells |
 | Rage bindings, action, effect state, and Unity enrollment | Production |
 | Light effect presentation | Production adapter |
-| Slowed and Rotting Aura turn-start semantics | Standard rules bindings with transitional Unity-backed calculations |
+| Rotting Aura turn-start semantics | Feature-owned rules listener and tick workflow; narrow read-only Unity targeting/data and Fact-presentation adapters |
+| Slowed turn-start semantics | Standard rules binding with transitional Unity-backed calculation |
 | Hypothetical rules formerly used as architecture examples | Not contracts and not implied to be implemented |
 
 This table describes ownership and integration, not PF2e content completeness. An action being on the
