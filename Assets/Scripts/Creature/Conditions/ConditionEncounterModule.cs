@@ -25,6 +25,8 @@ namespace Game.Creature.Rules
             ConditionSource displaySource
         )
         {
+            Conditions display =
+                target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>();
             ActionController controller = target.GetComponent<ActionController>();
             if (
                 controller != null
@@ -47,15 +49,14 @@ namespace Game.Creature.Rules
                 if (result is not ResolvedOpResult<ActiveEffectCreationOutcome>)
                     throw new InvalidOperationException("Condition application did not resolve.");
                 // Legacy passive import uses this exact source object to avoid applying twice.
-                Conditions display = target.GetComponent<Conditions>();
-                if (display != null && !display.Contains(state.Condition.Value, displaySource))
+                if (!display.Contains(state.Condition.Value, displaySource))
                     display.Add(state.Condition.Value, displaySource);
                 return;
             }
             ConditionSeed seed =
                 target.GetComponent<ConditionSeed>() ?? target.AddComponent<ConditionSeed>();
             seed.ApplyBeforeAttachment(state, source);
-            target.GetComponent<Conditions>().Add(state.Condition.Value, displaySource);
+            display.Add(state.Condition.Value, displaySource);
         }
 
         /// <inheritdoc/>
@@ -127,9 +128,9 @@ namespace Game.Creature.Rules
                 ?? controller.gameObject.AddComponent<ConditionSeed>();
             seed.Project(applications);
 
-            Conditions display = controller.GetComponent<Conditions>();
-            if (display == null)
-                return;
+            Conditions display =
+                controller.GetComponent<Conditions>()
+                ?? controller.gameObject.AddComponent<Conditions>();
             // The legacy display persists names only. Mechanics and individual lifetimes stay in effects.
             if (ConditionRules.GetValue(snapshot, target, changedCondition) == 0)
                 display.Clear(changedCondition.Value);

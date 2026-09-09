@@ -142,6 +142,43 @@ public class Pf2eRulesTests
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void ApplyingSlowedInstallsMissingConditionDisplay(bool attached)
+    {
+        TestActionController controller = CreateCombatant("Missing condition display", "Players");
+        Object.DestroyImmediate(controller.GetComponent<Conditions>());
+        UnityCombatRulesBridge bridge;
+        if (attached)
+        {
+            bridge = CreateActiveEncounter(controller);
+            ApplySlowed(controller.gameObject, 2);
+        }
+        else
+        {
+            ApplySlowed(controller.gameObject, 2);
+            bridge = CreateActiveEncounter(controller);
+        }
+        Assert.That(controller.GetComponent<Conditions>().Contains("Slowed"), Is.True);
+        bridge.AdvanceEncounter();
+        Assert.That(controller.ActionPoints, Is.EqualTo(1));
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void RulesConditionApplicationInstallsMissingDisplayDuringProjection()
+    {
+        TestActionController controller = CreateCombatant(
+            "Rules-only condition application",
+            "Players"
+        );
+        Object.DestroyImmediate(controller.GetComponent<Conditions>());
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(controller);
+        ApplyTimedSlowed(bridge, controller, 2, EffectDuration.OneMinute);
+        Assert.That(controller.GetComponent<Conditions>().Contains("Slowed"), Is.True);
+        bridge.ReleaseOwnership();
+    }
+
     [Test]
     public void ZombiePassiveRemainsIdempotentAfterProjectionAndReenrollment()
     {
