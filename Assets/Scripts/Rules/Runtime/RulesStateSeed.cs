@@ -27,8 +27,6 @@ namespace Game.Rules.Runtime
             new Dictionary<ItemId, AmmunitionState>();
         internal Dictionary<CreatureId, MultipleAttackPenaltyState> MultipleAttackPenalty { get; } =
             new Dictionary<CreatureId, MultipleAttackPenaltyState>();
-        internal Dictionary<ConditionId, ConditionState> Conditions { get; } =
-            new Dictionary<ConditionId, ConditionState>();
         internal Dictionary<ItemId, EquipmentState> Equipment { get; } =
             new Dictionary<ItemId, EquipmentState>();
         internal Dictionary<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; } =
@@ -182,14 +180,6 @@ namespace Game.Rules.Runtime
         {
             RequireCreatureId(creature, nameof(creature));
             MultipleAttackPenalty[creature] = value;
-            return this;
-        }
-
-        public RulesStateSeed SeedCondition(ConditionState value)
-        {
-            if (value == null)
-                throw new ArgumentNullException(nameof(value));
-            Conditions[value.Id] = value;
             return this;
         }
 
