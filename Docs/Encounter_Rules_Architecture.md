@@ -244,6 +244,15 @@ internal convenience paths require resolution and translate invalid requests to
 `InvalidOperationException`. A Unity-originated synchronous request rejects unresolved asynchronous
 callback work.
 
+A resolved operation value is the exact immutable value produced by its resolver pipeline. The
+dispatcher does not replace that value with a later snapshot after Fact listeners run. Those
+authoritative listeners are still awaited before dispatch returns and may commit causal state
+changes. Callers that need what is currently true after dispatch must read `RuleDispatcher.Snapshot`
+or the corresponding bridge query. In particular, an `AdvanceEncounterOp` or `EndTurnOp` may return
+the reached initiative boundary without a current turn while the current snapshot contains the turn
+begun by the boundary listener, a later living actor after skipped or lethal boundaries, or the final
+encounter outcome.
+
 Within the dispatcher:
 
 - one root owns its operation frames and nested dispatches;

@@ -530,7 +530,8 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(bridge.HasTurnAuthority(firstId), Is.False);
             Assert.That(bridge.HasTurnAuthority(secondId), Is.False);
 
-            EncounterState encounter = bridge.AdvanceEncounter();
+            bridge.AdvanceEncounter();
+            EncounterState encounter = bridge.GetEncounter();
 
             Assert.That(encounter.CurrentTurn.HasValue, Is.True);
             Assert.That(

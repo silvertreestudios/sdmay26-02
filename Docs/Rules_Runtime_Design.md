@@ -84,6 +84,12 @@ mutable service state.
 Expected rules outcomes use those result forms. Exceptions are reserved for programmer errors,
 broken composition, and failed external infrastructure.
 
+A resolved value is the exact immutable value produced by the operation's resolver pipeline. Awaited
+Fact listeners may commit later causal work before dispatch returns, but the dispatcher does not
+rewrite the operation's value from the resulting snapshot. Code that needs current authoritative
+state after dispatch reads `RuleDispatcher.Snapshot`; code that needs the operation's own result
+reads the returned value. This distinction keeps results stable without weakening listener timing.
+
 An action is an operation with action metadata and a mandatory action lifecycle. Supporting rules
 work—checks, damage, movement steps, resource changes, and effect changes—uses ordinary nested
 operations.
