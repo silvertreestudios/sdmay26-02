@@ -191,9 +191,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the exact turn that must still be current when resources commit.</summary>
         public TurnIdentity Turn { get; }
 
-        /// <summary>Creates a regain request for an already committed exact turn.</summary>
-        /// <param name="turn">The exact encounter, sequence, actor, round, and slot.</param>
-        public RegainTurnResourcesOp(TurnIdentity turn) => Turn = turn;
+        internal RegainTurnResourcesOp(TurnIdentity turn) => Turn = turn;
     }
 
     /// <summary>Opens the narrow exact-turn end extension point.</summary>

@@ -19,6 +19,12 @@ namespace Game.Rules.Runtime.Tests
         private static readonly EncounterId Encounter = new EncounterId("test-encounter");
         private static readonly RuleSource Source = RuleSource.FromSlug("encounter-test");
 
+        [Test]
+        public void TurnResourceRegainCanOnlyBeConstructedByRuntimeOrchestration()
+        {
+            Assert.That(typeof(RegainTurnResourcesOp).GetConstructors(), Is.Empty);
+        }
+
         /// <summary>Identifies one state collection that can collide during addition preflight.</summary>
         public enum AdditionRegistrationCollision
         {
