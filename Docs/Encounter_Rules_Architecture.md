@@ -33,8 +33,8 @@ Attachment is identity-sensitive. A read through a creature or controller is val
 bridge that currently owns it. Cleanup from an older encounter must not detach or overwrite a newer
 owner.
 
-The encounter is not fully rules-native. Rotting Aura and Slowed use standard binding-scoped rules
-extensions but still calculate from Unity-backed controller data, prepared-character and component
+The encounter is not fully rules-native. Rotting Aura uses a standard binding-scoped rules
+extension but still calculates from Unity-backed controller data. Prepared-character and component
 data are still read during enrollment, and some scene-compatible manager entry points remain. Treat
 those paths as migration seams, not alternative authorities.
 
@@ -102,7 +102,7 @@ dispatcher or enrollment hooks merely for symmetry.
 | Module | Capabilities |
 | --- | --- |
 | Rotting Aura | Combatant enrollment; a binding-scoped `TurnBeganFact` listener is defined at composition |
-| Slowed | Combatant enrollment; binding-scoped resource-calculation middleware is defined at composition |
+| Slowed | Dispatcher, runtime active-effect projection, and combatant enrollment |
 | Rage | Dispatcher configuration and combatant enrollment |
 | Strike | Dispatcher, action presentation, runtime state projection, combatant enrollment, and topology refresh |
 | Spellcasting | Dispatcher, action presentation, runtime effect projection, combatant enrollment, and topology refresh |
@@ -346,11 +346,24 @@ that root ends. Do not transfer short-lived observation into the encounter lifet
 | Spellcasting, spell attacks, resources, effects, restoration, and presentation | Production for implemented spells |
 | Rage bindings, action, effect state, and Unity enrollment | Production |
 | Light effect presentation | Production adapter |
-| Slowed and Rotting Aura turn-start semantics | Standard rules bindings with transitional Unity-backed calculations |
+| Slowed turn-resource semantics | Production active-effect authority with a pre-attachment Unity seed and committed-Fact projection |
+| Rotting Aura turn-start semantics | Standard rules binding with a transitional Unity-backed calculation |
 | Hypothetical rules formerly used as architecture examples | Not contracts and not implied to be implemented |
 
 This table describes ownership and integration, not PF2e content completeness. An action being on the
 runtime does not mean every trait, feat interaction, or rules option for that action exists.
+
+Slowed stores its variable value on one active effect and subtracts that value in resource-regain
+middleware before the action allowance commits. Repeated applications retain only the highest
+value, matching the redundant valued-condition rule rather than adding reductions. A lazily added
+Unity component carries the value only before attachment and projects committed effect changes for
+later encounter enrollment; it is not consulted during rules resolution. Removing the aggregate
+effect clears both that projection and the existing display entry.
+
+The existing `Conditions` save shape persists only the aggregate `Slowed` name, not its numeric
+value. It therefore cannot restore arbitrary Slowed 2 or Slowed 3 values; changing that save schema
+is outside this feature slice. Likewise, removal is the shared active-effect lifecycle's atomic
+effect-and-binding operation. Slowed does not expose source-specific mechanical removal.
 
 ## Recipe: add or migrate a vertical feature
 

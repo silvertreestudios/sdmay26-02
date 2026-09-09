@@ -58,7 +58,7 @@ namespace Game.Rules.Unity.Composition
 
             RuleRegistryBuilder registryBuilder = new();
             RottingAuraEncounterModule.DefineRuleBindings(registryBuilder, owner);
-            SlowedEncounterModule.DefineRuleBindings(registryBuilder, owner);
+            SlowedEncounterModule.DefineRuleBindings(registryBuilder);
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
             registryBuilder.Define(
@@ -76,7 +76,7 @@ namespace Game.Rules.Unity.Composition
             IUnityEncounterModule[] modules =
             {
                 new RottingAuraEncounterModule(),
-                new SlowedEncounterModule(),
+                new SlowedEncounterModule(owner),
                 new UnityRageEncounterModule(rageDefinition),
                 new UnityStrikeEncounterModule(
                     strikeContext,
