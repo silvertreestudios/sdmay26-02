@@ -176,95 +176,22 @@ namespace Game.Rules.Runtime
                 : encounter;
     }
 
-    /// <summary>Opens the narrow turn-start extension point before final resource regain.</summary>
-    public sealed class TurnStartingOp : IRuleOp<TurnStartContribution>
+    /// <summary>Calculates the action allowance for one exact turn before resources commit.</summary>
+    public sealed class CalculateTurnResourcesOp : IRuleOp<TurnResourceContribution>
     {
-        /// <summary>Gets the encounter whose reached boundary owns the hook.</summary>
-        public EncounterId Encounter { get; }
+        /// <summary>Gets the exact committed turn whose allowance is being calculated.</summary>
+        public TurnIdentity Turn { get; }
 
-        /// <summary>Gets the living candidate receiving ordered start adapters.</summary>
-        public CreatureId Actor { get; }
-
-        internal TurnStartingOp(EncounterId encounter, CreatureId actor)
-        {
-            Encounter = encounter;
-            Actor = actor;
-        }
+        internal CalculateTurnResourcesOp(TurnIdentity turn) => Turn = turn;
     }
 
-    /// <summary>
-    /// Adapts one unmigrated turn-start behavior into the authoritative encounter dispatch.
-    /// </summary>
-    /// <remarks>
-    /// Adapters run sequentially in registration order before resource regain. They may commit
-    /// health changes only through the supplied <see cref="EncounterTurnStartContext"/>, keeping
-    /// the work inside the active dispatcher root. The returned contribution becomes the input to
-    /// the next adapter; the final value is the action count committed with <see cref="TurnBeganFact"/>.
-    /// </remarks>
-    public interface IEncounterTurnStartAdapter
+    /// <summary>Regains actions and reaction for one exact committed turn.</summary>
+    public sealed class RegainTurnResourcesOp : IRuleOp<EncounterAdvanceOutcome>
     {
-        /// <summary>Runs one awaited turn-start contribution for the reached living actor.</summary>
-        /// <param name="context">The narrow same-dispatcher services for this boundary.</param>
-        /// <param name="current">The action contribution produced so far.</param>
-        /// <returns>The contribution to pass to the next adapter or final turn-begin reducer.</returns>
-        ValueTask<TurnStartContribution> Apply(
-            EncounterTurnStartContext context,
-            TurnStartContribution current
-        );
-    }
+        /// <summary>Gets the exact turn that must still be current when resources commit.</summary>
+        public TurnIdentity Turn { get; }
 
-    /// <summary>
-    /// Exposes narrow same-dispatcher health work to transitional turn-start adapters.
-    /// </summary>
-    public sealed class EncounterTurnStartContext
-    {
-        private readonly OpHandlerContext context;
-
-        internal EncounterTurnStartContext(
-            EncounterId encounter,
-            CreatureId actor,
-            OpHandlerContext context
-        )
-        {
-            Encounter = encounter;
-            Actor = actor;
-            this.context = context ?? throw new ArgumentNullException(nameof(context));
-        }
-
-        /// <summary>Gets the encounter whose initiative boundary is being processed.</summary>
-        public EncounterId Encounter { get; }
-
-        /// <summary>Gets the living candidate receiving turn-start hooks.</summary>
-        public CreatureId Actor { get; }
-
-        /// <summary>Gets the latest committed snapshot after all previously awaited adapters.</summary>
-        public RulesSnapshot Snapshot => context.Snapshot;
-
-        /// <summary>Commits already-final damage as a nested child of the active encounter root.</summary>
-        /// <param name="target">The creature receiving the final damage.</param>
-        /// <param name="amount">The non-negative damage remaining after upstream calculations.</param>
-        /// <param name="origin">The stable Unity health-request identity.</param>
-        /// <param name="source">The rule source responsible for the damage.</param>
-        /// <returns>The exact health changes committed before this method completes.</returns>
-        /// <exception cref="ArgumentException"><paramref name="target"/> is not <see cref="Actor"/>.</exception>
-        /// <exception cref="InvalidOperationException">The nested health request is rejected.</exception>
-        public async ValueTask<DamageOutcome> ApplyFinalDamage(
-            CreatureId target,
-            int amount,
-            HealthChangeOriginId origin,
-            RuleSource source
-        )
-        {
-            if (target != Actor)
-                throw new ArgumentException(
-                    "A turn-start adapter may damage only its reached actor.",
-                    nameof(target)
-                );
-            return EncounterHandlerResults.Require(
-                await context.Dispatch(new ApplyDamageOp(target, amount, origin, source)),
-                "turn-start damage"
-            );
-        }
+        internal RegainTurnResourcesOp(TurnIdentity turn) => Turn = turn;
     }
 
     /// <summary>Opens the narrow exact-turn end extension point.</summary>
@@ -416,15 +343,15 @@ namespace Game.Rules.Runtime
             State = state ?? throw new ArgumentNullException(nameof(state));
     }
 
-    /// <summary>Carries the final action count through ordered turn-start adapters.</summary>
-    public readonly struct TurnStartContribution
+    /// <summary>Carries the calculated action allowance into exact-turn resource regain.</summary>
+    public readonly struct TurnResourceContribution
     {
         /// <summary>Gets the non-negative actions to grant if the actor remains eligible.</summary>
         public int Actions { get; }
 
         /// <summary>Creates a validated contribution for final resource regain.</summary>
         /// <param name="actions">The non-negative derived action count.</param>
-        public TurnStartContribution(int actions)
+        public TurnResourceContribution(int actions)
         {
             if (actions < 0)
                 throw new ArgumentOutOfRangeException(nameof(actions));
@@ -432,7 +359,7 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>Gets the normal unmodified three-action contribution.</summary>
-        public static TurnStartContribution Standard => new TurnStartContribution(3);
+        public static TurnResourceContribution Standard => new TurnResourceContribution(3);
     }
 
     /// <summary>Marks successful completion of the narrow turn-end hook.</summary>
@@ -565,12 +492,24 @@ namespace Game.Rules.Runtime
     {
         public EncounterId Encounter { get; }
         public CreatureId Actor { get; }
-        public int Actions { get; }
 
-        public CommitTurnBeginOp(EncounterId encounter, CreatureId actor, int actions)
+        public CommitTurnBeginOp(EncounterId encounter, CreatureId actor)
         {
             Encounter = encounter;
             Actor = actor;
+        }
+    }
+
+    internal sealed class CommitTurnResourcesRegainedOp : IRuleOp<EncounterAdvanceOutcome>
+    {
+        public TurnIdentity Turn { get; }
+        public int Actions { get; }
+
+        public CommitTurnResourcesRegainedOp(TurnIdentity turn, int actions)
+        {
+            if (actions < 0)
+                throw new ArgumentOutOfRangeException(nameof(actions));
+            Turn = turn;
             Actions = actions;
         }
     }

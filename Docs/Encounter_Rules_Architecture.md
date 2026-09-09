@@ -33,10 +33,10 @@ Attachment is identity-sensitive. A read through a creature or controller is val
 bridge that currently owns it. Cleanup from an older encounter must not detach or overwrite a newer
 owner.
 
-The encounter is not fully rules-native. Rotting Aura and Slowed still enter turn-start resolution
-through Unity-backed adapters, prepared-character and component data are still read during
-enrollment, and some scene-compatible manager entry points remain. Treat those paths as migration
-seams, not alternative authorities.
+The encounter is not fully rules-native. Rotting Aura and Slowed use standard binding-scoped rules
+extensions but still calculate from Unity-backed controller data, prepared-character and component
+data are still read during enrollment, and some scene-compatible manager entry points remain. Treat
+those paths as migration seams, not alternative authorities.
 
 `UnityCombatRulesBridge.CreateExplorationStride` is a special temporary composition. It reuses the
 Stride rules without attaching combat authority or spending encounter action economy.
@@ -89,7 +89,6 @@ each module implements:
 | Capability | Current purpose |
 | --- | --- |
 | `IUnityEncounterDispatcherModule` | Add feature handlers, reducers, validators, middleware, or listeners before `Build` |
-| `IUnityEncounterTurnStartModule` | Supply a transitional turn-start adapter |
 | `IUnityEncounterRuntimeModule` | Register observers or other encounter-owned runtime resources |
 | `IUnityEncounterActionPresentationModule` | Register typed feature presenters by stable action definition |
 | `IUnityEncounterTopologyModule` | Replace a feature's live Unity grid adapter after topology changes |
@@ -102,8 +101,8 @@ dispatcher or enrollment hooks merely for symmetry.
 
 | Module | Capabilities |
 | --- | --- |
-| Rotting Aura | Transitional turn-start adapter |
-| Slowed | Transitional turn-start adapter |
+| Rotting Aura | Combatant enrollment; a binding-scoped `TurnBeganFact` listener is defined at composition |
+| Slowed | Combatant enrollment; binding-scoped resource-calculation middleware is defined at composition |
 | Rage | Dispatcher configuration and combatant enrollment |
 | Strike | Dispatcher, action presentation, runtime state projection, combatant enrollment, and topology refresh |
 | Spellcasting | Dispatcher, action presentation, runtime effect projection, combatant enrollment, and topology refresh |
@@ -225,8 +224,11 @@ encounter handlers and engine reducers. Its current division of responsibility i
   reaching the first boundary. The boundary reducer advances the cursor and effect countdowns,
   removes every due effect and its associated binding/frequency/timing state in deterministic order,
   and finally stages `InitiativeBoundaryReachedFact` in the same atomic commit.
-- `BeginInitiativeTurnHandler`: reset movement budget, run ordered turn-start adapters, stop if the
-  actor is defeated, then commit the exact turn and final action contribution.
+- `BeginInitiativeTurnHandler`: reset movement budget, then atomically commit the exact turn and
+  reset MAP. Its `TurnBeganFact` listeners settle start-of-turn rules before resource regain.
+- `RegainTurnResourcesHandler`: calculate the exact turn's action allowance through ordinary
+  binding-scoped middleware, then atomically commit actions and reaction availability. Exact-turn,
+  active-encounter, and living-actor checks prevent stale or defeated turns from regaining resources.
 - `EndTurnHandler`: require the exact current `TurnIdentity`, run turn-end work, reset movement,
   clear turn resources through reducers, and advance.
 - `EncounterOutcomeListener`: after reaction-phase zero-HP listeners settle, finalize defeat and
@@ -295,9 +297,10 @@ presentation steps.
 
 ### Encounter presentation FIFO
 
-`UnityEncounterProjectionModule` observes encounter-started, turn-began, turn-ended, and encounter-
-outcome Facts. Each synchronous observer appends one Unity callback to a single bridge-owned FIFO
-and returns immediately. The complete flow is:
+`UnityEncounterProjectionModule` observes encounter-started, turn-resources-regained, turn-ended,
+and encounter-outcome Facts. Unity activates the controller only from the resource-regained Fact,
+after confirming its exact turn is still current and living. Each synchronous observer appends one
+Unity callback to a single bridge-owned FIFO and returns immediately. The complete flow is:
 
 ```text
 committed Fact -> synchronous observer enqueues Unity callback
@@ -343,7 +346,7 @@ that root ends. Do not transfer short-lived observation into the encounter lifet
 | Spellcasting, spell attacks, resources, effects, restoration, and presentation | Production for implemented spells |
 | Rage bindings, action, effect state, and Unity enrollment | Production |
 | Light effect presentation | Production adapter |
-| Slowed and Rotting Aura turn-start semantics | Transitional Unity-backed adapters |
+| Slowed and Rotting Aura turn-start semantics | Standard rules bindings with transitional Unity-backed calculations |
 | Hypothetical rules formerly used as architecture examples | Not contracts and not implied to be implemented |
 
 This table describes ownership and integration, not PF2e content completeness. An action being on the

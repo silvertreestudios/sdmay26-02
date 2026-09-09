@@ -245,6 +245,13 @@ start an independent host-request root, whose committed projections append to th
 order. Individual presentation failures are logged and do not change rules results or suppress
 later committed projections.
 
+Turn entry and controller activation are distinct boundaries. Committing the exact turn resets MAP
+and emits `TurnBeganFact`, whose binding-scoped listeners settle before a separate exact-turn
+resource regain calculates and commits actions and reaction availability. Unity activates the actor
+only from `TurnResourcesRegainedFact`, after verifying that the same living turn is still current.
+This keeps start-of-turn reactions available until their final regain while preventing a stale or
+defeated turn from receiving player or AI control.
+
 For a migrated slice:
 
 - Unity may seed the initial value;

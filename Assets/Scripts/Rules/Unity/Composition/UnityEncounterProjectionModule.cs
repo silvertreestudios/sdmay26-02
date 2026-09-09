@@ -16,7 +16,7 @@ namespace Game.Rules.Unity.Composition
         {
             EncounterProjectionObserver projection = new(owner);
             lifetime.Add(dispatcher.RegisterFactObserver<EncounterStartedFact>(projection));
-            lifetime.Add(dispatcher.RegisterFactObserver<TurnBeganFact>(projection));
+            lifetime.Add(dispatcher.RegisterFactObserver<TurnResourcesRegainedFact>(projection));
             lifetime.Add(dispatcher.RegisterFactObserver<TurnEndedFact>(projection));
             lifetime.Add(
                 dispatcher.RegisterFactObserver<EncounterOutcomeCommittedFact>(projection)
@@ -25,7 +25,7 @@ namespace Game.Rules.Unity.Composition
 
         private sealed class EncounterProjectionObserver
             : IFactObserver<EncounterStartedFact>,
-                IFactObserver<TurnBeganFact>,
+                IFactObserver<TurnResourcesRegainedFact>,
                 IFactObserver<TurnEndedFact>,
                 IFactObserver<EncounterOutcomeCommittedFact>
         {
@@ -46,12 +46,14 @@ namespace Game.Rules.Unity.Composition
 
             /// <inheritdoc/>
             public void OnFactCommitted(
-                TurnBeganFact fact,
+                TurnResourcesRegainedFact fact,
                 OpId rootId,
                 RulesSnapshot currentSnapshot
             )
             {
-                owner.EnqueueEncounterPresentation(() => owner.ProjectTurnBegan(fact.Turn));
+                owner.EnqueueEncounterPresentation(() =>
+                    owner.ProjectTurnResourcesRegained(fact.Turn)
+                );
             }
 
             /// <inheritdoc/>

@@ -102,15 +102,26 @@ namespace Game.Rules.Runtime
         }
     }
 
-    /// <summary>Reports that final turn resources and exact turn identity were committed.</summary>
+    /// <summary>Reports that an exact turn identity committed before resource regain.</summary>
     public sealed class TurnBeganFact : RuleFact
     {
         /// <summary>Gets the exact committed turn.</summary>
         public TurnIdentity Turn { get; }
 
         /// <summary>Creates a fact for the exact turn.</summary>
-        /// <param name="turn">The exact turn granted final resources.</param>
+        /// <param name="turn">The exact turn that entered start-of-turn processing.</param>
         public TurnBeganFact(TurnIdentity turn) => Turn = turn;
+    }
+
+    /// <summary>Reports that final actions and reaction committed for one exact turn.</summary>
+    public sealed class TurnResourcesRegainedFact : RuleFact
+    {
+        /// <summary>Gets the exact turn whose resources were regained.</summary>
+        public TurnIdentity Turn { get; }
+
+        /// <summary>Creates a fact for one completed exact-turn resource regain.</summary>
+        /// <param name="turn">The exact turn that received its final resources.</param>
+        public TurnResourcesRegainedFact(TurnIdentity turn) => Turn = turn;
     }
 
     /// <summary>Reports that an exact turn completed and its scoped resources were cleared.</summary>
