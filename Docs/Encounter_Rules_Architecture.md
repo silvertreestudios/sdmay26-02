@@ -33,8 +33,8 @@ Attachment is identity-sensitive. A read through a creature or controller is val
 bridge that currently owns it. Cleanup from an older encounter must not detach or overwrite a newer
 owner.
 
-The encounter is not fully rules-native. Rotting Aura and Slowed use standard binding-scoped rules
-extensions but still calculate from Unity-backed controller data, prepared-character and component
+The encounter is not fully rules-native. Rotting Aura uses a standard binding-scoped rules
+extension but still calculates from Unity-backed controller data. Prepared-character and component
 data are still read during enrollment, and some scene-compatible manager entry points remain. Treat
 those paths as migration seams, not alternative authorities.
 
@@ -68,14 +68,15 @@ for the selected capability rather than treating one large file as the entire su
 composition contract:
 
 1. `RottingAuraEncounterModule`
-2. `SlowedEncounterModule`
-3. `UnityRageEncounterModule`
-4. `UnityStrikeEncounterModule`
-5. `UnitySpellcastingEncounterModule`
-6. `UnityActionPresentationModule`
-7. `UnityLightEncounterModule`
-8. `UnityHealthProjectionModule`
-9. `UnityEncounterProjectionModule`
+2. `ConditionEncounterModule`
+3. `SlowedEncounterModule`
+4. `UnityRageEncounterModule`
+5. `UnityStrikeEncounterModule`
+6. `UnitySpellcastingEncounterModule`
+7. `UnityActionPresentationModule`
+8. `UnityLightEncounterModule`
+9. `UnityHealthProjectionModule`
+10. `UnityEncounterProjectionModule`
 
 Before constructing that list, the module set creates shared typed contexts and catalogs, defines
 every `RuleDefinitionId` required by this composition, and builds the `RuleRegistry`. Modules are
@@ -102,7 +103,8 @@ dispatcher or enrollment hooks merely for symmetry.
 | Module | Capabilities |
 | --- | --- |
 | Rotting Aura | Combatant enrollment; a binding-scoped `TurnBeganFact` listener is defined at composition |
-| Slowed | Combatant enrollment; binding-scoped resource-calculation middleware is defined at composition |
+| Condition applications | Shared application handler, runtime active-effect projection, and combatant enrollment |
+| Slowed | Combatant enrollment; one resource-calculation binding per creature |
 | Rage | Dispatcher configuration and combatant enrollment |
 | Strike | Dispatcher, action presentation, runtime state projection, combatant enrollment, and topology refresh |
 | Spellcasting | Dispatcher, action presentation, runtime effect projection, combatant enrollment, and topology refresh |
@@ -346,11 +348,45 @@ that root ends. Do not transfer short-lived observation into the encounter lifet
 | Spellcasting, spell attacks, resources, effects, restoration, and presentation | Production for implemented spells |
 | Rage bindings, action, effect state, and Unity enrollment | Production |
 | Light effect presentation | Production adapter |
-| Slowed and Rotting Aura turn-start semantics | Standard rules bindings with transitional Unity-backed calculations |
+| Slowed turn-resource semantics | Independent condition applications in active effects; highest-value query applied once during resource regain |
+| Rotting Aura turn-start semantics | Standard rules binding with a transitional Unity-backed calculation |
 | Hypothetical rules formerly used as architecture examples | Not contracts and not implied to be implemented |
 
 This table describes ownership and integration, not PF2e content completeness. An action being on the
 runtime does not mean every trait, feat interaction, or rules option for that action exists.
+
+### Condition applications and Slowed
+
+[`ConditionRules.cs`](../Assets/Scripts/Rules/Runtime/ConditionRules.cs) provides
+`ApplyConditionOp` and pure application/value queries. Each application creates one existing
+active effect and lifetime binding. The binding's owner is the target; the effect's source creature
+anchors duration timing. The immutable `ConditionState` payload contains only condition kind and
+positive value. `ConditionId` identifies a kind, while `ActiveEffectId` identifies an application.
+The formerly unused independent conditions state slice is removed, not maintained alongside effects.
+
+`ConditionRules.GetValue` derives the highest enabled value for the requested creature and condition.
+It does not cache the maximum, merge lifetimes, or discard weaker applications. For example,
+indefinite Slowed 1 plus Slowed 2 for one minute becomes Slowed 1 again when the timed application
+expires. The existing effect reducers and encounter clock own creation, removal, and expiration.
+Removing one application is different from a future rule that removes or reduces the whole condition.
+
+`SlowedEncounterModule` contributes one standalone calculation binding per combatant, including
+reinforcements. That binding reads the shared maximum and subtracts it once from actions regained,
+clamped at zero. It is not installed per condition application: doing so would add the penalties.
+Slowed has no arbitrary value cap and is not consumed when actions are lost.
+
+[`ConditionEncounterModule.cs`](../Assets/Scripts/Creature/Conditions/ConditionEncounterModule.cs)
+owns shared Unity application, enrollment, and effect-Fact projection.
+`ConditionSeed` preserves independent indefinite applications before attachment and projects those
+applications for later enrollment. It is never read for attached rules calculations. Finite
+applications belong to the existing encounter lifetime, not the between-encounter seed.
+Projection re-queries surviving applications after removal instead of unconditionally clearing the
+condition's display entry.
+
+The legacy `Conditions` save shape still persists names rather than mechanical values and lifetimes.
+Save restoration of arbitrary valued or timed conditions is not introduced here. Slowed is the first
+consumer of this shared bookkeeping; other condition mechanics, the Slow spell, generic condition
+reduction/removal rules, and special condition interactions are not implicitly implemented.
 
 ## Recipe: add or migrate a vertical feature
 
