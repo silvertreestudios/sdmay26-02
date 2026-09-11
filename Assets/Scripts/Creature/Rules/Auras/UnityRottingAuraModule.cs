@@ -4,23 +4,28 @@ using System.Linq;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Attack;
+using Game.Rules.Unity.Composition;
 using GridPrivate;
 using UnityEngine;
 
 namespace Game.Creature.Rules
 {
     /// <summary>
-    /// Adapts current Unity aura geometry and unmigrated creature data, then projects completed
-    /// Rotting Aura Facts to the combat log.
+    /// Owns Rotting Aura's encounter wiring, Unity data capture, and committed-Fact presentation.
+    /// Eligibility, rolls, and damage remain in <see cref="RottingAuraRules"/>.
     /// </summary>
-    internal sealed class UnityRottingAuraContext
-        : IRottingAuraDataProvider,
+    internal sealed class UnityRottingAuraModule
+        : IUnityEncounterDispatcherModule,
+            IUnityEncounterRuntimeModule,
+            IUnityEncounterTopologyModule,
+            IUnityCombatantEnrollmentModule,
+            IRottingAuraDataProvider,
             IFactObserver<RottingAuraResolvedFact>
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private Tile[,] tiles;
 
-        internal UnityRottingAuraContext(
+        internal UnityRottingAuraModule(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             Tile[,] tiles
         )
@@ -28,6 +33,18 @@ namespace Game.Creature.Rules
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.tiles = tiles ?? throw new ArgumentNullException(nameof(tiles));
         }
+
+        /// <inheritdoc/>
+        public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
+            builder.UseRottingAuraRules();
+
+        /// <inheritdoc/>
+        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime) =>
+            lifetime.Add(dispatcher.RegisterFactObserver<RottingAuraResolvedFact>(this));
+
+        /// <inheritdoc/>
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) =>
+            builder.AddRuleBindings(new[] { RottingAuraRules.CreateBinding(builder.CreatureId) });
 
         /// <inheritdoc/>
         public RottingAuraTurnData Capture(
@@ -54,7 +71,7 @@ namespace Game.Creature.Rules
                         || aura.radiusFeet <= 0
                         || !string.Equals(
                             aura.slug,
-                            RottingAuraRule.RuleSlug,
+                            RottingAuraRules.Slug,
                             StringComparison.OrdinalIgnoreCase
                         )
                     )
@@ -83,7 +100,8 @@ namespace Game.Creature.Rules
             );
         }
 
-        internal void ReplaceTiles(Tile[,] replacement) =>
+        /// <inheritdoc/>
+        public void RefreshTopology(Tile[,] replacement) =>
             tiles = replacement ?? throw new ArgumentNullException(nameof(replacement));
 
         /// <inheritdoc/>
@@ -123,7 +141,7 @@ namespace Game.Creature.Rules
                 Damage = damage,
             };
             entry.Tags.Add("aura");
-            entry.Tags.Add(RottingAuraRule.RuleSlug);
+            entry.Tags.Add(RottingAuraRules.Slug);
             entry.Tags.Add("void");
             entry.Details.Add(
                 new CombatLogDetail(
@@ -162,5 +180,15 @@ namespace Game.Creature.Rules
                 );
             return component;
         }
+    }
+
+    /// <summary>Identifies Rotting Aura visuals without requiring an active encounter module.</summary>
+    internal sealed class RottingAuraVisualization : ICreatureAuraRule
+    {
+        /// <inheritdoc/>
+        public string Slug => RottingAuraRules.Slug;
+
+        /// <inheritdoc/>
+        public bool HasVisual(CreatureAura aura) => aura != null && aura.radiusFeet > 0;
     }
 }

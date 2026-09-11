@@ -18,6 +18,22 @@ public sealed class RulesRottingAuraUnityTests
     private static readonly PlayerId Players = new("players");
     private static readonly PlayerId Enemies = new("enemies");
 
+    [TestCase(10, true)]
+    [TestCase(0, false)]
+    [TestCase(-5, false)]
+    public void VisualizationDefinitionWorksWithoutAnEncounter(int radius, bool expected)
+    {
+        ICreatureAuraRule visualization = DefinedAuras.TryGet(RottingAuraRules.Slug);
+        Assert.That(visualization, Is.TypeOf<RottingAuraVisualization>());
+        Assert.That(visualization.Slug, Is.EqualTo(RottingAuraRules.Slug));
+        Assert.That(
+            visualization.HasVisual(
+                new CreatureAura { slug = RottingAuraRules.Slug, radiusFeet = radius }
+            ),
+            Is.EqualTo(expected)
+        );
+    }
+
     [Test]
     public void AdapterCapturesOnlyExistingSpatialDataAndTypedCreatureValues()
     {
@@ -30,7 +46,7 @@ public sealed class RulesRottingAuraUnityTests
             source.level = 6;
             source.auras = new List<CreatureAura>
             {
-                new() { slug = RottingAuraRule.RuleSlug, radiusFeet = 10 },
+                new() { slug = RottingAuraRules.Slug, radiusFeet = 10 },
             };
             target.traits = new List<string> { "humanoid" };
             target.weaknesses = new List<DamageValue> { new("void", 2) };
@@ -38,7 +54,7 @@ public sealed class RulesRottingAuraUnityTests
             Tile[,] tiles = CreateTiles(4);
             Place(tiles, sourceObject, 0);
             Place(tiles, targetObject, 2);
-            UnityRottingAuraContext context = new(
+            UnityRottingAuraModule context = new(
                 new Dictionary<CreatureId, CreatureComponent>
                 {
                     [Source] = source,
@@ -76,7 +92,7 @@ public sealed class RulesRottingAuraUnityTests
             CreatureComponent target = targetObject.AddComponent<CreatureComponent>();
             source.auras = new List<CreatureAura>
             {
-                new() { slug = RottingAuraRule.RuleSlug, radiusFeet = 10 },
+                new() { slug = RottingAuraRules.Slug, radiusFeet = 10 },
             };
             target.traits = new List<string>();
             target.weaknesses = new List<DamageValue>();
@@ -89,7 +105,7 @@ public sealed class RulesRottingAuraUnityTests
             Tile[,] outOfRange = CreateTiles(4);
             Place(outOfRange, sourceObject, 0);
             Place(outOfRange, targetObject, 3);
-            UnityRottingAuraContext context = new(creatures, outOfRange);
+            UnityRottingAuraModule context = new(creatures, outOfRange);
 
             Assert.That(context.Capture(Snapshot(), Encounter, Target).Sources, Is.Empty);
 
@@ -97,7 +113,7 @@ public sealed class RulesRottingAuraUnityTests
             blocked[1, 0] = null;
             Place(blocked, sourceObject, 0);
             Place(blocked, targetObject, 2);
-            context.ReplaceTiles(blocked);
+            context.RefreshTopology(blocked);
 
             Assert.That(context.Capture(Snapshot(), Encounter, Target).Sources, Is.Empty);
         }

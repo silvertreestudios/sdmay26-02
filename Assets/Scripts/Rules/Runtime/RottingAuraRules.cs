@@ -36,11 +36,6 @@ namespace Game.Rules.Runtime
     /// </summary>
     public sealed class RottingAuraTurnData
     {
-        private readonly IReadOnlyList<Trait> targetTraits;
-        private readonly IReadOnlyList<TypedDefenseAdjustment> weaknesses;
-        private readonly IReadOnlyList<TypedDefenseAdjustment> resistances;
-        private readonly IReadOnlyList<RottingAuraSource> sources;
-
         /// <summary>Creates one captured turn-entry data set.</summary>
         /// <param name="targetTraits">The acting creature's current unmigrated traits.</param>
         /// <param name="weaknesses">The acting creature's current typed weaknesses.</param>
@@ -53,11 +48,11 @@ namespace Game.Rules.Runtime
             IEnumerable<RottingAuraSource> sources
         )
         {
-            this.targetTraits = Copy(targetTraits, nameof(targetTraits));
-            this.weaknesses = Copy(weaknesses, nameof(weaknesses));
-            this.resistances = Copy(resistances, nameof(resistances));
-            this.sources = Copy(sources, nameof(sources));
-            if (this.targetTraits.Any(trait => trait.IsEmpty))
+            TargetTraits = Copy(targetTraits, nameof(targetTraits));
+            Weaknesses = Copy(weaknesses, nameof(weaknesses));
+            Resistances = Copy(resistances, nameof(resistances));
+            Sources = Copy(sources, nameof(sources));
+            if (TargetTraits.Any(trait => trait.IsEmpty))
                 throw new ArgumentException(
                     "Aura target traits cannot be empty.",
                     nameof(targetTraits)
@@ -65,16 +60,16 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>Gets the acting creature's traits.</summary>
-        public IReadOnlyList<Trait> TargetTraits => targetTraits;
+        public IReadOnlyList<Trait> TargetTraits { get; }
 
         /// <summary>Gets void weaknesses used by typed damage resolution.</summary>
-        public IReadOnlyList<TypedDefenseAdjustment> Weaknesses => weaknesses;
+        public IReadOnlyList<TypedDefenseAdjustment> Weaknesses { get; }
 
         /// <summary>Gets void resistances used by typed damage resolution.</summary>
-        public IReadOnlyList<TypedDefenseAdjustment> Resistances => resistances;
+        public IReadOnlyList<TypedDefenseAdjustment> Resistances { get; }
 
         /// <summary>Gets spatially affecting sources in deterministic encounter order.</summary>
-        public IReadOnlyList<RottingAuraSource> Sources => sources;
+        public IReadOnlyList<RottingAuraSource> Sources { get; }
 
         private static IReadOnlyList<T> Copy<T>(IEnumerable<T> values, string parameterName)
         {
@@ -106,8 +101,13 @@ namespace Game.Rules.Runtime
     }
 
     /// <summary>
-    /// Reports one completed Rotting Aura tick after its authoritative health work has settled.
+    /// Reports one Rotting Aura tick after its health operation commits.
     /// </summary>
+    /// <remarks>
+    /// This occurrence precedes the tick root's authoritative Fact listeners. Those listeners finish
+    /// before the turn listener considers the next source. Collections are copied and read-only so
+    /// observers cannot change another observer's view of the committed result.
+    /// </remarks>
     public sealed class RottingAuraResolvedFact : RuleFact
     {
         /// <summary>Gets the living aura source selected for the tick.</summary>
@@ -144,9 +144,9 @@ namespace Game.Rules.Runtime
             Source = source;
             Target = target;
             Roll = roll;
-            Damage = damage;
-            Weaknesses = weaknesses;
-            Resistances = resistances;
+            Damage = Array.AsReadOnly(damage.ToArray());
+            Weaknesses = Array.AsReadOnly(weaknesses.ToArray());
+            Resistances = Array.AsReadOnly(resistances.ToArray());
             Outcome = outcome;
         }
     }
@@ -203,12 +203,15 @@ namespace Game.Rules.Runtime
     /// <summary>Owns Rotting Aura's binding, turn response, and damage workflow.</summary>
     public static class RottingAuraRules
     {
+        /// <summary>Gets the canonical slug shared by creature data, rule sources, and visuals.</summary>
+        public const string Slug = "rotting-aura";
+
         /// <summary>Gets the stable definition installed for every encounter combatant.</summary>
         public static RuleDefinitionId DefinitionId { get; } =
             new RuleDefinitionId("rotting-aura-turn-entry");
 
         /// <summary>Gets the rule source used for aura damage and active bindings.</summary>
-        public static RuleSource Source { get; } = RuleSource.FromSlug("rotting-aura");
+        public static RuleSource Source { get; } = RuleSource.FromSlug(Slug);
 
         /// <summary>Defines the feature's normal committed-turn listener.</summary>
         /// <param name="builder">The explicit production rule registry builder.</param>
@@ -291,7 +294,7 @@ namespace Game.Rules.Runtime
                             turnData.Resistances
                         )
                     );
-                    RequireResolved(result);
+                    RequireResolved(result, "Rotting Aura damage did not resolve.");
                 }
             }
 
@@ -309,16 +312,22 @@ namespace Game.Rules.Runtime
                     && snapshot.Health.TryGet(turn.Actor, out targetHealth)
                     && targetHealth.IsLiving;
             }
-
-            private static void RequireResolved(OpResult<DamageOutcome> result)
-            {
-                if (result is ResolvedOpResult<DamageOutcome>)
-                    return;
-                if (result is InvalidOpResult<DamageOutcome> invalid)
-                    throw new InvalidOperationException(invalid.Reason);
-                throw new InvalidOperationException("Rotting Aura damage did not resolve.");
-            }
         }
+
+        // Supporting Aura operations must resolve; propagate an invalid reason without inventing
+        // recovery or a second outcome contract for these internal steps.
+        internal static DamageOutcome RequireResolved(
+            OpResult<DamageOutcome> result,
+            string failureMessage
+        ) =>
+            result switch
+            {
+                ResolvedOpResult<DamageOutcome> resolved => resolved.Value,
+                InvalidOpResult<DamageOutcome> invalid => throw new InvalidOperationException(
+                    invalid.Reason
+                ),
+                _ => throw new InvalidOperationException(failureMessage),
+            };
     }
 
     /// <summary>Registers Rotting Aura's supporting damage operation.</summary>
@@ -371,14 +380,10 @@ namespace Game.Rules.Runtime
                     RottingAuraRules.Source
                 )
             );
-            if (damageResult is not ResolvedOpResult<DamageOutcome> resolvedDamage)
-            {
-                if (damageResult is InvalidOpResult<DamageOutcome> invalid)
-                    throw new InvalidOperationException(invalid.Reason);
-                throw new InvalidOperationException(
-                    "Rotting Aura health application did not resolve."
-                );
-            }
+            DamageOutcome outcome = RottingAuraRules.RequireResolved(
+                damageResult,
+                "Rotting Aura health application did not resolve."
+            );
 
             OpResult<DamageOutcome> occurrence = await context.Dispatch(
                 new CommitRottingAuraResolvedOp(
@@ -389,15 +394,14 @@ namespace Game.Rules.Runtime
                         damage,
                         frame.Op.Weaknesses,
                         frame.Op.Resistances,
-                        resolvedDamage.Value
+                        outcome
                     )
                 )
             );
-            if (occurrence is ResolvedOpResult<DamageOutcome> resolvedOccurrence)
-                return resolvedOccurrence.Value;
-            if (occurrence is InvalidOpResult<DamageOutcome> invalidOccurrence)
-                throw new InvalidOperationException(invalidOccurrence.Reason);
-            throw new InvalidOperationException("Rotting Aura completion did not resolve.");
+            return RottingAuraRules.RequireResolved(
+                occurrence,
+                "Rotting Aura completion did not resolve."
+            );
         }
     }
 

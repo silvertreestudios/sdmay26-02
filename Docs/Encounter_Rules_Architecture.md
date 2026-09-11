@@ -68,7 +68,7 @@ for the selected capability rather than treating one large file as the entire su
 `UnityEncounterModuleSet.Create` is the only production module list. Its order is part of the
 composition contract:
 
-1. `RottingAuraEncounterModule`
+1. `UnityRottingAuraModule`
 2. `ConditionEncounterModule`
 3. `SlowedEncounterModule`
 4. `UnityRageEncounterModule`
@@ -285,9 +285,18 @@ actor, obtains only spatial exposure and unmigrated creature values from its Uni
 dispatches one ordered supporting tick operation per living source. Each tick rolls through its
 handler context, resolves shared typed damage, and delegates the sole health write to
 `ApplyDamageOp`. A feature-local completion reducer writes no state; it stages
-`RottingAuraResolvedFact` after health and zero-HP listeners settle, including fully resisted ticks,
-so the encounter-owned observer can preserve source, roll, defense, and zero-damage logging without
-a generic occurrence API or correlation cache.
+`RottingAuraResolvedFact` after the health operation commits, including fully resisted ticks.
+The tick root's authoritative Fact listeners (including zero-HP reactions) run afterward and settle
+before the turn listener considers the next source. The encounter-owned observer preserves source,
+roll, defense, and zero-damage logging without a generic occurrence API or correlation cache.
+
+The feature has two implementation files:
+[`RottingAuraRules.cs`](../Assets/Scripts/Rules/Runtime/RottingAuraRules.cs) owns immutable captured
+data, eligibility, rolls, damage orchestration, and the completion Fact;
+[`UnityRottingAuraModule.cs`](../Assets/Scripts/Creature/Rules/Auras/UnityRottingAuraModule.cs) owns
+encounter wiring, Unity data capture, topology refresh, and Fact-based logging. Its colocated
+`RottingAuraVisualization` definition remains usable outside an encounter. Shared aura geometry,
+the visualization registry, and grid rendering stay in their existing shared files.
 
 `UnityActionPresentationRegistry` is the generic Unity routing boundary. Feature modules explicitly
 register typed presenters by stable `ActionDefinitionId`; the registry verifies the concrete

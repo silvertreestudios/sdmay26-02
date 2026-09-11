@@ -24,6 +24,43 @@ namespace Game.Rules.Runtime.Tests
         private static readonly RuleSource TestSource = RuleSource.FromSlug("aura-test");
 
         [Test]
+        public void CompletionFactCopiesCollectionsAndRejectsObserverMutation()
+        {
+            TypedDamagePart originalDamage = new("void", 4, new[] { "Rotting Aura" });
+            TypedDefenseAdjustment weakness = new("void", 2);
+            TypedDefenseAdjustment resistance = new("void", 1);
+            TypedDamagePart[] damage = { originalDamage };
+            TypedDefenseAdjustment[] weaknesses = { weakness };
+            List<TypedDefenseAdjustment> resistances = new() { resistance };
+            RottingAuraResolvedFact fact = new(
+                Source,
+                Target,
+                new RollResult(new DiceExpression(1, 6), new[] { 3 }),
+                damage,
+                weaknesses,
+                resistances,
+                new DamageOutcome(4, 0, 4)
+            );
+
+            damage[0] = new TypedDamagePart("fire", 99, Array.Empty<string>());
+            weaknesses[0] = new TypedDefenseAdjustment("fire", 99);
+            resistances.Clear();
+
+            Assert.That(fact.Damage, Is.EqualTo(new[] { originalDamage }));
+            Assert.That(fact.Weaknesses, Is.EqualTo(new[] { weakness }));
+            Assert.That(fact.Resistances, Is.EqualTo(new[] { resistance }));
+            Assert.Throws<NotSupportedException>(() =>
+                ((IList<TypedDamagePart>)fact.Damage)[0] = damage[0]
+            );
+            Assert.Throws<NotSupportedException>(() =>
+                ((IList<TypedDefenseAdjustment>)fact.Weaknesses).Clear()
+            );
+            Assert.Throws<NotSupportedException>(() =>
+                ((IList<TypedDefenseAdjustment>)fact.Resistances).Clear()
+            );
+        }
+
+        [Test]
         public async Task TickUsesSourceLevelTypedDefensesAndAuthoritativeHealth()
         {
             ScriptedRollService rolls = new(3, 4);
@@ -51,6 +88,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(aura.Roll.Dice, Is.EqualTo(new DiceExpression(2, 6)));
             Assert.That(aura.Roll.Values, Is.EqualTo(new[] { 3, 4 }));
             Assert.That(aura.Damage.Single().Amount, Is.EqualTo(8));
+            Assert.That(((IList<TypedDamagePart>)aura.Damage).IsReadOnly, Is.True);
             Assert.That(aura.Outcome, Is.EqualTo(result.Value));
             Assert.That(rolls.Remaining, Is.Zero);
             Assert.That(dispatcher.Diagnostics.Compact, Does.Contain("ApplyRottingAuraTickOp"));
