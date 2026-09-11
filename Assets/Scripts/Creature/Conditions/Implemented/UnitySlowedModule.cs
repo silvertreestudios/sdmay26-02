@@ -1,7 +1,19 @@
 using System;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity.Composition;
 using UnityEngine;
+
+namespace Game.Creature.Rules
+{
+    /// <summary>Owns Slowed's Unity combatant enrollment.</summary>
+    internal sealed class UnitySlowedModule : IUnityCombatantEnrollmentModule
+    {
+        /// <inheritdoc/>
+        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) =>
+            builder.AddRuleBindings(new[] { SlowedRules.CreateBinding(builder.CreatureId) });
+    }
+}
 
 /// <summary>Defines one supported value of the Slowed condition.</summary>
 public sealed class Slowed : Condition
@@ -26,8 +38,8 @@ public sealed class Slowed : Condition
     {
         ConditionEncounterModule.Apply(
             obj,
-            new ConditionState(SlowedEncounterModule.ConditionId, value),
-            RuleSource.FromSlug("slowed"),
+            new ConditionState(SlowedRules.ConditionId, value),
+            SlowedRules.Source,
             source
         );
     }

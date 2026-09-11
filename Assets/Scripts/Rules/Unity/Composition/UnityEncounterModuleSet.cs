@@ -60,7 +60,7 @@ namespace Game.Rules.Unity.Composition
             RuleRegistryBuilder registryBuilder = new();
             registryBuilder.Define(ConditionRules.DefinitionId);
             RottingAuraRules.DefineRuleBinding(registryBuilder, rottingAura);
-            SlowedEncounterModule.DefineRuleBindings(registryBuilder);
+            SlowedRules.DefineRuleBinding(registryBuilder);
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
             registryBuilder.Define(
@@ -79,8 +79,8 @@ namespace Game.Rules.Unity.Composition
             {
                 rottingAura,
                 new ConditionEncounterModule(owner),
-                new SlowedEncounterModule(),
-                new UnityRageEncounterModule(rageDefinition),
+                new UnitySlowedModule(),
+                new UnityRageModule(rageDefinition),
                 new UnityStrikeEncounterModule(
                     strikeContext,
                     controllers,
@@ -106,28 +106,6 @@ namespace Game.Rules.Unity.Composition
             UnityEncounterComposition composition = new(modules);
             composition.ConfigureActionPresentation(actionPresentation);
             return new UnityEncounterModuleSet(composition, actionCatalog, registryBuilder.Build());
-        }
-    }
-
-    /// <summary>Owns Rage's dispatcher and combatant-state composition.</summary>
-    internal sealed class UnityRageEncounterModule
-        : IUnityEncounterDispatcherModule,
-            IUnityCombatantEnrollmentModule
-    {
-        private readonly RageActionDefinition definition;
-
-        internal UnityRageEncounterModule(RageActionDefinition definition) =>
-            this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
-
-        /// <inheritdoc/>
-        public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
-            builder.UseRageRules(definition);
-
-        /// <inheritdoc/>
-        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
-        {
-            RageActorState state = UnityRageActorStateProvider.CreateState(builder.Creature);
-            builder.AddRuleBindings(RageRules.CreateInitialBindings(builder.CreatureId, state));
         }
     }
 

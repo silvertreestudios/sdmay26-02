@@ -224,7 +224,7 @@ public class Pf2eRulesTests
 
         CreatureId actor = bridge.GetCreatureId(controller);
         Assert.That(
-            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedEncounterModule.ConditionId),
+            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedRules.ConditionId),
             Is.EqualTo(tier)
         );
         Assert.That(controller.ActionPoints, Is.EqualTo((uint)expectedActions));
@@ -242,7 +242,7 @@ public class Pf2eRulesTests
         ApplySlowed(controller.gameObject, 2);
         CreatureId actor = bridge.GetCreatureId(controller);
         Assert.That(
-            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedEncounterModule.ConditionId),
+            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedRules.ConditionId),
             Is.EqualTo(3)
         );
 
@@ -307,7 +307,7 @@ public class Pf2eRulesTests
         second.AdvanceEncounter();
         CreatureId actor = second.GetCreatureId(controller);
         Assert.That(
-            ConditionRules.GetValue(second.Snapshot, actor, SlowedEncounterModule.ConditionId),
+            ConditionRules.GetValue(second.Snapshot, actor, SlowedRules.ConditionId),
             Is.EqualTo(1)
         );
         Assert.That(
@@ -331,11 +331,11 @@ public class Pf2eRulesTests
 
         CreatureId actor = bridge.GetCreatureId(reinforcement);
         Assert.That(
-            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedEncounterModule.ConditionId),
+            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedRules.ConditionId),
             Is.EqualTo(2)
         );
         Assert.That(
-            bridge.Snapshot.RuleBindings.Contains(SlowedEncounterModule.BindingId(actor)),
+            bridge.Snapshot.RuleBindings.Contains(SlowedRules.CreateBinding(actor).Id),
             Is.True
         );
         bridge.ReleaseOwnership();
@@ -366,7 +366,7 @@ public class Pf2eRulesTests
             EndRound(bridge);
 
         Assert.That(
-            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedEncounterModule.ConditionId),
+            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedRules.ConditionId),
             Is.EqualTo(1)
         );
         Assert.That(ConditionRules.GetApplications(bridge.Snapshot, actor).Count(), Is.EqualTo(1));
@@ -401,7 +401,7 @@ public class Pf2eRulesTests
         Assert.That(controller.ActionPoints, Is.Zero);
         EndRound(second);
         Assert.That(
-            ConditionRules.GetValue(second.Snapshot, actor, SlowedEncounterModule.ConditionId),
+            ConditionRules.GetValue(second.Snapshot, actor, SlowedRules.ConditionId),
             Is.EqualTo(5),
             "Slowed is not consumed by lost actions."
         );
@@ -816,7 +816,7 @@ public class Pf2eRulesTests
         var result = bridge.Dispatch(
             new ApplyConditionOp(
                 actor,
-                SlowedEncounterModule.ConditionId,
+                SlowedRules.ConditionId,
                 value,
                 actor,
                 RuleSource.FromSlug("test-slow-spell"),
