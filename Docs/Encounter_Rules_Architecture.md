@@ -71,8 +71,8 @@ composition contract:
 
 1. `UnityRottingAuraModule`
 2. `ConditionEncounterModule`
-3. `SlowedEncounterModule`
-4. `UnityRageModule`
+3. `UnitySlowedModule`
+4. `UnityRageModule'
 5. `UnityStrikeEncounterModule`
 6. `UnitySpellcastingEncounterModule`
 7. `UnityActionPresentationModule`
@@ -397,10 +397,14 @@ indefinite Slowed 1 plus Slowed 2 for one minute becomes Slowed 1 again when the
 expires. The existing effect reducers and encounter clock own creation, removal, and expiration.
 Removing one application is different from a future rule that removes or reduces the whole condition.
 
-`SlowedEncounterModule` contributes one standalone calculation binding per combatant, including
-reinforcements. That binding reads the shared maximum and subtracts it once from actions regained,
-clamped at zero. It is not installed per condition application: doing so would add the penalties.
-Slowed has no arbitrary value cap and is not consumed when actions are lost.
+[`SlowedRules.cs`](../Assets/Scripts/Rules/Runtime/SlowedRules.cs) owns Slowed's canonical
+identifiers, binding definition and factory, and turn-resource middleware. That middleware reads the
+shared maximum and subtracts it once from actions regained, clamped at zero.
+[`UnitySlowedModule.cs`](../Assets/Scripts/Creature/Conditions/Implemented/UnitySlowedModule.cs)
+owns combatant enrollment and the Unity `Condition` adapter. It contributes one standalone
+calculation binding per combatant, including reinforcements. The binding is not installed per
+condition application: doing so would add the penalties. Slowed has no arbitrary value cap and is
+not consumed when actions are lost.
 
 [`ConditionEncounterModule.cs`](../Assets/Scripts/Creature/Conditions/ConditionEncounterModule.cs)
 owns shared Unity application, enrollment, and effect-Fact projection.

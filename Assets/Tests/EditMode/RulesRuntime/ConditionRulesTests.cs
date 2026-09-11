@@ -9,8 +9,22 @@ namespace Game.Rules.Runtime.Tests
     {
         private static readonly CreatureId Target = new("target");
         private static readonly CreatureId Caster = new("caster");
-        private static readonly ConditionId Slowed = new("Slowed");
+        private static readonly ConditionId Slowed = SlowedRules.ConditionId;
         private static readonly RuleSource Source = RuleSource.FromSlug("test-condition");
+
+        [Test]
+        public void SlowedCreatesOneStableEffectIndependentBindingPerOwner()
+        {
+            ActiveRuleBinding binding = SlowedRules.CreateBinding(Target);
+
+            Assert.That(binding.Id, Is.EqualTo(new BindingId("slowed-binding:target")));
+            Assert.That(binding.DefinitionId, Is.EqualTo(SlowedRules.DefinitionId));
+            Assert.That(binding.Owner, Is.EqualTo(Target));
+            Assert.That(binding.EffectId, Is.Null);
+            Assert.That(binding.Source, Is.EqualTo(SlowedRules.Source));
+            Assert.That(binding.CreationOrder, Is.Zero);
+            Assert.That(binding.IsEnabled, Is.True);
+        }
 
         [Test]
         public async Task ApplicationKeepsSourceTargetAndIndependentIdentity()
