@@ -57,6 +57,7 @@ Stride rules without attaching combat authority or spending encounter action eco
 | Enrollment and rollback | [`UnityCombatantEnrollmentPipeline.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityCombatantEnrollmentPipeline.cs) |
 | Unity authority and synchronous dispatch boundary | [`UnityCombatRulesBridge.cs`](../Assets/Scripts/Rules/Unity/UnityCombatRulesBridge.cs) |
 | Strike and spell Unity adapters | [`UnityStrikeEncounterModule.cs`](../Assets/Scripts/Rules/Unity/Strike/UnityStrikeEncounterModule.cs), [`UnitySpellcastingEncounterModule.cs`](../Assets/Scripts/Combat/Spells/UnitySpellcastingEncounterModule.cs) |
+| Light Unity effect presentation | [`UnityLightModule.cs`](../Assets/Scripts/Rules/Unity/Light/UnityLightModule.cs) |
 | Typed action lifecycle presentation routing and ordered draining | [`UnityActionPresentationRegistry.cs`](../Assets/Scripts/Rules/Unity/UnityActionPresentationRegistry.cs) |
 | Health and encounter projection | [`UnityHealthProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityHealthProjectionModule.cs), [`UnityEncounterProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterProjectionModule.cs) |
 
@@ -75,7 +76,7 @@ composition contract:
 5. `UnityStrikeEncounterModule`
 6. `UnitySpellcastingEncounterModule`
 7. `UnityActionPresentationModule`
-8. `UnityLightEncounterModule`
+8. `UnityLightModule`
 9. `UnityHealthProjectionModule`
 10. `UnityEncounterProjectionModule`
 
@@ -110,7 +111,7 @@ dispatcher or enrollment hooks merely for symmetry.
 | Strike | Dispatcher, action presentation, runtime state projection, combatant enrollment, and topology refresh |
 | Spellcasting | Dispatcher, action presentation, runtime effect projection, combatant enrollment, and topology refresh |
 | Action presentation | Runtime registration of the shared lifecycle Fact observer and encounter-owned coordinator |
-| Light | Runtime effect presentation |
+| Light | Runtime effect presentation; spell effect creation and duration remain data-driven |
 | Health projection | Runtime Fact projection |
 | Encounter projection | Runtime Fact projection into the Unity-owned presentation FIFO |
 

@@ -95,7 +95,7 @@ namespace Game.Rules.Unity.Composition
                     installUnityAuthority
                 ),
                 new UnityActionPresentationModule(actionPresentation),
-                new UnityLightEncounterModule(spellCatalog, creatures),
+                new UnityLightModule(spellCatalog, creatures),
                 new UnityHealthProjectionModule(
                     creatures,
                     actionPresentationCoordinator,
