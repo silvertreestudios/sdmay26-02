@@ -282,7 +282,8 @@ has no spell special case.
 
 Rotting Aura's ordinary `TurnBeganFact` listener checks the exact authoritative turn and wounded
 actor, obtains only spatial exposure and unmigrated creature values from its Unity adapter, and
-dispatches one ordered supporting tick operation per living source. Each tick rolls through its
+dispatches one ordered supporting tick operation per affecting aura entry from a living source.
+Each tick rolls through its
 handler context, resolves shared typed damage, and delegates the sole health write to
 `ApplyDamageOp`. A feature-local completion reducer writes no state; it stages
 `RottingAuraResolvedFact` after the health operation commits, including fully resisted ticks.
