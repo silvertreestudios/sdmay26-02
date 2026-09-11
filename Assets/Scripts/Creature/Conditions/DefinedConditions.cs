@@ -6,9 +6,9 @@ public static class DefinedConditions
 {
     private static Dictionary<string, Condition> Conditions = new()
     {
-        { "Slowed 1", new Condition("Slowed", (GameObject g) => Slowed(g, 1)) },
-        { "Slowed 2", new Condition("Slowed", (GameObject g) => Slowed(g, 2)) },
-        { "Slowed 3", new Condition("Slowed", (GameObject g) => Slowed(g, 3)) },
+        { "Slowed 1", new Slowed(1) },
+        { "Slowed 2", new Slowed(2) },
+        { "Slowed 3", new Slowed(3) },
     };
 
     /// <summary>
@@ -134,18 +134,6 @@ public static class DefinedConditions
 
     /// <summary>Ill; status penalty to all checks and DCs; can't willingly ingest anything.</summary>
     public static void Sickened(GameObject target) { }
-
-    /// <summary>Fewer actions; actions regained reduced by slowed value.</summary>
-    public static void Slowed(GameObject target, uint tier)
-    {
-        ActionController ac = target.GetComponent<ActionController>();
-        ac.ResetActionPointsEvent.AddListener(
-            (Ref<uint> points) =>
-            {
-                points.Value -= tier;
-            }
-        );
-    }
 
     /// <summary>Senseless; lose actions; stunned may include total actions lost.</summary>
     public static void Stunned(GameObject target) { }
