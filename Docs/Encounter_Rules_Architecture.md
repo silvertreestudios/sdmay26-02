@@ -56,6 +56,7 @@ Stride rules without attaching combat authority or spending encounter action eco
 | Unity encounter composition | [`UnityEncounterModuleSet.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterModuleSet.cs), [`UnityEncounterComposition.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterComposition.cs) |
 | Enrollment and rollback | [`UnityCombatantEnrollmentPipeline.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityCombatantEnrollmentPipeline.cs) |
 | Unity authority and synchronous dispatch boundary | [`UnityCombatRulesBridge.cs`](../Assets/Scripts/Rules/Unity/UnityCombatRulesBridge.cs) |
+| Rage Unity composition, data capture, and action entry | [`UnityRageModule.cs`](../Assets/Scripts/Rules/Unity/UnityRageModule.cs) |
 | Strike and spell Unity adapters | [`UnityStrikeEncounterModule.cs`](../Assets/Scripts/Rules/Unity/Strike/UnityStrikeEncounterModule.cs), [`UnitySpellcastingEncounterModule.cs`](../Assets/Scripts/Combat/Spells/UnitySpellcastingEncounterModule.cs) |
 | Typed action lifecycle presentation routing and ordered draining | [`UnityActionPresentationRegistry.cs`](../Assets/Scripts/Rules/Unity/UnityActionPresentationRegistry.cs) |
 | Health and encounter projection | [`UnityHealthProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityHealthProjectionModule.cs), [`UnityEncounterProjectionModule.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterProjectionModule.cs) |
@@ -71,7 +72,7 @@ composition contract:
 1. `UnityRottingAuraModule`
 2. `ConditionEncounterModule`
 3. `UnitySlowedModule`
-4. `UnityRageEncounterModule`
+4. `UnityRageModule'
 5. `UnityStrikeEncounterModule`
 6. `UnitySpellcastingEncounterModule`
 7. `UnityActionPresentationModule`
@@ -298,6 +299,12 @@ data, eligibility, rolls, damage orchestration, and the completion Fact;
 encounter wiring, Unity data capture, topology refresh, and Fact-based logging. Its colocated
 `RottingAuraVisualization` definition remains usable outside an encounter. Shared aura geometry,
 the visualization registry, and grid rendering stay in their existing shared files.
+
+Rage likewise has two primary implementation files:
+[`RageRules.cs`](../Assets/Scripts/Rules/Runtime/RageRules.cs) owns ordinary Rage and Quick-Tempered
+mechanics, while [`UnityRageModule.cs`](../Assets/Scripts/Rules/Unity/UnityRageModule.cs) owns the
+encounter wiring, immutable Unity data capture, and the action-bar entry. The composition root only
+constructs the shared Rage definition and installs the feature module in explicit order.
 
 `UnityActionPresentationRegistry` is the generic Unity routing boundary. Feature modules explicitly
 register typed presenters by stable `ActionDefinitionId`; the registry verifies the concrete
