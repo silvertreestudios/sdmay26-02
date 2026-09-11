@@ -46,6 +46,7 @@ namespace Game.Rules.Unity.Composition
                 throw new ArgumentNullException(nameof(actionPresentationCoordinator));
             UnityStrikeContext strikeContext = new(creatures, tiles);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
+            UnityRottingAuraModule rottingAura = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
             RageActionDefinition rageDefinition = new(new UnityRageActorStateProvider(creatures));
             CombatActionCatalog actionCatalog = new(
@@ -58,7 +59,7 @@ namespace Game.Rules.Unity.Composition
 
             RuleRegistryBuilder registryBuilder = new();
             registryBuilder.Define(ConditionRules.DefinitionId);
-            RottingAuraEncounterModule.DefineRuleBindings(registryBuilder, owner);
+            RottingAuraRules.DefineRuleBinding(registryBuilder, rottingAura);
             SlowedEncounterModule.DefineRuleBindings(registryBuilder);
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
@@ -76,7 +77,7 @@ namespace Game.Rules.Unity.Composition
             UnityActionPresentationRegistry actionPresentation = new(actionPresentationCoordinator);
             IUnityEncounterModule[] modules =
             {
-                new RottingAuraEncounterModule(),
+                rottingAura,
                 new ConditionEncounterModule(owner),
                 new SlowedEncounterModule(),
                 new UnityRageEncounterModule(rageDefinition),

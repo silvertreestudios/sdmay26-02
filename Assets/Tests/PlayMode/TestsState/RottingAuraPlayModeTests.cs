@@ -4,6 +4,7 @@ using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
 using NUnit.Framework;
@@ -13,6 +14,134 @@ using UnityEngine.TestTools;
 
 namespace TestsState
 {
+    public class RottingAuraLogPlayModeTests
+    {
+        [TestCase(1, 5)]
+        [TestCase(20, 0)]
+        public void CommittedTickLogsDamageAndFullyResistedResults(
+            int resistance,
+            int expectedDamage
+        )
+        {
+            var instance = typeof(SingletonMonoBehaviour<CombatLogInterface>).GetField(
+                "Instance",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic
+            );
+            object previousLog = instance.GetValue(null);
+            GameObject logObject = new("Aura test log");
+            GameObject sourceObject = new("Aura source");
+            GameObject targetObject = new("Aura target");
+            UnityCombatRulesBridge bridge = null;
+            try
+            {
+                RecordingLog log = logObject.AddComponent<RecordingLog>();
+                instance.SetValue(null, log);
+                CreatureComponent source = sourceObject.AddComponent<CreatureComponent>();
+                source.InitializeHealthBeforeEncounter(10, 10);
+                source.level = 0;
+                source.auras = new List<CreatureAura>
+                {
+                    new() { slug = RottingAuraRules.Slug, radiusFeet = 10 },
+                };
+                sourceObject.AddComponent<Team>().Name = "Enemies";
+                var sourceController = sourceObject.AddComponent<LogTestController>();
+                CreatureComponent target = targetObject.AddComponent<CreatureComponent>();
+                target.InitializeHealthBeforeEncounter(8, 10);
+                target.traits = new List<string>();
+                target.weaknesses = new List<DamageValue> { new("void", 2) };
+                target.resistances = new List<DamageValue> { new("void", resistance) };
+                targetObject.AddComponent<Team>().Name = "Players";
+                var targetController = targetObject.AddComponent<LogTestController>();
+                targetObject.transform.position = Vector3.right;
+                Tile[,] tiles =
+                {
+                    { new Tile() },
+                    { new Tile() },
+                };
+                tiles[0, 0].Occupants.Add(sourceObject);
+                tiles[1, 0].Occupants.Add(targetObject);
+                bridge = UnityCombatRulesBridge.Create(
+                    new ActionController[] { sourceController, targetController },
+                    tiles,
+                    new ScriptedRollService(1, 20, 4),
+                    "Players"
+                );
+
+                bridge.AdvanceEncounter();
+
+                CombatLogEntry entry = log.Entries.Single(value => value.Action == "Rotting Aura");
+                Assert.That(entry.Actor, Is.EqualTo(sourceObject.name));
+                Assert.That(entry.Target, Is.EqualTo(targetObject.name));
+                Assert.That(entry.Damage.Total, Is.EqualTo(expectedDamage));
+                Assert.That(entry.Damage.Parts.Single().Amount, Is.EqualTo(expectedDamage));
+                Assert.That(
+                    entry.Details.Single(value => value.Label == "Rolled").Value,
+                    Is.EqualTo("4 void (4)")
+                );
+                Assert.That(
+                    entry.Details.Single(value => value.Label == "Weakness").Value,
+                    Is.EqualTo("+2 void")
+                );
+                Assert.That(
+                    entry.Details.Single(value => value.Label == "Resistance").Value,
+                    Is.EqualTo("-" + resistance + " void")
+                );
+                Assert.That(
+                    entry.Details.Single(value => value.Label == "Applied").Value,
+                    Is.EqualTo(expectedDamage + " Hit Points")
+                );
+                Assert.That(target.hp, Is.EqualTo(8 - expectedDamage));
+            }
+            finally
+            {
+                bridge?.ReleaseOwnership();
+                instance.SetValue(null, previousLog);
+                Object.DestroyImmediate(logObject);
+                Object.DestroyImmediate(sourceObject);
+                Object.DestroyImmediate(targetObject);
+            }
+        }
+
+        private sealed class LogTestController : ActionController
+        {
+            public override void StartTurn() { }
+
+            public override void EndTurn() { }
+        }
+
+        private sealed class RecordingLog : CombatLogInterface
+        {
+            internal List<CombatLogEntry> Entries { get; } = new();
+
+            // The fixture temporarily owns the singleton and restores the prior scene log afterward.
+            protected override void Awake() { }
+
+            public override void LogEntry(CombatLogEntry entry) => Entries.Add(entry);
+
+            public override void DevMode() { }
+
+            public override void ReleaseMode() { }
+
+            public override void AddWhiteList(string tag) { }
+
+            public override void AddBlackList(string tag) { }
+
+            public override void DevLog(string msg) { }
+
+            public override void DevLog(string msg, string tag) { }
+
+            public override void DevLog(string msg, List<string> tags) { }
+
+            public override void Log(string msg) { }
+
+            public override void Log(string msg, string tag) { }
+
+            public override void Log(string msg, List<string> tags) { }
+
+            public override List<string> GetMessages() => new();
+        }
+    }
+
     public class RottingAuraPlayModeTests : PlayModeBase
     {
         private readonly List<GameObject> cleanup = new();
@@ -533,21 +662,6 @@ namespace TestsState
                 Is.SameAs(expected),
                 $"Timed out waiting for {expected.name} to receive the committed turn."
             );
-        }
-
-        private sealed class FixedDiceRoller : IPf2eDiceRoller
-        {
-            private readonly int valuePerDie;
-
-            public FixedDiceRoller(int valuePerDie)
-            {
-                this.valuePerDie = valuePerDie;
-            }
-
-            public int Roll(int numberOfDice, int sidesPerDie)
-            {
-                return numberOfDice * valuePerDie;
-            }
         }
 
         private sealed class TestActionController : ActionController

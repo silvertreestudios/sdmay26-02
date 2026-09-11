@@ -623,7 +623,7 @@ public sealed class ProceduralDungeonScenePlayModeTests
             new()
             {
                 name = "Runtime Rebind Aura",
-                slug = RottingAuraRule.RuleSlug,
+                slug = Game.Rules.Runtime.RottingAuraRules.Slug,
                 radiusFeet = 10,
                 traits = new List<string> { "disease", "void" },
             },
