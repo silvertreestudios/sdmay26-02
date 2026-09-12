@@ -1,21 +1,10 @@
-using System.Collections.Generic;
-using Game.KayKit;
 using UnityEngine;
 
 namespace GridPrivate
 {
     public static class GridTargeting
     {
-        private const float CornerOffset = 0.4f;
         private const int SamplesPerCell = 8;
-
-        private static readonly Vector2[] CornerOffsets = new[]
-        {
-            new Vector2(-CornerOffset, -CornerOffset),
-            new Vector2(CornerOffset, -CornerOffset),
-            new Vector2(-CornerOffset, CornerOffset),
-            new Vector2(CornerOffset, CornerOffset),
-        };
 
         public static int MeasureGridDistanceFeet(Vector3Int start, Vector3Int target)
         {
@@ -61,61 +50,42 @@ namespace GridPrivate
             return IsBlocking(tiles, sideX) && IsBlocking(tiles, sideZ);
         }
 
-        public static int CountClearRays(Tile[,] tiles, Vector3Int start, Vector3Int target)
+        /// <summary>
+        /// Counts rays clear of both captured grid obstruction and captured map colliders.
+        /// Burst captures use four point-origin rays; other captures use sixteen corner pairs.
+        /// This evaluates historical inputs only, even when line of effect is not required:
+        /// callers still need raw ray counts for cover. Recapture before action confirmation.
+        /// </summary>
+        /// <exception cref="System.ArgumentNullException">The snapshot is missing.</exception>
+        /// <exception cref="System.ArgumentOutOfRangeException">The target was not captured.</exception>
+        public static int CountClearRays(GridPublic.TargetingSnapshot snapshot, Vector3Int target)
         {
+            if (snapshot == null)
+                throw new System.ArgumentNullException(nameof(snapshot));
+            ushort physicsClear = snapshot.PhysicsClearRayMask(target);
             int clear = 0;
-            foreach (Vector2 startOffset in CornerOffsets)
+            for (int ray = 0; ray < snapshot.PhysicsRayCount; ray++)
             {
-                foreach (Vector2 targetOffset in CornerOffsets)
-                {
-                    if (
-                        !IsRayBlocked(
-                            tiles,
-                            CellPoint(start, startOffset),
-                            CellPoint(target, targetOffset),
-                            start,
-                            target
-                        )
+                // Intersection is per ray, not the minimum of two independently counted sets.
+                if ((physicsClear & (1 << ray)) == 0)
+                    continue;
+                if (
+                    !IsCapturedGridRayBlocked(
+                        snapshot,
+                        snapshot.RayStart(ray),
+                        snapshot.RayEnd(target, ray),
+                        target
                     )
-                        clear++;
-                }
-            }
-            return clear;
-        }
-
-        public static int CountClearRaysFromPoint(
-            Tile[,] tiles,
-            Vector2 startPoint,
-            Vector3Int target
-        )
-        {
-            int clear = 0;
-            foreach (Vector2 targetOffset in CornerOffsets)
-            {
-                if (!IsRayBlocked(tiles, startPoint, CellPoint(target, targetOffset), null, target))
+                )
                     clear++;
             }
             return clear;
         }
 
-        public static List<GameObject> OccupantsAt(Tile[,] tiles, Vector3Int cell)
-        {
-            if (!IsInBounds(tiles, cell) || tiles[cell.x, cell.z] == null)
-                return new List<GameObject>();
-
-            return new List<GameObject>(tiles[cell.x, cell.z].Occupants);
-        }
-
-        private static Vector2 CellPoint(Vector3Int cell, Vector2 offset)
-        {
-            return new Vector2(cell.x + 0.5f + offset.x, cell.z + 0.5f + offset.y);
-        }
-
-        private static bool IsRayBlocked(
-            Tile[,] tiles,
+        private static bool IsCapturedGridRayBlocked(
+            GridPublic.TargetingSnapshot snapshot,
             Vector2 rayStart,
             Vector2 rayEnd,
-            Vector3Int? startCell,
             Vector3Int targetCell
         )
         {
@@ -133,16 +103,17 @@ namespace GridPrivate
                     targetCell.y,
                     Mathf.FloorToInt(sample.y)
                 );
-                if ((startCell.HasValue && cell == startCell.Value) || cell == targetCell)
+                // Keep the original full-cell equality (including elevation). Burst origins
+                // are corners rather than cells and must not acquire a source-cell exemption.
+                if (
+                    cell == targetCell
+                    || (snapshot.Shape != GridPublic.AreaShape.Burst && cell == snapshot.SourceCell)
+                )
                     continue;
-
-                if (IsBlocking(tiles, cell))
+                if (snapshot.IsBlocking(cell))
                     return true;
             }
-
-            Vector3 rayStart3D = new(rayStart.x, 0.75f, rayStart.y);
-            Vector3 rayEnd3D = new(rayEnd.x, 0.75f, rayEnd.y);
-            return MapLineOfSightBlocker.BlocksSegment(rayStart3D, rayEnd3D);
+            return false;
         }
     }
 }

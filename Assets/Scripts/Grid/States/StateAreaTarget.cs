@@ -14,7 +14,12 @@ namespace GridPrivate
         private readonly GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
         private readonly Tile[,] Tiles;
         private readonly Vector3Int StartPosition;
-        private AreaTargetResult PendingResult;
+
+        // Absence means no pending aim. Pure output is independent of Unity object lifetime.
+        private AreaSelectionSnapshot PendingResult;
+        private AreaPlacement PendingPlacement;
+        private readonly GameObject OriginalSource;
+        private readonly bool HasObjectSource;
 
         public StateAreaTarget(
             GameObject character,
@@ -37,6 +42,8 @@ namespace GridPrivate
             Fsm = fsm;
             Tiles = GridAPI.GetTiles();
             StartPosition = Source.OriginCell;
+            OriginalSource = Source.SourceObject;
+            HasObjectSource = OriginalSource != null;
         }
 
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
@@ -77,6 +84,8 @@ namespace GridPrivate
 
         public override void Exit()
         {
+            PendingResult = null;
+            PendingPlacement = null;
             OnGridHover.RemoveListener(HandleGridHover);
             OnHover.RemoveListener(HandleLegacyHover);
             OnHoverEnd.RemoveListener(ClearPreview);
@@ -87,11 +96,29 @@ namespace GridPrivate
 
         public override void Leftclick()
         {
-            if (PendingResult == null || !PendingResult.IsLegal)
+            if (!IsSourceValid())
+            {
+                fsm.ChangeState(fsm.IdleState);
+                return;
+            }
+            if (PendingResult == null || PendingPlacement == null)
                 return;
 
+            AreaTargetCapture refreshed = AreaTargetCapture.Capture(
+                Source,
+                Tiles,
+                Request,
+                PendingPlacement
+            );
+            AreaSelectionSnapshot current = AreaTargeting.Evaluate(refreshed.Snapshot);
+            bool unchanged = Equivalent(PendingResult, current);
+            if (!unchanged || !current.IsLegal)
+            {
+                ShowPreview(current);
+                return;
+            }
             if (Selection != null)
-                Selection.Value = PendingResult;
+                Selection.Value = refreshed.Resolve();
             OnActionConfirm.Invoke();
             fsm.ChangeState(fsm.IdleState);
         }
@@ -129,18 +156,75 @@ namespace GridPrivate
 
         private void Preview(AreaPlacement placement)
         {
-            PendingResult = AreaTargeting.Evaluate(Source, Tiles, Request, placement);
-            if (PendingResult == null)
+            if (!IsSourceValid() || placement == null)
             {
-                OnPreviewAreaEnd.Invoke();
+                ClearPreview();
                 return;
             }
-            OnPreviewArea.Invoke(PendingResult.Cells);
+            PendingPlacement = placement;
+            AreaTargetCapture capture = AreaTargetCapture.Capture(
+                Source,
+                Tiles,
+                Request,
+                placement
+            );
+            ShowPreview(AreaTargeting.Evaluate(capture.Snapshot));
+        }
+
+        private bool IsSourceValid() =>
+            ReferenceEquals(Tiles, GridAPI.GetTiles())
+            && ReferenceEquals(OriginalSource, Source.SourceObject)
+            && (!HasObjectSource || OriginalSource != null);
+
+        private void ShowPreview(AreaSelectionSnapshot result)
+        {
+            PendingResult = result;
+            OnHighlightRange.Invoke(AreaTargeting.CellsInPlacementRange(result.Snapshot));
+            if (result.IsLegal)
+                OnPreviewArea.Invoke(new List<Vector3Int>(result.Cells));
+            else
+                OnPreviewAreaEnd.Invoke();
+        }
+
+        // Capture IDs are not world revisions. Compare semantics including blocked candidates
+        // and cover rays so confirmation cannot silently accept a changed target set.
+        private static bool Equivalent(
+            AreaSelectionSnapshot previous,
+            AreaSelectionSnapshot current
+        )
+        {
+            TargetingSnapshot a = previous.Snapshot;
+            TargetingSnapshot b = current.Snapshot;
+            if (
+                a.SourceCell != b.SourceCell
+                || a.SourceEntityId != b.SourceEntityId
+                || a.Shape != b.Shape
+                || a.SizeFeet != b.SizeFeet
+                || a.RangeFeet != b.RangeFeet
+                || a.LineWidthFeet != b.LineWidthFeet
+                || a.IncludeCenter != b.IncludeCenter
+                || a.RequiresLineOfEffect != b.RequiresLineOfEffect
+                || a.PlacementShape != b.PlacementShape
+                || a.PlacementOriginCell != b.PlacementOriginCell
+                || a.OriginCorner != b.OriginCorner
+                || a.Direction != b.Direction
+                || previous.Cells.Count != current.Cells.Count
+                || previous.Creatures.Count != current.Creatures.Count
+            )
+                return false;
+            for (int i = 0; i < previous.Cells.Count; i++)
+                if (previous.Cells[i] != current.Cells[i])
+                    return false;
+            for (int i = 0; i < previous.Creatures.Count; i++)
+                if (!previous.Creatures[i].Equals(current.Creatures[i]))
+                    return false;
+            return true;
         }
 
         private void ClearPreview()
         {
             PendingResult = null;
+            PendingPlacement = null;
             OnPreviewAreaEnd.Invoke();
         }
 

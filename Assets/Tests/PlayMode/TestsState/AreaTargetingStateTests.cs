@@ -122,6 +122,128 @@ namespace TestsState
             Assert.IsNull(result.Value);
         }
 
+        [UnityTest]
+        public IEnumerator ConfirmationRefreshesChangedMembershipBeforeAccepting()
+        {
+            yield return base.Setup();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Tile[,] tiles = grid.GetTiles();
+            FindClearHorizontalRun(tiles, 4, out Vector3Int start);
+            GameObject target = CreateToken("new candidate after preview");
+            CoroutineResult<AreaTargetResult> result = new();
+            try
+            {
+                grid.StartCoroutine(
+                    grid.GetAreaTarget(
+                        new AreaTargetSource(start),
+                        new AreaTargetRequest { Shape = AreaShape.Emanation, SizeFeet = 10 },
+                        result
+                    )
+                );
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => grid.Fsm.CurrentState is StateAreaTarget
+                );
+                MoveCombatant(tiles, target, start + Vector3Int.right);
+                grid.Fsm.CurrentState.Leftclick();
+                Assert.IsInstanceOf<StateAreaTarget>(
+                    grid.Fsm.CurrentState,
+                    "Changed candidates require another confirmation."
+                );
+                Assert.IsNull(result.Value);
+                grid.Fsm.CurrentState.Leftclick();
+                Assert.IsInstanceOf<StateIdle>(grid.Fsm.CurrentState);
+                Assert.IsNotNull(result.Value);
+                Assert.IsTrue(result.Value.Creatures.Exists(entry => entry.Creature == target));
+                Assert.AreNotEqual(System.Guid.Empty, result.Value.SnapshotId);
+            }
+            finally
+            {
+                foreach (Tile tile in tiles)
+                    tile?.Occupants.Remove(target);
+                Object.DestroyImmediate(target);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator DestroyedSourceCancelsInsteadOfFallingBackToItsOldCell()
+        {
+            yield return base.Setup();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Tile[,] tiles = grid.GetTiles();
+            FindClearHorizontalRun(tiles, 1, out Vector3Int start);
+            GameObject actor = CreateToken("vanishing source");
+            actor.transform.position = start;
+            CoroutineResult<AreaTargetResult> result = new();
+            grid.StartCoroutine(
+                grid.GetAreaTarget(
+                    new AreaTargetSource(actor),
+                    new AreaTargetRequest { Shape = AreaShape.Emanation, SizeFeet = 10 },
+                    result
+                )
+            );
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => grid.Fsm.CurrentState is StateAreaTarget
+            );
+            Object.DestroyImmediate(actor);
+            grid.Fsm.CurrentState.Leftclick();
+            Assert.IsInstanceOf<StateIdle>(grid.Fsm.CurrentState);
+            Assert.IsNull(result.Value);
+        }
+
+        [UnityTest]
+        public IEnumerator SourceMovementAndCandidateDestructionRequireNewConfirmation()
+        {
+            yield return base.Setup();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Tile[,] tiles = grid.GetTiles();
+            FindClearHorizontalRun(tiles, 4, out Vector3Int start);
+            GameObject actor = CreateToken("moving source");
+            GameObject target = CreateToken("vanishing candidate");
+            actor.transform.position = start;
+            MoveCombatant(tiles, target, start + Vector3Int.right);
+            CoroutineResult<AreaTargetResult> result = new();
+            try
+            {
+                grid.StartCoroutine(
+                    grid.GetAreaTarget(
+                        new AreaTargetSource(actor),
+                        new AreaTargetRequest { Shape = AreaShape.Emanation, SizeFeet = 10 },
+                        result
+                    )
+                );
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => grid.Fsm.CurrentState is StateAreaTarget
+                );
+                actor.transform.position = start + Vector3Int.right;
+                grid.Fsm.CurrentState.Leftclick();
+                Assert.IsInstanceOf<StateAreaTarget>(grid.Fsm.CurrentState);
+                Assert.IsNull(result.Value);
+                // Move the candidate to a present non-center cell and refresh the preview by click.
+                MoveCombatant(tiles, target, start + Vector3Int.right * 2);
+                grid.Fsm.CurrentState.Leftclick();
+                Assert.IsInstanceOf<StateAreaTarget>(grid.Fsm.CurrentState);
+                Object.DestroyImmediate(target);
+                grid.Fsm.CurrentState.Leftclick();
+                Assert.IsInstanceOf<StateAreaTarget>(grid.Fsm.CurrentState);
+                Assert.IsNull(result.Value);
+                grid.Fsm.CurrentState.Leftclick();
+                Assert.IsInstanceOf<StateIdle>(grid.Fsm.CurrentState);
+                Assert.AreEqual(start + Vector3Int.right, result.Value.Placement.OriginCell);
+                Assert.IsTrue(result.Value.Creatures.TrueForAll(entry => entry.Creature != null));
+            }
+            finally
+            {
+                foreach (Tile tile in tiles)
+                    tile?.Occupants.Remove(target);
+                if (target != null)
+                    Object.DestroyImmediate(target);
+                Object.DestroyImmediate(actor);
+            }
+        }
+
         private static void FindClearHorizontalRun(Tile[,] tiles, int length, out Vector3Int start)
         {
             for (int z = 0; z < tiles.GetLength(1); z++)

@@ -77,6 +77,8 @@ namespace GridPublic
 
     public class AreaTargetResult
     {
+        /// <summary>Capture provenance, not a freshness or world revision guarantee.</summary>
+        public System.Guid SnapshotId { get; set; }
         public AreaPlacement Placement { get; set; }
         public List<Vector3Int> Cells { get; set; } = new();
         public List<AreaAffectedCreature> Creatures { get; set; } = new();
@@ -97,6 +99,9 @@ namespace GridPrivate
     {
         private const float AngleEpsilon = 0.01f;
 
+        /// <summary>
+        /// Adapts a live actor to the synchronous snapshot capture and Unity resolution boundary.
+        /// </summary>
         public static GridPublic.AreaTargetResult Evaluate(
             GameObject actor,
             Tile[,] tiles,
@@ -107,6 +112,10 @@ namespace GridPrivate
             return Evaluate(new GridPublic.AreaTargetSource(actor), tiles, request, placement);
         }
 
+        /// <summary>
+        /// Captures all query inputs, evaluates only that snapshot, then resolves original objects.
+        /// Returns null for absent inputs or illegal geometry at this legacy Unity boundary.
+        /// </summary>
         public static GridPublic.AreaTargetResult Evaluate(
             GridPublic.AreaTargetSource source,
             Tile[,] tiles,
@@ -122,53 +131,85 @@ namespace GridPrivate
                 || request.SizeFeet <= 0
             )
                 return null;
-            if (!IsPlacementInRange(source, request, placement))
-                return null;
-
-            List<Vector3Int> cells = CellsForPlacement(source, tiles, request, placement);
-            if (cells.Count == 0)
-                return null;
-
-            GridPublic.AreaPlacement resultPlacement = new()
-            {
-                Shape = placement.Shape,
-                OriginCell =
-                    request.Shape == GridPublic.AreaShape.Burst
-                        ? placement.OriginCell
-                        : source.OriginCell,
-                OriginCorner = placement.OriginCorner,
-                Direction = placement.Direction,
-            };
-            GridPublic.AreaTargetResult result = new()
-            {
-                Placement = resultPlacement,
-                Cells = cells,
-                Creatures = GetCreatures(source, tiles, request, placement, cells),
-            };
-            return result;
+            return GridPublic
+                .AreaTargetCapture.Capture(source, tiles, request, placement)
+                .Resolve();
         }
 
+        /// <summary>
+        /// Computes geometry, ordered candidates and obstruction from one immutable capture.
+        /// No Unity object lookup occurs; historical results remain stable after movement or destruction.
+        /// </summary>
+        public static GridPublic.AreaSelectionSnapshot Evaluate(
+            GridPublic.TargetingSnapshot snapshot
+        )
+        {
+            List<Vector3Int> cells = CellsForPlacement(snapshot);
+            List<GridPublic.AreaSelectedEntity> creatures = new();
+            foreach (Vector3Int cell in cells)
+            {
+                if (snapshot.OccupantsAt(cell).Count == 0)
+                    continue;
+                int clearRays = GridTargeting.CountClearRays(snapshot, cell);
+                foreach (int entity in snapshot.OccupantsAt(cell))
+                    creatures.Add(
+                        new GridPublic.AreaSelectedEntity(
+                            entity,
+                            cell,
+                            clearRays,
+                            snapshot.RequiresLineOfEffect
+                        )
+                    );
+            }
+            return new GridPublic.AreaSelectionSnapshot(snapshot, cells, creatures);
+        }
+
+        /// <summary>
+        /// Captures the live grid for range highlighting, then delegates to snapshot geometry.
+        /// Selection owners with a placed capture should reuse the snapshot overload instead.
+        /// </summary>
         public static List<Vector3Int> CellsInPlacementRange(
             Tile[,] tiles,
             Vector3Int start,
             GridPublic.AreaTargetRequest request
         )
         {
-            List<Vector3Int> result = new();
             if (tiles == null || request == null)
-                return result;
+                return new List<Vector3Int>();
+            return CellsInPlacementRange(
+                GridPublic.TargetingSnapshot.Capture(
+                    new GridPublic.AreaTargetSource(start),
+                    tiles,
+                    request,
+                    new GridPublic.AreaPlacement { Shape = request.Shape, OriginCell = start }
+                )
+            );
+        }
 
+        /// <summary>
+        /// Returns present cells in the captured source's planar placement highlight range.
+        /// Positive burst range overrides size; otherwise at least five feet is highlighted.
+        /// This is not burst-corner legality or obstruction filtering. The fresh list is ordered
+        /// by x then z and retains source y, regardless of tile elevations.
+        /// </summary>
+        /// <exception cref="System.ArgumentNullException">The snapshot is absent.</exception>
+        public static List<Vector3Int> CellsInPlacementRange(GridPublic.TargetingSnapshot snapshot)
+        {
+            if (snapshot == null)
+                throw new System.ArgumentNullException(nameof(snapshot));
+            List<Vector3Int> result = new();
+            Vector3Int start = snapshot.SourceCell;
             int rangeFeet =
-                request.Shape == GridPublic.AreaShape.Burst && request.RangeFeet > 0
-                    ? request.RangeFeet
-                    : Mathf.Max(request.SizeFeet, 5);
+                snapshot.Shape == GridPublic.AreaShape.Burst && snapshot.RangeFeet > 0
+                    ? snapshot.RangeFeet
+                    : Mathf.Max(snapshot.SizeFeet, 5);
             int maxCells = Mathf.CeilToInt(rangeFeet / 5.0f);
             for (int x = start.x - maxCells; x <= start.x + maxCells; x++)
             {
                 for (int z = start.z - maxCells; z <= start.z + maxCells; z++)
                 {
                     Vector3Int cell = new(x, start.y, z);
-                    if (!GridTargeting.IsInBounds(tiles, cell) || tiles[x, z] == null)
+                    if (!snapshot.HasTile(cell))
                         continue;
                     if (GridTargeting.MeasureGridDistanceFeet(start, cell) <= rangeFeet)
                         result.Add(cell);
@@ -245,86 +286,79 @@ namespace GridPrivate
             return (GridPublic.AreaDirection)octant;
         }
 
-        private static bool IsPlacementInRange(
-            GridPublic.AreaTargetSource source,
-            GridPublic.AreaTargetRequest request,
-            GridPublic.AreaPlacement placement
-        )
+        private static bool IsPlacementInRange(GridPublic.TargetingSnapshot snapshot)
         {
-            if (request.Shape != GridPublic.AreaShape.Burst || request.RangeFeet <= 0)
+            if (snapshot.Shape != GridPublic.AreaShape.Burst || snapshot.RangeFeet <= 0)
                 return true;
 
-            return DistanceCellToCornerFeet(source.OriginCell, placement.OriginCorner)
-                <= request.RangeFeet;
+            return DistanceCellToCornerFeet(snapshot.SourceCell, snapshot.OriginCorner)
+                <= snapshot.RangeFeet;
         }
 
-        private static List<Vector3Int> CellsForPlacement(
-            GridPublic.AreaTargetSource source,
-            Tile[,] tiles,
-            GridPublic.AreaTargetRequest request,
-            GridPublic.AreaPlacement placement
-        )
+        /// <summary>
+        /// Computes area membership from one immutable placed query, without live grid or physics
+        /// reads. Returns a fresh list; empty means nonpositive size, out-of-range burst, unsupported
+        /// shape, or no present tiles. Burst cells have y=0; other shapes retain source elevation.
+        /// Obstruction and occupant filtering are separate from geometry.
+        /// </summary>
+        /// <exception cref="System.ArgumentNullException">The snapshot is absent.</exception>
+        public static List<Vector3Int> CellsForPlacement(GridPublic.TargetingSnapshot snapshot)
         {
-            return request.Shape switch
+            if (snapshot == null)
+                throw new System.ArgumentNullException(nameof(snapshot));
+            if (snapshot.SizeFeet <= 0 || !IsPlacementInRange(snapshot))
+                return new List<Vector3Int>();
+            return snapshot.Shape switch
             {
-                GridPublic.AreaShape.Burst => BurstCells(tiles, request, placement),
-                GridPublic.AreaShape.Cone => ConeCells(source, tiles, request, placement),
-                GridPublic.AreaShape.Emanation => EmanationCells(source, tiles, request),
-                GridPublic.AreaShape.Line => LineCells(source, tiles, request, placement),
+                GridPublic.AreaShape.Burst => BurstCells(snapshot),
+                GridPublic.AreaShape.Cone => ConeCells(snapshot),
+                GridPublic.AreaShape.Emanation => EmanationCells(snapshot),
+                GridPublic.AreaShape.Line => LineCells(snapshot),
                 _ => new List<Vector3Int>(),
             };
         }
 
-        private static List<Vector3Int> BurstCells(
-            Tile[,] tiles,
-            GridPublic.AreaTargetRequest request,
-            GridPublic.AreaPlacement placement
-        )
+        private static List<Vector3Int> BurstCells(GridPublic.TargetingSnapshot snapshot)
         {
             List<Vector3Int> cells = new();
-            int radiusCells = Mathf.CeilToInt(request.SizeFeet / 5.0f);
+            int radiusCells = Mathf.CeilToInt(snapshot.SizeFeet / 5.0f);
             for (
-                int x = placement.OriginCorner.x - radiusCells - 1;
-                x <= placement.OriginCorner.x + radiusCells;
+                int x = snapshot.OriginCorner.x - radiusCells - 1;
+                x <= snapshot.OriginCorner.x + radiusCells;
                 x++
             )
             {
                 for (
-                    int z = placement.OriginCorner.y - radiusCells - 1;
-                    z <= placement.OriginCorner.y + radiusCells;
+                    int z = snapshot.OriginCorner.y - radiusCells - 1;
+                    z <= snapshot.OriginCorner.y + radiusCells;
                     z++
                 )
                 {
                     Vector3Int cell = new(x, 0, z);
-                    if (!IsTemplateCell(tiles, cell))
+                    if (!snapshot.HasTile(cell))
                         continue;
-                    if (DistanceCornerToCellFeet(placement.OriginCorner, cell) <= request.SizeFeet)
+                    if (DistanceCornerToCellFeet(snapshot.OriginCorner, cell) <= snapshot.SizeFeet)
                         cells.Add(cell);
                 }
             }
             return cells;
         }
 
-        private static List<Vector3Int> ConeCells(
-            GridPublic.AreaTargetSource source,
-            Tile[,] tiles,
-            GridPublic.AreaTargetRequest request,
-            GridPublic.AreaPlacement placement
-        )
+        private static List<Vector3Int> ConeCells(GridPublic.TargetingSnapshot snapshot)
         {
             List<Vector3Int> cells = new();
-            Vector3Int start = source.OriginCell;
-            int radiusCells = Mathf.CeilToInt(request.SizeFeet / 5.0f);
-            Vector2 direction = ToVector2(DirectionOffset(placement.Direction)).normalized;
+            Vector3Int start = snapshot.SourceCell;
+            int radiusCells = Mathf.CeilToInt(snapshot.SizeFeet / 5.0f);
+            Vector2 direction = ToVector2(DirectionOffset(snapshot.Direction)).normalized;
 
             for (int x = start.x - radiusCells; x <= start.x + radiusCells; x++)
             {
                 for (int z = start.z - radiusCells; z <= start.z + radiusCells; z++)
                 {
                     Vector3Int cell = new(x, start.y, z);
-                    if (cell == start || !IsTemplateCell(tiles, cell))
+                    if (cell == start || !snapshot.HasTile(cell))
                         continue;
-                    if (GridTargeting.MeasureGridDistanceFeet(start, cell) > request.SizeFeet)
+                    if (GridTargeting.MeasureGridDistanceFeet(start, cell) > snapshot.SizeFeet)
                         continue;
 
                     Vector2 offset = new(cell.x - start.x, cell.z - start.z);
@@ -335,54 +369,45 @@ namespace GridPrivate
             return cells;
         }
 
-        private static List<Vector3Int> EmanationCells(
-            GridPublic.AreaTargetSource source,
-            Tile[,] tiles,
-            GridPublic.AreaTargetRequest request
-        )
+        private static List<Vector3Int> EmanationCells(GridPublic.TargetingSnapshot snapshot)
         {
             List<Vector3Int> cells = new();
-            Vector3Int start = source.OriginCell;
-            int radiusCells = Mathf.CeilToInt(request.SizeFeet / 5.0f);
+            Vector3Int start = snapshot.SourceCell;
+            int radiusCells = Mathf.CeilToInt(snapshot.SizeFeet / 5.0f);
             for (int x = start.x - radiusCells; x <= start.x + radiusCells; x++)
             {
                 for (int z = start.z - radiusCells; z <= start.z + radiusCells; z++)
                 {
                     Vector3Int cell = new(x, start.y, z);
-                    if (!request.IncludeCenter && cell == start)
+                    if (!snapshot.IncludeCenter && cell == start)
                         continue;
-                    if (!IsTemplateCell(tiles, cell))
+                    if (!snapshot.HasTile(cell))
                         continue;
-                    if (GridTargeting.MeasureGridDistanceFeet(start, cell) <= request.SizeFeet)
+                    if (GridTargeting.MeasureGridDistanceFeet(start, cell) <= snapshot.SizeFeet)
                         cells.Add(cell);
                 }
             }
             return cells;
         }
 
-        private static List<Vector3Int> LineCells(
-            GridPublic.AreaTargetSource source,
-            Tile[,] tiles,
-            GridPublic.AreaTargetRequest request,
-            GridPublic.AreaPlacement placement
-        )
+        private static List<Vector3Int> LineCells(GridPublic.TargetingSnapshot snapshot)
         {
             List<Vector3Int> cells = new();
-            Vector3Int start = source.OriginCell;
-            float lengthCells = request.SizeFeet / 5.0f;
+            Vector3Int start = snapshot.SourceCell;
+            float lengthCells = snapshot.SizeFeet / 5.0f;
             int widthCells = Mathf.Max(
                 1,
-                Mathf.CeilToInt(Mathf.Max(5, request.LineWidthFeet) / 5.0f)
+                Mathf.CeilToInt(Mathf.Max(5, snapshot.LineWidthFeet) / 5.0f)
             );
             int search = Mathf.CeilToInt(lengthCells) + widthCells + 1;
-            Vector2 direction = ToVector2(DirectionOffset(placement.Direction)).normalized;
+            Vector2 direction = ToVector2(DirectionOffset(snapshot.Direction)).normalized;
 
             for (int x = start.x - search; x <= start.x + search; x++)
             {
                 for (int z = start.z - search; z <= start.z + search; z++)
                 {
                     Vector3Int cell = new(x, start.y, z);
-                    if (cell == start || !IsTemplateCell(tiles, cell))
+                    if (cell == start || !snapshot.HasTile(cell))
                         continue;
 
                     Vector2 offset = new(cell.x - start.x, cell.z - start.z);
@@ -405,60 +430,6 @@ namespace GridPrivate
                         .CompareTo(GridTargeting.MeasureGridDistanceFeet(start, b))
             );
             return cells;
-        }
-
-        private static List<GridPublic.AreaAffectedCreature> GetCreatures(
-            GridPublic.AreaTargetSource source,
-            Tile[,] tiles,
-            GridPublic.AreaTargetRequest request,
-            GridPublic.AreaPlacement placement,
-            List<Vector3Int> cells
-        )
-        {
-            List<GridPublic.AreaAffectedCreature> creatures = new();
-            Vector3Int sourceCell = source.OriginCell;
-            Vector2 sourcePoint =
-                request.Shape == GridPublic.AreaShape.Burst
-                    ? new Vector2(placement.OriginCorner.x, placement.OriginCorner.y)
-                    : new Vector2(sourceCell.x + 0.5f, sourceCell.z + 0.5f);
-
-            foreach (Vector3Int cell in cells)
-            {
-                foreach (GameObject occupant in GridTargeting.OccupantsAt(tiles, cell))
-                {
-                    int clearRays =
-                        request.Shape == GridPublic.AreaShape.Burst
-                            ? GridTargeting.CountClearRaysFromPoint(tiles, sourcePoint, cell)
-                            : GridTargeting.CountClearRays(tiles, sourceCell, cell);
-                    GridPublic.StrikeLineOfEffect lineOfEffect =
-                        clearRays > 0
-                            ? GridPublic.StrikeLineOfEffect.Clear
-                            : GridPublic.StrikeLineOfEffect.Blocked;
-                    GridPublic.StrikeCover cover =
-                        clearRays > 0 && clearRays < 16
-                            ? GridPublic.StrikeCover.Standard
-                            : GridPublic.StrikeCover.None;
-
-                    creatures.Add(
-                        new GridPublic.AreaAffectedCreature
-                        {
-                            Creature = occupant,
-                            Cell = cell,
-                            ClearRays = clearRays,
-                            Cover = cover,
-                            LineOfEffect = request.RequiresLineOfEffect
-                                ? lineOfEffect
-                                : GridPublic.StrikeLineOfEffect.Clear,
-                        }
-                    );
-                }
-            }
-            return creatures;
-        }
-
-        private static bool IsTemplateCell(Tile[,] tiles, Vector3Int cell)
-        {
-            return GridTargeting.IsInBounds(tiles, cell) && tiles[cell.x, cell.z] != null;
         }
 
         private static int DistanceCellToCornerFeet(Vector3Int cell, Vector2Int corner)
