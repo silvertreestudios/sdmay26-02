@@ -151,10 +151,27 @@ namespace TestsState
             }
             finally
             {
+                bool returnedToIdle =
+                    grid.Fsm.CurrentState is StateIdle || grid.Fsm.ChangeState(grid.Fsm.IdleState);
+                int previewCountAfterExit = previewCount;
+                OnGridHover.Invoke(
+                    new GridHoverInfo
+                    {
+                        Cell = start + Vector3Int.right,
+                        WorldPosition = start + Vector3Int.right,
+                        NearestCorner = new Vector2Int(start.x + 1, start.z),
+                    }
+                );
+                bool retainedTargetingListener = previewCount != previewCountAfterExit;
                 OnPreviewArea.RemoveListener(previewListener);
                 InputSystem.RemoveDevice(mouse);
                 if (previousMouse != null && previousMouse.added)
                     previousMouse.MakeCurrent();
+                Assert.IsTrue(returnedToIdle, "The targeting state should cancel during cleanup.");
+                Assert.IsFalse(
+                    retainedTargetingListener,
+                    "Leaving area targeting should remove its static hover listener."
+                );
             }
         }
 
@@ -263,6 +280,41 @@ namespace TestsState
             );
             Object.DestroyImmediate(actor);
             grid.Fsm.CurrentState.Leftclick();
+            Assert.IsInstanceOf<StateIdle>(grid.Fsm.CurrentState);
+            Assert.IsNull(result.Value);
+        }
+
+        [UnityTest]
+        public IEnumerator DestroyedSourceBeforeDeferredStateConstructionCancels()
+        {
+            yield return base.Setup();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            Tile[,] tiles = grid.GetTiles();
+            FindClearHorizontalRun(tiles, 1, out Vector3Int start);
+            GameObject actor = CreateToken("source destroyed before targeting starts");
+            actor.transform.position = start;
+            CoroutineResult<AreaTargetResult> result = new();
+            IEnumerator targeting = grid.GetAreaTarget(
+                actor,
+                new AreaTargetRequest
+                {
+                    Shape = AreaShape.Emanation,
+                    SizeFeet = 10,
+                    IncludeCenter = true,
+                },
+                result
+            );
+
+            Object.DestroyImmediate(actor);
+            grid.StartCoroutine(targeting);
+            yield return WaitUntilWithTimeout(
+                timeout,
+                () => grid.Fsm.CurrentState is StateAreaTarget
+            );
+            Assert.IsInstanceOf<StateAreaTarget>(grid.Fsm.CurrentState);
+
+            grid.Fsm.CurrentState.Leftclick();
+
             Assert.IsInstanceOf<StateIdle>(grid.Fsm.CurrentState);
             Assert.IsNull(result.Value);
         }

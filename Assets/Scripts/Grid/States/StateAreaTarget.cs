@@ -43,7 +43,7 @@ namespace GridPrivate
             Tiles = GridAPI.GetTiles();
             StartPosition = Source.OriginCell;
             OriginalSource = Source.SourceObject;
-            HasObjectSource = OriginalSource != null;
+            HasObjectSource = !ReferenceEquals(OriginalSource, null);
         }
 
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
