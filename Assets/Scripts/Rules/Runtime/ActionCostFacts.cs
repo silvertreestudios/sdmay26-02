@@ -8,7 +8,7 @@ namespace Game.Rules.Runtime
     public sealed class ActionCostSpentFact : RuleFact
     {
         /// <summary>
-        /// Initializes the immutable domain payload. The store stamps identity and provenance.
+        /// Initializes the immutable domain payload.
         /// </summary>
         /// <param name="actionOpId">The action frame whose cost was paid.</param>
         /// <param name="actor">The creature whose action economy changed.</param>
@@ -53,7 +53,7 @@ namespace Game.Rules.Runtime
     public sealed class SpellSlotSpentFact : RuleFact
     {
         /// <summary>
-        /// Initializes the immutable domain payload. The store stamps identity and provenance.
+        /// Initializes the immutable domain payload.
         /// </summary>
         /// <param name="actionOpId">The action frame that paid the slot cost.</param>
         /// <param name="actor">The creature that owns the pool.</param>
@@ -117,7 +117,7 @@ namespace Game.Rules.Runtime
     public sealed class FocusPointsSpentFact : RuleFact
     {
         /// <summary>
-        /// Initializes the immutable domain payload. The store stamps identity and provenance.
+        /// Initializes the immutable domain payload.
         /// </summary>
         /// <param name="actionOpId">The action frame that paid the Focus Point cost.</param>
         /// <param name="actor">The creature whose Focus Points changed.</param>
@@ -166,7 +166,7 @@ namespace Game.Rules.Runtime
     public sealed class AmmunitionSpentFact : RuleFact
     {
         /// <summary>
-        /// Initializes the immutable domain payload. The store stamps identity and provenance.
+        /// Initializes the immutable domain payload.
         /// </summary>
         /// <param name="actionOpId">The action frame that paid the ammunition cost.</param>
         /// <param name="actor">The creature that owns the ammunition.</param>
@@ -230,7 +230,7 @@ namespace Game.Rules.Runtime
     public sealed class BindingFrequencySpentFact : RuleFact
     {
         /// <summary>
-        /// Initializes the immutable domain payload. The store stamps identity and provenance.
+        /// Initializes the immutable domain payload.
         /// </summary>
         /// <param name="actionOpId">The action frame that spent the frequency.</param>
         /// <param name="actor">The creature authorized by the binding.</param>

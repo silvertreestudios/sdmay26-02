@@ -17,7 +17,7 @@ public sealed class FactObserverBehaviourPlayModeTests
     private static readonly RuleSource Source = RuleSource.FromSlug("fact-observer-playmode-test");
 
     [UnityTest]
-    public IEnumerator ConfigurationTracksEnableDisableDestroyAndDoesNotCancelInFlightDelivery()
+    public IEnumerator ConfigurationTracksEnableDisableAndDestroy()
     {
         InMemoryRulesStore store = new InMemoryRulesStore(
             new RulesStateSeed().SeedHealth(Creature, new HealthState(0, 100))
@@ -38,17 +38,10 @@ public sealed class FactObserverBehaviourPlayModeTests
         gameObject.SetActive(true);
         Assert.That(observer.LifecycleCalls, Is.EqualTo(new[] { "enabled" }));
         Task<OpResult<int>> observedDispatch = dispatcher.Dispatch(new ObserverRootOp()).AsTask();
-        yield return AwaitCompletion(observer.Started);
+        yield return AwaitCompletion(observedDispatch);
         Assert.That(observer.DeliveryCount, Is.EqualTo(1));
         observer.enabled = false;
         Assert.That(observer.LifecycleCalls, Is.EqualTo(new[] { "enabled", "disabled" }));
-        Assert.That(
-            observedDispatch.IsCompleted,
-            Is.False,
-            "Disabling removes later selection but must not cancel a frozen callback."
-        );
-        observer.Release();
-        yield return AwaitCompletion(observedDispatch);
 
         Task<OpResult<int>> disabledDispatch = dispatcher.Dispatch(new ObserverRootOp()).AsTask();
         yield return AwaitCompletion(disabledDispatch);
@@ -126,31 +119,14 @@ public sealed class FactObserverBehaviourPlayModeTests
 
     internal sealed class TestFactObserverBehaviour : FactObserverBehaviour<ObserverChangedFact>
     {
-        private readonly TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-        private readonly TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-
-        public Task Started => started.Task;
         public int DeliveryCount { get; private set; }
         public List<string> LifecycleCalls { get; } = new List<string>();
 
-        public void Release() => release.TrySetResult(true);
-
-        public override async ValueTask OnFactCommitted(
+        public override void OnFactCommitted(
             ObserverChangedFact fact,
+            OpId rootId,
             RulesSnapshot currentSnapshot
-        )
-        {
-            DeliveryCount++;
-            if (DeliveryCount != 1)
-                return;
-
-            started.TrySetResult(true);
-            await release.Task;
-        }
+        ) => DeliveryCount++;
 
         protected override void OnEnable()
         {

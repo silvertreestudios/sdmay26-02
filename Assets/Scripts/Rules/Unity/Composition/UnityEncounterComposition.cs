@@ -21,18 +21,18 @@ namespace Game.Rules.Unity.Composition
         void ConfigureDispatcher(RuleDispatcherBuilder builder);
     }
 
-    /// <summary>Contributes one transitional turn-start adapter owned by its feature.</summary>
-    internal interface IUnityEncounterTurnStartModule : IUnityEncounterModule
-    {
-        /// <summary>Creates the adapter installed at this module's deterministic position.</summary>
-        IEncounterTurnStartAdapter CreateTurnStartAdapter();
-    }
-
     /// <summary>Registers encounter-owned observers or disposable runtime adapters.</summary>
     internal interface IUnityEncounterRuntimeModule : IUnityEncounterModule
     {
         /// <summary>Registers this module and transfers every token to the encounter lifetime.</summary>
         void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime);
+    }
+
+    /// <summary>Contributes typed feature presentation to the shared action registry.</summary>
+    internal interface IUnityEncounterActionPresentationModule : IUnityEncounterModule
+    {
+        /// <summary>Registers this feature's concrete action and outcome presenters.</summary>
+        void ConfigureActionPresentation(UnityActionPresentationRegistry registry);
     }
 
     /// <summary>Refreshes feature-owned Unity topology adapters after a live grid mutation.</summary>
@@ -182,13 +182,6 @@ namespace Game.Rules.Unity.Composition
             this.modules = Array.AsReadOnly(copied);
         }
 
-        /// <summary>Gets turn-start adapters in exact module order.</summary>
-        internal IReadOnlyList<IEncounterTurnStartAdapter> CreateTurnStartAdapters() =>
-            modules
-                .OfType<IUnityEncounterTurnStartModule>()
-                .Select(module => module.CreateTurnStartAdapter())
-                .ToArray();
-
         /// <summary>Configures dispatcher modules in exact module order.</summary>
         internal void ConfigureDispatcher(RuleDispatcherBuilder builder)
         {
@@ -211,6 +204,17 @@ namespace Game.Rules.Unity.Composition
                 IUnityEncounterRuntimeModule module in modules.OfType<IUnityEncounterRuntimeModule>()
             )
                 module.RegisterRuntime(dispatcher, lifetime);
+        }
+
+        /// <summary>Composes typed action presenters in exact module order.</summary>
+        internal void ConfigureActionPresentation(UnityActionPresentationRegistry registry)
+        {
+            if (registry == null)
+                throw new ArgumentNullException(nameof(registry));
+            foreach (
+                IUnityEncounterActionPresentationModule module in modules.OfType<IUnityEncounterActionPresentationModule>()
+            )
+                module.ConfigureActionPresentation(registry);
         }
 
         /// <summary>Refreshes topology modules in exact supplied-module order.</summary>

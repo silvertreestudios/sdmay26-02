@@ -240,11 +240,18 @@ namespace Game.Rules.Runtime
             !left.Equals(right);
     }
 
+    /// <summary>Identifies a condition kind shared by independent applications.</summary>
+    /// <remarks>Application identity is the containing <see cref="ActiveEffectId"/>, not this value.</remarks>
     public readonly struct ConditionId : IEquatable<ConditionId>
     {
+        /// <summary>Gets the stable condition name used by the current Unity display adapter.</summary>
         public string Value { get; }
+
+        /// <summary>Gets whether this identifier is the uninitialized default.</summary>
         public bool IsEmpty => string.IsNullOrEmpty(Value);
 
+        /// <summary>Creates a condition kind from its nonblank stable name.</summary>
+        /// <param name="value">The stable name, such as Slowed.</param>
         public ConditionId(string value) => Value = StableId.Require(value, nameof(value));
 
         public bool Equals(ConditionId other) =>
@@ -412,32 +419,5 @@ namespace Game.Rules.Runtime
         public static bool operator ==(OpId left, OpId right) => left.Equals(right);
 
         public static bool operator !=(OpId left, OpId right) => !left.Equals(right);
-    }
-
-    public readonly struct FactId : IEquatable<FactId>, IComparable<FactId>
-    {
-        public long Value { get; }
-        public bool IsEmpty => Value == 0;
-
-        public FactId(long value)
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), "A Fact ID must be positive.");
-            Value = value;
-        }
-
-        public int CompareTo(FactId other) => Value.CompareTo(other.Value);
-
-        public bool Equals(FactId other) => Value == other.Value;
-
-        public override bool Equals(object obj) => obj is FactId other && Equals(other);
-
-        public override int GetHashCode() => Value.GetHashCode();
-
-        public override string ToString() => Value.ToString();
-
-        public static bool operator ==(FactId left, FactId right) => left.Equals(right);
-
-        public static bool operator !=(FactId left, FactId right) => !left.Equals(right);
     }
 }

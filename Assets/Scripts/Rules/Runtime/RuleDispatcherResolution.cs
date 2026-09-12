@@ -11,78 +11,43 @@ namespace Game.Rules.Runtime
             IRegistration registration,
             RootResolution resolution,
             OpId rootId,
-            OpId? causeId,
-            OpId? causalParentRootId,
-            IRootResolutionObserver<TResult> observer
+            OpId? causeId
         )
         {
             OpResult<TResult> result;
             try
             {
+                result = await DispatchCore(op, registration, resolution, rootId, null, causeId);
+            }
+            catch (Exception resolutionException)
+            {
+                IReadOnlyList<CommittedFactRecord> committedFacts = SnapshotCommittedFacts(
+                    resolution,
+                    rootId
+                );
+                if (committedFacts.Count == 0)
+                    throw;
+
                 try
                 {
-                    result = await DispatchCore(
-                        op,
-                        registration,
-                        resolution,
-                        rootId,
-                        null,
-                        causeId
-                    );
-                    await InvokeRootCallback(
-                        rootId,
-                        () => observer.OnRootResolved(rootId, result, Snapshot)
+                    await NotifyFactListeners(rootId, committedFacts);
+                }
+                catch (Exception notificationException)
+                {
+                    throw new AggregateException(
+                        "Operation resolution and post-commit Fact notification both failed.",
+                        resolutionException,
+                        notificationException
                     );
                 }
-                catch (Exception resolutionException)
-                {
-                    IReadOnlyList<CommittedFactRecord> committedFacts = SnapshotCommittedFacts(
-                        resolution,
-                        rootId
-                    );
-                    if (committedFacts.Count == 0)
-                        throw;
 
-                    try
-                    {
-                        await NotifyFactListeners(rootId, committedFacts);
-                    }
-                    catch (Exception notificationException)
-                    {
-                        throw new AggregateException(
-                            "Operation resolution and post-commit Fact notification both failed.",
-                            resolutionException,
-                            notificationException
-                        );
-                    }
-
-                    throw;
-                }
-
-                if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
-                {
-                    await NotifyFactListeners(rootId, SnapshotCommittedFacts(resolution, rootId));
-                }
-                if (
-                    result is ResolvedOpResult<TResult> resolved
-                    && resolved.Value is ISettledOperationResult<TResult> settled
-                )
-                {
-                    result = OpResult<TResult>
-                        .Resolved(settled.Settle(Snapshot))
-                        .WithFacts(result.Facts);
-                }
-            }
-            catch (Exception primary)
-            {
-                await CallbackFailure.AwaitCleanupPreservingPrimary(
-                    primary,
-                    NotifyRootSettled(rootId, causalParentRootId)
-                );
                 throw;
             }
 
-            await NotifyRootSettled(rootId, causalParentRootId);
+            if (result.Status != OpStatus.Invalid && result.Facts.Count > 0)
+            {
+                await NotifyFactListeners(rootId, SnapshotCommittedFacts(resolution, rootId));
+            }
             return result;
         }
 
@@ -153,7 +118,7 @@ namespace Game.Rules.Runtime
                 try
                 {
                     resultObject = invocation.FrameView.IsAction
-                        ? await InvokeActionLifecycle(registration, invocation, middleware)
+                        ? await InvokeActionLifecycle(registration, invocation, middleware, op)
                         : await InvokeWithMiddleware(registration, invocation, middleware, 0);
                 }
                 catch
@@ -174,8 +139,15 @@ namespace Game.Rules.Runtime
                         $"Resolver for {op.GetType().Name} returned an impossible result type."
                     );
 
+                if (
+                    invocation.FrameView.IsAction
+                    && result is ResolvedOpResult<TResult> resolvedAction
+                )
+                {
+                    PublishActionResolvedFact(invocation, op, resolvedAction.Value);
+                }
+
                 OpResult<TResult> completed;
-                RulesSnapshot completedSnapshot;
                 lock (gate)
                 {
                     RequireActiveResolution(resolution);
@@ -190,16 +162,8 @@ namespace Game.Rules.Runtime
                         subtreeFacts = Array.AsReadOnly(subtreeFactArray);
                     }
                     completed = result.WithFacts(subtreeFacts);
-                    completedSnapshot = store.Snapshot;
                     Diagnostics.Complete(id, completed.Status, directFacts);
                 }
-                if (completed is ResolvedOpResult<TResult> resolved)
-                    await NotifyResolvedOpObservers(
-                        op,
-                        typeof(TResult),
-                        resolved.Value,
-                        completedSnapshot
-                    );
                 return completed;
             }
             finally
@@ -261,12 +225,15 @@ namespace Game.Rules.Runtime
                 IReadOnlyList<BoundFactListenerRegistration>
             > frameFactListeners =
                 new Dictionary<OpId, IReadOnlyList<BoundFactListenerRegistration>>();
-            private readonly HashSet<FactId> factIds = new HashSet<FactId>();
             private readonly HashSet<RuleFact> factReferences = new HashSet<RuleFact>(
                 ReferenceEqualityComparer<RuleFact>.Instance
             );
 
             public OpId RootId { get; private set; }
+
+            // This immutable correlation is inherited by causal child roots without adding
+            // dispatcher provenance to the Fact payload itself.
+            public OpId ObservationRootId { get; private set; }
             public bool IsIdle => isIdle;
             public List<RuleFact> Facts { get; } = new List<RuleFact>();
             public List<CommittedFactRecord> CommittedFacts { get; } =
@@ -280,7 +247,7 @@ namespace Game.Rules.Runtime
                 this.isIdle = isIdle;
             }
 
-            public void Initialize(OpId rootId)
+            public void Initialize(OpId rootId, OpId observationRootId)
             {
                 if (IsIdle)
                     throw new InvalidOperationException(
@@ -295,7 +262,13 @@ namespace Game.Rules.Runtime
                         "A root resolution requires an operation ID.",
                         nameof(rootId)
                     );
+                if (observationRootId.IsEmpty)
+                    throw new ArgumentException(
+                        "A root resolution requires an observation root ID.",
+                        nameof(observationRootId)
+                    );
                 RootId = rootId;
+                ObservationRootId = observationRootId;
             }
 
             public void EnterFrame(
@@ -395,15 +368,17 @@ namespace Game.Rules.Runtime
                     );
             }
 
-            public void AddFact(RuleFact fact, OpId sourceId, OpId rootId)
+            public CommittedFactRecord AddFact(
+                RuleFact fact,
+                OpId sourceId,
+                OpId rootId,
+                RuleSource source,
+                RulesSnapshot snapshot
+            )
             {
-                if (fact == null || !fact.IsStamped)
-                    throw new InvalidOperationException("A reducer returned an unstamped Fact.");
-                if (fact.SourceOpId != sourceId)
-                    throw new InvalidOperationException(
-                        "A reducer returned a Fact for a different source operation."
-                    );
-                if (fact.RootOpId != rootId || rootId != RootId)
+                if (fact == null)
+                    throw new InvalidOperationException("A reducer returned a null Fact.");
+                if (rootId != RootId)
                     throw new InvalidOperationException(
                         "A reducer emitted a Fact across resolution roots."
                     );
@@ -418,12 +393,22 @@ namespace Game.Rules.Runtime
                         "A committed Fact has no source-frame listener selection."
                     );
                 }
-                if (!factIds.Add(fact.Id) || !factReferences.Add(fact))
+                if (!factReferences.Add(fact))
                     throw new InvalidOperationException(
                         "A committed Fact was aggregated more than once."
                     );
+                CommittedFactRecord committed = new CommittedFactRecord(
+                    fact,
+                    sourceId,
+                    rootId,
+                    ObservationRootId,
+                    source,
+                    snapshot,
+                    eligibleListeners
+                );
                 Facts.Add(fact);
-                CommittedFacts.Add(new CommittedFactRecord(fact, eligibleListeners));
+                CommittedFacts.Add(committed);
+                return committed;
             }
 
             private void RequireCurrentRoot(OpId rootId)

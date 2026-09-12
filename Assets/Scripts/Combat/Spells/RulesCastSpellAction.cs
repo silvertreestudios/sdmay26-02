@@ -146,31 +146,32 @@ namespace Game.Combat.Spells
                     spellSelection = new SpellCastSelection(new[] { targetId });
                 }
 
+                CastSpellActionOp operation = null;
+                OpResult<CastSpellOutcome> result = null;
+                Exception dispatchFailure = null;
                 try
                 {
-                    CastSpellActionOp operation = actionDefinition.CreateOp(
-                        actor,
-                        spell,
-                        variant,
-                        spellSelection
-                    );
-                    OpResult<CastSpellOutcome> result = bridge.Dispatch(operation);
-                    if (result is InvalidOpResult<CastSpellOutcome> invalid)
-                        Debug.LogWarning($"Cast a Spell was rejected: {invalid.Reason}", caster);
-                    else if (result is InterruptedOpResult<CastSpellOutcome>)
-                        Debug.LogWarning("Cast a Spell was interrupted.", caster);
-                    else if (result is CancelledOpResult<CastSpellOutcome>)
-                        Debug.LogWarning("Cast a Spell was cancelled.", caster);
-                    else if (result is not ResolvedOpResult<CastSpellOutcome>)
-                        Debug.LogWarning(
-                            "Cast a Spell returned an unknown structural result.",
-                            caster
-                        );
+                    operation = actionDefinition.CreateOp(actor, spell, variant, spellSelection);
+                    result = bridge.Dispatch(operation);
                 }
                 catch (Exception exception)
                 {
-                    Debug.LogException(exception, caster);
+                    dispatchFailure = exception;
                 }
+
+                if (operation != null)
+                    yield return bridge.DrainActionPresentation(operation);
+
+                if (dispatchFailure != null)
+                    Debug.LogException(dispatchFailure, caster);
+                else if (result is InvalidOpResult<CastSpellOutcome> invalid)
+                    Debug.LogWarning($"Cast a Spell was rejected: {invalid.Reason}", caster);
+                else if (result is InterruptedOpResult<CastSpellOutcome>)
+                    Debug.LogWarning("Cast a Spell was interrupted.", caster);
+                else if (result is CancelledOpResult<CastSpellOutcome>)
+                    Debug.LogWarning("Cast a Spell was cancelled.", caster);
+                else if (result is not ResolvedOpResult<CastSpellOutcome>)
+                    Debug.LogWarning("Cast a Spell returned an unknown structural result.", caster);
             }
             finally
             {

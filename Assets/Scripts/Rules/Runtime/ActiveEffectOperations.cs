@@ -79,7 +79,7 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to update.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
         /// <param name="state">The immutable replacement state.</param>
-        /// <param name="source">The rule source stamped onto a committed update Fact.</param>
+        /// <param name="source">The rule source recorded for a committed update delivery.</param>
         /// <exception cref="ArgumentException">A required ID or source is empty.</exception>
         /// <exception cref="ArgumentNullException"><paramref name="state"/> is <see langword="null"/>.</exception>
         public UpdateActiveEffectStateOp(
@@ -102,7 +102,7 @@ namespace Game.Rules.Runtime
         /// <param name="effectId">The effect to update.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
         /// <param name="state">The immutable replacement state.</param>
-        /// <param name="source">The rule source stamped onto a committed update Fact.</param>
+        /// <param name="source">The rule source recorded for a committed update delivery.</param>
         /// <returns>A dispatchable update operation.</returns>
         public static UpdateActiveEffectStateOp Create<TState>(
             ActiveEffectId effectId,
@@ -137,7 +137,7 @@ namespace Game.Rules.Runtime
         /// <param name="bindingId">The associated binding to remove.</param>
         /// <param name="expectedVersion">The version read by the requesting workflow.</param>
         /// <param name="reason">Why rules code is ending the effect.</param>
-        /// <param name="source">The rule source stamped onto a committed removal Fact.</param>
+        /// <param name="source">The rule source recorded for a committed removal delivery.</param>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="reason"/> is undefined.</exception>
         public RemoveActiveEffectOp(
             ActiveEffectId effectId,

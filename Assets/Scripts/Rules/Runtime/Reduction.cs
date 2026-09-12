@@ -32,7 +32,7 @@ namespace Game.Rules.Runtime
         public OpId RootOpId { get; }
 
         /// <summary>
-        /// Gets the rule source that will be stamped onto committed facts.
+        /// Gets the rule source recorded with committed Fact delivery provenance.
         /// </summary>
         public RuleSource Source { get; }
 
@@ -54,31 +54,17 @@ namespace Game.Rules.Runtime
         }
     }
 
-    public abstract class RuleFact
-    {
-        public FactId Id { get; private set; }
-        public OpId SourceOpId { get; private set; }
-        public OpId RootOpId { get; private set; }
-        public RuleSource Source { get; private set; }
-        public bool IsStamped { get; private set; }
-
-        internal void Stamp(FactId id, OpId sourceOpId, OpId rootOpId, RuleSource source)
-        {
-            if (IsStamped)
-                throw new InvalidOperationException(
-                    "A Rule Fact cannot be stamped more than once."
-                );
-
-            Id = id;
-            SourceOpId = sourceOpId;
-            RootOpId = rootOpId;
-            Source = source;
-            IsStamped = true;
-        }
-    }
+    /// <summary>
+    /// Marks an immutable payload that describes a committed rules transition or occurrence.
+    /// </summary>
+    /// <remarks>
+    /// Facts contain domain data only. The dispatcher owns commit, source, root, and delivery
+    /// provenance separately so publishing a Fact never mutates the payload observed by clients.
+    /// </remarks>
+    public abstract class RuleFact { }
 
     /// <summary>
-    /// Stages immutable domain Facts. Identity and provenance are added only after a reduction is accepted.
+    /// Stages immutable domain Facts for an atomic reducer commit.
     /// </summary>
     public sealed class FactSink
     {
@@ -92,10 +78,6 @@ namespace Game.Rules.Runtime
         {
             if (fact == null)
                 throw new ArgumentNullException(nameof(fact));
-            if (fact.IsStamped)
-                throw new InvalidOperationException(
-                    "Feature code cannot stage a pre-stamped Fact."
-                );
             if (stagedFacts.Exists(staged => ReferenceEquals(staged, fact)))
                 throw new InvalidOperationException(
                     "The same Rule Fact instance cannot be staged more than once."
@@ -223,7 +205,8 @@ namespace Game.Rules.Runtime
         /// <param name="context">The typed operation and trusted dispatch provenance.</param>
         /// <param name="reducer">The reducer that validates and stages the transition.</param>
         /// <returns>
-        /// The completed reduction, including the committed snapshot and stamped facts when a commit occurred.
+        /// The completed reduction, including the committed snapshot and immutable Facts when a
+        /// commit occurred.
         /// </returns>
         ReductionResult<TResult> Reduce<TOp, TResult>(
             ReductionContext<TOp> context,
@@ -235,8 +218,10 @@ namespace Game.Rules.Runtime
     public sealed class InMemoryRulesStore : IRulesStore
     {
         private readonly object gate = new object();
+        private readonly HashSet<RuleFact> committedFactReferences = new HashSet<RuleFact>(
+            ReferenceEqualityComparer<RuleFact>.Instance
+        );
         private RulesState state;
-        private long nextFactId = 1;
         private bool isReducing;
 
         public InMemoryRulesStore()
@@ -305,22 +290,20 @@ namespace Game.Rules.Runtime
                         );
 
                     RuleFact[] committedFacts = factSink.GetStagedFacts();
-                    long pendingFactId = nextFactId;
                     foreach (RuleFact fact in committedFacts)
                     {
-                        fact.Stamp(
-                            new FactId(pendingFactId++),
-                            context.SourceOpId,
-                            context.RootOpId,
-                            context.Source
-                        );
+                        if (committedFactReferences.Contains(fact))
+                            throw new InvalidOperationException(
+                                "The same Rule Fact instance cannot commit more than once."
+                            );
                     }
 
                     RulesState committedState = new RulesState(
                         draft.Build(startingState.Version + 1)
                     );
                     state = committedState;
-                    nextFactId = pendingFactId;
+                    foreach (RuleFact fact in committedFacts)
+                        committedFactReferences.Add(fact);
 
                     return decision.Complete(
                         committedState.Snapshot,

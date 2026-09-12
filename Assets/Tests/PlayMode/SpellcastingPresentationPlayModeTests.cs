@@ -363,18 +363,22 @@ public sealed class SpellcastingPresentationPlayModeTests
         grid.Target = target.gameObject;
         clericController.IsTakingAction = true;
         action.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
-            yield return null;
+        yield return null;
+
+        Assert.That(target.hp, Is.EqualTo(5), "Rules health must commit synchronously.");
+        Assert.That(target.Health.Current, Is.EqualTo(5));
+        Assert.That(clericController.IsTakingAction, Is.True);
+        Assert.That(animation.IsActionPlaying, Is.True);
+
+        yield return new WaitForSeconds(5.1f);
+        yield return null;
 
         Assert.That(clericController.IsTakingAction, Is.False);
         Assert.That(clericController.ActionPoints, Is.EqualTo(1));
         Assert.That(target.hp, Is.EqualTo(5));
         Assert.That(damageEventCount, Is.EqualTo(1));
         Assert.That(missEventCount, Is.Zero);
-        Assert.That(
-            animation.CurrentClipId,
-            Is.EqualTo("animation/combatranged/ranged_magic_shoot")
-        );
+        Assert.That(animation.CurrentClipId, Is.Null);
         Assert.That(log.Messages.Any(message => message.Contains("casts Divine Lance")), Is.True);
         Assert.That(log.Entries, Has.Count.EqualTo(1));
         Assert.That(log.Entries.Single().Kind, Is.EqualTo(CombatLogEntryKind.Attack));
@@ -383,8 +387,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         bridge.BeginTurn(actor, 3);
         clericController.IsTakingAction = true;
         action.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
-            yield return null;
+        yield return new WaitForSeconds(5.1f);
+        yield return null;
 
         Assert.That(clericController.IsTakingAction, Is.False);
         Assert.That(clericController.ActionPoints, Is.EqualTo(1));
@@ -393,6 +397,90 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(missEventCount, Is.EqualTo(1));
         Assert.That(log.Entries, Has.Count.EqualTo(2));
         Assert.That(log.Entries.Last().Outcome, Is.EqualTo(CombatLogOutcome.CriticalFailure));
+    }
+
+    [UnityTest]
+    public IEnumerator LethalDivineLanceOrdersDefeatAfterAttackBeginningAndResult()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Lethal Divine Lance Cleric", 0, prepared: true);
+        cleric.ac = 10;
+        GameObject visualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+            "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab"
+        );
+        GameObject actorVisual = Object.Instantiate(visualPrefab, cleric.transform);
+        CreatureAnimationController actorAnimation =
+            actorVisual.GetComponent<CreatureAnimationController>();
+        cleric
+            .gameObject.AddComponent<CreaturePresentation>()
+            .Bind(actorAnimation, actorVisual.GetComponent<CreatureEquipmentVisuals>());
+        CreatureComponent target = CreateCreature(
+            "Lethal Divine Lance Target",
+            1,
+            prepared: false,
+            hitPoints: 1
+        );
+        target.ac = 10;
+        GameObject targetVisual = Object.Instantiate(visualPrefab, target.transform);
+        CreatureAnimationController targetAnimation =
+            targetVisual.GetComponent<CreatureAnimationController>();
+        target
+            .gameObject.AddComponent<CreaturePresentation>()
+            .Bind(targetAnimation, targetVisual.GetComponent<CreatureEquipmentVisuals>());
+        TestActionController clericController =
+            cleric.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { clericController, targetController },
+            tiles,
+            new ScriptedRollService(20, 10, 10, 1, 1),
+            "players"
+        );
+        RulesCastSpellAction action = RulesActions(clericController, "divine-lance").Single();
+        grid.Target = target.gameObject;
+        bridge.BeginTurn(bridge.GetCreatureId(cleric), 3);
+        List<string> presentationOrder = new();
+        void CaptureResult(string _) => presentationOrder.Add("result");
+        OnDamageDealt.AddListener(CaptureResult);
+        clericController.IsTakingAction = true;
+
+        action.Invoke(cleric.gameObject);
+        yield return null;
+
+        Assert.That(target.Health.Current, Is.Zero, "Rules health must commit immediately.");
+        Assert.That(actorAnimation.IsActionPlaying, Is.True);
+        Assert.That(
+            targetAnimation.IsDeathPlaying,
+            Is.False,
+            "Defeat presentation must wait behind the spell's attack-begin step."
+        );
+        presentationOrder.Add("begin");
+        bool sawDeathPresentation = false;
+        float deadline = Time.realtimeSinceStartup + 10.5f;
+        while (clericController.IsTakingAction && Time.realtimeSinceStartup < deadline)
+        {
+            if (!sawDeathPresentation && targetAnimation.IsDeathPlaying)
+            {
+                sawDeathPresentation = true;
+                presentationOrder.Add("defeat");
+            }
+            yield return null;
+        }
+
+        Assert.That(clericController.IsTakingAction, Is.False);
+        Assert.That(sawDeathPresentation, Is.True);
+        Assert.That(
+            presentationOrder,
+            Is.EqualTo(new[] { "begin", "result", "defeat" }),
+            "Lethal spell defeat must follow the action's queued beginning and result."
+        );
+        OnDamageDealt.RemoveListener(CaptureResult);
     }
 
     [UnityTest]
@@ -515,6 +603,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
+            new OpId(1),
             snapshot
         );
         Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
@@ -526,6 +615,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(unrelated, new BindingId("binding-unrelated")),
+            new OpId(1),
             snapshot
         );
         Assert.That(VisualLights(owner), Has.Count.EqualTo(1));
@@ -543,6 +633,7 @@ public sealed class SpellcastingPresentationPlayModeTests
                 ),
                 ActiveEffectRemovalReason.Expired
             ),
+            new OpId(1),
             snapshot
         );
         observer.OnFactCommitted(
@@ -558,6 +649,7 @@ public sealed class SpellcastingPresentationPlayModeTests
                 ),
                 ActiveEffectRemovalReason.Ended
             ),
+            new OpId(1),
             snapshot
         );
         yield return null;
@@ -565,6 +657,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
+            new OpId(1),
             snapshot
         );
         observer.Dispose();
@@ -573,13 +666,13 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(VisualLights(owner), Is.Empty);
     }
 
-    private CreatureComponent CreateCreature(string name, int x, bool prepared)
+    private CreatureComponent CreateCreature(string name, int x, bool prepared, int hitPoints = 10)
     {
         GameObject value = new(name);
         created.Add(value);
         value.transform.position = new Vector3(x, 0, 0);
         CreatureComponent creature = value.AddComponent<CreatureComponent>();
-        creature.InitializeHealthBeforeEncounter(10, 10);
+        creature.InitializeHealthBeforeEncounter(hitPoints, hitPoints);
         if (prepared)
         {
             creature.level = 1;

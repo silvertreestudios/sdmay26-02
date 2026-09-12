@@ -32,6 +32,7 @@ namespace Game.Rules.Unity.Composition
 
         internal static UnityEncounterModuleSet Create(
             UnityCombatRulesBridge owner,
+            UnityActionPresentationCoordinator actionPresentationCoordinator,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             Tile[,] tiles,
@@ -41,8 +42,11 @@ namespace Game.Rules.Unity.Composition
         {
             if (owner == null)
                 throw new ArgumentNullException(nameof(owner));
+            if (actionPresentationCoordinator == null)
+                throw new ArgumentNullException(nameof(actionPresentationCoordinator));
             UnityStrikeContext strikeContext = new(creatures, tiles);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
+            UnityRottingAuraModule rottingAura = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
             RageActionDefinition rageDefinition = new(new UnityRageActorStateProvider(creatures));
             CombatActionCatalog actionCatalog = new(
@@ -54,6 +58,9 @@ namespace Game.Rules.Unity.Composition
             );
 
             RuleRegistryBuilder registryBuilder = new();
+            registryBuilder.Define(ConditionRules.DefinitionId);
+            RottingAuraRules.DefineRuleBinding(registryBuilder, rottingAura);
+            SlowedRules.DefineRuleBinding(registryBuilder);
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
             registryBuilder.Define(
@@ -67,11 +74,13 @@ namespace Game.Rules.Unity.Composition
             )
                 registryBuilder.Define(definitionId);
 
+            UnityActionPresentationRegistry actionPresentation = new(actionPresentationCoordinator);
             IUnityEncounterModule[] modules =
             {
-                new RottingAuraEncounterModule(owner),
-                new SlowedEncounterModule(owner),
-                new UnityRageEncounterModule(rageDefinition),
+                rottingAura,
+                new ConditionEncounterModule(owner),
+                new UnitySlowedModule(),
+                new UnityRageModule(rageDefinition),
                 new UnityStrikeEncounterModule(
                     strikeContext,
                     controllers,
@@ -85,37 +94,18 @@ namespace Game.Rules.Unity.Composition
                     creatures,
                     installUnityAuthority
                 ),
-                new UnityLightEncounterModule(spellCatalog, creatures),
-                new UnityHealthProjectionModule(creatures, installUnityAuthority),
+                new UnityActionPresentationModule(actionPresentation),
+                new UnityLightModule(spellCatalog, creatures),
+                new UnityHealthProjectionModule(
+                    creatures,
+                    actionPresentationCoordinator,
+                    installUnityAuthority
+                ),
                 new UnityEncounterProjectionModule(owner),
             };
-            return new UnityEncounterModuleSet(
-                new UnityEncounterComposition(modules),
-                actionCatalog,
-                registryBuilder.Build()
-            );
-        }
-    }
-
-    /// <summary>Owns Rage's dispatcher and combatant-state composition.</summary>
-    internal sealed class UnityRageEncounterModule
-        : IUnityEncounterDispatcherModule,
-            IUnityCombatantEnrollmentModule
-    {
-        private readonly RageActionDefinition definition;
-
-        internal UnityRageEncounterModule(RageActionDefinition definition) =>
-            this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
-
-        /// <inheritdoc/>
-        public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
-            builder.UseRageRules(definition);
-
-        /// <inheritdoc/>
-        public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
-        {
-            RageActorState state = UnityRageActorStateProvider.CreateState(builder.Creature);
-            builder.AddRuleBindings(RageRules.CreateInitialBindings(builder.CreatureId, state));
+            UnityEncounterComposition composition = new(modules);
+            composition.ConfigureActionPresentation(actionPresentation);
+            return new UnityEncounterModuleSet(composition, actionCatalog, registryBuilder.Build());
         }
     }
 

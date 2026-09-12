@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
@@ -66,8 +67,6 @@ public sealed class UnityCombatRulesBridgeTests
                     secondLifetime
                 )
             );
-            IReadOnlyList<IEncounterTurnStartAdapter> adapters =
-                composition.CreateTurnStartAdapters();
             composition.RefreshTopology(CreateTiles(1));
 
             Assert.That(
@@ -84,7 +83,6 @@ public sealed class UnityCombatRulesBridgeTests
                     }
                 )
             );
-            Assert.That(adapters, Is.EqualTo(new[] { alpha.Adapter, beta.Adapter }));
         }
         finally
         {
@@ -529,7 +527,8 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(bridge.HasTurnAuthority(firstId), Is.False);
             Assert.That(bridge.HasTurnAuthority(secondId), Is.False);
 
-            EncounterState encounter = bridge.AdvanceEncounter();
+            bridge.AdvanceEncounter();
+            EncounterState encounter = bridge.GetEncounter();
 
             Assert.That(encounter.CurrentTurn.HasValue, Is.True);
             Assert.That(
@@ -543,6 +542,163 @@ public sealed class UnityCombatRulesBridgeTests
         }
         finally
         {
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    /// <summary>
+    /// Verifies reentrant host dispatch appends its encounter projections to the active FIFO.
+    /// </summary>
+    [Test]
+    public void TurnBeganPresentationMayEndTurnAndPreservesCommitOrder()
+    {
+        GameObject firstObject = new GameObject("presentation-fifo-first");
+        GameObject secondObject = new GameObject("presentation-fifo-second");
+        UnityCombatRulesBridge bridge = null;
+        try
+        {
+            BridgeTestActionController first = ConfigureCombatant(
+                firstObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController second = ConfigureCombatant(
+                secondObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, second },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                "Players"
+            );
+            List<string> order = new();
+            int began = 0;
+            int ended = 0;
+            bridge.TurnBegan += turn =>
+            {
+                began++;
+                order.Add($"begin-{began}");
+                if (began == 1)
+                    bridge.EndTurn(turn.Actor);
+            };
+            bridge.TurnEnded += _ =>
+            {
+                ended++;
+                order.Add($"end-{ended}");
+            };
+
+            Assert.DoesNotThrow(() => bridge.AdvanceEncounter());
+
+            Assert.That(order, Is.EqualTo(new[] { "begin-1", "end-1", "begin-2" }));
+            Assert.That(
+                bridge.GetEncounter().CurrentTurn.Value.Actor,
+                Is.EqualTo(bridge.GetCreatureId(second))
+            );
+        }
+        finally
+        {
+            bridge?.ReleaseOwnership();
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    [Test]
+    public void QueuedResourceProjectionSkipsTurnSupersededBeforeDrain()
+    {
+        GameObject firstObject = new GameObject("stale-resource-projection-first");
+        GameObject secondObject = new GameObject("stale-resource-projection-second");
+        UnityCombatRulesBridge bridge = null;
+        try
+        {
+            BridgeTestActionController first = ConfigureCombatant(
+                firstObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController second = ConfigureCombatant(
+                secondObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, second },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                "Players"
+            );
+            bridge.AdvanceEncounter();
+            TurnIdentity stale = bridge.GetEncounter().CurrentTurn.Value;
+            BridgeTestActionController staleController =
+                bridge.GetCreatureId(first) == stale.Actor ? first : second;
+            BridgeTestActionController nextController = staleController == first ? second : first;
+            int staleStarts = staleController.StartTurnCount;
+
+            bridge.EnqueueEncounterPresentation(() => bridge.ProjectTurnResourcesRegained(stale));
+            bridge.EndTurn(stale.Actor);
+
+            Assert.That(staleController.StartTurnCount, Is.EqualTo(staleStarts));
+            Assert.That(nextController.StartTurnCount, Is.EqualTo(1));
+            Assert.That(bridge.GetEncounter().CurrentTurn.Value.Actor, Is.Not.EqualTo(stale.Actor));
+        }
+        finally
+        {
+            bridge?.ReleaseOwnership();
+            Object.DestroyImmediate(firstObject);
+            Object.DestroyImmediate(secondObject);
+        }
+    }
+
+    /// <summary>
+    /// Verifies one failed encounter callback cannot suppress later committed presentation.
+    /// </summary>
+    [Test]
+    public void EncounterPresentationFailureDoesNotSuppressTurnProjection()
+    {
+        GameObject firstObject = new GameObject("presentation-failure-first");
+        GameObject secondObject = new GameObject("presentation-failure-second");
+        UnityCombatRulesBridge bridge = null;
+        try
+        {
+            BridgeTestActionController first = ConfigureCombatant(
+                firstObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController second = ConfigureCombatant(
+                secondObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { first, second },
+                CreateTiles(2),
+                new ScriptedRollService(20, 10),
+                "Players"
+            );
+            int turnProjectionCount = 0;
+            bridge.EncounterStarted += () =>
+                throw new InvalidOperationException(
+                    "Synthetic encounter-start presentation failure."
+                );
+            bridge.TurnBegan += _ => turnProjectionCount++;
+            ExpectLog(
+                LogType.Exception,
+                new Regex("Synthetic encounter-start presentation failure\\.")
+            );
+
+            Assert.DoesNotThrow(() => bridge.AdvanceEncounter());
+
+            Assert.That(bridge.GetEncounter().Phase, Is.EqualTo(EncounterPhase.Active));
+            Assert.That(bridge.GetEncounter().CurrentTurn.HasValue, Is.True);
+            Assert.That(turnProjectionCount, Is.EqualTo(1));
+        }
+        finally
+        {
+            bridge?.ReleaseOwnership();
             Object.DestroyImmediate(firstObject);
             Object.DestroyImmediate(secondObject);
         }
@@ -906,19 +1062,16 @@ public sealed class UnityCombatRulesBridgeTests
                     .RegisterFactObserver<CombatantsAddedFact>(
                         new CompletedFailureObserver(expected)
                     );
-                Assert.That(
-                    Assert.Throws<ApplicationException>(() => enrollment.Commit()),
-                    Is.SameAs(expected)
-                );
+                Assert.DoesNotThrow(() => enrollment.Commit());
             }
             else
             {
                 enrollment.Commit();
-                ApplicationException error = Assert.Throws<ApplicationException>(() =>
-                    enrollment.AttachAndInstall()
-                );
-                Assert.That(error.Message, Does.Contain("post-commit installation"));
             }
+            ApplicationException error = Assert.Throws<ApplicationException>(() =>
+                enrollment.AttachAndInstall()
+            );
+            Assert.That(error.Message, Does.Contain("post-commit installation"));
             Assert.DoesNotThrow(() => enrollment.Dispose());
 
             CreatureId reinforcementId = encounter.GetCreatureId(reinforcement);
@@ -973,6 +1126,7 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(healing.Applied, Is.EqualTo(2));
             Assert.That(first.hp, Is.EqualTo(8));
             Assert.That(first.maxHp, Is.EqualTo(12));
+            Assert.That(first.Health.Current, Is.EqualTo(8));
             Assert.That(bridge.Snapshot.Health[firstId].Current, Is.EqualTo(first.hp));
             Assert.That(
                 bridge.TryGetOriginSource(
@@ -1018,66 +1172,6 @@ public sealed class UnityCombatRulesBridgeTests
         }
         finally
         {
-            Object.DestroyImmediate(creatureObject);
-        }
-    }
-
-    [Test]
-    public void BridgePropagatesCompletedDispatcherFailure()
-    {
-        GameObject creatureObject = new GameObject("creature");
-        try
-        {
-            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
-            creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityCombatRulesBridge bridge = CreateBridge(creature);
-            InvalidOperationException expected = new InvalidOperationException(
-                "completed observer failure"
-            );
-            GetDispatcher(bridge)
-                .RegisterFactObserver<HealthFact>(new CompletedFailureObserver(expected));
-
-            InvalidOperationException actual = Assert.Throws<InvalidOperationException>(() =>
-                bridge.ApplyFinalDamage(
-                    bridge.GetCreatureId(creature),
-                    1,
-                    RuleSource.FromSlug("test-damage")
-                )
-            );
-
-            Assert.That(actual, Is.SameAs(expected));
-        }
-        finally
-        {
-            Object.DestroyImmediate(creatureObject);
-        }
-    }
-
-    [Test]
-    public void BridgeRejectsIncompleteDispatcherWork()
-    {
-        GameObject creatureObject = new GameObject("creature");
-        IncompleteObserver observer = new IncompleteObserver();
-        try
-        {
-            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
-            creature.InitializeHealthBeforeEncounter(10, 10);
-            UnityCombatRulesBridge bridge = CreateBridge(creature);
-            GetDispatcher(bridge).RegisterFactObserver<HealthFact>(observer);
-
-            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-                bridge.ApplyFinalDamage(
-                    bridge.GetCreatureId(creature),
-                    1,
-                    RuleSource.FromSlug("test-damage")
-                )
-            );
-
-            StringAssert.Contains("cannot contain asynchronous callbacks", error.Message);
-        }
-        finally
-        {
-            observer.Complete();
             Object.DestroyImmediate(creatureObject);
         }
     }
@@ -1175,88 +1269,6 @@ public sealed class UnityCombatRulesBridgeTests
                 Is.Zero,
                 "A detached exploration controller must project neutral combat AP."
             );
-        }
-        finally
-        {
-            Object.DestroyImmediate(creatureObject);
-        }
-    }
-
-    [Test]
-    public async Task ProjectedStrideReportsResolutionUntilAsyncProjectionCompletes()
-    {
-        GameObject creatureObject = new GameObject("async-projection-stride-creature");
-        try
-        {
-            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
-            creature.InitializeHealthBeforeEncounter(10, 10);
-            creature.speed = 25;
-            BridgeTestActionController controller =
-                creatureObject.AddComponent<BridgeTestActionController>();
-            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
-                controller,
-                CreateTiles(2),
-                NoExplorationStrideCoordinator.Instance
-            );
-            CreatureId id = bridge.GetCreatureId(controller);
-            BlockingMovementObserver observer = new BlockingMovementObserver();
-
-            ValueTask<bool> pending = bridge.DispatchProjectedStride(
-                id,
-                new MovementPath(new GridPosition(0, 0, 0), new[] { new GridPosition(1, 0, 0) }),
-                observer
-            );
-            await observer.Started;
-
-            Assert.That(bridge.IsResolutionActive, Is.True);
-            bool ownershipReleased = false;
-            bridge.ReleaseOwnership(() => ownershipReleased = true);
-            Assert.That(ownershipReleased, Is.False);
-
-            observer.Complete();
-
-            Assert.That(await pending, Is.True);
-            Assert.That(bridge.IsResolutionActive, Is.False);
-            Assert.That(ownershipReleased, Is.True);
-        }
-        finally
-        {
-            Object.DestroyImmediate(creatureObject);
-        }
-    }
-
-    [Test]
-    public void ProjectedStridePropagatesUnrelatedProjectionFailure()
-    {
-        GameObject creatureObject = new GameObject("failed-exploration-stride-creature");
-        try
-        {
-            CreatureComponent creature = creatureObject.AddComponent<CreatureComponent>();
-            creature.InitializeHealthBeforeEncounter(10, 10);
-            creature.speed = 25;
-            BridgeTestActionController controller =
-                creatureObject.AddComponent<BridgeTestActionController>();
-            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.CreateExplorationStride(
-                controller,
-                CreateTiles(2),
-                NoExplorationStrideCoordinator.Instance
-            );
-            CreatureId id = bridge.GetCreatureId(controller);
-            InvalidOperationException expected = new("unrelated projection failure");
-
-            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
-                async () =>
-                    await bridge.DispatchProjectedStride(
-                        id,
-                        new MovementPath(
-                            new GridPosition(0, 0, 0),
-                            new[] { new GridPosition(1, 0, 0) }
-                        ),
-                        new FailingMovementObserver(expected)
-                    )
-            );
-
-            Assert.That(actual, Is.SameAs(expected));
         }
         finally
         {
@@ -1560,6 +1572,17 @@ public sealed class UnityCombatRulesBridgeTests
         return (RuleDispatcher)field.GetValue(bridge);
     }
 
+    private static void ExpectLog(LogType type, Regex message)
+    {
+        Type logAssert = AppDomain
+            .CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType("UnityEngine.TestTools.LogAssert"))
+            .First(candidate => candidate != null);
+        logAssert
+            .GetMethod("Expect", new[] { typeof(LogType), typeof(Regex) })
+            .Invoke(null, new object[] { type, message });
+    }
+
     private sealed class CompletedFailureObserver
         : IFactObserver<HealthFact>,
             IFactObserver<CombatantsAddedFact>
@@ -1568,69 +1591,28 @@ public sealed class UnityCombatRulesBridgeTests
 
         public CompletedFailureObserver(Exception failure) => this.failure = failure;
 
-        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot) =>
-            new ValueTask(Task.FromException(failure));
+        public void OnFactCommitted(HealthFact fact, OpId rootId, RulesSnapshot currentSnapshot) =>
+            throw failure;
 
-        public ValueTask OnFactCommitted(CombatantsAddedFact fact, RulesSnapshot currentSnapshot) =>
-            new ValueTask(Task.FromException(failure));
-    }
-
-    private sealed class IncompleteObserver : IFactObserver<HealthFact>
-    {
-        private readonly TaskCompletionSource<bool> completion = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-
-        public ValueTask OnFactCommitted(HealthFact fact, RulesSnapshot currentSnapshot) =>
-            new ValueTask(completion.Task);
-
-        public void Complete() => completion.TrySetResult(true);
+        public void OnFactCommitted(
+            CombatantsAddedFact fact,
+            OpId rootId,
+            RulesSnapshot currentSnapshot
+        ) => throw failure;
     }
 
     private sealed class RecordingMovementObserver : IFactObserver<TokenMovedFact>
     {
         public List<TokenMovedFact> Facts { get; } = new List<TokenMovedFact>();
 
-        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
+        public void OnFactCommitted(TokenMovedFact fact, OpId rootId, RulesSnapshot currentSnapshot)
         {
             Facts.Add(fact);
-            return default;
         }
-    }
-
-    private sealed class BlockingMovementObserver : IFactObserver<TokenMovedFact>
-    {
-        private readonly TaskCompletionSource<bool> started = new(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-        private readonly TaskCompletionSource<bool> completion = new(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-
-        public Task Started => started.Task;
-
-        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot)
-        {
-            started.TrySetResult(true);
-            return new ValueTask(completion.Task);
-        }
-
-        public void Complete() => completion.TrySetResult(true);
-    }
-
-    private sealed class FailingMovementObserver : IFactObserver<TokenMovedFact>
-    {
-        private readonly Exception failure;
-
-        public FailingMovementObserver(Exception failure) => this.failure = failure;
-
-        public ValueTask OnFactCommitted(TokenMovedFact fact, RulesSnapshot currentSnapshot) =>
-            new(Task.FromException(failure));
     }
 
     private sealed class RecordingEncounterModule
-        : IUnityEncounterTurnStartModule,
-            IUnityEncounterTopologyModule,
+        : IUnityEncounterTopologyModule,
             IUnityCombatantEnrollmentModule
     {
         private readonly string name;
@@ -1640,25 +1622,12 @@ public sealed class UnityCombatRulesBridgeTests
         {
             this.name = name;
             this.order = order;
-            Adapter = new RecordingTurnStartAdapter();
         }
-
-        public IEncounterTurnStartAdapter Adapter { get; }
-
-        public IEncounterTurnStartAdapter CreateTurnStartAdapter() => Adapter;
 
         public void RefreshTopology(GridPrivate.Tile[,] tiles) => order.Add($"{name}:topology");
 
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) =>
             order.Add($"{name}:{builder.CreatureId.Value}");
-    }
-
-    private sealed class RecordingTurnStartAdapter : IEncounterTurnStartAdapter
-    {
-        public ValueTask<TurnStartContribution> Apply(
-            EncounterTurnStartContext context,
-            TurnStartContribution current
-        ) => new ValueTask<TurnStartContribution>(current);
     }
 
     private sealed class ThrowingInstallationContribution : IUnityCombatantInstallationContribution
@@ -1669,6 +1638,14 @@ public sealed class UnityCombatRulesBridgeTests
 
     private sealed class BridgeTestActionController : ActionController
     {
+        public int StartTurnCount { get; private set; }
+
+        public override void StartTurn()
+        {
+            StartTurnCount++;
+            base.StartTurn();
+        }
+
         public override void EndTurn() { }
     }
 

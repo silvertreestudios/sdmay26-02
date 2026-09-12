@@ -60,8 +60,8 @@ namespace Game.Rules.Runtime
                     foreach (RuleFact fact in completion.DirectFacts)
                     {
                         lines.Add(
-                            $"{prefix}  [fact {fact.Id.Value}] {fact.GetType().Name} "
-                                + $"source={fact.SourceOpId.Value} root={fact.RootOpId.Value}"
+                            $"{prefix}  [fact] {fact.GetType().Name} "
+                                + $"source={frame.Id.Value} root={frame.RootId.Value}"
                         );
                     }
                 }

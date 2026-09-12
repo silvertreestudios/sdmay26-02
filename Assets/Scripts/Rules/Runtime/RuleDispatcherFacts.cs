@@ -20,15 +20,21 @@ namespace Game.Rules.Runtime
             );
         }
 
-        internal void CaptureCommittedFacts(
+        internal IReadOnlyList<CommittedFactRecord> CaptureCommittedFacts(
             IFrameInvocation invocation,
-            IReadOnlyList<RuleFact> facts
+            IReadOnlyList<RuleFact> facts,
+            RuleSource source,
+            RulesSnapshot snapshot
         )
         {
             if (invocation == null)
                 throw new ArgumentNullException(nameof(invocation));
             if (facts == null)
                 throw new ArgumentNullException(nameof(facts));
+            if (source.IsEmpty)
+                throw new ArgumentException("A rule source is required.", nameof(source));
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
 
             lock (gate)
             {
@@ -42,10 +48,22 @@ namespace Game.Rules.Runtime
                 // of which may discard or reorder an already committed Fact. Root aggregation also
                 // retains the source frame's frozen listener selection for later notification.
                 invocation.CaptureDirectFacts(facts);
+                List<CommittedFactRecord> committedFacts = new List<CommittedFactRecord>(
+                    facts.Count
+                );
                 foreach (RuleFact fact in facts)
                 {
-                    activeRoot.AddFact(fact, invocation.FrameView.Id, invocation.FrameView.RootId);
+                    committedFacts.Add(
+                        activeRoot.AddFact(
+                            fact,
+                            invocation.FrameView.Id,
+                            invocation.FrameView.RootId,
+                            source,
+                            snapshot
+                        )
+                    );
                 }
+                return Array.AsReadOnly(committedFacts.ToArray());
             }
         }
 
@@ -72,10 +90,7 @@ namespace Game.Rules.Runtime
         {
             if (
                 committedFacts.Any(committed =>
-                    committed == null
-                    || committed.Fact == null
-                    || !committed.Fact.IsStamped
-                    || committed.Fact.RootOpId != rootId
+                    committed == null || committed.Fact == null || committed.RootOpId != rootId
                 )
             )
             {
@@ -92,22 +107,36 @@ namespace Game.Rules.Runtime
                 {
                     if (ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
                     {
-                        await InvokeFactListener(delivery, delivery.Facts, delivery.RootId);
+                        await InvokeFactListener(
+                            delivery,
+                            SelectFacts(delivery.CommittedFacts),
+                            delivery.RootId
+                        );
                     }
                     continue;
                 }
 
-                foreach (RuleFact fact in delivery.Facts)
+                foreach (CommittedFactRecord committed in delivery.CommittedFacts)
                 {
                     if (!ruleRegistry.IsActive(store.Snapshot, delivery.Binding))
                         break;
                     await InvokeFactListener(
                         delivery,
-                        Array.AsReadOnly(new[] { fact }),
-                        fact.SourceOpId
+                        Array.AsReadOnly(new[] { committed.Fact }),
+                        committed.SourceOpId
                     );
                 }
             }
+        }
+
+        private static IReadOnlyList<RuleFact> SelectFacts(
+            IReadOnlyList<CommittedFactRecord> committedFacts
+        )
+        {
+            RuleFact[] facts = new RuleFact[committedFacts.Count];
+            for (int index = 0; index < committedFacts.Count; index++)
+                facts[index] = committedFacts[index].Fact;
+            return Array.AsReadOnly(facts);
         }
 
         private async ValueTask InvokeFactListener(

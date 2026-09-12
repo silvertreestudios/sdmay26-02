@@ -317,8 +317,8 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(sameRootWork.ParentId, Is.EqualTo(new OpId(100)));
             Assert.That(unrelated.RootId, Is.EqualTo(new OpId(103)));
             Assert.That(unrelated.ParentId.HasValue, Is.False);
-            Assert.That(promptingResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(100)));
-            Assert.That(unrelatedResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(103)));
+            Assert.That(promptingResult.Facts, Has.Count.EqualTo(1));
+            Assert.That(unrelatedResult.Facts, Has.Count.EqualTo(1));
         }
 
         private static InvalidOperationException ResolveAdapterContractViolation(

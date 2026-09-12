@@ -104,31 +104,6 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task SettlementRegistrationTokensUnregisterEachObserverExactlyOnce()
-        {
-            RuleDispatcher dispatcher = new RuleDispatcherBuilder(CreateStore(10))
-                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
-                .Build();
-            RecordingSettlementObserver observer = new RecordingSettlementObserver();
-            IDisposable rootRegistration = dispatcher.RegisterRootSettlementObserver(observer);
-            IDisposable treeRegistration = dispatcher.RegisterCausalTreeSettlementObserver(
-                observer
-            );
-
-            await dispatcher.Dispatch(new SettlementTokenOp());
-            treeRegistration.Dispose();
-            treeRegistration.Dispose();
-            rootRegistration.Dispose();
-            rootRegistration.Dispose();
-            await dispatcher.Dispatch(new SettlementTokenOp());
-
-            Assert.That(observer.RootSettlements, Is.EqualTo(1));
-            Assert.That(observer.TreeSettlements, Is.EqualTo(1));
-            Assert.That(dispatcher.UnregisterRootSettlementObserver(observer), Is.False);
-            Assert.That(dispatcher.UnregisterCausalTreeSettlementObserver(observer), Is.False);
-        }
-
-        [Test]
         public async Task TypedRootAndNestedHandlerReducerPathsRefreshSnapshotsAndAggregateFactsOnce()
         {
             InMemoryRulesStore store = CreateStore(10);
@@ -152,8 +127,8 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(resolved.Value, Is.EqualTo(14));
             Assert.That(result.Facts, Has.Count.EqualTo(2));
             Assert.That(
-                result.Facts.Select(fact => fact.Id),
-                Is.EqualTo(new[] { new FactId(1), new FactId(2) })
+                result.Facts.Cast<HealthChangedFact>().Select(fact => fact.Current),
+                Is.EqualTo(new[] { 12, 14 })
             );
             Assert.That(result.Facts.Distinct().Count(), Is.EqualTo(2));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(14));
@@ -183,9 +158,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(dispatcher.Trace.IsDescendantOf(root.Id, root.Id), Is.False);
             Assert.That(dispatcher.Trace.IsCausedBy(root.Id, root.Id), Is.False);
 
-            Assert.That(result.Facts.All(fact => fact.RootOpId == root.Id), Is.True);
-            Assert.That(result.Facts[0].SourceOpId, Is.EqualTo(first.Id));
-            Assert.That(result.Facts[1].SourceOpId, Is.EqualTo(grandchild.Id));
+            Assert.That(
+                result.Facts.Cast<HealthChangedFact>().Select(fact => fact.Previous),
+                Is.EqualTo(new[] { 10, 12 })
+            );
         }
 
         [Test]
@@ -312,14 +288,14 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(first, Is.EqualTo(second));
             Assert.That(first, Does.Contain("[op 7 root] PoisonToStringOp -> Resolved"));
             Assert.That(first, Does.Contain("[op 8 parent=7 cause=7] IncrementOp -> Resolved"));
-            Assert.That(first, Does.Contain("[fact 1] HealthChangedFact source=8 root=7"));
+            Assert.That(first, Does.Contain("[fact] HealthChangedFact source=8 root=7"));
             Assert.That(first, Does.Not.Contain("System."));
         }
 
         [Test]
-        public void CrossRootFactsFromABrokenStoreAreRejected()
+        public void DuplicateFactDeliveryFromABrokenStoreIsRejected()
         {
-            RuleDispatcher dispatcher = new RuleDispatcherBuilder(new CrossRootStore())
+            RuleDispatcher dispatcher = new RuleDispatcherBuilder(new DuplicateFactStore())
                 .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
                 .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
                 .Build();
@@ -329,7 +305,7 @@ namespace Game.Rules.Runtime.Tests
                     await dispatcher.Dispatch(new SingleIncrementRootOp())
             );
 
-            Assert.That(error.Message, Does.Contain("across resolution roots"));
+            Assert.That(error.Message, Does.Contain("aggregated more than once"));
         }
 
         [Test]
@@ -410,21 +386,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(13));
             Assert.That(result.Facts, Has.Count.EqualTo(2));
             Assert.That(result.Facts.Distinct().Count(), Is.EqualTo(2));
-            Assert.That(
-                result.Facts.Select(fact => fact.Id),
-                Is.EqualTo(new[] { new FactId(1), new FactId(2) })
-            );
-
             Assert.That(handler.FirstChildResult.Facts, Has.Count.EqualTo(1));
             Assert.That(handler.SequentialSiblingResult.Facts, Has.Count.EqualTo(1));
             Assert.That(handler.FirstChildResult.Facts[0], Is.SameAs(result.Facts[0]));
             Assert.That(handler.SequentialSiblingResult.Facts[0], Is.SameAs(result.Facts[1]));
-            Assert.That(handler.FirstChildResult.Facts[0].SourceOpId, Is.EqualTo(new OpId(602)));
-            Assert.That(
-                handler.SequentialSiblingResult.Facts[0].SourceOpId,
-                Is.EqualTo(new OpId(604))
-            );
-            Assert.That(result.Facts.All(fact => fact.RootOpId == new OpId(600)), Is.True);
             Assert.That(
                 dispatcher.Trace.OrderedFrames.Count,
                 Is.EqualTo(5),
@@ -465,12 +430,8 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(handler.ChildError.Message, Does.Contain("expected nested failure"));
             Assert.That(RequireResolved(recovered).Value, Is.EqualTo(11));
             Assert.That(recovered.Facts, Has.Count.EqualTo(1));
-            Assert.That(recovered.Facts[0].SourceOpId, Is.EqualTo(new OpId(702)));
-            Assert.That(recovered.Facts[0].RootOpId, Is.EqualTo(new OpId(700)));
             Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(12));
             Assert.That(laterRoot.Facts, Has.Count.EqualTo(1));
-            Assert.That(laterRoot.Facts[0].SourceOpId, Is.EqualTo(new OpId(704)));
-            Assert.That(laterRoot.Facts[0].RootOpId, Is.EqualTo(new OpId(703)));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(12));
         }
 
@@ -532,7 +493,7 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Trace.OrderedFrames.Select(frame => frame.Id).Distinct().Count(),
                 Is.EqualTo(4)
             );
-            Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(802)));
+            Assert.That(laterRoot.Facts, Has.Count.EqualTo(1));
         }
 
         /// <summary>
@@ -569,84 +530,6 @@ namespace Game.Rules.Runtime.Tests
                 Is.EqualTo(new[] { new OpId(825) })
             );
             Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(10));
-        }
-
-        [Test]
-        [Timeout(10000)]
-        public async Task RootCallbackRejectsOverlapAndAllowsAwaitedSequentialDispatch()
-        {
-            SuspendedNestedHandler suspended = new SuspendedNestedHandler();
-            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                CreateStore(10),
-                new SequentialOpIdProvider(840)
-            )
-                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
-                .RegisterHandler<SuspendedNestedOp, int>(suspended)
-                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
-                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
-                .Build();
-            OverlappingRootCallbackObserver observer = new OverlappingRootCallbackObserver(
-                dispatcher,
-                suspended
-            );
-
-            await dispatcher.Dispatch(new SettlementTokenOp(), observer);
-
-            Assert.That(observer.OverlapError, Is.Not.Null);
-            Assert.That(observer.OverlapError.Message, Does.Contain("await each dispatch"));
-            Assert.That(observer.FirstResult, Is.TypeOf<ResolvedOpResult<int>>());
-            Assert.That(observer.SequentialResult, Is.TypeOf<ResolvedOpResult<int>>());
-            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(12));
-            Assert.That(
-                dispatcher
-                    .Trace.OrderedFrames.Where(frame => !frame.ParentId.HasValue)
-                    .Select(frame => frame.RootId)
-                    .Distinct()
-                    .Count(),
-                Is.EqualTo(3)
-            );
-        }
-
-        [Test]
-        [Timeout(10000)]
-        public async Task RootCallbackSettlesUnawaitedCausalRootBeforeFailingAndReleasingOwnership()
-        {
-            SuspendedNestedHandler suspended = new SuspendedNestedHandler();
-            RuleDispatcher dispatcher = new RuleDispatcherBuilder(
-                CreateStore(10),
-                new SequentialOpIdProvider(845)
-            )
-                .RegisterHandler<SettlementTokenOp, int>(new SettlementTokenHandler())
-                .RegisterHandler<SuspendedNestedOp, int>(suspended)
-                .RegisterHandler<SingleIncrementRootOp, int>(new SingleIncrementRootHandler())
-                .RegisterReducer<IncrementOp, int>(new IncrementReducer(), Source)
-                .Build();
-            UnawaitedRootCallbackObserver observer = new UnawaitedRootCallbackObserver(dispatcher);
-
-            Task<OpResult<int>> root = dispatcher
-                .Dispatch(new SettlementTokenOp(), observer)
-                .AsTask();
-            await suspended.Started;
-
-            Assert.That(root.IsCompleted, Is.False);
-            Task<OpResult<int>> queuedRoot = dispatcher
-                .Dispatch(new SingleIncrementRootOp())
-                .AsTask();
-            Assert.That(queuedRoot.IsCompleted, Is.False);
-
-            suspended.Release();
-            InvalidOperationException unawaited = await RequireFailure<InvalidOperationException>(
-                root
-            );
-            OpResult<int> queuedResult = await queuedRoot;
-
-            Assert.That(
-                unawaited.Message,
-                Does.Contain("returned before awaiting its causally linked dispatch")
-            );
-            Assert.That(RequireResolved(queuedResult).Value, Is.EqualTo(12));
-            Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(12));
-            Assert.That(queuedResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(848)));
         }
 
         /// <summary>
@@ -867,7 +750,7 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Diagnostics.Compact,
                 Does.Not.Contain("[op 900 root] UnawaitedChildRootOp -> Resolved")
             );
-            Assert.That(queuedResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(903)));
+            Assert.That(queuedResult.Facts, Has.Count.EqualTo(1));
         }
 
         /// <summary>
@@ -912,7 +795,7 @@ namespace Game.Rules.Runtime.Tests
                 dispatcher.Trace.Get<IncrementOp>(new OpId(952)).RootId,
                 Is.EqualTo(new OpId(950))
             );
-            Assert.That(queuedResult.Facts.Single().RootOpId, Is.EqualTo(new OpId(953)));
+            Assert.That(queuedResult.Facts, Has.Count.EqualTo(1));
         }
 
         [Test]
@@ -1034,7 +917,7 @@ namespace Game.Rules.Runtime.Tests
             OpResult<int> laterRoot = await dispatcher.Dispatch(new SingleIncrementRootOp());
 
             Assert.That(RequireResolved(laterRoot).Value, Is.EqualTo(11));
-            Assert.That(laterRoot.Facts.Single().RootOpId, Is.EqualTo(new OpId(1002)));
+            Assert.That(laterRoot.Facts, Has.Count.EqualTo(1));
             Assert.That(ids.Calls, Is.EqualTo(4));
         }
 
@@ -1113,40 +996,6 @@ namespace Game.Rules.Runtime.Tests
             public RootOp(int amount) => Amount = amount;
         }
 
-        private sealed class SettlementTokenOp : IRuleOp<int> { }
-
-        private sealed class SettlementTokenHandler : IOpHandler<SettlementTokenOp, int>
-        {
-            public ValueTask<int> Handle(
-                OpFrame<SettlementTokenOp> frame,
-                OpHandlerContext context
-            ) => new ValueTask<int>(1);
-        }
-
-        private sealed class RecordingSettlementObserver
-            : IRootSettlementObserver,
-                ICausalTreeSettlementObserver
-        {
-            public int RootSettlements { get; private set; }
-            public int TreeSettlements { get; private set; }
-
-            public ValueTask OnRootSettled(
-                OpId rootId,
-                OpId? causalParentRootId,
-                RulesSnapshot snapshot
-            )
-            {
-                RootSettlements++;
-                return default;
-            }
-
-            public ValueTask OnCausalTreeSettled(OpId rootId, RulesSnapshot snapshot)
-            {
-                TreeSettlements++;
-                return default;
-            }
-        }
-
         private sealed class TrackingDisposable : IDisposable
         {
             private readonly string name;
@@ -1172,69 +1021,6 @@ namespace Game.Rules.Runtime.Tests
                 cleanupOrder.Add(name);
                 if (failure != null)
                     throw failure;
-            }
-        }
-
-        private sealed class OverlappingRootCallbackObserver : IRootResolutionObserver<int>
-        {
-            private readonly RuleDispatcher dispatcher;
-            private readonly SuspendedNestedHandler suspended;
-
-            public OverlappingRootCallbackObserver(
-                RuleDispatcher dispatcher,
-                SuspendedNestedHandler suspended
-            )
-            {
-                this.dispatcher = dispatcher;
-                this.suspended = suspended;
-            }
-
-            public InvalidOperationException OverlapError { get; private set; }
-            public OpResult<int> FirstResult { get; private set; }
-            public OpResult<int> SequentialResult { get; private set; }
-
-            public async ValueTask OnRootResolved(
-                OpId rootId,
-                OpResult<int> result,
-                RulesSnapshot snapshot
-            )
-            {
-                Task<OpResult<int>> first = dispatcher.Dispatch(new SuspendedNestedOp(1)).AsTask();
-                await suspended.Started;
-                try
-                {
-                    await dispatcher.Dispatch(new SingleIncrementRootOp());
-                }
-                catch (InvalidOperationException error)
-                {
-                    OverlapError = error;
-                }
-                finally
-                {
-                    suspended.Release();
-                }
-                FirstResult = await first;
-                SequentialResult = await dispatcher.Dispatch(new SingleIncrementRootOp());
-            }
-        }
-
-        private sealed class UnawaitedRootCallbackObserver : IRootResolutionObserver<int>
-        {
-            private readonly RuleDispatcher dispatcher;
-
-            public UnawaitedRootCallbackObserver(RuleDispatcher dispatcher)
-            {
-                this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
-            }
-
-            public ValueTask OnRootResolved(
-                OpId rootId,
-                OpResult<int> result,
-                RulesSnapshot snapshot
-            )
-            {
-                _ = dispatcher.Dispatch(new SuspendedNestedOp(1));
-                return default;
             }
         }
 
@@ -1945,7 +1731,7 @@ namespace Game.Rules.Runtime.Tests
             }
         }
 
-        private sealed class CrossRootStore : IRulesStore
+        private sealed class DuplicateFactStore : IRulesStore
         {
             private readonly InMemoryRulesStore inner = CreateStore(10);
 
@@ -1958,16 +1744,14 @@ namespace Game.Rules.Runtime.Tests
                 where TOp : IRuleOp<TResult>
             {
                 ReductionResult<TResult> reduced = inner.Reduce(context, reducer);
-                foreach (RuleFact fact in reduced.Facts)
-                {
-                    typeof(RuleFact)
-                        .GetField(
-                            "<RootOpId>k__BackingField",
-                            BindingFlags.Instance | BindingFlags.NonPublic
-                        )
-                        .SetValue(fact, new OpId(context.RootOpId.Value + 100));
-                }
-                return reduced;
+                if (reduced.Facts.Count == 0)
+                    return reduced;
+                RuleFact fact = reduced.Facts[0];
+                return reduced.Complete(
+                    reduced.Snapshot,
+                    Array.AsReadOnly(new[] { fact, fact }),
+                    reduced.DidCommit
+                );
             }
         }
     }

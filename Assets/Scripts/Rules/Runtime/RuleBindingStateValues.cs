@@ -335,7 +335,7 @@ namespace Game.Rules.Runtime
         /// <param name="definitionId">The static definition providing extension registrations.</param>
         /// <param name="owner">The creature that owns or is authorized by the rule.</param>
         /// <param name="effectId">The associated active effect, when the rule has instance state.</param>
-        /// <param name="source">The stable source stamped into later authorized work.</param>
+        /// <param name="source">The stable source supplied to later authorized work.</param>
         /// <param name="creationOrder">A non-negative monotonic creation order.</param>
         /// <param name="isEnabled">Whether the binding should currently participate.</param>
         public ActiveRuleBinding(

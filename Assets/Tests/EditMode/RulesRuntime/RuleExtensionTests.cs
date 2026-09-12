@@ -497,20 +497,15 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(listener.DispatchResult, Is.EqualTo(12));
             Assert.That(reactionHandler.SnapshotValue, Is.EqualTo(12));
 
-            RuleFact committedFact = result.Facts[0];
             OpFrame<RootIncrementOp> committedRoot = dispatcher.Trace.Get<RootIncrementOp>(
                 new OpId(50)
             );
             OpFrame<ReactionOp> reactionRoot = dispatcher.Trace.Get<ReactionOp>(new OpId(52));
-            Assert.That(committedFact.SourceOpId, Is.EqualTo(new OpId(51)));
-            Assert.That(committedFact.RootOpId, Is.EqualTo(committedRoot.Id));
+            Assert.That(listener.CommittedRootId, Is.EqualTo(committedRoot.Id));
             Assert.That(reactionRoot.RootId, Is.EqualTo(reactionRoot.Id));
             Assert.That(reactionRoot.ParentId, Is.Null);
-            Assert.That(reactionRoot.CauseId, Is.EqualTo(committedFact.SourceOpId));
-            Assert.That(
-                dispatcher.Trace.IsCausedBy(reactionRoot.Id, committedFact.SourceOpId),
-                Is.True
-            );
+            Assert.That(reactionRoot.CauseId, Is.EqualTo(new OpId(51)));
+            Assert.That(dispatcher.Trace.IsCausedBy(reactionRoot.Id, new OpId(51)), Is.True);
         }
 
         [Test]
@@ -539,12 +534,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(
                 listener.Batches[1].Facts.Select(fact => fact.Current),
                 Is.EqualTo(new[] { 16 })
-            );
-            Assert.That(
-                listener.Batches.All(batch =>
-                    batch.Facts.All(fact => fact.RootOpId == batch.RootId)
-                ),
-                Is.True
             );
         }
 
@@ -639,10 +628,6 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(
                 result.Facts.Cast<CounterChangedFact>().Select(fact => fact.Current),
                 Is.EqualTo(new[] { 11, 13 })
-            );
-            Assert.That(
-                result.Facts.Select(fact => fact.SourceOpId),
-                Is.EqualTo(new[] { new OpId(11), new OpId(12) })
             );
             Assert.That(dispatcher.Snapshot.Health[Creature].Current, Is.EqualTo(13));
         }
@@ -2032,12 +2017,14 @@ namespace Game.Rules.Runtime.Tests
             public RuleSource Source { get; private set; }
             public int DispatchResult { get; private set; }
             public int Calls { get; private set; }
+            public OpId CommittedRootId { get; private set; }
 
             public async ValueTask OnFactCommitted(CounterChangedFact fact, FactContext context)
             {
                 Calls++;
                 Binding = context.Binding;
                 Source = context.Source;
+                CommittedRootId = context.CommittedRootId;
                 OpResult<int> result = await context.Dispatch(new ReactionOp(fact.Current));
                 DispatchResult = RequireResolved(result).Value;
             }
