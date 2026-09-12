@@ -78,7 +78,6 @@ namespace GridPrivate
                 AreaTargeting.CellsInPlacementRange(Tiles, StartPosition, Request)
             );
             OnGridHover.AddListener(HandleGridHover);
-            OnHover.AddListener(HandleLegacyHover);
             OnHoverEnd.AddListener(ClearPreview);
         }
 
@@ -87,7 +86,6 @@ namespace GridPrivate
             PendingResult = null;
             PendingPlacement = null;
             OnGridHover.RemoveListener(HandleGridHover);
-            OnHover.RemoveListener(HandleLegacyHover);
             OnHoverEnd.RemoveListener(ClearPreview);
             OnPreviewAreaEnd.Invoke();
             OnHighlightRangeEnd.Invoke();
@@ -134,24 +132,6 @@ namespace GridPrivate
         {
             AreaPlacement placement = AreaTargeting.PlacementFromHover(Source, Request, hover);
             Preview(placement);
-        }
-
-        private void HandleLegacyHover(List<Vector3Int> hover)
-        {
-            if (hover == null || hover.Count == 0)
-            {
-                ClearPreview();
-                return;
-            }
-
-            Vector3Int cell = hover[0];
-            GridHoverInfo info = new()
-            {
-                Cell = cell,
-                WorldPosition = new Vector3(cell.x, cell.y, cell.z),
-                NearestCorner = new Vector2Int(cell.x, cell.z),
-            };
-            HandleGridHover(info);
         }
 
         private void Preview(AreaPlacement placement)

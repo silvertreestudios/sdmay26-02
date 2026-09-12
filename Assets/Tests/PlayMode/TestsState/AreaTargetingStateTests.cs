@@ -1,10 +1,13 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
 
 namespace TestsState
@@ -80,6 +83,78 @@ namespace TestsState
             {
                 OnPreviewArea.RemoveListener(previewListener);
                 Object.DestroyImmediate(player);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator GridInputHoverCapturesAreaPreviewOncePerFrame()
+        {
+            yield return base.Setup();
+
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            GridInput input = Object.FindFirstObjectByType<GridInput>();
+            Assert.IsNotNull(grid);
+            Assert.IsNotNull(input);
+            Tile[,] tiles = grid.GetTiles();
+            FindClearHorizontalRun(tiles, 4, out Vector3Int start);
+            CoroutineResult<AreaTargetResult> result = new();
+            int previewCount = 0;
+            UnityAction<List<Vector3Int>> previewListener = _ => previewCount++;
+            OnPreviewArea.AddListener(previewListener);
+            Mouse previousMouse = Mouse.current;
+            Mouse mouse = InputSystem.AddDevice<Mouse>();
+
+            try
+            {
+                grid.StartCoroutine(
+                    grid.GetAreaTarget(
+                        new AreaTargetSource(start),
+                        new AreaTargetRequest { Shape = AreaShape.Line, SizeFeet = 10 },
+                        result
+                    )
+                );
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => grid.Fsm.CurrentState is StateAreaTarget
+                );
+                Assert.IsInstanceOf<StateAreaTarget>(grid.Fsm.CurrentState);
+                Assert.IsFalse(HUDController.IsPointerOverHUD);
+
+                Vector3Int hoverCell = start + Vector3Int.right;
+                Vector3 worldPosition = new(
+                    hoverCell.x + 0.1f,
+                    input.transform.position.y,
+                    hoverCell.z + 0.1f
+                );
+                Vector3 screenPosition = Camera.main.WorldToScreenPoint(worldPosition);
+                mouse.MakeCurrent();
+                InputState.Change(
+                    mouse.position,
+                    new Vector2(screenPosition.x, screenPosition.y),
+                    InputUpdateType.Dynamic
+                );
+                MethodInfo update = typeof(GridInput).GetMethod(
+                    "Update",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                );
+                Assert.IsNotNull(update);
+
+                update.Invoke(input, null);
+                Assert.AreEqual(1, previewCount);
+
+                update.Invoke(input, null);
+                Assert.AreEqual(
+                    2,
+                    previewCount,
+                    "A stationary valid-cell frame should produce one precise area preview."
+                );
+            }
+            finally
+            {
+                OnPreviewArea.RemoveListener(previewListener);
+                InputSystem.RemoveDevice(mouse);
+                if (previousMouse != null && previousMouse.added)
+                    previousMouse.MakeCurrent();
             }
         }
 
