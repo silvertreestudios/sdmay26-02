@@ -5,6 +5,10 @@ using UnityEngine;
 
 namespace GridPrivate
 {
+    /// <summary>
+    /// Previews an area and returns a selection after a fresh capture confirms the displayed result.
+    /// Source destruction, source replacement, or grid replacement cancels confirmation.
+    /// </summary>
     public class StateAreaTarget : GridFSMState
     {
         private readonly AreaTargetSource Source;
@@ -14,8 +18,14 @@ namespace GridPrivate
         private readonly GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
         private readonly Tile[,] Tiles;
         private readonly Vector3Int StartPosition;
-        private AreaTargetResult PendingResult;
 
+        // These are null until an aim is available and are cleared together when the preview ends.
+        private AreaSelectionSnapshot PendingResult;
+        private AreaPlacement PendingPlacement;
+        private readonly GameObject OriginalSource;
+        private readonly bool HasObjectSource;
+
+        /// <summary>Creates a selection state for a character and writes confirmed output to selection.</summary>
         public StateAreaTarget(
             GameObject character,
             AreaTargetRequest request,
@@ -24,6 +34,10 @@ namespace GridPrivate
         )
             : this(new AreaTargetSource(character), request, selection, fsm) { }
 
+        /// <summary>
+        /// Creates a selection state for an object or cell source using the active grid.
+        /// Source and grid identity are retained so a later replacement cannot inherit this selection.
+        /// </summary>
         public StateAreaTarget(
             AreaTargetSource source,
             AreaTargetRequest request,
@@ -37,8 +51,14 @@ namespace GridPrivate
             Fsm = fsm;
             Tiles = GridAPI.GetTiles();
             StartPosition = Source.OriginCell;
+            OriginalSource = Source.SourceObject;
+            HasObjectSource = !ReferenceEquals(OriginalSource, null);
         }
 
+        /// <summary>
+        /// Displays an emanation immediately, or subscribes other shapes to per-frame hover input.
+        /// AI-controlled sources return to idle because this state supports player selection only.
+        /// </summary>
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
         {
             base.Enter(fsm);
@@ -71,31 +91,55 @@ namespace GridPrivate
                 AreaTargeting.CellsInPlacementRange(Tiles, StartPosition, Request)
             );
             OnGridHover.AddListener(HandleGridHover);
-            OnHover.AddListener(HandleLegacyHover);
             OnHoverEnd.AddListener(ClearPreview);
         }
 
+        /// <summary>Releases pending selection data and listeners, clears highlights, and signals completion.</summary>
         public override void Exit()
         {
+            PendingResult = null;
+            PendingPlacement = null;
             OnGridHover.RemoveListener(HandleGridHover);
-            OnHover.RemoveListener(HandleLegacyHover);
             OnHoverEnd.RemoveListener(ClearPreview);
             OnPreviewAreaEnd.Invoke();
             OnHighlightRangeEnd.Invoke();
             OnActionComplete.Invoke();
         }
 
+        /// <summary>
+        /// Recaptures the pending aim and confirms only an unchanged legal result. A changed result
+        /// becomes the new preview and needs another click; an invalid source returns to idle.
+        /// </summary>
         public override void Leftclick()
         {
-            if (PendingResult == null || !PendingResult.IsLegal)
+            if (!IsSourceValid())
+            {
+                fsm.ChangeState(fsm.IdleState);
+                return;
+            }
+            if (PendingResult == null || PendingPlacement == null)
                 return;
 
+            AreaTargetCapture refreshed = AreaTargetCapture.Capture(
+                Source,
+                Tiles,
+                Request,
+                PendingPlacement
+            );
+            AreaSelectionSnapshot current = AreaTargeting.Evaluate(refreshed.Snapshot);
+            bool unchanged = Equivalent(PendingResult, current);
+            if (!unchanged || !current.IsLegal)
+            {
+                ShowPreview(current);
+                return;
+            }
             if (Selection != null)
-                Selection.Value = PendingResult;
+                Selection.Value = refreshed.Resolve();
             OnActionConfirm.Invoke();
             fsm.ChangeState(fsm.IdleState);
         }
 
+        /// <summary>Raises the shared cancel event when this state permits cancellation.</summary>
         public override void Rightclick()
         {
             if (!canCancel)
@@ -109,38 +153,77 @@ namespace GridPrivate
             Preview(placement);
         }
 
-        private void HandleLegacyHover(List<Vector3Int> hover)
+        private void Preview(AreaPlacement placement)
         {
-            if (hover == null || hover.Count == 0)
+            if (!IsSourceValid() || placement == null)
             {
                 ClearPreview();
                 return;
             }
-
-            Vector3Int cell = hover[0];
-            GridHoverInfo info = new()
-            {
-                Cell = cell,
-                WorldPosition = new Vector3(cell.x, cell.y, cell.z),
-                NearestCorner = new Vector2Int(cell.x, cell.z),
-            };
-            HandleGridHover(info);
+            PendingPlacement = placement;
+            AreaTargetCapture capture = AreaTargetCapture.Capture(
+                Source,
+                Tiles,
+                Request,
+                placement
+            );
+            ShowPreview(AreaTargeting.Evaluate(capture.Snapshot));
         }
 
-        private void Preview(AreaPlacement placement)
+        private bool IsSourceValid() =>
+            ReferenceEquals(Tiles, GridAPI.GetTiles())
+            && ReferenceEquals(OriginalSource, Source.SourceObject)
+            && (!HasObjectSource || OriginalSource != null);
+
+        private void ShowPreview(AreaSelectionSnapshot result)
         {
-            PendingResult = AreaTargeting.Evaluate(Source, Tiles, Request, placement);
-            if (PendingResult == null)
-            {
+            PendingResult = result;
+            OnHighlightRange.Invoke(AreaTargeting.CellsInPlacementRange(result.Snapshot));
+            if (result.IsLegal)
+                OnPreviewArea.Invoke(new List<Vector3Int>(result.Cells));
+            else
                 OnPreviewAreaEnd.Invoke();
-                return;
-            }
-            OnPreviewArea.Invoke(PendingResult.Cells);
+        }
+
+        // Every capture has a new ID, even when the scene is unchanged. Compare the query and its
+        // ordered results so a click cannot accept changed membership, obstruction, or cover.
+        private static bool Equivalent(
+            AreaSelectionSnapshot previous,
+            AreaSelectionSnapshot current
+        )
+        {
+            TargetingSnapshot a = previous.Snapshot;
+            TargetingSnapshot b = current.Snapshot;
+            if (
+                a.SourceCell != b.SourceCell
+                || a.SourceEntityId != b.SourceEntityId
+                || a.Shape != b.Shape
+                || a.SizeFeet != b.SizeFeet
+                || a.RangeFeet != b.RangeFeet
+                || a.LineWidthFeet != b.LineWidthFeet
+                || a.IncludeCenter != b.IncludeCenter
+                || a.RequiresLineOfEffect != b.RequiresLineOfEffect
+                || a.PlacementShape != b.PlacementShape
+                || a.PlacementOriginCell != b.PlacementOriginCell
+                || a.OriginCorner != b.OriginCorner
+                || a.Direction != b.Direction
+                || previous.Cells.Count != current.Cells.Count
+                || previous.Creatures.Count != current.Creatures.Count
+            )
+                return false;
+            for (int i = 0; i < previous.Cells.Count; i++)
+                if (previous.Cells[i] != current.Cells[i])
+                    return false;
+            for (int i = 0; i < previous.Creatures.Count; i++)
+                if (!previous.Creatures[i].Equals(current.Creatures[i]))
+                    return false;
+            return true;
         }
 
         private void ClearPreview()
         {
             PendingResult = null;
+            PendingPlacement = null;
             OnPreviewAreaEnd.Invoke();
         }
 
