@@ -7,7 +7,7 @@ namespace GridPrivate
 {
     /// <summary>
     /// Previews an area and returns a selection after a fresh capture confirms the displayed result.
-    /// Source destruction, source replacement, or grid replacement cancels confirmation.
+    /// Source destruction, source replacement, grid replacement, or a changed shape cancels confirmation.
     /// </summary>
     public class StateAreaTarget : GridFSMState
     {
@@ -18,6 +18,7 @@ namespace GridPrivate
         private readonly GridAPIPrivate GridAPI = (GridAPIPrivate)GridPublic.GridAPI.GetInstance();
         private readonly Tile[,] Tiles;
         private readonly Vector3Int StartPosition;
+        private AreaShape SelectionShape;
 
         // These are null until an aim is available and are cleared together when the preview ends.
         private AreaSelectionSnapshot PendingResult;
@@ -57,12 +58,14 @@ namespace GridPrivate
 
         /// <summary>
         /// Displays an emanation immediately, or subscribes other shapes to per-frame hover input.
+        /// The shape is fixed for this selection; callers must restart selection to change it.
         /// AI-controlled sources return to idle because this state supports player selection only.
         /// </summary>
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
         {
             base.Enter(fsm);
             canCancel = true;
+            SelectionShape = Request.Shape;
 
             if (
                 Source.SourceObject != null
@@ -108,11 +111,12 @@ namespace GridPrivate
 
         /// <summary>
         /// Recaptures the pending aim and confirms only an unchanged legal result. A changed result
-        /// becomes the new preview and needs another click; an invalid source returns to idle.
+        /// becomes the new preview and needs another click. An invalid source or changed shape
+        /// returns to idle without confirming, because each shape needs its own placement and input mode.
         /// </summary>
         public override void Leftclick()
         {
-            if (!IsSourceValid())
+            if (Request.Shape != SelectionShape || !IsSourceValid())
             {
                 fsm.ChangeState(fsm.IdleState);
                 return;
@@ -149,6 +153,11 @@ namespace GridPrivate
 
         private void HandleGridHover(GridHoverInfo hover)
         {
+            if (Request.Shape != SelectionShape)
+            {
+                fsm.ChangeState(fsm.IdleState);
+                return;
+            }
             AreaPlacement placement = AreaTargeting.PlacementFromHover(Source, Request, hover);
             Preview(placement);
         }

@@ -371,6 +371,122 @@ namespace TestsState
             }
         }
 
+        /// <summary>Changing an aimed shape cannot confirm placement from the previous shape.</summary>
+        [UnityTest]
+        public IEnumerator LineToBurstChangeCancelsConfirmationAndAllowsRestart()
+        {
+            yield return ShapeChangeCancelsSelection(AreaShape.Line, AreaShape.Burst, false);
+        }
+
+        /// <summary>Changing from an emanation requires a new selection that subscribes to aiming input.</summary>
+        [UnityTest]
+        public IEnumerator EmanationToLineChangeCancelsConfirmationAndAllowsRestart()
+        {
+            yield return ShapeChangeCancelsSelection(AreaShape.Emanation, AreaShape.Line, false);
+        }
+
+        /// <summary>A hover after a shape change cancels and releases the previous aiming listeners.</summary>
+        [UnityTest]
+        public IEnumerator LineToEmanationChangeCancelsOnHoverAndAllowsRestart()
+        {
+            yield return ShapeChangeCancelsSelection(AreaShape.Line, AreaShape.Emanation, true);
+        }
+
+        private IEnumerator ShapeChangeCancelsSelection(
+            AreaShape originalShape,
+            AreaShape changedShape,
+            bool cancelOnHover
+        )
+        {
+            yield return base.Setup();
+            GridBase grid = Object.FindFirstObjectByType<GridBase>();
+            FindClearHorizontalRun(grid.GetTiles(), 4, out Vector3Int start);
+            AreaTargetRequest request = new() { Shape = originalShape, SizeFeet = 10 };
+            CoroutineResult<AreaTargetResult> result = new();
+            GridHoverInfo hover = new()
+            {
+                Cell = start + Vector3Int.right,
+                WorldPosition = start + Vector3Int.right,
+                NearestCorner = new Vector2Int(start.x + 1, start.z),
+            };
+            int previews = 0;
+            int confirmations = 0;
+            bool previewVisible = false;
+            bool rangeVisible = false;
+            UnityAction<List<Vector3Int>> previewListener = _ =>
+            {
+                previews++;
+                previewVisible = true;
+            };
+            UnityAction previewEndListener = () => previewVisible = false;
+            UnityAction<List<Vector3Int>> rangeListener = _ => rangeVisible = true;
+            UnityAction rangeEndListener = () => rangeVisible = false;
+            UnityAction confirmListener = () => confirmations++;
+            OnPreviewArea.AddListener(previewListener);
+            OnPreviewAreaEnd.AddListener(previewEndListener);
+            OnHighlightRange.AddListener(rangeListener);
+            OnHighlightRangeEnd.AddListener(rangeEndListener);
+            OnActionConfirm.AddListener(confirmListener);
+            try
+            {
+                grid.StartCoroutine(
+                    grid.GetAreaTarget(new AreaTargetSource(start), request, result)
+                );
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => grid.Fsm.CurrentState is StateAreaTarget
+                );
+                Assert.IsInstanceOf<StateAreaTarget>(grid.Fsm.CurrentState);
+                OnGridHover.Invoke(hover);
+                Assert.IsTrue(previewVisible);
+                Assert.IsTrue(rangeVisible);
+
+                request.Shape = changedShape;
+                if (cancelOnHover)
+                    OnGridHover.Invoke(hover);
+                else
+                    grid.Fsm.CurrentState.Leftclick();
+
+                Assert.IsInstanceOf<StateIdle>(grid.Fsm.CurrentState);
+                Assert.IsNull(result.Value, "A changed shape must not return a stale placement.");
+                Assert.AreEqual(0, confirmations);
+                Assert.IsFalse(previewVisible);
+                Assert.IsFalse(rangeVisible);
+                int previewsAfterCancel = previews;
+                OnGridHover.Invoke(hover);
+                Assert.AreEqual(
+                    previewsAfterCancel,
+                    previews,
+                    "Cancellation must remove hover listeners."
+                );
+
+                grid.StartCoroutine(
+                    grid.GetAreaTarget(new AreaTargetSource(start), request, result)
+                );
+                yield return WaitUntilWithTimeout(
+                    timeout,
+                    () => grid.Fsm.CurrentState is StateAreaTarget
+                );
+                Assert.IsInstanceOf<StateAreaTarget>(grid.Fsm.CurrentState);
+                OnGridHover.Invoke(hover);
+                grid.Fsm.CurrentState.Leftclick();
+                Assert.IsInstanceOf<StateIdle>(grid.Fsm.CurrentState);
+                Assert.IsNotNull(result.Value);
+                Assert.AreEqual(changedShape, result.Value.Placement.Shape);
+                Assert.AreEqual(1, confirmations);
+            }
+            finally
+            {
+                if (grid.Fsm.CurrentState is StateAreaTarget)
+                    grid.Fsm.ChangeState(grid.Fsm.IdleState);
+                OnPreviewArea.RemoveListener(previewListener);
+                OnPreviewAreaEnd.RemoveListener(previewEndListener);
+                OnHighlightRange.RemoveListener(rangeListener);
+                OnHighlightRangeEnd.RemoveListener(rangeEndListener);
+                OnActionConfirm.RemoveListener(confirmListener);
+            }
+        }
+
         private static void FindClearHorizontalRun(Tile[,] tiles, int length, out Vector3Int start)
         {
             for (int z = 0; z < tiles.GetLength(1); z++)

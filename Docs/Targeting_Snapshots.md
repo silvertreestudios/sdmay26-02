@@ -80,6 +80,10 @@ IDs or frame numbers therefore cannot establish world equality or freshness.
 5. Exit or cancellation clears the pending data and removes listeners. Destruction or replacement
    of an object source, or replacement of the grid array, prevents confirmation. Changes within the
    same array are observed by the next capture. Explicit cell-only sources remain valid.
+6. The shape used on entry owns the selection's placement and input mode. Changing `Request.Shape`
+   cancels selection on the next click or subscribed hover event, without returning a result.
+   Start a new selection to use the new shape. Other request changes refresh through normal capture
+   and confirmation; they do not require a new input mode.
 
 For aimed shapes, a stationary pointer therefore continues to incur full-grid capture work while
 valid hover events arrive. Emanations refresh on entry and confirmation. If the source moves
