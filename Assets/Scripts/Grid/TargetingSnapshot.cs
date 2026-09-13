@@ -7,14 +7,14 @@ using UnityEngine;
 namespace GridPublic
 {
     /// <summary>
-    /// Immutable inputs for one placed area query. Capture on Unity's main thread after spatial
-    /// projections settle; evaluate only this object, never its original Unity sources.
+    /// Stores the geometry, occupants, and obstruction needed to evaluate one area placement
+    /// without reading the live scene again.
     /// </summary>
     /// <remarks>
-    /// Identity denotes a capture, not a world revision. There is no complete world revision source
-    /// in the current grid. Recapture for each preview and again before confirmation. Entity IDs
-    /// are Unity instance IDs, valid only in this scene/session; resolve them outside evaluation
-    /// against the still-live selection owner, never by name or by a replacement at the same cell.
+    /// Later scene changes cannot alter these values. Create a new capture for each preview and
+    /// confirmation because a saved snapshot cannot establish whether a target is still legal.
+    /// Use <see cref="AreaTargetCapture"/> when the result must refer to live Unity objects;
+    /// it retains the original objects separately from this immutable input.
     /// </remarks>
     public sealed class TargetingSnapshot
     {
@@ -26,37 +26,37 @@ namespace GridPublic
         /// <summary>Unique identity for this complete capture, including its query parameters.</summary>
         public Guid Id { get; } = Guid.NewGuid();
 
-        /// <summary>Grid extent along x; elevation is not an array dimension.</summary>
+        /// <summary>Number of grid columns along the x axis.</summary>
         public int Width => tiles.GetLength(0);
 
-        /// <summary>Grid extent along z; preserves the existing planar grid convention.</summary>
+        /// <summary>Number of grid rows along the z axis.</summary>
         public int Depth => tiles.GetLength(1);
 
-        /// <summary>Rounded source position captured once, including its existing y coordinate.</summary>
+        /// <summary>Source grid cell at capture time, including its elevation.</summary>
         public Vector3Int SourceCell { get; }
 
-        /// <summary>Scene-local source identity, or absent for a cell-only source.</summary>
+        /// <summary>Unity instance ID of the source object, or null when the source is a cell only.</summary>
         public int? SourceEntityId { get; }
 
-        /// <summary>Requested geometry shape, independent of the placement's reported shape.</summary>
+        /// <summary>Shape used to calculate area membership and ray origins.</summary>
         public AreaShape Shape { get; }
 
-        /// <summary>Unmodified requested size in feet; legality remains the evaluator's concern.</summary>
+        /// <summary>Requested area size in feet. Nonpositive values produce no area cells.</summary>
         public int SizeFeet { get; }
 
-        /// <summary>Unmodified placement range in feet.</summary>
+        /// <summary>Maximum burst placement distance in feet; nonpositive values impose no limit.</summary>
         public int RangeFeet { get; }
 
-        /// <summary>Unmodified line width; evaluators retain the existing minimum-width rule.</summary>
+        /// <summary>Requested line width in feet; geometry rounds up to cells with a five-foot minimum.</summary>
         public int LineWidthFeet { get; }
 
         /// <summary>Whether the source cell belongs to an emanation.</summary>
         public bool IncludeCenter { get; }
 
-        /// <summary>Whether obstruction excludes occupants rather than only reporting cover.</summary>
+        /// <summary>Whether an occupant needs at least one clear ray to be affected by the area.</summary>
         public bool RequiresLineOfEffect { get; }
 
-        /// <summary>Placement shape copied separately to preserve existing result semantics.</summary>
+        /// <summary>Shape reported in the resolved placement; <see cref="Shape"/> controls evaluation.</summary>
         public AreaShape PlacementShape { get; }
 
         /// <summary>Requested placement cell; non-burst results use the source cell instead.</summary>
@@ -106,20 +106,13 @@ namespace GridPublic
                     sourceTiles,
                     new Vector3Int(x, 0, z)
                 );
-                List<int> ids = new();
-                if (tile != null)
-                    foreach (GameObject occupant in tile.Occupants)
-                        // Destroyed Unity objects are absent at the capture boundary.
-                        if (occupant != null)
-                            ids.Add(occupant.GetInstanceID());
-                occupants[x, z] = ids.AsReadOnly();
+                occupants[x, z] = CaptureOccupants(tile);
                 for (int ray = 0; ray < PhysicsRayCount; ray++)
                 {
                     Vector2 start = RayStart(ray);
                     Vector2 end = RayEnd(new Vector3Int(x, 0, z), ray);
-                    // Preserve exact collider, layer, trigger and endpoint semantics. A bounds
-                    // approximation would change mesh/rotated collider behavior. Only booleans
-                    // escape the synchronous physics boundary; no collider/delegate is retained.
+                    // Query the actual colliders so rotated and mesh blockers retain their shape.
+                    // Store only the answer so later collider changes cannot alter this capture.
                     if (
                         !MapLineOfSightBlocker.BlocksSegment(
                             new Vector3(start.x, 0.75f, start.y),
@@ -132,11 +125,21 @@ namespace GridPublic
         }
 
         /// <summary>
-        /// Copies current grid, occupancy and query values synchronously. Null Unity-boundary
-        /// containers are rejected; a cell-only source is explicitly supported. The caller must
-        /// synchronize physics transforms first if it has edited transforms since the last physics
-        /// update. Capture costs four or sixteen physics queries per grid cell, regardless of area.
+        /// Copies the current scene and query values for evaluation by <see cref="AreaTargeting"/>.
         /// </summary>
+        /// <param name="source">An object-backed source or an explicit grid cell.</param>
+        /// <param name="tiles">Grid whose tile presence, obstruction, and occupant order are copied.</param>
+        /// <param name="request">Area parameters. Invalid sizes and shapes are left for evaluation.</param>
+        /// <param name="placement">Aim and burst origin to capture with the request.</param>
+        /// <returns>An independent snapshot with a new <see cref="Id"/>.</returns>
+        /// <remarks>
+        /// Call on Unity's main thread after movement has updated occupancy. If transforms changed
+        /// since the last physics update, call <see cref="Physics.SyncTransforms"/> first, or use
+        /// <see cref="AreaTargetCapture.Capture"/>, which synchronizes them for you. This method
+        /// performs four physics queries per grid cell for bursts and sixteen for other shapes,
+        /// including cells outside the area.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">Any argument is null.</exception>
         public static TargetingSnapshot Capture(
             AreaTargetSource source,
             Tile[,] tiles,
@@ -155,23 +158,31 @@ namespace GridPublic
             return new TargetingSnapshot(source, tiles, request, placement);
         }
 
-        /// <summary>Tests x/z bounds, intentionally ignoring elevation like the current grid.</summary>
+        /// <summary>Returns whether the cell's x/z coordinates are inside the grid; y is ignored.</summary>
         public bool IsInBounds(Vector3Int cell) =>
             cell.x >= 0 && cell.z >= 0 && cell.x < Width && cell.z < Depth;
 
-        /// <summary>Whether geometry may include the cell, independent of transparency.</summary>
+        /// <summary>Returns whether the cell is in bounds and had a tile when captured.</summary>
         public bool HasTile(Vector3Int cell) => IsInBounds(cell) && tiles[cell.x, cell.z];
 
-        /// <summary>Captured obstruction, including transparent null tiles and opaque boundaries.</summary>
+        /// <summary>
+        /// Returns captured grid obstruction, or true outside the grid. A missing tile can be
+        /// transparent when the grid's obstruction registry explicitly allows it.
+        /// </summary>
         public bool IsBlocking(Vector3Int cell) => !IsInBounds(cell) || blockers[cell.x, cell.z];
 
-        /// <summary>Captured ordered scene-local occupant IDs; no live object references escape.</summary>
+        /// <summary>
+        /// Returns captured Unity instance IDs in tile-list order, including duplicates.
+        /// Missing tiles, cells with no live occupants, and out-of-bounds cells return an empty list.
+        /// The returned collection cannot be changed.
+        /// </summary>
         public IReadOnlyList<int> OccupantsAt(Vector3Int cell) =>
             IsInBounds(cell) ? occupants[cell.x, cell.z] : Array.Empty<int>();
 
         /// <summary>
-        /// Returns bits for physics-clear rays, not grid-clear rays. The line-of-effect evaluator
-        /// must intersect these bits with its captured-grid ray tests before counting clear rays.
+        /// Returns a bit mask whose set bits identify rays that were clear of map colliders.
+        /// Ray indices match <see cref="RayStart"/> and <see cref="RayEnd"/>. Use
+        /// <see cref="GridTargeting.CountClearRays"/> to also account for grid obstruction.
         /// </summary>
         /// <exception cref="ArgumentOutOfRangeException">The target is outside this capture.</exception>
         public ushort PhysicsClearRayMask(Vector3Int target)
@@ -182,9 +193,10 @@ namespace GridPublic
         }
 
         /// <summary>
-        /// Returns the grid-space ray origin. Burst rays have no exempt source cell; other rays
-        /// exempt <see cref="SourceCell"/> during grid sampling, as in the existing evaluator.
+        /// Returns a ray's planar origin: the selected corner for bursts, or a source-cell corner
+        /// for other shapes. Each source corner is paired with all four target corners in order.
         /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException">The index is outside <see cref="PhysicsRayCount"/>.</exception>
         public Vector2 RayStart(int ray)
         {
             ValidateRay(ray);
@@ -193,7 +205,8 @@ namespace GridPublic
                 : new Vector2(SourceCell.x + 0.5f, SourceCell.z + 0.5f) + CornerOffset(ray / 4);
         }
 
-        /// <summary>Returns the target corner point; the target cell is exempt from grid sampling.</summary>
+        /// <summary>Returns the planar target corner for the ray index. Target bounds are not checked.</summary>
+        /// <exception cref="ArgumentOutOfRangeException">The index is outside <see cref="PhysicsRayCount"/>.</exception>
         public Vector2 RayEnd(Vector3Int target, int ray)
         {
             ValidateRay(ray);
@@ -206,7 +219,29 @@ namespace GridPublic
                 throw new ArgumentOutOfRangeException(nameof(ray));
         }
 
-        // Matches GridTargeting's nested start/target order: --, +-, -+, ++.
+        private static IReadOnlyList<int> CaptureOccupants(Tile tile)
+        {
+            if (tile == null)
+                return Array.Empty<int>();
+
+            int count = 0;
+            foreach (GameObject occupant in tile.Occupants)
+                if (occupant != null)
+                    count++;
+            if (count == 0)
+                return Array.Empty<int>();
+
+            // Capture is synchronous on the main thread, so occupancy and Unity object lifetime
+            // cannot change between counting and copying. Empty cells need no collection allocation.
+            int[] ids = new int[count];
+            int index = 0;
+            foreach (GameObject occupant in tile.Occupants)
+                if (occupant != null)
+                    ids[index++] = occupant.GetInstanceID();
+            return Array.AsReadOnly(ids);
+        }
+
+        // Order corners by z, then x, from the negative to the positive offset on each axis.
         private static Vector2 CornerOffset(int corner) =>
             new((corner % 2 == 0 ? -0.4f : 0.4f), (corner < 2 ? -0.4f : 0.4f));
     }

@@ -5,6 +5,10 @@ using UnityEngine;
 
 namespace GridPrivate
 {
+    /// <summary>
+    /// Previews an area and returns a selection after a fresh capture confirms the displayed result.
+    /// Source destruction, source replacement, or grid replacement cancels confirmation.
+    /// </summary>
     public class StateAreaTarget : GridFSMState
     {
         private readonly AreaTargetSource Source;
@@ -15,12 +19,13 @@ namespace GridPrivate
         private readonly Tile[,] Tiles;
         private readonly Vector3Int StartPosition;
 
-        // Absence means no pending aim. Pure output is independent of Unity object lifetime.
+        // These are null until an aim is available and are cleared together when the preview ends.
         private AreaSelectionSnapshot PendingResult;
         private AreaPlacement PendingPlacement;
         private readonly GameObject OriginalSource;
         private readonly bool HasObjectSource;
 
+        /// <summary>Creates a selection state for a character and writes confirmed output to selection.</summary>
         public StateAreaTarget(
             GameObject character,
             AreaTargetRequest request,
@@ -29,6 +34,10 @@ namespace GridPrivate
         )
             : this(new AreaTargetSource(character), request, selection, fsm) { }
 
+        /// <summary>
+        /// Creates a selection state for an object or cell source using the active grid.
+        /// Source and grid identity are retained so a later replacement cannot inherit this selection.
+        /// </summary>
         public StateAreaTarget(
             AreaTargetSource source,
             AreaTargetRequest request,
@@ -46,6 +55,10 @@ namespace GridPrivate
             HasObjectSource = !ReferenceEquals(OriginalSource, null);
         }
 
+        /// <summary>
+        /// Displays an emanation immediately, or subscribes other shapes to per-frame hover input.
+        /// AI-controlled sources return to idle because this state supports player selection only.
+        /// </summary>
         public override void Enter(FiniteStateMachine<GridFSMState> fsm)
         {
             base.Enter(fsm);
@@ -81,6 +94,7 @@ namespace GridPrivate
             OnHoverEnd.AddListener(ClearPreview);
         }
 
+        /// <summary>Releases pending selection data and listeners, clears highlights, and signals completion.</summary>
         public override void Exit()
         {
             PendingResult = null;
@@ -92,6 +106,10 @@ namespace GridPrivate
             OnActionComplete.Invoke();
         }
 
+        /// <summary>
+        /// Recaptures the pending aim and confirms only an unchanged legal result. A changed result
+        /// becomes the new preview and needs another click; an invalid source returns to idle.
+        /// </summary>
         public override void Leftclick()
         {
             if (!IsSourceValid())
@@ -121,6 +139,7 @@ namespace GridPrivate
             fsm.ChangeState(fsm.IdleState);
         }
 
+        /// <summary>Raises the shared cancel event when this state permits cancellation.</summary>
         public override void Rightclick()
         {
             if (!canCancel)
@@ -166,8 +185,8 @@ namespace GridPrivate
                 OnPreviewAreaEnd.Invoke();
         }
 
-        // Capture IDs are not world revisions. Compare semantics including blocked candidates
-        // and cover rays so confirmation cannot silently accept a changed target set.
+        // Every capture has a new ID, even when the scene is unchanged. Compare the query and its
+        // ordered results so a click cannot accept changed membership, obstruction, or cover.
         private static bool Equivalent(
             AreaSelectionSnapshot previous,
             AreaSelectionSnapshot current

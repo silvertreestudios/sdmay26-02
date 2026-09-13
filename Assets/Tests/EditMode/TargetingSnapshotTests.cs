@@ -8,6 +8,92 @@ namespace TestsCombat
     public class TargetingSnapshotTests
     {
         [Test]
+        public void CellsWithoutLiveOccupantsShareEmptyStorageAcrossCaptures()
+        {
+            GameObject destroyed = new("destroyed occupant");
+            Tile[,] tiles =
+            {
+                { new Tile(), new Tile(), new Tile(), null },
+            };
+            tiles[0, 1].Occupants.Add(null);
+            tiles[0, 2].Occupants.Add(destroyed);
+            Object.DestroyImmediate(destroyed);
+
+            TargetingSnapshot first = TargetingSnapshot.Capture(
+                new AreaTargetSource(Vector3Int.zero),
+                tiles,
+                new AreaTargetRequest(),
+                new AreaPlacement()
+            );
+            TargetingSnapshot second = TargetingSnapshot.Capture(
+                new AreaTargetSource(Vector3Int.zero),
+                tiles,
+                new AreaTargetRequest(),
+                new AreaPlacement()
+            );
+
+            for (int z = 0; z < tiles.GetLength(1); z++)
+            {
+                Vector3Int cell = new(0, 0, z);
+                Assert.AreSame(System.Array.Empty<int>(), first.OccupantsAt(cell));
+                Assert.AreSame(first.OccupantsAt(cell), second.OccupantsAt(cell));
+            }
+        }
+
+        [Test]
+        public void OccupiedStoragePreservesLiveOrderDuplicatesAndReadOnlyIsolation()
+        {
+            GameObject first = new("first occupant");
+            GameObject second = new("second occupant");
+            GameObject destroyed = new("destroyed occupant");
+            Tile[,] tiles =
+            {
+                { new Tile() },
+            };
+            try
+            {
+                tiles[0, 0].Occupants.AddRange(new[] { first, null, destroyed, second, first });
+                Object.DestroyImmediate(destroyed);
+                TargetingSnapshot snapshot = TargetingSnapshot.Capture(
+                    new AreaTargetSource(Vector3Int.zero),
+                    tiles,
+                    new AreaTargetRequest(),
+                    new AreaPlacement()
+                );
+                int[] expected =
+                {
+                    first.GetInstanceID(),
+                    second.GetInstanceID(),
+                    first.GetInstanceID(),
+                };
+                var captured = snapshot.OccupantsAt(Vector3Int.zero);
+                CollectionAssert.AreEqual(expected, captured);
+                Assert.Throws<System.NotSupportedException>(() =>
+                    ((System.Collections.Generic.IList<int>)captured)[0] = 0
+                );
+
+                tiles[0, 0].Occupants.Clear();
+                Object.DestroyImmediate(first);
+                TargetingSnapshot refreshed = TargetingSnapshot.Capture(
+                    new AreaTargetSource(Vector3Int.zero),
+                    tiles,
+                    new AreaTargetRequest(),
+                    new AreaPlacement()
+                );
+                CollectionAssert.AreEqual(expected, captured);
+                Assert.AreSame(System.Array.Empty<int>(), refreshed.OccupantsAt(Vector3Int.zero));
+            }
+            finally
+            {
+                if (first != null)
+                    Object.DestroyImmediate(first);
+                Object.DestroyImmediate(second);
+                if (destroyed != null)
+                    Object.DestroyImmediate(destroyed);
+            }
+        }
+
+        [Test]
         public void TransparentMissingTilesRemainDistinctFromGeometryAndCollectionsAreReadOnly()
         {
             Tile[,] tiles = new Tile[1, 1];

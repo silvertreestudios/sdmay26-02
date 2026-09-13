@@ -51,11 +51,14 @@ namespace GridPrivate
         }
 
         /// <summary>
-        /// Counts rays clear of both captured grid obstruction and captured map colliders.
-        /// Burst captures use four point-origin rays; other captures use sixteen corner pairs.
-        /// This evaluates historical inputs only, even when line of effect is not required:
-        /// callers still need raw ray counts for cover. Recapture before action confirmation.
+        /// Counts rays that reach the target without crossing captured grid obstruction or map colliders.
         /// </summary>
+        /// <returns>A count from zero to four for bursts, or zero to sixteen for other shapes.</returns>
+        /// <remarks>
+        /// Uses the same snapshot as area geometry and occupancy, without querying live physics.
+        /// The count is still calculated when the request bypasses line of effect, because cover
+        /// depends on the number of clear rays. See <see cref="GridPublic.AreaSelectedEntity.Cover"/>.
+        /// </remarks>
         /// <exception cref="System.ArgumentNullException">The snapshot is missing.</exception>
         /// <exception cref="System.ArgumentOutOfRangeException">The target was not captured.</exception>
         public static int CountClearRays(GridPublic.TargetingSnapshot snapshot, Vector3Int target)
@@ -66,7 +69,7 @@ namespace GridPrivate
             int clear = 0;
             for (int ray = 0; ray < snapshot.PhysicsRayCount; ray++)
             {
-                // Intersection is per ray, not the minimum of two independently counted sets.
+                // A ray must pass both tests. Separate clear-ray totals could refer to different rays.
                 if ((physicsClear & (1 << ray)) == 0)
                     continue;
                 if (
@@ -103,8 +106,8 @@ namespace GridPrivate
                     targetCell.y,
                     Mathf.FloorToInt(sample.y)
                 );
-                // Keep the original full-cell equality (including elevation). Burst origins
-                // are corners rather than cells and must not acquire a source-cell exemption.
+                // Occupancy at the target or source must not block its own ray. Source exemption
+                // requires the same elevation and applies only to shapes that originate in a cell.
                 if (
                     cell == targetCell
                     || (snapshot.Shape != GridPublic.AreaShape.Burst && cell == snapshot.SourceCell)

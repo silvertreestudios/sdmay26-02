@@ -77,7 +77,10 @@ namespace GridPublic
 
     public class AreaTargetResult
     {
-        /// <summary>Capture provenance, not a freshness or world revision guarantee.</summary>
+        /// <summary>
+        /// Identifies the snapshot used to produce this result. It can associate output with a
+        /// preview or confirmation query, but cannot establish whether the scene has since changed.
+        /// </summary>
         public System.Guid SnapshotId { get; set; }
         public AreaPlacement Placement { get; set; }
         public List<Vector3Int> Cells { get; set; } = new();
@@ -100,8 +103,9 @@ namespace GridPrivate
         private const float AngleEpsilon = 0.01f;
 
         /// <summary>
-        /// Adapts a live actor to the synchronous snapshot capture and Unity resolution boundary.
+        /// Evaluates an area from the actor's current position and returns its original Unity occupants.
         /// </summary>
+        /// <remarks>Uses the same capture and result contract as the <see cref="GridPublic.AreaTargetSource"/> overload.</remarks>
         public static GridPublic.AreaTargetResult Evaluate(
             GameObject actor,
             Tile[,] tiles,
@@ -113,9 +117,13 @@ namespace GridPrivate
         }
 
         /// <summary>
-        /// Captures all query inputs, evaluates only that snapshot, then resolves original objects.
-        /// Returns null for absent inputs or illegal geometry at this legacy Unity boundary.
+        /// Captures the scene once and returns the area's cells, occupants, line of effect, and cover.
         /// </summary>
+        /// <returns>A new result, or null for missing inputs or a placement with no area cells.</returns>
+        /// <remarks>
+        /// Call on Unity's main thread after occupancy reflects movement. Physics transforms are
+        /// synchronized by <see cref="GridPublic.AreaTargetCapture.Capture"/> before evaluation.
+        /// </remarks>
         public static GridPublic.AreaTargetResult Evaluate(
             GridPublic.AreaTargetSource source,
             Tile[,] tiles,
@@ -137,9 +145,14 @@ namespace GridPrivate
         }
 
         /// <summary>
-        /// Computes geometry, ordered candidates and obstruction from one immutable capture.
-        /// No Unity object lookup occurs; historical results remain stable after movement or destruction.
+        /// Computes area cells and occupant outcomes using only the supplied snapshot.
         /// </summary>
+        /// <returns>An immutable result, including blocked occupants in captured order.</returns>
+        /// <remarks>
+        /// This overload performs no scene lookup or physics query. Use the same snapshot for related
+        /// range highlights so the displayed range and selection use the same inputs.
+        /// </remarks>
+        /// <exception cref="System.ArgumentNullException">The snapshot is null.</exception>
         public static GridPublic.AreaSelectionSnapshot Evaluate(
             GridPublic.TargetingSnapshot snapshot
         )
@@ -165,9 +178,12 @@ namespace GridPrivate
         }
 
         /// <summary>
-        /// Captures the live grid for range highlighting, then delegates to snapshot geometry.
-        /// Selection owners with a placed capture should reuse the snapshot overload instead.
+        /// Captures the grid and returns cells to highlight before an area has been placed.
         /// </summary>
+        /// <remarks>
+        /// Once a placed capture exists, use the snapshot overload to avoid another full-grid capture.
+        /// Missing tiles or request arguments produce an empty list.
+        /// </remarks>
         public static List<Vector3Int> CellsInPlacementRange(
             Tile[,] tiles,
             Vector3Int start,
@@ -187,11 +203,14 @@ namespace GridPrivate
         }
 
         /// <summary>
-        /// Returns present cells in the captured source's planar placement highlight range.
-        /// Positive burst range overrides size; otherwise at least five feet is highlighted.
-        /// This is not burst-corner legality or obstruction filtering. The fresh list is ordered
-        /// by x then z and retains source y, regardless of tile elevations.
+        /// Returns a new list of present cells within the source's placement highlight range.
         /// </summary>
+        /// <remarks>
+        /// A positive burst range sets the distance; otherwise it is the area size with a five-foot
+        /// minimum. Cells are ordered by x then z and retain source elevation. Highlighting measures
+        /// cell-to-cell distance and ignores obstruction, so use <see cref="CellsForPlacement"/>
+        /// to check the legality of a burst placed at a corner.
+        /// </remarks>
         /// <exception cref="System.ArgumentNullException">The snapshot is absent.</exception>
         public static List<Vector3Int> CellsInPlacementRange(GridPublic.TargetingSnapshot snapshot)
         {
@@ -296,11 +315,17 @@ namespace GridPrivate
         }
 
         /// <summary>
-        /// Computes area membership from one immutable placed query, without live grid or physics
-        /// reads. Returns a fresh list; empty means nonpositive size, out-of-range burst, unsupported
-        /// shape, or no present tiles. Burst cells have y=0; other shapes retain source elevation.
-        /// Obstruction and occupant filtering are separate from geometry.
+        /// Returns the present grid cells belonging to the captured area placement.
         /// </summary>
+        /// <returns>
+        /// A new list, empty for a nonpositive size, out-of-range burst, unsupported shape, or area
+        /// with no present tiles. Changing this list does not affect later evaluations.
+        /// </returns>
+        /// <remarks>
+        /// Uses only captured values. Burst cells have y=0; other shapes retain source elevation.
+        /// This method includes obstructed cells; use <see cref="Evaluate(GridPublic.TargetingSnapshot)"/>
+        /// for occupant selection and line-of-effect filtering.
+        /// </remarks>
         /// <exception cref="System.ArgumentNullException">The snapshot is absent.</exception>
         public static List<Vector3Int> CellsForPlacement(GridPublic.TargetingSnapshot snapshot)
         {
