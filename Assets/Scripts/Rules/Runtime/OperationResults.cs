@@ -3,11 +3,6 @@ using System.Collections.Generic;
 
 namespace Game.Rules.Runtime
 {
-    internal interface ISettledOperationResult<TResult>
-    {
-        TResult Settle(RulesSnapshot snapshot);
-    }
-
     /// <summary>
     /// Provides the common contract for every structurally distinct operation outcome.
     /// </summary>
@@ -16,7 +11,10 @@ namespace Game.Rules.Runtime
     /// Each outcome is represented by one sealed derived type. This prevents callers from reading
     /// a successful value or invalid reason from an outcome that cannot contain it. Facts include
     /// commits made directly by the operation and by every nested descendant that completed within
-    /// its frame, including commits retained by interrupted or cancelled outcomes.
+    /// its frame, including commits retained by interrupted or cancelled outcomes. A resolved value
+    /// is the immutable value produced by its resolver. Awaited Fact listeners may commit later
+    /// causal work before dispatch returns, so read <see cref="RuleDispatcher.Snapshot"/> when the
+    /// caller needs current authoritative state after the complete dispatch.
     /// </remarks>
     public abstract class OpResult<TResult>
     {
@@ -95,6 +93,10 @@ namespace Game.Rules.Runtime
         /// <summary>
         /// Gets the value produced by the resolved operation.
         /// </summary>
+        /// <remarks>
+        /// The dispatcher preserves this value exactly. It does not replace it with state produced
+        /// by awaited Fact listeners; use <see cref="RuleDispatcher.Snapshot"/> for current state.
+        /// </remarks>
         public TResult Value { get; }
 
         internal override OpResult<TResult> WithFacts(IReadOnlyList<RuleFact> facts) =>

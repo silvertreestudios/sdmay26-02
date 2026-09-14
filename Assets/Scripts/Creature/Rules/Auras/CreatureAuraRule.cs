@@ -1,91 +1,22 @@
 using Game.Creature;
-using GridPrivate;
-using GridPublic;
 using UnityEngine;
 
 namespace Game.Creature.Rules
 {
-    public enum CreatureAuraTiming
-    {
-        TurnStart,
-    }
-
-    public interface IPf2eDiceRoller
-    {
-        int Roll(int numberOfDice, int sidesPerDie);
-    }
-
-    public sealed class UnityPf2eDiceRoller : IPf2eDiceRoller
-    {
-        public int Roll(int numberOfDice, int sidesPerDie)
-        {
-            int total = 0;
-            int dice = System.Math.Max(1, numberOfDice);
-            int sides = System.Math.Max(1, sidesPerDie);
-            for (int i = 0; i < dice; i++)
-                total += Random.Range(1, sides + 1);
-            return total;
-        }
-    }
-
+    /// <summary>Describes one Unity-facing aura visualization definition.</summary>
     public interface ICreatureAuraRule
     {
+        /// <summary>Gets the stable aura slug.</summary>
         string Slug { get; }
-        CreatureAuraTiming Timing { get; }
+
+        /// <summary>Determines whether the configured aura contributes scene visualization.</summary>
         bool HasVisual(CreatureAura aura);
-        bool CanAffect(CreatureAuraContext context);
     }
 
-    public sealed class CreatureAuraEffectResult
-    {
-        public GameObject Source { get; set; }
-        public GameObject Target { get; set; }
-        public CreatureAura Aura { get; set; }
-        public string RuleSlug { get; set; }
-        public int RolledDamage { get; set; }
-        public int AppliedDamage { get; set; }
-        public DamageRollResolution DamageResolution { get; set; }
-    }
-
-    public sealed class CreatureAuraContext
-    {
-        public CreatureAuraContext(
-            ActionController sourceController,
-            ActionController targetController,
-            CreatureComponent sourceCreature,
-            CreatureComponent targetCreature,
-            CreatureAura aura,
-            Tile[,] tiles,
-            AreaTargetResult area,
-            IPf2eDiceRoller diceRoller
-        )
-        {
-            SourceController = sourceController;
-            TargetController = targetController;
-            SourceCreature = sourceCreature;
-            TargetCreature = targetCreature;
-            Aura = aura;
-            Tiles = tiles;
-            Area = area;
-            DiceRoller = diceRoller;
-        }
-
-        public ActionController SourceController { get; }
-        public ActionController TargetController { get; }
-        public CreatureComponent SourceCreature { get; }
-        public CreatureComponent TargetCreature { get; }
-        public CreatureAura Aura { get; }
-        public Tile[,] Tiles { get; }
-        public AreaTargetResult Area { get; }
-        public IPf2eDiceRoller DiceRoller { get; }
-        public GameObject SourceObject =>
-            SourceController == null ? null : SourceController.gameObject;
-        public GameObject TargetObject =>
-            TargetController == null ? null : TargetController.gameObject;
-    }
-
+    /// <summary>Connects one live aura configuration to its Unity visualization definition.</summary>
     public sealed class CreatureAuraInstance
     {
+        /// <summary>Creates one live visual aura instance.</summary>
         public CreatureAuraInstance(
             ActionController sourceController,
             CreatureComponent sourceCreature,
@@ -99,10 +30,19 @@ namespace Game.Creature.Rules
             Rule = rule;
         }
 
+        /// <summary>Gets the source controller.</summary>
         public ActionController SourceController { get; }
+
+        /// <summary>Gets the source creature data.</summary>
         public CreatureComponent SourceCreature { get; }
+
+        /// <summary>Gets the configured aura.</summary>
         public CreatureAura Aura { get; }
+
+        /// <summary>Gets the visualization definition.</summary>
         public ICreatureAuraRule Rule { get; }
+
+        /// <summary>Gets the live source object when a controller is available.</summary>
         public GameObject SourceObject =>
             SourceController == null ? null : SourceController.gameObject;
     }

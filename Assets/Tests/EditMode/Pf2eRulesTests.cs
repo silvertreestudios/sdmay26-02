@@ -142,6 +142,272 @@ public class Pf2eRulesTests
         Assert.That(actionController.ActionPoints, Is.EqualTo(2));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void ApplyingSlowedInstallsMissingConditionDisplay(bool attached)
+    {
+        TestActionController controller = CreateCombatant("Missing condition display", "Players");
+        Object.DestroyImmediate(controller.GetComponent<Conditions>());
+        UnityCombatRulesBridge bridge;
+        if (attached)
+        {
+            bridge = CreateActiveEncounter(controller);
+            ApplySlowed(controller.gameObject, 2);
+        }
+        else
+        {
+            ApplySlowed(controller.gameObject, 2);
+            bridge = CreateActiveEncounter(controller);
+        }
+        Assert.That(controller.GetComponent<Conditions>().Contains("Slowed"), Is.True);
+        bridge.AdvanceEncounter();
+        Assert.That(controller.ActionPoints, Is.EqualTo(1));
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void RulesConditionApplicationInstallsMissingDisplayDuringProjection()
+    {
+        TestActionController controller = CreateCombatant(
+            "Rules-only condition application",
+            "Players"
+        );
+        Object.DestroyImmediate(controller.GetComponent<Conditions>());
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(controller);
+        ApplyTimedSlowed(bridge, controller, 2, EffectDuration.OneMinute);
+        Assert.That(controller.GetComponent<Conditions>().Contains("Slowed"), Is.True);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void ZombiePassiveRemainsIdempotentAfterProjectionAndReenrollment()
+    {
+        GameObject zombie = CreatureJsonConverter.CreateFromFile(
+            "DataFiles/pathfinder-monster-core/zombie-shambler"
+        );
+        created.Add(zombie);
+        TestActionController controller = zombie.AddComponent<TestActionController>();
+        zombie.AddComponent<Team>().Name = "Players";
+        Pf2eRulesEngine.ApplyCombatStartRules(new[] { controller });
+        UnityCombatRulesBridge first = CreateActiveEncounter(controller);
+        first.AdvanceEncounter();
+        ApplyTimedSlowed(first, controller, 2, EffectDuration.Rounds(1));
+        EndRound(first);
+        Pf2eRulesEngine.ApplyCombatStartRules(new[] { controller });
+        Assert.That(
+            ConditionRules.GetApplications(first.Snapshot, first.GetCreatureId(controller)).Count(),
+            Is.EqualTo(1)
+        );
+        first.ReleaseOwnership();
+
+        Pf2eRulesEngine.ApplyCombatStartRules(new[] { controller });
+        UnityCombatRulesBridge second = CreateActiveEncounter(controller);
+        Assert.That(
+            ConditionRules
+                .GetApplications(second.Snapshot, second.GetCreatureId(controller))
+                .Count(),
+            Is.EqualTo(1)
+        );
+        second.ReleaseOwnership();
+    }
+
+    [TestCase(1, 2)]
+    [TestCase(2, 1)]
+    [TestCase(3, 0)]
+    [TestCase(5, 0)]
+    public void SlowedTierReducesTheCommittedTurnAllowance(int tier, int expectedActions)
+    {
+        TestActionController controller = CreateSlowedCombatant("Tiered Slowed", tier);
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(controller);
+
+        bridge.AdvanceEncounter();
+
+        CreatureId actor = bridge.GetCreatureId(controller);
+        Assert.That(
+            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedRules.ConditionId),
+            Is.EqualTo(tier)
+        );
+        Assert.That(controller.ActionPoints, Is.EqualTo((uint)expectedActions));
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void SlowedApplicationsUseTheHighestValueInsteadOfAddingValues()
+    {
+        TestActionController controller = CreateSlowedCombatant("Valued Slowed", 1);
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(controller);
+        bridge.AdvanceEncounter();
+
+        ApplySlowed(controller.gameObject, 3);
+        ApplySlowed(controller.gameObject, 2);
+        CreatureId actor = bridge.GetCreatureId(controller);
+        Assert.That(
+            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedRules.ConditionId),
+            Is.EqualTo(3)
+        );
+
+        bridge.EndTurn(actor);
+        bridge.EndTurn(bridge.GetEncounter().CurrentTurn.Value.Actor);
+        Assert.That(controller.ActionPoints, Is.Zero);
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void SlowedSeedEnrollsIntoEachEncounterWithoutDuplicatingItsEffect()
+    {
+        TestActionController controller = CreateSlowedCombatant("Repeated Slowed", 2);
+
+        UnityCombatRulesBridge first = CreateActiveEncounter(controller);
+        first.AdvanceEncounter();
+        Assert.That(controller.ActionPoints, Is.EqualTo(1));
+        first.ReleaseOwnership();
+
+        UnityCombatRulesBridge second = CreateActiveEncounter(controller);
+        second.AdvanceEncounter();
+        CreatureId actor = second.GetCreatureId(controller);
+        Assert.That(ConditionRules.GetApplications(second.Snapshot, actor).Count(), Is.EqualTo(1));
+        Assert.That(controller.ActionPoints, Is.EqualTo(1));
+        second.ReleaseOwnership();
+    }
+
+    [Test]
+    public void RemovingSlowedClearsItsSeedBeforeImmediateReenrollment()
+    {
+        TestActionController controller = CreateCombatant("Removed Slowed", "Players");
+        UnityCombatRulesBridge first = CreateActiveEncounter(controller);
+        first.AdvanceEncounter();
+
+        ApplyTimedSlowed(first, controller, 2, EffectDuration.Rounds(1));
+        EndRound(first);
+        Assert.That(controller.GetComponent<ConditionSeed>().Applications, Is.Empty);
+        Assert.That(controller.GetComponent<Conditions>().Contains("Slowed"), Is.False);
+        first.ReleaseOwnership();
+
+        UnityCombatRulesBridge second = CreateActiveEncounter(controller);
+        second.AdvanceEncounter();
+        CreatureId actor = second.GetCreatureId(controller);
+        Assert.That(ConditionRules.GetApplications(second.Snapshot, actor).Any(), Is.False);
+        Assert.That(controller.ActionPoints, Is.EqualTo(3));
+        second.ReleaseOwnership();
+    }
+
+    [Test]
+    public void SlowedCanBeReappliedImmediatelyAfterRemoval()
+    {
+        TestActionController controller = CreateCombatant("Reapplied Slowed", "Players");
+        UnityCombatRulesBridge first = CreateActiveEncounter(controller);
+        first.AdvanceEncounter();
+
+        ApplyTimedSlowed(first, controller, 2, EffectDuration.Rounds(1));
+        EndRound(first);
+        first.ReleaseOwnership();
+        ApplySlowed(controller.gameObject, 1);
+
+        UnityCombatRulesBridge second = CreateActiveEncounter(controller);
+        second.AdvanceEncounter();
+        CreatureId actor = second.GetCreatureId(controller);
+        Assert.That(
+            ConditionRules.GetValue(second.Snapshot, actor, SlowedRules.ConditionId),
+            Is.EqualTo(1)
+        );
+        Assert.That(
+            controller.GetComponent<ConditionSeed>().Applications.Single().State.Value,
+            Is.EqualTo(1)
+        );
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        second.ReleaseOwnership();
+    }
+
+    [Test]
+    public void SlowedReinforcementUsesTheCommonEnrollmentPath()
+    {
+        TestActionController initial = CreateCombatant("Initial", "Players");
+        TestActionController reinforcement = CreateSlowedCombatant("Slowed Reinforcement", 2);
+        reinforcement.GetComponent<Team>().Name = "Enemies";
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(initial);
+        bridge.AdvanceEncounter();
+
+        bridge.AddCombatants(new ActionController[] { reinforcement });
+
+        CreatureId actor = bridge.GetCreatureId(reinforcement);
+        Assert.That(
+            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedRules.ConditionId),
+            Is.EqualTo(2)
+        );
+        Assert.That(
+            bridge.Snapshot.RuleBindings.Contains(SlowedRules.CreateBinding(actor).Id),
+            Is.True
+        );
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void TimedSlowedExpiresBackToPermanentApplication()
+    {
+        TestActionController controller = CreateSlowedCombatant("Permanent and temporary", 1);
+        UnityCombatRulesBridge bridge = CreateActiveEncounter(controller);
+        bridge.AdvanceEncounter();
+        CreatureId actor = bridge.GetCreatureId(controller);
+
+        ApplyTimedSlowed(bridge, controller, 2, EffectDuration.OneMinute);
+        Assert.That(ConditionRules.GetApplications(bridge.Snapshot, actor).Count(), Is.EqualTo(2));
+        Assert.That(
+            controller.ActionPoints,
+            Is.EqualTo(2),
+            "Applying Slowed does not consume current actions."
+        );
+        EndRound(bridge);
+        Assert.That(
+            controller.ActionPoints,
+            Is.EqualTo(1),
+            "Two applications must apply only one maximum penalty."
+        );
+        for (int i = 1; i < 10; i++)
+            EndRound(bridge);
+
+        Assert.That(
+            ConditionRules.GetValue(bridge.Snapshot, actor, SlowedRules.ConditionId),
+            Is.EqualTo(1)
+        );
+        Assert.That(ConditionRules.GetApplications(bridge.Snapshot, actor).Count(), Is.EqualTo(1));
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        Assert.That(controller.GetComponent<Conditions>().Contains("Slowed"), Is.True);
+        Assert.That(
+            controller.GetComponent<ConditionSeed>().Applications.Single().State.Value,
+            Is.EqualTo(1)
+        );
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void IndependentIndefiniteApplicationsSurviveReenrollment()
+    {
+        TestActionController controller = CreateSlowedCombatant("Independent seeds", 1);
+        ApplySlowed(controller.gameObject, 2);
+        UnityCombatRulesBridge first = CreateActiveEncounter(controller);
+        first.AdvanceEncounter();
+        ApplySlowed(controller.gameObject, 5);
+        first.ReleaseOwnership();
+
+        UnityCombatRulesBridge second = CreateActiveEncounter(controller);
+        CreatureId actor = second.GetCreatureId(controller);
+        Assert.That(
+            ConditionRules
+                .GetApplications(second.Snapshot, actor)
+                .Select(effect => effect.GetState<ConditionState>().Value),
+            Is.EquivalentTo(new[] { 1, 2, 5 })
+        );
+        second.AdvanceEncounter();
+        Assert.That(controller.ActionPoints, Is.Zero);
+        EndRound(second);
+        Assert.That(
+            ConditionRules.GetValue(second.Snapshot, actor, SlowedRules.ConditionId),
+            Is.EqualTo(5),
+            "Slowed is not consumed by lost actions."
+        );
+        second.ReleaseOwnership();
+    }
+
     [Test]
     public void PredicateSupportsAtomicCompoundAndNumericChecks()
     {
@@ -511,6 +777,59 @@ public class Pf2eRulesTests
             CreateTiles(),
             "Players"
         );
+    }
+
+    private TestActionController CreateSlowedCombatant(string name, int tier)
+    {
+        TestActionController controller = CreateCombatant(name, "Players");
+        ApplySlowed(controller.gameObject, tier);
+        return controller;
+    }
+
+    private TestActionController CreateCombatant(string name, string teamName)
+    {
+        GameObject actor = new(name);
+        created.Add(actor);
+        CreatureComponent creature = actor.AddComponent<CreatureComponent>();
+        creature.InitializeHealthBeforeEncounter(10, 10);
+        actor.AddComponent<Conditions>();
+        Team team = actor.AddComponent<Team>();
+        team.Name = teamName;
+        return actor.AddComponent<TestActionController>();
+    }
+
+    private static void ApplySlowed(GameObject target, int tier)
+    {
+        Condition slowed = new Slowed(tier);
+        Assert.That(slowed, Is.Not.Null);
+        slowed.Apply(new ConditionSource(), target);
+    }
+
+    private static void ApplyTimedSlowed(
+        UnityCombatRulesBridge bridge,
+        ActionController controller,
+        int value,
+        EffectDuration duration
+    )
+    {
+        CreatureId actor = bridge.GetCreatureId(controller);
+        var result = bridge.Dispatch(
+            new ApplyConditionOp(
+                actor,
+                SlowedRules.ConditionId,
+                value,
+                actor,
+                RuleSource.FromSlug("test-slow-spell"),
+                duration
+            )
+        );
+        Assert.That(result, Is.TypeOf<ResolvedOpResult<ActiveEffectCreationOutcome>>());
+    }
+
+    private static void EndRound(UnityCombatRulesBridge bridge)
+    {
+        bridge.EndTurn(bridge.GetEncounter().CurrentTurn.Value.Actor);
+        bridge.EndTurn(bridge.GetEncounter().CurrentTurn.Value.Actor);
     }
 
     private sealed class TestActionController : ActionController

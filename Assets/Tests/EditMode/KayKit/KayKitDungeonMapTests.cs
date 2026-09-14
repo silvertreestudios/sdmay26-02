@@ -1516,7 +1516,7 @@ public sealed class KayKitDungeonMapTests
                 Is.EqualTo(16)
             );
             Assert.That(
-                GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 0)),
+                GridTargeting.CountClearRays(CaptureAreaRays(tiles), new Vector3Int(2, 0, 0)),
                 Is.EqualTo(16)
             );
         }
@@ -1588,11 +1588,14 @@ public sealed class KayKitDungeonMapTests
                 Is.Zero
             );
             Assert.That(
-                GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 0)),
+                GridTargeting.CountClearRays(CaptureAreaRays(tiles), new Vector3Int(2, 0, 0)),
                 Is.Zero
             );
             Assert.That(
-                GridTargeting.CountClearRaysFromPoint(tiles, Vector2.zero, new Vector3Int(2, 0, 0)),
+                GridTargeting.CountClearRays(
+                    CaptureAreaRays(tiles, GridPublic.AreaShape.Burst),
+                    new Vector3Int(2, 0, 0)
+                ),
                 Is.Zero
             );
         }
@@ -1628,8 +1631,7 @@ public sealed class KayKitDungeonMapTests
         try
         {
             int sharedClearRays = GridTargeting.CountClearRays(
-                tiles,
-                Vector3Int.zero,
+                CaptureAreaRays(tiles),
                 new Vector3Int(2, 0, 0)
             );
             int strikeClearRays = StrikeTargeting.CountClearRays(
@@ -1646,6 +1648,17 @@ public sealed class KayKitDungeonMapTests
             GridLineOfSightData.Unregister(tiles);
         }
     }
+
+    private static GridPublic.TargetingSnapshot CaptureAreaRays(
+        Tile[,] tiles,
+        GridPublic.AreaShape shape = GridPublic.AreaShape.Line
+    ) =>
+        GridPublic.TargetingSnapshot.Capture(
+            new GridPublic.AreaTargetSource(Vector3Int.zero),
+            tiles,
+            new GridPublic.AreaTargetRequest { Shape = shape },
+            new GridPublic.AreaPlacement()
+        );
 
     [Test]
     public void ColliderBackedBlocker_NonAllocQueryPreservesCorrectnessWhenBufferSaturates()

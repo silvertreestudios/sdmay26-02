@@ -1,11 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Attack;
 using Game.Rules.Unity.Composition;
 using UnityEngine;
 
@@ -206,9 +207,9 @@ namespace Game.Combat.Spells
         }
     }
 
-    /// <summary>Projects every resolved generic cast exactly once into shared Unity presentation.</summary>
-    public sealed class UnityResolvedSpellCastPresentationObserver
-        : IResolvedOpObserver<CastSpellActionOp, CastSpellOutcome>
+    /// <summary>Projects every committed resolved cast through feature-owned Unity presentation.</summary>
+    public sealed class UnitySpellActionPresenter
+        : IUnityActionPresenter<CastSpellActionOp, CastSpellOutcome>
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly ISpellDefinitionCatalog catalog;
@@ -216,7 +217,7 @@ namespace Game.Combat.Spells
         /// <summary>Creates the shared presenter for all resolved spell casts.</summary>
         /// <param name="creatures">Live Unity creatures keyed by encounter rules ID.</param>
         /// <param name="catalog">Definitions used for player-facing spell names.</param>
-        public UnityResolvedSpellCastPresentationObserver(
+        public UnitySpellActionPresenter(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             ISpellDefinitionCatalog catalog
         )
@@ -226,16 +227,11 @@ namespace Game.Combat.Spells
         }
 
         /// <inheritdoc/>
-        public ValueTask OnOperationResolved(
+        public IEnumerator PresentBeginning(
             CastSpellActionOp operation,
-            CastSpellOutcome result,
             RulesSnapshot currentSnapshot
         )
         {
-            if (result.Actor != operation.Actor)
-                throw new InvalidOperationException(
-                    "Resolved spell presentation actor does not match its operation."
-                );
             if (
                 !creatures.TryGetValue(operation.Actor, out CreatureComponent creature)
                 || creature == null
@@ -253,37 +249,77 @@ namespace Game.Combat.Spells
                     $"Resolved spell {operation.Spell} has no presentation definition."
                 );
             GameObject actor = creature.gameObject;
-            PresentSafely(
-                () =>
-                {
-                    if (!creature.IsDefeated)
-                        actor
-                            .GetComponent<CreaturePresentation>()
-                            ?.PlayAttack(AnimationStyle.Magic);
-                },
-                actor
-            );
-            PresentSafely(
-                () =>
-                {
-                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
-                        log.Log($"- {actor.name} casts {definition.DisplayName}.");
-                },
-                actor
-            );
-            return default;
+            CreatureAnimationController animation = creature
+                .GetComponent<CreaturePresentation>()
+                ?.AnimationController;
+            bool animationStarted =
+                !creature.IsDefeated
+                && actor.GetComponent<CreaturePresentation>()?.PlayAttack(AnimationStyle.Magic)
+                    == true;
+            if (CombatLog.TryGetInstance(out CombatLogInterface log))
+                log.Log($"- {actor.name} casts {definition.DisplayName}.");
+            while (
+                animationStarted
+                && animation != null
+                && animation.isActiveAndEnabled
+                && animation.IsActionPlaying
+            )
+                yield return null;
         }
 
-        private static void PresentSafely(Action presentation, UnityEngine.Object context)
+        /// <inheritdoc/>
+        public IEnumerator PresentResolved(
+            CastSpellActionOp operation,
+            CastSpellOutcome result,
+            RulesSnapshot currentSnapshot
+        )
         {
-            try
-            {
-                presentation();
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, context);
-            }
+            if (result.Actor != operation.Actor)
+                throw new InvalidOperationException(
+                    "Resolved spell presentation actor does not match its operation."
+                );
+            if (
+                !creatures.TryGetValue(operation.Actor, out CreatureComponent creature)
+                || creature == null
+            )
+                yield break;
+            if (!catalog.TryGetSpell(operation.Spell, out var definition))
+                yield break;
+            foreach (SpellAttackResolution attack in result.AttackResolutions)
+                PresentAttack(definition, creature, attack);
+            yield break;
+        }
+
+        private void PresentAttack(
+            Game.Rules.Runtime.SpellDefinition definition,
+            CreatureComponent attacker,
+            SpellAttackResolution resolution
+        )
+        {
+            if (
+                !creatures.TryGetValue(resolution.Target, out CreatureComponent target)
+                || target == null
+            )
+                return;
+            UnityAttackResultPresentation.Present(
+                attacker.gameObject,
+                target.gameObject,
+                definition.DisplayName,
+                new UnityAttackResult(
+                    resolution.AttackRoll,
+                    resolution.AttackModifier,
+                    resolution.ArmorClass,
+                    resolution.Degree,
+                    resolution.Damage.Select(part => new UnityAttackDamagePart(
+                        part.DamageType,
+                        part.Amount
+                    )),
+                    resolution.FinalDamage,
+                    resolution.MultipleAttackPenalty,
+                    0,
+                    0
+                )
+            );
         }
     }
 }

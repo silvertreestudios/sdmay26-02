@@ -157,8 +157,8 @@ namespace Game.Rules.Runtime
             IReadOnlyList<CommittedFactRecord> committedFacts
         )
         {
-            Dictionary<FactListenerDeliveryKey, List<RuleFact>> groupedFacts =
-                new Dictionary<FactListenerDeliveryKey, List<RuleFact>>();
+            Dictionary<FactListenerDeliveryKey, List<CommittedFactRecord>> groupedFacts =
+                new Dictionary<FactListenerDeliveryKey, List<CommittedFactRecord>>();
             foreach (CommittedFactRecord committed in committedFacts)
             {
                 foreach (BoundFactListenerRegistration listener in committed.EligibleListeners)
@@ -170,17 +170,22 @@ namespace Game.Rules.Runtime
                         listener.Binding,
                         listener.Registration
                     );
-                    if (!groupedFacts.TryGetValue(key, out List<RuleFact> matching))
+                    if (!groupedFacts.TryGetValue(key, out List<CommittedFactRecord> matching))
                     {
-                        matching = new List<RuleFact>();
+                        matching = new List<CommittedFactRecord>();
                         groupedFacts.Add(key, matching);
                     }
-                    matching.Add(committed.Fact);
+                    matching.Add(committed);
                 }
             }
 
             List<FactListenerDelivery> deliveries = new List<FactListenerDelivery>();
-            foreach (KeyValuePair<FactListenerDeliveryKey, List<RuleFact>> pair in groupedFacts)
+            foreach (
+                KeyValuePair<
+                    FactListenerDeliveryKey,
+                    List<CommittedFactRecord>
+                > pair in groupedFacts
+            )
             {
                 deliveries.Add(
                     new FactListenerDelivery(

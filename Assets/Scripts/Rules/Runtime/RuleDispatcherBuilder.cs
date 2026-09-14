@@ -103,7 +103,7 @@ namespace Game.Rules.Runtime
         /// <typeparam name="TOp">The operation reduced by <paramref name="reducer"/>.</typeparam>
         /// <typeparam name="TResult">The accepted value produced by the reducer.</typeparam>
         /// <param name="reducer">The reducer that validates and stages state changes and facts.</param>
-        /// <param name="source">The rule source stamped onto facts committed by this reducer.</param>
+        /// <param name="source">The rule source recorded for Facts committed by this reducer.</param>
         /// <returns>This builder so registrations can be chained.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="reducer"/> is <see langword="null"/>.</exception>
         /// <exception cref="ArgumentException"><paramref name="source"/> is empty.</exception>

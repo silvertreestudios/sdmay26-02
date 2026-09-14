@@ -34,9 +34,9 @@ namespace Game.Rules.Runtime
                     "A committed Fact batch cannot be empty.",
                     nameof(facts)
                 );
-            if (facts.Any(fact => fact == null || !fact.IsStamped || fact.RootOpId != rootId))
+            if (facts.Any(fact => fact == null))
                 throw new InvalidOperationException(
-                    "Every Fact in a committed batch must belong to its root."
+                    "A committed Fact batch cannot contain a null payload."
                 );
 
             RootId = rootId;

@@ -6,9 +6,6 @@ using NUnit.Framework;
 
 namespace Game.Rules.Runtime.Tests
 {
-    /// <summary>
-    /// Verifies reduction-scoped, awaited delivery to dynamically registered Fact observers.
-    /// </summary>
     public sealed class FactObserverTests
     {
         private static readonly CreatureId Creature = new CreatureId("fact-observer-creature");
@@ -18,33 +15,20 @@ namespace Game.Rules.Runtime.Tests
         );
 
         [Test]
-        public async Task ObserverReceivesExactCommittedSnapshotAndPacesTheNextReduction()
+        public async Task ObserverReceivesExactPostCommitSnapshotsSynchronously()
         {
             InMemoryRulesStore store = CreateStore();
             RuleDispatcher dispatcher = CreateDispatcher(store);
-            FirstDeliveryGateObserver observer = new FirstDeliveryGateObserver();
+            RecordingSnapshotObserver observer = new RecordingSnapshotObserver();
             dispatcher.RegisterFactObserver(observer);
 
-            Task<OpResult<int>> dispatch = dispatcher
-                .Dispatch(new RootOp(new ChangeOp(1, 1), new ChangeOp(1, 2)))
-                .AsTask();
-
-            await observer.FirstStarted;
-
-            Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
-            Assert.That(observer.Snapshots.Single(), Is.SameAs(store.Snapshot));
-            Assert.That(observer.Snapshots.Single().Version, Is.EqualTo(1));
-            Assert.That(observer.Facts.Single().IsStamped, Is.True);
-            Assert.That(observer.Facts.Single().Id.IsEmpty, Is.False);
-            Assert.That(observer.Facts.Single().SourceOpId.IsEmpty, Is.False);
-            Assert.That(observer.Facts.Single().RootOpId.IsEmpty, Is.False);
-            Assert.That(observer.Facts.Single().Source, Is.EqualTo(Source));
-            Assert.That(dispatch.IsCompleted, Is.False);
-
-            observer.ReleaseFirst();
-            OpResult<int> result = await dispatch;
+            OpResult<int> result = await dispatcher.Dispatch(
+                new RootOp(new ChangeOp(1, 1), new ChangeOp(1, 2))
+            );
 
             Assert.That(((ResolvedOpResult<int>)result).Value, Is.EqualTo(2));
+            Assert.That(observer.Roots, Is.All.EqualTo(new OpId(1)));
+            Assert.That(observer.Snapshots[0].Version, Is.EqualTo(1));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(2));
             Assert.That(observer.Sequences, Is.EqualTo(new[] { 1, 2 }));
             Assert.That(observer.Snapshots[1], Is.SameAs(store.Snapshot));
@@ -134,7 +118,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void ObserverFailuresRunEveryDeliveryAndAggregateInDeliveryOrderAfterCommit()
+        public async Task ObserverFailuresRunEveryDeliveryWithoutChangingContinuation()
         {
             InMemoryRulesStore store = CreateStore();
             RuleDispatcher dispatcher = CreateDispatcher(store);
@@ -145,22 +129,16 @@ namespace Game.Rules.Runtime.Tests
             dispatcher.RegisterFactObserver(new ThrowingObserver(second));
             dispatcher.RegisterFactObserver(completed);
 
-            AggregateException failure = Assert.ThrowsAsync<AggregateException>(async () =>
-                await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)))
-            );
+            OpResult<int> result = await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
 
-            Assert.That(
-                failure.Message,
-                Does.StartWith("Multiple Fact observers failed after the reduction committed.")
-            );
-            Assert.That(failure.InnerExceptions, Is.EqualTo(new Exception[] { first, second }));
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
             Assert.That(completed.Count, Is.EqualTo(1));
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
             Assert.That(store.Snapshot.Version, Is.EqualTo(1));
         }
 
         [Test]
-        public void OneObserverFailurePropagatesTheOriginalExceptionAfterCommit()
+        public async Task ObserverFailureDoesNotStopRuleFactListeners()
         {
             ActiveRuleBinding binding = new ActiveRuleBinding(
                 new BindingId("observer-failure-listener"),
@@ -181,12 +159,9 @@ namespace Game.Rules.Runtime.Tests
             ThrowingObserver observer = new ThrowingObserver(expected);
             dispatcher.RegisterFactObserver(observer);
 
-            InvalidOperationException actual = Assert.ThrowsAsync<InvalidOperationException>(
-                async () =>
-                    await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)))
-            );
+            OpResult<int> result = await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
 
-            Assert.That(actual, Is.SameAs(expected));
+            Assert.That(result, Is.TypeOf<ResolvedOpResult<int>>());
             Assert.That(store.Snapshot.Health[Creature].Current, Is.EqualTo(1));
             Assert.That(observer.Facts, Has.Count.EqualTo(1));
             Assert.That(listener.Facts, Has.Count.EqualTo(1));
@@ -194,6 +169,42 @@ namespace Game.Rules.Runtime.Tests
                 listener.Facts.Single(),
                 Is.SameAs(observer.Facts.Single()),
                 "Observer failure must not discard the durable Fact before root listeners run."
+            );
+        }
+
+        [Test]
+        public async Task CausallyLinkedRootSharesExternalObservationRootButKeepsExactListenerRoot()
+        {
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("causal-observation-listener"),
+                ListenerDefinition,
+                Creature,
+                default,
+                Source,
+                0
+            );
+            InMemoryRulesStore store = CreateStore(binding);
+            CausalDispatchListener listener = new CausalDispatchListener();
+            RuleRegistryBuilder rules = new RuleRegistryBuilder();
+            rules.Define(ListenerDefinition).FactListener(RuleLifecyclePhase.Observation, listener);
+            RuleDispatcher dispatcher = CreateDispatcherBuilder(store)
+                .UseRuleRegistry(rules.Build())
+                .Build();
+            RecordingSnapshotObserver observer = new RecordingSnapshotObserver();
+            dispatcher.RegisterFactObserver(observer);
+
+            await dispatcher.Dispatch(new RootOp(new ChangeOp(1, 1)));
+
+            Assert.That(observer.Sequences, Is.EqualTo(new[] { 1, 2 }));
+            Assert.That(
+                observer.Roots,
+                Is.EqualTo(new[] { new OpId(1), new OpId(1) }),
+                "External observers need one correlation for the complete causal tree."
+            );
+            Assert.That(
+                listener.CommittedRoots,
+                Is.EqualTo(new[] { new OpId(1), new OpId(3) }),
+                "Rule listeners must retain each Fact's exact owning root."
             );
         }
 
@@ -330,30 +341,23 @@ namespace Game.Rules.Runtime.Tests
             ) => ReductionResult<int>.Accept(0);
         }
 
-        private sealed class FirstDeliveryGateObserver : IFactObserver<ChangedFact>
+        private sealed class RecordingSnapshotObserver : IFactObserver<ChangedFact>
         {
-            private readonly TaskCompletionSource<bool> firstStarted =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            private readonly TaskCompletionSource<bool> firstRelease =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            public Task FirstStarted => firstStarted.Task;
             public List<ChangedFact> Facts { get; } = new List<ChangedFact>();
             public List<int> Sequences { get; } = new List<int>();
+            public List<OpId> Roots { get; } = new List<OpId>();
             public List<RulesSnapshot> Snapshots { get; } = new List<RulesSnapshot>();
 
-            public void ReleaseFirst() => firstRelease.TrySetResult(true);
-
-            public async ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 Facts.Add(fact);
                 Sequences.Add(fact.Sequence);
+                Roots.Add(rootId);
                 Snapshots.Add(currentSnapshot);
-                if (Sequences.Count != 1)
-                    return;
-
-                firstStarted.TrySetResult(true);
-                await firstRelease.Task;
             }
         }
 
@@ -361,10 +365,13 @@ namespace Game.Rules.Runtime.Tests
         {
             public int Count { get; private set; }
 
-            public ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 Count++;
-                return default;
             }
         }
 
@@ -379,11 +386,11 @@ namespace Game.Rules.Runtime.Tests
                 this.deliveries = deliveries;
             }
 
-            public ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
-            {
-                deliveries.Add($"{fact.Sequence}:{name}");
-                return default;
-            }
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            ) => deliveries.Add($"{fact.Sequence}:{name}");
         }
 
         private sealed class MutatingObserver : IFactObserver<ChangedFact>
@@ -407,7 +414,11 @@ namespace Game.Rules.Runtime.Tests
                 this.deliveries = deliveries;
             }
 
-            public ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 deliveries.Add($"{fact.Sequence}:mutating");
                 if (!changed)
@@ -416,8 +427,6 @@ namespace Game.Rules.Runtime.Tests
                     dispatcher.UnregisterFactObserver(removed);
                     dispatcher.RegisterFactObserver(added);
                 }
-
-                return default;
             }
         }
 
@@ -432,7 +441,11 @@ namespace Game.Rules.Runtime.Tests
 
             public List<ChangedFact> Facts { get; } = new List<ChangedFact>();
 
-            public ValueTask OnFactCommitted(ChangedFact fact, RulesSnapshot currentSnapshot)
+            public void OnFactCommitted(
+                ChangedFact fact,
+                OpId rootId,
+                RulesSnapshot currentSnapshot
+            )
             {
                 Facts.Add(fact);
                 throw exception;
@@ -447,6 +460,18 @@ namespace Game.Rules.Runtime.Tests
             {
                 Facts.Add(fact);
                 return default;
+            }
+        }
+
+        private sealed class CausalDispatchListener : IRuleFactListener<ChangedFact>
+        {
+            public List<OpId> CommittedRoots { get; } = new List<OpId>();
+
+            public async ValueTask OnFactCommitted(ChangedFact fact, FactContext context)
+            {
+                CommittedRoots.Add(context.CommittedRootId);
+                if (fact.Sequence == 1)
+                    await context.Dispatch(new RootOp(new ChangeOp(1, 2)));
             }
         }
     }

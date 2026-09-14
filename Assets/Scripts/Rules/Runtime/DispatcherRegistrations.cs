@@ -57,28 +57,25 @@ namespace Game.Rules.Runtime
     internal sealed class FrameInvocation<TOp> : IFrameInvocation
         where TOp : IRuleOp
     {
-        private static readonly IReadOnlyList<RuleFact> NoDirectFacts = Array.AsReadOnly(
-            Array.Empty<RuleFact>()
-        );
-        private IReadOnlyList<RuleFact> directFacts = NoDirectFacts;
+        private readonly List<RuleFact> directFacts = new List<RuleFact>();
+        private readonly IReadOnlyList<RuleFact> directFactsView;
 
         public OpFrame<TOp> Frame { get; }
         public IOpFrameView FrameView { get; }
-        public IReadOnlyList<RuleFact> DirectFacts => directFacts;
+        public IReadOnlyList<RuleFact> DirectFacts => directFactsView;
 
         public FrameInvocation(OpFrame<TOp> frame)
         {
             Frame = frame ?? throw new ArgumentNullException(nameof(frame));
             FrameView = new OpFrameView<TOp>(frame);
+            directFactsView = directFacts.AsReadOnly();
         }
 
         public void CaptureDirectFacts(IReadOnlyList<RuleFact> facts)
         {
-            if (!ReferenceEquals(directFacts, NoDirectFacts))
-                throw new InvalidOperationException(
-                    "A resolver captured its direct Facts more than once."
-                );
-            directFacts = facts ?? throw new ArgumentNullException(nameof(facts));
+            if (facts == null)
+                throw new ArgumentNullException(nameof(facts));
+            directFacts.AddRange(facts);
         }
     }
 
@@ -211,7 +208,7 @@ namespace Game.Rules.Runtime
 
         public override bool IsReducer => true;
 
-        public override async ValueTask<object> Invoke(
+        public override ValueTask<object> Invoke(
             IFrameInvocation invocation,
             RuleDispatcher dispatcher
         )
@@ -223,15 +220,18 @@ namespace Game.Rules.Runtime
                     $"Reducer operation {typeof(TOp).Name} supplied an empty rule source."
                 );
             ReductionResult<TResult> reduced = dispatcher.Reduce(frame, reducer, factSource);
-            dispatcher.CaptureCommittedFacts(invocation, reduced.Facts);
+            IReadOnlyList<CommittedFactRecord> committedFacts = dispatcher.CaptureCommittedFacts(
+                invocation,
+                reduced.Facts,
+                factSource,
+                reduced.Snapshot
+            );
             if (reduced.Facts.Count > 0)
-            {
-                await dispatcher.NotifyFactObservers(reduced.Facts, reduced.Snapshot);
-            }
+                dispatcher.NotifyFactObservers(committedFacts);
             OpResult<TResult> result = reduced.IsAccepted
                 ? OpResult<TResult>.Resolved(reduced.Value)
                 : OpResult<TResult>.Invalid(reduced.RejectionReason);
-            return result.WithFacts(reduced.Facts);
+            return new ValueTask<object>(result.WithFacts(reduced.Facts));
         }
     }
 }

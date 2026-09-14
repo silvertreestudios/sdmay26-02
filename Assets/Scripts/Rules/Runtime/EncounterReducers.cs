@@ -641,14 +641,52 @@ namespace Game.Rules.Runtime
                 nextTurnSequence: checked(encounter.NextTurnSequence + 1)
             );
             state.Encounters.Set(updated.Id, updated);
-            state.ActionEconomy.Set(
-                context.Op.Actor,
-                new ActionEconomyState(context.Op.Actions, true)
-            );
             state.MultipleAttackPenalty.Set(context.Op.Actor, new MultipleAttackPenaltyState(0));
             facts.Stage(new TurnBeganFact(turn));
             return ReductionResult<EncounterAdvanceOutcome>.Accept(
                 new EncounterAdvanceOutcome(updated)
+            );
+        }
+    }
+
+    internal sealed class CommitTurnResourcesRegainedReducer
+        : IOpReducer<CommitTurnResourcesRegainedOp, EncounterAdvanceOutcome>
+    {
+        public ReductionResult<EncounterAdvanceOutcome> Reduce(
+            ReductionContext<CommitTurnResourcesRegainedOp> context,
+            RulesStateDraft state,
+            FactSink facts
+        )
+        {
+            TurnIdentity requested = context.Op.Turn;
+            if (
+                !EncounterReduction.TryGetActive(
+                    state,
+                    requested.Encounter,
+                    out EncounterState encounter,
+                    out string rejection
+                )
+            )
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(rejection);
+            if (!encounter.CurrentTurn.HasValue || encounter.CurrentTurn.Value != requested)
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "The turn identity or actor is stale."
+                );
+            if (!EncounterReduction.IsLiving(state, requested.Actor))
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "A zero-HP creature cannot regain turn resources."
+                );
+            if (!state.ActionEconomy.Contains(requested.Actor))
+                return ReductionResult<EncounterAdvanceOutcome>.Reject(
+                    "The turn actor has no authoritative action-economy state."
+                );
+            state.ActionEconomy.Set(
+                requested.Actor,
+                new ActionEconomyState(context.Op.Actions, true)
+            );
+            facts.Stage(new TurnResourcesRegainedFact(requested));
+            return ReductionResult<EncounterAdvanceOutcome>.Accept(
+                new EncounterAdvanceOutcome(encounter)
             );
         }
     }

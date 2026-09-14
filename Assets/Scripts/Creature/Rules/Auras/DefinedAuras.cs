@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Game.Rules.Runtime;
 
 namespace Game.Creature.Rules
 {
@@ -9,7 +10,7 @@ namespace Game.Creature.Rules
             StringComparer.OrdinalIgnoreCase
         )
         {
-            { RottingAuraRule.RuleSlug, new RottingAuraRule() },
+            { RottingAuraRules.Slug, new RottingAuraVisualization() },
         };
 
         public static ICreatureAuraRule TryGet(string slug)

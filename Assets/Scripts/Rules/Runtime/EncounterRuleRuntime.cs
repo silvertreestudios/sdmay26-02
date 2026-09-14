@@ -45,43 +45,17 @@ namespace Game.Rules.Runtime
         /// <param name="registry">
         /// The exact immutable registry used to validate every combatant enrollment binding.
         /// </param>
-        /// <returns>The same builder with encounter rules and no transitional start adapters.</returns>
+        /// <returns>The same builder with encounter rules.</returns>
         /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
         public static RuleDispatcherBuilder UseEncounterRules(
             this RuleDispatcherBuilder builder,
             RuleRegistry registry
-        ) => UseEncounterRules(builder, registry, Array.Empty<IEncounterTurnStartAdapter>());
-
-        /// <summary>
-        /// Registers encounter transitions plus ordered adapters for unmigrated turn-start behavior.
-        /// </summary>
-        /// <param name="builder">The shared dispatcher builder that owns all encounter rules.</param>
-        /// <param name="registry">
-        /// The exact immutable registry used by the dispatcher and enrollment reducer.
-        /// </param>
-        /// <param name="turnStartAdapters">
-        /// The spell, aura, and action-contribution adapters to await in exact registration order.
-        /// </param>
-        /// <returns>The same builder so composition can continue.</returns>
-        /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
-        public static RuleDispatcherBuilder UseEncounterRules(
-            this RuleDispatcherBuilder builder,
-            RuleRegistry registry,
-            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters
         )
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
             if (registry == null)
                 throw new ArgumentNullException(nameof(registry));
-            IEncounterTurnStartAdapter[] copied =
-                turnStartAdapters?.ToArray()
-                ?? throw new ArgumentNullException(nameof(turnStartAdapters));
-            if (copied.Any(adapter => adapter == null))
-                throw new ArgumentException(
-                    "Turn-start adapters cannot contain null entries.",
-                    nameof(turnStartAdapters)
-                );
             return builder
                 .UseMovementBudgetResetRules()
                 .RegisterHandler<InitEncounterOp, EncounterInitializationOutcome>(
@@ -96,6 +70,9 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<BeginInitiativeTurnOp, EncounterAdvanceOutcome>(
                     new BeginInitiativeTurnHandler()
                 )
+                .RegisterHandler<RegainTurnResourcesOp, EncounterAdvanceOutcome>(
+                    new RegainTurnResourcesHandler()
+                )
                 .RegisterHandler<EndTurnOp, EncounterAdvanceOutcome>(new EndTurnHandler())
                 .RegisterHandler<SuspendEncounterOp, EncounterSuspensionOutcome>(
                     new SuspendEncounterHandler()
@@ -104,8 +81,8 @@ namespace Game.Rules.Runtime
                 .RegisterHandler<EvaluateEncounterOutcomeOp, EncounterEvaluationOutcome>(
                     new EvaluateEncounterOutcomeHandler()
                 )
-                .RegisterHandler<TurnStartingOp, TurnStartContribution>(
-                    new TurnStartingHandler(copied),
+                .RegisterHandler<CalculateTurnResourcesOp, TurnResourceContribution>(
+                    new CalculateTurnResourcesHandler(),
                     InvocationPolicy.NestedOnly
                 )
                 .RegisterHandler<TurnEndingOp, TurnEndContribution>(
@@ -137,6 +114,10 @@ namespace Game.Rules.Runtime
                 )
                 .RegisterEngineReducer<CommitTurnBeginOp, EncounterAdvanceOutcome>(
                     new CommitTurnBeginReducer(),
+                    Source
+                )
+                .RegisterEngineReducer<CommitTurnResourcesRegainedOp, EncounterAdvanceOutcome>(
+                    new CommitTurnResourcesRegainedReducer(),
                     Source
                 )
                 .RegisterEngineReducer<CommitTurnEndOp, EncounterAdvanceOutcome>(
@@ -389,25 +370,30 @@ namespace Game.Rules.Runtime
                 "turn-start movement reset"
             );
 
-            TurnStartContribution contribution = EncounterHandlerResults.Require(
-                await context.Dispatch(new TurnStartingOp(frame.Op.Encounter, entry.Creature)),
-                "turn-start hook"
+            return EncounterHandlerResults.Require(
+                await context.Dispatch(new CommitTurnBeginOp(frame.Op.Encounter, entry.Creature)),
+                "turn begin"
             );
-            EncounterState latest = EncounterRuleRuntime.RequireEncounter(
-                context.Snapshot,
-                frame.Op.Encounter
+        }
+    }
+
+    internal sealed class RegainTurnResourcesHandler
+        : IOpHandler<RegainTurnResourcesOp, EncounterAdvanceOutcome>
+    {
+        public async ValueTask<EncounterAdvanceOutcome> Handle(
+            OpFrame<RegainTurnResourcesOp> frame,
+            OpHandlerContext context
+        )
+        {
+            TurnResourceContribution contribution = EncounterHandlerResults.Require(
+                await context.Dispatch(new CalculateTurnResourcesOp(frame.Op.Turn)),
+                "turn resource calculation"
             );
-            if (!EncounterEndValidation.IsLiving(context.Snapshot, entry.Creature))
-            {
-                // The hook's zero-HP Fact belongs to this causal root. Return without a turn so
-                // its Reaction listeners settle before encounter Observation evaluates outcome.
-                return new EncounterAdvanceOutcome(latest);
-            }
             return EncounterHandlerResults.Require(
                 await context.Dispatch(
-                    new CommitTurnBeginOp(frame.Op.Encounter, entry.Creature, contribution.Actions)
+                    new CommitTurnResourcesRegainedOp(frame.Op.Turn, contribution.Actions)
                 ),
-                "turn begin"
+                "turn resource regain"
             );
         }
     }
@@ -603,32 +589,13 @@ namespace Game.Rules.Runtime
         }
     }
 
-    internal sealed class TurnStartingHandler : IOpHandler<TurnStartingOp, TurnStartContribution>
+    internal sealed class CalculateTurnResourcesHandler
+        : IOpHandler<CalculateTurnResourcesOp, TurnResourceContribution>
     {
-        private readonly IReadOnlyList<IEncounterTurnStartAdapter> adapters;
-
-        public TurnStartingHandler(IEnumerable<IEncounterTurnStartAdapter> adapters) =>
-            this.adapters = Array.AsReadOnly(adapters.ToArray());
-
-        public async ValueTask<TurnStartContribution> Handle(
-            OpFrame<TurnStartingOp> frame,
+        public ValueTask<TurnResourceContribution> Handle(
+            OpFrame<CalculateTurnResourcesOp> frame,
             OpHandlerContext context
-        )
-        {
-            TurnStartContribution contribution = TurnStartContribution.Standard;
-            EncounterTurnStartContext adapterContext = new EncounterTurnStartContext(
-                frame.Op.Encounter,
-                frame.Op.Actor,
-                context
-            );
-            foreach (IEncounterTurnStartAdapter adapter in adapters)
-            {
-                contribution = await adapter.Apply(adapterContext, contribution);
-                if (!EncounterEndValidation.IsLiving(context.Snapshot, frame.Op.Actor))
-                    break;
-            }
-            return contribution;
-        }
+        ) => new ValueTask<TurnResourceContribution>(TurnResourceContribution.Standard);
     }
 
     internal sealed class TurnEndingHandler : IOpHandler<TurnEndingOp, TurnEndContribution>
@@ -740,7 +707,7 @@ namespace Game.Rules.Runtime
                 return;
             }
 
-            EncounterHandlerResults.Require(
+            EncounterAdvanceOutcome begun = EncounterHandlerResults.Require(
                 await context.Dispatch(
                     new BeginInitiativeTurnOp(
                         encounter.Id,
@@ -750,6 +717,24 @@ namespace Game.Rules.Runtime
                     )
                 ),
                 "initiative turn begin"
+            );
+            if (!begun.State.CurrentTurn.HasValue)
+                return;
+            TurnIdentity turn = begun.State.CurrentTurn.Value;
+            EncounterState latest = EncounterRuleRuntime.RequireEncounter(
+                context.Snapshot,
+                turn.Encounter
+            );
+            if (
+                latest.Phase != EncounterPhase.Active
+                || !latest.CurrentTurn.HasValue
+                || latest.CurrentTurn.Value != turn
+                || !EncounterEndValidation.IsLiving(context.Snapshot, turn.Actor)
+            )
+                return;
+            EncounterHandlerResults.Require(
+                await context.Dispatch(new RegainTurnResourcesOp(turn)),
+                "turn resource regain"
             );
         }
     }

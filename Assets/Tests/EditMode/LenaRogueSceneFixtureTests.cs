@@ -75,7 +75,7 @@ public class LenaRogueSceneFixtureTests
         List<CreatureComponent> auraZombies = creatures
             .Where(c =>
                 c.name == "Zombie Shambler (Rotting Aura)"
-                || c.auras.Any(a => a.slug == Game.Creature.Rules.RottingAuraRule.RuleSlug)
+                || c.auras.Any(a => a.slug == Game.Rules.Runtime.RottingAuraRules.Slug)
             )
             .ToList();
 

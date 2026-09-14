@@ -39,11 +39,10 @@ namespace Game.Rules.Runtime
             CreatureId,
             MultipleAttackPenaltyState
         > MultipleAttackPenalty { get; }
-        public StateSliceSnapshot<ConditionId, ConditionState> Conditions { get; }
         public StateSliceSnapshot<ItemId, EquipmentState> Equipment { get; }
 
         /// <summary>
-        /// Gets immutable typed effect instances, including expired instances awaiting removal.
+        /// Gets immutable typed active effects. Expiration removes the instance from this slice.
         /// </summary>
         public StateSliceSnapshot<ActiveEffectId, ActiveEffectInstance> ActiveEffects { get; }
 
@@ -84,7 +83,6 @@ namespace Game.Rules.Runtime
             MultipleAttackPenalty = new StateSliceSnapshot<CreatureId, MultipleAttackPenaltyState>(
                 data.MultipleAttackPenalty
             );
-            Conditions = new StateSliceSnapshot<ConditionId, ConditionState>(data.Conditions);
             Equipment = new StateSliceSnapshot<ItemId, EquipmentState>(data.Equipment);
             ActiveEffects = new StateSliceSnapshot<ActiveEffectId, ActiveEffectInstance>(
                 data.ActiveEffects

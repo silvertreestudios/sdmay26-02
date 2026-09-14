@@ -12,6 +12,7 @@ namespace Game.Rules.Unity.Strike
     internal sealed class UnityStrikeEncounterModule
         : IUnityEncounterDispatcherModule,
             IUnityEncounterRuntimeModule,
+            IUnityEncounterActionPresentationModule,
             IUnityEncounterTopologyModule,
             IUnityCombatantEnrollmentModule
     {
@@ -42,19 +43,16 @@ namespace Game.Rules.Unity.Strike
         {
             lifetime.Add(dispatcher.RegisterFactObserver<AmmunitionSpentFact>(context));
             lifetime.Add(dispatcher.RegisterFactObserver<StrikeItemLoadedChangedFact>(context));
+        }
+
+        /// <inheritdoc/>
+        public void ConfigureActionPresentation(UnityActionPresentationRegistry registry)
+        {
             if (!installUnityAuthority)
                 return;
-
-            UnityStrikePresentationObserver presentation = new(controllers, creatures, context);
-            lifetime.Add(
-                dispatcher.RegisterResolvedOpObserver<ResolveStrikeOp, StrikeResolution>(
-                    presentation
-                )
-            );
-            lifetime.Add(
-                dispatcher.RegisterResolvedOpObserver<StrikeActionOp, StrikeResolution>(
-                    presentation
-                )
+            registry.Register<StrikeActionOp, StrikeResolution>(
+                StrikeActionDefinition.DefinitionId,
+                new UnityStrikeActionPresenter(controllers, creatures, context)
             );
         }
 

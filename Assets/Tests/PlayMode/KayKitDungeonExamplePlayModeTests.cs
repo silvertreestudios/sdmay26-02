@@ -1042,7 +1042,15 @@ public sealed class MapGenerationLifecyclePlayModeTests
             Assert.That(lineOfSightBlocks[1, 1], Is.True);
             Assert.That(GridTargeting.IsBlocking(tiles, new Vector3Int(1, 0, 1)), Is.True);
             Assert.That(
-                GridTargeting.CountClearRays(tiles, Vector3Int.zero, new Vector3Int(2, 0, 2)),
+                GridTargeting.CountClearRays(
+                    GridPublic.TargetingSnapshot.Capture(
+                        new GridPublic.AreaTargetSource(Vector3Int.zero),
+                        tiles,
+                        new GridPublic.AreaTargetRequest { Shape = GridPublic.AreaShape.Line },
+                        new GridPublic.AreaPlacement()
+                    ),
+                    new Vector3Int(2, 0, 2)
+                ),
                 Is.Zero
             );
             Assert.That(placedWall, Is.Not.Null);

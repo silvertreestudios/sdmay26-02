@@ -59,7 +59,8 @@ public sealed class RulesRageUnityTests
             "players"
         );
         CreatureId actor = bridge.GetCreatureId(creature);
-        EncounterState encounter = bridge.AdvanceEncounter();
+        bridge.AdvanceEncounter();
+        EncounterState encounter = bridge.GetEncounter();
 
         Assert.That(encounter.CurrentTurn.Value.Actor, Is.EqualTo(actor));
         Assert.That(RageRules.IsRaging(bridge.Snapshot, actor), Is.True);

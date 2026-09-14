@@ -251,56 +251,54 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
-        public void QuickTemperedSettlesBeforeWinningActorsFirstTurnStartAdapter()
+        public void QuickTemperedSettlesBeforeWinningActorsTurnBeganListener()
         {
-            RageTurnStartProbe adapter = new RageTurnStartProbe(Actor);
+            RageTurnBeganProbe listener = new RageTurnBeganProbe(Actor);
 
             RuleDispatcher dispatcher = CreateDispatcher(
                 new TestRageActorStateProvider(CreateActorState(ownsQuickTempered: true)),
                 new ScriptedRollService(20, 1),
                 actorInitiativeModifier: 0,
                 enemyInitiativeModifier: 0,
-                turnStartAdapters: new[] { adapter }
+                turnBeganListeners: new[] { listener }
             );
 
             Assert.That(
                 dispatcher.Snapshot.Encounters[Encounter].CurrentTurn.Value.Actor,
                 Is.EqualTo(Actor)
             );
-            Assert.That(adapter.Calls, Is.EqualTo(1));
-            Assert.That(adapter.WasRaging, Is.True);
-            Assert.That(adapter.TemporaryHitPoints, Is.EqualTo(3));
+            Assert.That(listener.Calls, Is.EqualTo(1));
+            Assert.That(listener.WasRaging, Is.True);
+            Assert.That(listener.TemporaryHitPoints, Is.EqualTo(3));
         }
 
         [Test]
         public async Task RageExpirationCleansTemporaryHitPointsBeforeTenthTurnStartDamage()
         {
-            TenthActorTurnDamageAdapter adapter = new TenthActorTurnDamageAdapter(Actor);
+            TenthActorTurnDamageListener listener = new TenthActorTurnDamageListener(Actor);
             RuleDispatcher dispatcher = CreateDispatcher(
                 new TestRageActorStateProvider(CreateActorState()),
                 new ScriptedRollService(20, 1),
                 actorInitiativeModifier: 0,
                 enemyInitiativeModifier: 0,
-                turnStartAdapters: new[] { adapter }
+                turnBeganListeners: new[] { listener }
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
-            adapter.Enable();
+            listener.Enable();
 
             EncounterState turn = dispatcher.Snapshot.Encounters[Encounter];
             for (int round = 0; round < 10; round++)
             {
-                turn = RequireResolved(
-                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
-                ).Value.State;
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value)));
+                turn = dispatcher.Snapshot.Encounters[Encounter];
                 Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
-                turn = RequireResolved(
-                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
-                ).Value.State;
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value)));
+                turn = dispatcher.Snapshot.Encounters[Encounter];
                 Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Actor));
             }
 
-            Assert.That(adapter.ActorTurnCalls, Is.EqualTo(10));
-            Assert.That(adapter.TemporaryHitPointsBeforeDamage, Is.Zero);
+            Assert.That(listener.ActorTurnCalls, Is.EqualTo(10));
+            Assert.That(listener.TemporaryHitPointsBeforeDamage, Is.Zero);
             Assert.That(dispatcher.Snapshot.Health[Actor].Current, Is.EqualTo(9));
             Assert.That(dispatcher.Snapshot.Health[Actor].Temporary, Is.Zero);
             Assert.That(RageRules.IsRaging(dispatcher.Snapshot, Actor), Is.False);
@@ -516,13 +514,11 @@ namespace Game.Tests.EditMode.RulesRuntime
             EncounterState turn = dispatcher.Snapshot.Encounters[Encounter];
             for (int round = 0; round < 10; round++)
             {
-                turn = RequireResolved(
-                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
-                ).Value.State;
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value)));
+                turn = dispatcher.Snapshot.Encounters[Encounter];
                 Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
-                turn = RequireResolved(
-                    await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value))
-                ).Value.State;
+                RequireResolved(await dispatcher.Dispatch(new EndTurnOp(turn.CurrentTurn.Value)));
+                turn = dispatcher.Snapshot.Encounters[Encounter];
                 Assert.That(turn.CurrentTurn.Value.Actor, Is.EqualTo(Actor));
             }
         }
@@ -542,16 +538,51 @@ namespace Game.Tests.EditMode.RulesRuntime
             ScriptedRollService rolls,
             int actorInitiativeModifier,
             int enemyInitiativeModifier,
-            IEnumerable<IEncounterTurnStartAdapter> turnStartAdapters = null,
+            bool advanceEncounter = true
+        ) =>
+            CreateDispatcher(
+                provider,
+                rolls,
+                actorInitiativeModifier,
+                enemyInitiativeModifier,
+                Array.Empty<IRuleFactListener<TurnBeganFact>>(),
+                advanceEncounter
+            );
+
+        private static RuleDispatcher CreateDispatcher(
+            IRageActorStateProvider provider,
+            ScriptedRollService rolls,
+            int actorInitiativeModifier,
+            int enemyInitiativeModifier,
+            IReadOnlyList<IRuleFactListener<TurnBeganFact>> turnBeganListeners,
             bool advanceEncounter = true
         )
         {
             RageActionDefinition definition = new RageActionDefinition(provider);
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
-            ActiveRuleBinding[] actorBindings = RageRules
+            List<ActiveRuleBinding> actorBindings = RageRules
                 .CreateInitialBindings(Actor, provider.Get(Actor))
-                .ToArray();
+                .ToList();
+            for (int index = 0; index < turnBeganListeners.Count; index++)
+            {
+                RuleDefinitionId listenerDefinition = new RuleDefinitionId(
+                    $"rage-turn-began-test-{index}"
+                );
+                registryBuilder
+                    .Define(listenerDefinition)
+                    .FactListener(RuleLifecyclePhase.Reaction, turnBeganListeners[index]);
+                actorBindings.Add(
+                    new ActiveRuleBinding(
+                        new BindingId($"rage-turn-began-test-binding-{index}"),
+                        listenerDefinition,
+                        Actor,
+                        null,
+                        RuleSource.FromSlug("rage-turn-began-test"),
+                        index
+                    )
+                );
+            }
 
             registryBuilder.AddOutcomeRule();
             RuleRegistry registry = registryBuilder.Build();
@@ -563,10 +594,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 .UseMultipleAttackPenaltyRules()
                 .UseActiveEffectRules(registry)
                 .UseMovementBudgetResetRules()
-                .UseEncounterRules(
-                    registry,
-                    turnStartAdapters ?? Array.Empty<IEncounterTurnStartAdapter>()
-                )
+                .UseEncounterRules(registry)
                 .UseActionLifecycle(definition)
                 .UseRageRules(definition)
                 .Build();
@@ -671,61 +699,56 @@ namespace Game.Tests.EditMode.RulesRuntime
             }
         }
 
-        private sealed class RageTurnStartProbe : IEncounterTurnStartAdapter
+        private sealed class RageTurnBeganProbe : IRuleFactListener<TurnBeganFact>
         {
             private readonly CreatureId actor;
 
-            public RageTurnStartProbe(CreatureId actor) => this.actor = actor;
+            public RageTurnBeganProbe(CreatureId actor) => this.actor = actor;
 
             public int Calls { get; private set; }
             public bool WasRaging { get; private set; }
             public int TemporaryHitPoints { get; private set; } = -1;
 
-            public ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public ValueTask OnFactCommitted(TurnBeganFact fact, FactContext context)
             {
-                if (context.Actor != actor)
-                    return new ValueTask<TurnStartContribution>(current);
+                if (fact.Turn.Actor != actor || context.Binding.Owner != actor)
+                    return default;
                 Calls++;
                 WasRaging = RageRules.IsRaging(context.Snapshot, actor);
                 TemporaryHitPoints = context.Snapshot.Health[actor].Temporary;
-                return new ValueTask<TurnStartContribution>(current);
+                return default;
             }
         }
 
-        private sealed class TenthActorTurnDamageAdapter : IEncounterTurnStartAdapter
+        private sealed class TenthActorTurnDamageListener : IRuleFactListener<TurnBeganFact>
         {
             private readonly CreatureId actor;
             private bool enabled;
 
-            public TenthActorTurnDamageAdapter(CreatureId actor) => this.actor = actor;
+            public TenthActorTurnDamageListener(CreatureId actor) => this.actor = actor;
 
             public int ActorTurnCalls { get; private set; }
             public int TemporaryHitPointsBeforeDamage { get; private set; } = -1;
 
             public void Enable() => enabled = true;
 
-            public async ValueTask<TurnStartContribution> Apply(
-                EncounterTurnStartContext context,
-                TurnStartContribution current
-            )
+            public async ValueTask OnFactCommitted(TurnBeganFact fact, FactContext context)
             {
-                if (!enabled || context.Actor != actor)
-                    return current;
+                if (!enabled || fact.Turn.Actor != actor || context.Binding.Owner != actor)
+                    return;
                 ActorTurnCalls++;
                 if (ActorTurnCalls != 10)
-                    return current;
+                    return;
 
                 TemporaryHitPointsBeforeDamage = context.Snapshot.Health[actor].Temporary;
-                await context.ApplyFinalDamage(
-                    actor,
-                    1,
-                    new HealthChangeOriginId("rage-expiration-turn-start"),
-                    RuleSource.FromSlug("rage-expiration-turn-start-test")
+                await context.Dispatch(
+                    new ApplyDamageOp(
+                        actor,
+                        1,
+                        new HealthChangeOriginId("rage-expiration-turn-start"),
+                        RuleSource.FromSlug("rage-expiration-turn-start-test")
+                    )
                 );
-                return current;
             }
         }
     }

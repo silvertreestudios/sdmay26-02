@@ -20,11 +20,11 @@ namespace Game.Rules.Runtime
     public interface IRuleOp<TResult> : IRuleOp { }
 
     /// <summary>
-    /// Supplies the existing rule-source value that a trusted nested reducer stamps onto Facts.
+    /// Supplies the existing rule-source value recorded for a trusted nested reducer's Fact deliveries.
     /// </summary>
     /// <remarks>
     /// Reducer operations remain nested-only. Their parent handler chooses this source from the
-    /// originating rule, while the dispatcher still owns operation, root, and Fact identities.
+    /// originating rule, while the dispatcher owns operation, root, and delivery provenance.
     /// </remarks>
     public interface IRuleSourcedOp : IRuleOp
     {

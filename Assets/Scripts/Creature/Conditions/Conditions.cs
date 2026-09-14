@@ -92,6 +92,8 @@ public class Conditions : MonoBehaviour, IConditionTarget, IPf2eModifierProvider
         }
     }
 
+    internal void Clear(string condition) => AppliedConditions.Remove(condition);
+
     /// <summary>
     /// Replaces one sourced condition with another while preserving source-aware condition ownership.
     /// </summary>

@@ -1,6 +1,6 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
@@ -10,26 +10,26 @@ using UnityEngine;
 namespace Game.Rules.Unity.Strike
 {
     /// <summary>
-    /// Projects resolved Strike operations into feature-owned Unity animation, events, and logs.
+    /// Projects a committed resolved Strike action into Unity animation, events, and logs.
     /// </summary>
     /// <remarks>
     /// The adapter intentionally contains the Unity combat-log singleton and static creature
-    /// events. Every cosmetic callback is exception-contained so presentation cannot prevent
-    /// authoritative damage, load-state changes, or MAP advancement.
+    /// events. Presenter exceptions flow to the action presentation coordinator, which logs the
+    /// first failure, abandons the remaining action visuals, and releases the caller without
+    /// affecting committed rules state.
     /// </remarks>
-    public sealed class UnityStrikePresentationObserver
-        : IResolvedOpObserver<ResolveStrikeOp, StrikeResolution>,
-            IResolvedOpObserver<StrikeActionOp, StrikeResolution>
+    public sealed class UnityStrikeActionPresenter
+        : IUnityActionPresenter<StrikeActionOp, StrikeResolution>
     {
         private readonly IReadOnlyDictionary<CreatureId, ActionController> controllers;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly UnityStrikeContext strikeContext;
 
-        /// <summary>Creates an observer over explicit encounter identity mappings.</summary>
+        /// <summary>Creates a presenter over explicit encounter identity mappings.</summary>
         /// <param name="controllers">Rules-to-Unity attacker mappings.</param>
         /// <param name="creatures">Rules-to-Unity creature mappings.</param>
         /// <param name="strikeContext">The feature context owning item and weapon mappings.</param>
-        public UnityStrikePresentationObserver(
+        public UnityStrikeActionPresenter(
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             UnityStrikeContext strikeContext
@@ -42,47 +42,35 @@ namespace Game.Rules.Unity.Strike
         }
 
         /// <inheritdoc/>
-        public ValueTask OnOperationResolved(
-            ResolveStrikeOp operation,
-            StrikeResolution result,
-            RulesSnapshot currentSnapshot
-        )
+        public IEnumerator PresentBeginning(StrikeActionOp operation, RulesSnapshot currentSnapshot)
         {
             if (
                 !TryGetPresentation(
                     operation.Actor,
                     operation.Target,
                     out GameObject attacker,
-                    out GameObject target
+                    out GameObject target,
+                    out _
                 )
             )
-                return default;
+                yield break;
 
-            StrikeItemDefinition item;
-            try
-            {
-                item = strikeContext.GetStrikeItem(operation.Item);
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, attacker);
-                return default;
-            }
-
-            PresentSafely(
-                () =>
-                {
-                    if (CombatLog.TryGetInstance(out CombatLogInterface log))
-                        log.Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
-                },
-                attacker
-            );
-            PresentSafely(() => PlayAttack(attacker, target, item), attacker);
-            return default;
+            StrikeItemDefinition item = strikeContext.GetStrikeItem(operation.Item);
+            if (CombatLog.TryGetInstance(out CombatLogInterface log))
+                log.Log($"- {attacker.name} strikes {target.name} with {item.Label}.");
+            CreatureAnimationController animation = null;
+            bool animationStarted = PlayAttack(attacker, target, item, out animation);
+            while (
+                animationStarted
+                && animation != null
+                && animation.isActiveAndEnabled
+                && animation.IsActionPlaying
+            )
+                yield return null;
         }
 
         /// <inheritdoc/>
-        public ValueTask OnOperationResolved(
+        public IEnumerator PresentResolved(
             StrikeActionOp operation,
             StrikeResolution result,
             RulesSnapshot currentSnapshot
@@ -93,15 +81,18 @@ namespace Game.Rules.Unity.Strike
                     operation.Actor,
                     operation.Target,
                     out GameObject attacker,
-                    out GameObject target
+                    out GameObject target,
+                    out _
                 )
             )
-                return default;
+                yield break;
+
+            StrikeItemDefinition item = strikeContext.GetStrikeItem(operation.Item);
 
             UnityAttackResultPresentation.Present(
                 attacker,
                 target,
-                strikeContext.GetStrikeItem(operation.Item).Label,
+                item.Label,
                 new UnityAttackResult(
                     result.AttackRoll,
                     result.AttackModifier,
@@ -114,20 +105,21 @@ namespace Game.Rules.Unity.Strike
                     result.CoverBonus
                 )
             );
-            return default;
+            yield break;
         }
 
         private bool TryGetPresentation(
             CreatureId actor,
             CreatureId target,
             out GameObject attackerObject,
-            out GameObject targetObject
+            out GameObject targetObject,
+            out CreatureComponent defender
         )
         {
             if (
                 controllers.TryGetValue(actor, out ActionController attacker)
                 && attacker != null
-                && creatures.TryGetValue(target, out CreatureComponent defender)
+                && creatures.TryGetValue(target, out defender)
                 && defender != null
             )
             {
@@ -138,34 +130,30 @@ namespace Game.Rules.Unity.Strike
 
             attackerObject = null;
             targetObject = null;
+            defender = null;
             return false;
         }
 
-        private void PlayAttack(GameObject attacker, GameObject target, StrikeItemDefinition item)
+        private bool PlayAttack(
+            GameObject attacker,
+            GameObject target,
+            StrikeItemDefinition item,
+            out CreatureAnimationController animation
+        )
         {
             CreaturePresentation presentation = attacker.GetComponent<CreaturePresentation>();
+            animation = presentation?.AnimationController;
+            if (presentation == null || target == null)
+                return false;
             if (strikeContext.TryGetWeapon(item.Item, out EquipmentWeapon weapon))
-                presentation?.PlayAttack(weapon, target.transform.position);
-            else
-                presentation?.PlayAttack(AnimationStyle.Unarmed, target.transform.position);
+                return presentation.PlayAttack(weapon, target.transform.position);
+            return presentation.PlayAttack(AnimationStyle.Unarmed, target.transform.position);
         }
 
         private static IEnumerable<UnityAttackDamagePart> ToDamage(StrikeResolution resolution)
         {
             foreach (TypedDamagePart part in resolution.Damage)
                 yield return new UnityAttackDamagePart(part.DamageType, part.Amount);
-        }
-
-        private static void PresentSafely(Action presentation, UnityEngine.Object context)
-        {
-            try
-            {
-                presentation();
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception, context);
-            }
         }
     }
 }

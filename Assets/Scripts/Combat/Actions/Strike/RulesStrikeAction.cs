@@ -108,24 +108,33 @@ namespace Game.Strikes
                     selection.Value.Target.GetComponent<CreatureComponent>();
                 if (targetCreature == null)
                     yield break;
+                StrikeActionOp operation = null;
+                OpResult<StrikeResolution> result = null;
+                Exception dispatchFailure = null;
                 try
                 {
                     CreatureId target = bridge.GetCreatureId(targetCreature);
-                    StrikeActionOp operation = new StrikeActionOp(actor, item.Item, target);
-                    OpResult<StrikeResolution> result = bridge.Dispatch(operation);
-                    if (result is InvalidOpResult<StrikeResolution> invalid)
-                        Debug.LogWarning($"Strike was rejected: {invalid.Reason}", attacker);
-                    else if (result is InterruptedOpResult<StrikeResolution>)
-                        Debug.LogWarning("Strike was interrupted.", attacker);
-                    else if (result is CancelledOpResult<StrikeResolution>)
-                        Debug.LogWarning("Strike was cancelled.", attacker);
-                    else if (result is not ResolvedOpResult<StrikeResolution>)
-                        Debug.LogWarning("Strike returned an unknown structural result.", attacker);
+                    operation = new StrikeActionOp(actor, item.Item, target);
+                    result = bridge.Dispatch(operation);
                 }
                 catch (Exception exception)
                 {
-                    Debug.LogException(exception, attacker);
+                    dispatchFailure = exception;
                 }
+
+                if (operation != null)
+                    yield return bridge.DrainActionPresentation(operation);
+
+                if (dispatchFailure != null)
+                    Debug.LogException(dispatchFailure, attacker);
+                else if (result is InvalidOpResult<StrikeResolution> invalid)
+                    Debug.LogWarning($"Strike was rejected: {invalid.Reason}", attacker);
+                else if (result is InterruptedOpResult<StrikeResolution>)
+                    Debug.LogWarning("Strike was interrupted.", attacker);
+                else if (result is CancelledOpResult<StrikeResolution>)
+                    Debug.LogWarning("Strike was cancelled.", attacker);
+                else if (result is not ResolvedOpResult<StrikeResolution>)
+                    Debug.LogWarning("Strike returned an unknown structural result.", attacker);
             }
             finally
             {

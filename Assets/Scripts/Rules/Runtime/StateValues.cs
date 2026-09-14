@@ -259,54 +259,42 @@ namespace Game.Rules.Runtime
             !left.Equals(right);
     }
 
-    public sealed class ConditionState : IEquatable<ConditionState>
+    /// <summary>Stores the condition kind and value of one independent active-effect application.</summary>
+    /// <remarks>
+    /// Identity, source, duration and target belong to the containing effect and its binding.
+    /// This is not the creature's effective value: query <see cref="ConditionRules.GetValue"/>
+    /// so a weaker, longer-lived application survives a stronger one's expiration.
+    /// </remarks>
+    public sealed class ConditionState : IEffectState, IEquatable<ConditionState>
     {
-        public ConditionId Id { get; }
-        public RuleDefinitionId DefinitionId { get; }
-        public CreatureId Owner { get; }
-        public int Value { get; }
-        public RuleSource Source { get; }
+        /// <summary>Gets the condition kind shared by competing applications.</summary>
+        public ConditionId Condition { get; }
 
-        public ConditionState(
-            ConditionId id,
-            RuleDefinitionId definitionId,
-            CreatureId owner,
-            int value,
-            RuleSource source
-        )
+        /// <summary>Gets this application's positive value, without an arbitrary upper bound.</summary>
+        public int Value { get; }
+
+        /// <summary>Creates the immutable payload for one valued condition application.</summary>
+        /// <param name="condition">The condition kind, not an application identity.</param>
+        /// <param name="value">The positive value of this application.</param>
+        public ConditionState(ConditionId condition, int value)
         {
-            if (value < 0)
+            if (condition.IsEmpty)
+                throw new ArgumentException("A condition kind is required.", nameof(condition));
+            if (value < 1)
                 throw new ArgumentOutOfRangeException(nameof(value));
-            if (id.IsEmpty)
-                throw new ArgumentException("A condition ID is required.", nameof(id));
-            if (definitionId.IsEmpty)
-                throw new ArgumentException(
-                    "A rule definition ID is required.",
-                    nameof(definitionId)
-                );
-            if (owner.IsEmpty)
-                throw new ArgumentException("An owner creature ID is required.", nameof(owner));
-            if (source.IsEmpty)
-                throw new ArgumentException("A rule source is required.", nameof(source));
-            Id = id;
-            DefinitionId = definitionId;
-            Owner = owner;
+            Condition = condition;
             Value = value;
-            Source = source;
         }
 
+        /// <inheritdoc/>
         public bool Equals(ConditionState other) =>
-            other != null
-            && Id == other.Id
-            && DefinitionId == other.DefinitionId
-            && Owner == other.Owner
-            && Value == other.Value
-            && Source == other.Source;
+            other != null && Condition == other.Condition && Value == other.Value;
 
+        /// <inheritdoc/>
         public override bool Equals(object obj) => obj is ConditionState other && Equals(other);
 
-        public override int GetHashCode() =>
-            HashCode.Combine(Id, DefinitionId, Owner, Value, Source);
+        /// <inheritdoc/>
+        public override int GetHashCode() => HashCode.Combine(Condition, Value);
     }
 
     public sealed class EquipmentState : IEquatable<EquipmentState>

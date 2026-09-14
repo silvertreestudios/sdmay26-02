@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.ExceptionServices;
@@ -36,14 +37,14 @@ namespace Game.Rules.Unity
         private readonly UnityEncounterComposition composition;
         private readonly UnityCombatantEnrollmentPipeline enrollmentPipeline;
         private readonly CompositeLifetime encounterLifetime = new();
-        private readonly Dictionary<OpId, Queue<Action>> encounterPresentationByRoot = new();
-        private readonly Dictionary<OpId, List<OpId>> encounterPresentationChildren = new();
-        private readonly HashSet<OpId> settledEncounterPresentationRoots = new();
+        private readonly UnityActionPresentationCoordinator actionPresentationCoordinator = new();
+        private readonly Queue<Action> encounterPresentation = new();
         private readonly EncounterId encounterId = new EncounterId("unity-encounter-1");
         private Tile[,] currentTiles;
         private long nextCreatureId;
         private long nextOriginId;
         private int dispatchDepth;
+        private bool isDrainingEncounterPresentation;
         private bool releaseRequested;
         private bool ownershipReleased;
         private Action ownershipReleasedCallbacks = delegate { };
@@ -77,6 +78,7 @@ namespace Game.Rules.Unity
             );
             UnityEncounterModuleSet modules = UnityEncounterModuleSet.Create(
                 this,
+                actionPresentationCoordinator,
                 creatures,
                 controllers,
                 tiles,
@@ -106,7 +108,7 @@ namespace Game.Rules.Unity
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
                     .UseActiveEffectRules(modules.Registry)
-                    .UseEncounterRules(modules.Registry, composition.CreateTurnStartAdapters())
+                    .UseEncounterRules(modules.Registry)
                     .UseActionLifecycle(modules.ActionCatalog)
                     .UseMovementRules(topologyProvider)
                     .UseStrideRules(strideDefinition);
@@ -137,8 +139,8 @@ namespace Game.Rules.Unity
             }
         }
 
-        /// <summary>Gets whether an operation root or its Unity projection is still resolving.</summary>
-        public bool IsResolutionActive => dispatchDepth > 0;
+        /// <summary>Gets whether an operation root or its Unity presentation is still resolving.</summary>
+        public bool IsResolutionActive => dispatchDepth > 0 || isDrainingEncounterPresentation;
 
         /// <summary>Creates the complete rules composition for one combat encounter.</summary>
         /// <param name="encounterControllers">The non-empty, unique participant sequence.</param>
@@ -373,10 +375,12 @@ namespace Game.Rules.Unity
             && encounter.CurrentTurn.HasValue
             && encounter.CurrentTurn.Value.Actor == creature;
 
-        /// <summary>Explicitly activates the initialized encounter and reaches its first turn.</summary>
-        /// <returns>The authoritative state after first-turn causal work settles.</returns>
-        public EncounterState AdvanceEncounter() =>
-            DispatchNow(new AdvanceEncounterOp(encounterId)).State;
+        /// <summary>Advances the encounter toward its next turn or encounter completion.</summary>
+        /// <remarks>
+        /// The dispatch waits for authoritative initiative-boundary listeners. Read
+        /// <see cref="GetEncounter"/> afterward when current encounter state is needed.
+        /// </remarks>
+        public void AdvanceEncounter() => DispatchNow(new AdvanceEncounterOp(encounterId));
 
         /// <summary>Ends the exact current turn owned by a registered creature.</summary>
         /// <param name="creature">The creature expected to own the current exact turn.</param>
@@ -427,6 +431,20 @@ namespace Game.Rules.Unity
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
             return DispatchResultNow(operation);
+        }
+
+        /// <summary>Drains committed presentation for one exact action invocation.</summary>
+        /// <typeparam name="TResult">The action's feature-owned result type.</typeparam>
+        /// <param name="action">The same immutable action instance supplied to dispatch.</param>
+        /// <returns>
+        /// A coroutine that releases the sequence after all recorded steps succeed or the first
+        /// presenter execution fails. Missing sequences complete immediately.
+        /// </returns>
+        public IEnumerator DrainActionPresentation<TResult>(ActionOp<TResult> action)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+            return actionPresentationCoordinator.Drain(action);
         }
 
         /// <summary>Adds a prepared combatant batch to the existing encounter store.</summary>
@@ -483,7 +501,7 @@ namespace Game.Rules.Unity
             }
             if (onReleased != null)
                 ownershipReleasedCallbacks += onReleased;
-            if (dispatchDepth > 0)
+            if (IsResolutionActive)
             {
                 releaseRequested = true;
                 return;
@@ -596,14 +614,14 @@ namespace Game.Rules.Unity
         }
 
         /// <summary>
-        /// Dispatches Stride while awaiting one Unity projection for each committed movement Fact.
+        /// Dispatches Stride while one root-scoped observer queues committed movement projection.
         /// </summary>
         /// <param name="creature">The registered mover.</param>
         /// <param name="path">The exact completed selection.</param>
         /// <param name="projection">The projection observer retained for this root only.</param>
         /// <returns>
-        /// Whether the rules root resolved, including a committed exploration step whose obsolete
-        /// temporary suffix was intentionally abandoned.
+        /// Whether the rules root resolved. Presentation and exploration route continuation are
+        /// owned by the caller after this mechanically complete dispatch.
         /// </returns>
         public async ValueTask<bool> DispatchProjectedStride(
             CreatureId creature,
@@ -615,18 +633,8 @@ namespace Game.Rules.Unity
                 throw new ArgumentNullException(nameof(projection));
             using (dispatcher.RegisterFactObserver(projection))
             {
-                try
-                {
-                    OpResult<MovePathOutcome> result = await DispatchStride(creature, path);
-                    return result is ResolvedOpResult<MovePathOutcome>;
-                }
-                catch (ExplorationStrideProjectionInterruptedException)
-                {
-                    // The committed leader step has already projected. Cancellation, encounter
-                    // startup, or a known partial follower failure makes both the temporary Stride
-                    // suffix and the outer destination route obsolete.
-                    return true;
-                }
+                OpResult<MovePathOutcome> result = await DispatchStride(creature, path);
+                return result is ResolvedOpResult<MovePathOutcome>;
             }
         }
 
@@ -780,12 +788,14 @@ namespace Game.Rules.Unity
 
         private OpResult<TResult> DispatchResultNow<TResult>(IRuleOp<TResult> operation)
         {
+            bool dispatchCompleted = true;
             BeginResolution();
             try
             {
                 ValueTask<OpResult<TResult>> pending = dispatcher.Dispatch(operation);
                 if (!pending.IsCompleted)
                 {
+                    dispatchCompleted = false;
                     throw new InvalidOperationException(
                         "Synchronous Unity rules requests cannot contain asynchronous callbacks."
                     );
@@ -794,7 +804,7 @@ namespace Game.Rules.Unity
             }
             finally
             {
-                EndResolution();
+                EndResolution(dispatchCompleted);
             }
         }
 
@@ -804,7 +814,7 @@ namespace Game.Rules.Unity
             dispatchDepth++;
         }
 
-        private void EndResolution()
+        private void EndResolution(bool dispatchCompleted = true)
         {
             try
             {
@@ -813,67 +823,47 @@ namespace Game.Rules.Unity
             finally
             {
                 dispatchDepth--;
-                if (dispatchDepth == 0 && releaseRequested)
-                    CompleteReleaseOwnership();
-            }
-        }
-
-        internal void EnqueueEncounterPresentation(RuleFact fact, Action presentation)
-        {
-            if (fact == null || !fact.IsStamped)
-                throw new ArgumentException(
-                    "Encounter presentation requires a committed root-owned Fact.",
-                    nameof(fact)
-                );
-            if (presentation == null)
-                throw new ArgumentNullException(nameof(presentation));
-            if (
-                !encounterPresentationByRoot.TryGetValue(fact.RootOpId, out Queue<Action> callbacks)
-            )
-            {
-                callbacks = new Queue<Action>();
-                encounterPresentationByRoot.Add(fact.RootOpId, callbacks);
-            }
-            callbacks.Enqueue(presentation);
-        }
-
-        internal void RecordSettledEncounterRoot(OpId root, OpId? parent)
-        {
-            if (!settledEncounterPresentationRoots.Add(root))
-                throw new InvalidOperationException(
-                    $"Encounter presentation root {root.Value} settled more than once."
-                );
-            if (!parent.HasValue)
-                return;
-            if (!encounterPresentationChildren.TryGetValue(parent.Value, out List<OpId> children))
-            {
-                children = new List<OpId>();
-                encounterPresentationChildren.Add(parent.Value, children);
-            }
-            children.Add(root);
-        }
-
-        internal void DrainEncounterPresentationTree(OpId root)
-        {
-            if (encounterPresentationByRoot.TryGetValue(root, out Queue<Action> callbacks))
-            {
-                encounterPresentationByRoot.Remove(root);
-                while (callbacks.Count > 0)
-                    callbacks.Dequeue().Invoke();
-            }
-            if (encounterPresentationChildren.TryGetValue(root, out List<OpId> children))
-            {
-                foreach (OpId child in children)
+                if (dispatchDepth == 0)
                 {
-                    if (!settledEncounterPresentationRoots.Contains(child))
-                        throw new InvalidOperationException(
-                            $"Causal encounter presentation root {child.Value} did not settle."
-                        );
-                    DrainEncounterPresentationTree(child);
+                    if (dispatchCompleted)
+                        DrainEncounterPresentation();
+                    if (releaseRequested && !isDrainingEncounterPresentation)
+                        CompleteReleaseOwnership();
                 }
             }
-            encounterPresentationChildren.Remove(root);
-            settledEncounterPresentationRoots.Remove(root);
+        }
+
+        internal void EnqueueEncounterPresentation(Action presentation)
+        {
+            if (presentation == null)
+                throw new ArgumentNullException(nameof(presentation));
+            encounterPresentation.Enqueue(presentation);
+        }
+
+        private void DrainEncounterPresentation()
+        {
+            if (isDrainingEncounterPresentation)
+                return;
+            isDrainingEncounterPresentation = true;
+            try
+            {
+                while (encounterPresentation.Count > 0)
+                {
+                    Action presentation = encounterPresentation.Dequeue();
+                    try
+                    {
+                        presentation.Invoke();
+                    }
+                    catch (Exception failure)
+                    {
+                        Debug.LogException(failure);
+                    }
+                }
+            }
+            finally
+            {
+                isDrainingEncounterPresentation = false;
+            }
         }
 
         internal void AddRegistrationMaps(
@@ -959,9 +949,17 @@ namespace Game.Rules.Unity
         /// <summary>Raises the Unity encounter-start projection after its committed Fact.</summary>
         internal void ProjectEncounterStarted() => EncounterStarted.Invoke();
 
-        /// <summary>Projects one committed turn start into the Unity controller boundary.</summary>
-        internal void ProjectTurnBegan(TurnIdentity turn)
+        /// <summary>Activates Unity control after resources commit for the exact current turn.</summary>
+        internal void ProjectTurnResourcesRegained(TurnIdentity turn)
         {
+            if (
+                !Snapshot.Encounters.TryGet(turn.Encounter, out EncounterState encounter)
+                || encounter.Phase != EncounterPhase.Active
+                || !encounter.CurrentTurn.HasValue
+                || encounter.CurrentTurn.Value != turn
+                || !GetHealth(turn.Actor).IsLiving
+            )
+                return;
             GetController(turn.Actor).StartTurn();
             TurnBegan.Invoke(turn);
         }
@@ -973,7 +971,7 @@ namespace Game.Rules.Unity
             TurnEnded.Invoke(turn);
         }
 
-        /// <summary>Raises the Unity encounter-end projection after causal settlement.</summary>
+        /// <summary>Raises the Unity encounter-end projection after authoritative dispatch.</summary>
         internal void ProjectEncounterEnded(EncounterOutcome outcome) =>
             EncounterEnded.Invoke(outcome);
 
