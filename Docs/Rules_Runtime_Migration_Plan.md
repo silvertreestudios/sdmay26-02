@@ -29,11 +29,54 @@ state. A populated generic state type is not assumed merely because its slice ex
 
 The inventory was generated from the checkout root with the following read-only shape. The ordered
 sets cover all authored player-runtime C#, its production assembly definitions and retained source
-artifacts, authored data/presentation assets loaded through `Resources` or scene-bound `TextAsset`
-references, and both test roots.
-`.meta` files were excluded because they identify assets but contain no behavior or rules data.
+artifacts, authored data/presentation assets loaded through `Resources` or serialized references,
+rule-seeding combatant prefabs and their scene entry points, and both test roots. `.meta` files are
+excluded from counts and hashes, but their GUIDs are read to resolve Unity references without
+editing serialized YAML.
 
 ```powershell
+function Get-UnityGuid([string] $metaPath) {
+  $line = Get-Content -LiteralPath $metaPath |
+    Where-Object { $_ -match '^guid: ' } |
+    Select-Object -First 1
+  if (-not $line) { throw "Missing GUID in $metaPath" }
+  $line -replace '^guid: ', ''
+}
+
+$creatureComponentGuid = Get-UnityGuid 'Assets/Scripts/Creature/CreatureComponent.cs.meta'
+$actionControllerGuids = @(
+  Get-UnityGuid 'Assets/Scripts/Combat/PlayerActionController.cs.meta'
+  Get-UnityGuid 'Assets/Scripts/Combat/MindlessController.cs.meta'
+)
+$teamGuid = Get-UnityGuid 'Assets/Scripts/Combat/Team.cs.meta'
+$conditionsGuid = Get-UnityGuid 'Assets/Scripts/Creature/Conditions/Conditions.cs.meta'
+$allCreatureComponentPrefabs = @(foreach ($prefab in Get-ChildItem -LiteralPath 'Assets' -Recurse -File -Filter '*.prefab') {
+  $yaml = Get-Content -Raw -LiteralPath $prefab.FullName
+  if ($yaml.Contains("guid: $creatureComponentGuid")) { $prefab }
+})
+$combatantPrefabs = @(foreach ($prefab in $allCreatureComponentPrefabs) {
+  $yaml = Get-Content -Raw -LiteralPath $prefab.FullName
+  $hasController = $false
+  foreach ($guid in $actionControllerGuids) {
+    if ($yaml.Contains("guid: $guid")) { $hasController = $true; break }
+  }
+  if ($hasController) {
+    if (-not $yaml.Contains("guid: $teamGuid") -or -not $yaml.Contains("guid: $conditionsGuid")) {
+      throw "Combatant prefab lacks Team or Conditions: $($prefab.FullName)"
+    }
+    $prefab
+  }
+})
+$combatantPrefabGuids = @($combatantPrefabs | ForEach-Object {
+  Get-UnityGuid ($_.FullName + '.meta')
+})
+$ruleEntryScenes = @(foreach ($scene in Get-ChildItem -LiteralPath 'Assets/Scenes' -Recurse -File -Filter '*.unity') {
+  $yaml = Get-Content -Raw -LiteralPath $scene.FullName
+  foreach ($guid in $combatantPrefabGuids) {
+    if ($yaml.Contains("guid: $guid")) { $scene; break }
+  }
+})
+
 $sets = [ordered]@{
   'Assets/Scripts' = @(Get-ChildItem -LiteralPath 'Assets/Scripts' -Recurse -File |
     Where-Object Extension -ne '.meta')
@@ -45,6 +88,11 @@ $sets = [ordered]@{
     'Assets/TutorialInfo/Scripts/Readme.cs')
   'Assets/Maps/KayKit' = @(Get-ChildItem -LiteralPath 'Assets/Maps/KayKit' -Recurse -File |
     Where-Object Extension -ne '.meta')
+  'Assets/KayKit/Catalogs' = @(Get-ChildItem -LiteralPath 'Assets/KayKit/Catalogs' -File |
+    Where-Object Extension -ne '.meta')
+  'Serialized combatant prefabs' = $combatantPrefabs
+  'Serialized rule-entry scenes' = $ruleEntryScenes
+  'Grid topology prefab' = @(Get-Item -LiteralPath 'Assets/Prefabs/SceneEssentials/Grid.prefab')
   'Assets/Resources/DataFiles' = @(Get-ChildItem -LiteralPath 'Assets/Resources/DataFiles' -Recurse -File |
     Where-Object Extension -ne '.meta')
   'Assets/Resources/Data' = @(Get-ChildItem -LiteralPath 'Assets/Resources/Data' -Recurse -File |
@@ -72,6 +120,10 @@ The resulting closed inventory is:
 | `Assets/UIStuff` C# | 11 | 11 player-runtime C# files under menus, HUD, and character creation |
 | `Assets` root/runtime support | 4 | Generated input C#, its `.inputactions` source, `MainGameAssembly.asmdef`, and `TutorialInfo/Scripts/Readme.cs` |
 | `Assets/Maps/KayKit` | 2 | Authored dungeon-map JSON assigned to scene `TextAsset` fields |
+| `Assets/KayKit/Catalogs` | 5 | One dungeon topology catalog and four presentation/source catalogs |
+| Serialized combatant prefabs | 8 | Controller-bearing prefabs with serialized `CreatureComponent`, `Team`, and `Conditions` components |
+| Serialized rule-entry scenes | 6 | Scenes whose YAML resolves at least one of those eight prefab GUIDs |
+| Grid topology prefab | 1 | Serialized map settings and tile/prefab references used by the six rule-entry scenes |
 | `Assets/Resources/DataFiles` | 140 | 139 JSON files and 1 `DungeonEncounterCreatureCatalog.asset` |
 | `Assets/Resources/Data` | 3 | Legacy character-creation JSON: ancestry, class, and a player-character template |
 | `Assets/Resources/Icons` | 19 | UI icon resources; 17 have literal UI Toolkit references and 2 are currently unreferenced |
@@ -84,20 +136,25 @@ An independent recursive `.cs` sweep under `Assets` found 397 C# files: 83 in th
 accounted for exactly by 271 under `Assets/Scripts`, 16 under `Assets/KayKit/Runtime`, 11 under
 `Assets/UIStuff`, `Assets/InputSystem_Actions.cs`, and `Assets/TutorialInfo/Scripts/Readme.cs`.
 The 14 editor-only files are tooling, not player entry points. `Assets/TextMesh Pro/Resources`
-contains nine imported package resources and is not authored game data. Serialized scenes,
-prefabs, UI documents/styles, models, and art were inspected where they establish a caller or
-`Resources` reference, but are presentation wiring rather than authored runtime code or rules data.
+contains nine imported package resources and is not authored game data. Serialized creature seeds,
+scene placements, map settings, and topology catalogs are rule inputs and are explicitly inventoried
+below. Other scenes, prefabs, UI documents/styles, models, and art were inspected where they
+establish a caller or reference but remain orchestration or presentation wiring.
 
 For a reproducible closed-set check, relative paths were normalized to `/`, sorted ordinally,
 joined with LF including a final LF, encoded as UTF-8 without BOM, and hashed with SHA-256:
 
-| Root | Path-inventory SHA-256 |
+| Selection | Path-inventory SHA-256 |
 | --- | --- |
 | `Assets/Scripts` | `af1c8e8e1423d6a0ef89dd670448396a88a01043ca6e7d59be10f475b10f03f0` |
 | `Assets/KayKit/Runtime` | `14d7ae7e097e91433b800c27d910a32ed6a16f6e2e456179910deebd4c35505e` |
 | `Assets/UIStuff` C# | `4e6a2d784e4193dfd3d5a8c39e97b082615900617e4d48893f99d72ccbd2c6a4` |
 | `Assets` root/runtime support | `ad21d95d2faefcda779fdc2f0e8b37a61584f1ec8643007160e8f143b53e732c` |
 | `Assets/Maps/KayKit` | `ba676a472a013edc90054b46528b381429aede35796661343c064eea8d2dd068` |
+| `Assets/KayKit/Catalogs` | `b7472687feebf34ec85c702b05d803e4892308d482b1b54506acc1a32412e928` |
+| Serialized combatant prefabs | `8e572bf39091acd7654b987855b66d803841513e57784b000ec9f22e5d20ab91` |
+| Serialized rule-entry scenes | `4be16a90ed2ebeee7b30aa1cbb025629f7fee43971ad310a278831d74031018d` |
+| Grid topology prefab | `940b6466aa40f9baf6b8d1cb16929eb88b71cddff313c8129eb98106f19f8def` |
 | `Assets/Resources/DataFiles` | `7e0e3e18d690b53a3328d01d27aee4864ab03b842c8153838a689a2163417095` |
 | `Assets/Resources/Data` | `53d37ebfb35d65fb41108d8f414c6496ab0c428f10f02d7023880aaab9cfb38b` |
 | `Assets/Resources/Icons` | `44e96509772079ac523d59ff127de4ef38e93a59dce4867b7d73d8be67fd4aa9` |
@@ -208,6 +265,52 @@ The two JSON files under `Assets/Maps/KayKit` are authored topology inputs rathe
 reference scene that is deliberately excluded from build settings. `Map` parses either such an
 authored `TextAsset` or generated runtime JSON into dungeon topology. These files are dungeon
 generation/topology fixtures, not encounter rules authority.
+
+### Serialized rule-input inventory
+
+The serialized inventory is derived from script and asset `.meta` GUIDs, then by read-only scans of
+prefab and scene YAML; the YAML itself is not edited. A combatant seed is defined narrowly as a
+prefab containing `CreatureComponent` and either the concrete `PlayerActionController` or
+`MindlessController`. That query returns exactly these eight prefabs:
+
+- `Assets/Prefabs/Creatures/EmptyCreature.prefab`
+- `Assets/Prefabs/Creatures/Lena.prefab`
+- `Assets/Prefabs/Creatures/Torgrim.prefab`
+- `Assets/Prefabs/Creatures/goblin-warrior.prefab`
+- `Assets/Prefabs/Creatures/kobold-warrior.prefab`
+- `Assets/Prefabs/Creatures/skeleton-guard.prefab`
+- `Assets/Prefabs/Creatures/zombie-shambler-rotting-aura.prefab`
+- `Assets/Prefabs/Creatures/zombie-shambler.prefab`
+
+All eight also serialize `Team` and `Conditions`. Their `CreatureComponent` fields can seed level,
+initiative, speed, health, AC, attacks/damage, weaknesses/resistances, abilities, saves, skills,
+actions/reactions/passives/auras, equipment/ammunition, and character-build inputs. A broader
+`CreatureComponent` scan also finds `Assets/Prefabs/MapPieces/Walls/Bricks/Door.prefab` and
+`Assets/Prefabs/UI/ViewModel.prefab`; neither has a concrete action controller, so neither is an
+encounter-combatant rule seed.
+
+Resolving those eight prefab GUIDs under `Assets/Scenes` finds exactly six serialized rule-entry
+scenes: `KayKitDungeonExample.unity`, `Level1.unity`, `Level2.unity`, `Level3.unity`,
+`ProceduralDungeon.unity`, and `UnitTestingScene.unity`. `Level2.unity`, for example, directly
+places `zombie-shambler-rotting-aura.prefab`, so that prefab's serialized health, defenses,
+passives, and aura are reachable inputs rather than presentation-only data. Only
+`ProceduralDungeon.unity` and `UnitTestingScene.unity` are enabled in
+`ProjectSettings/EditorBuildSettings.asset`; the other four are retained reference/test scenes.
+Tracked scenes under `_Recovery` are recovery artifacts rather than player/test entry points and
+are excluded from this `Assets/Scenes` query.
+
+Catalog materialization is a separate entry path. `DungeonEncounterCreatureCatalog.asset` maps
+goblin, kobold, skeleton, and zombie JSON paths to their corresponding prefabs;
+`CreatureJsonConverter.CreateFromFile` instantiates the prefab and `ApplyFromDto` overlays imported
+JSON before runtime action initialization. Direct scene placements retain their serialized seed
+values unless another caller applies an overlay.
+
+The six scenes reference `Assets/Prefabs/SceneEssentials/Grid.prefab`, whose serialized
+`MapGenerator` configuration and tile/prefab references seed topology. GUID resolution also shows
+that `ProceduralDungeon.unity` and `KayKitDungeonExample.unity` reference
+`Assets/KayKit/Catalogs/KayKitDungeonCatalog.asset`; its entries define whether structures block
+movement and line of sight. The other four assets in `Assets/KayKit/Catalogs` are visual,
+animation, equipment-presentation, or source-manifest catalogs and carry no rules decisions.
 
 A separate recursive JSON sweep found 146 files under `Assets`: the 139 DataFiles JSON, three
 legacy character-creation files, `storyboard.json`, and these two KayKit maps account for all 145
@@ -379,9 +482,14 @@ Each row names the present behavior, not wider PF2e completeness.
   agile MAP; miss still spends and advances MAP; critical doubles base damage before deadly; fatal
   upgrades the base die and adds its extra die after doubling; weaknesses/resistances apply once per
   type; ranged weapons spend ammo and loaded state; reload consumes its action only when legal.
-  Flanking supplies off-guard for qualifying melee attacks. Prepared Rage, Thief finesse damage,
-  Sneak Attack, Raging Intimidation trait alteration, and Infuse Vitality contributions are captured
-  by `UnityPreparedStrikeDataAdapter`.
+  Flanking supplies off-guard for qualifying melee attacks. `UnityPreparedStrikeDataAdapter`
+  captures prepared `strike-damage` modifiers/adjustments and damage dice, the Thief melee ability
+  substitution, Rage roll options, target-condition predicate options used by Sneak Attack, and
+  weapon `other-tags` alterations. Infuse Vitality is not prepared data: `UnityStrikeContext`
+  separately adds its vitality die when a legacy `SpellEffectController` already holds that effect.
+  No installed production cast creates it. Raging Intimidation's action/feat `traits` alteration is
+  evaluated only by `Pf2eRulesEngine.GetAlteredTraits`; no production caller invokes that helper, so
+  it does not alter a reachable Strike or action today.
 - **Authority/persistent state:** actions, MAP, `EquipmentState`, `AmmunitionState`, and health are
   rules-owned. Targeting, base statistics, defenses, prepared feature contributions, conditions,
   and flanking are currently captured from Unity for each legal resolution; those inputs are
@@ -527,22 +635,29 @@ Each row names the present behavior, not wider PF2e completeness.
 - **Current implementation/entry points:** `Conditions` stores a dictionary from string name to
   `ConditionSource` list, persists source snapshots, and supplies legacy modifiers.
   `ConditionModifierRules` maps Off-Guard/Flat-Footed to one -2 circumstance AC modifier.
-  `UnityStrikeContext` reads conditions for target legality/data and prepared Sneak Attack options.
-  Haunting Hymn directly adds Deafened on critical failure. Most methods in `DefinedConditions` are
-  documentation-only no-ops.
-- **Actual behavior:** only sourced Slowed, Off-Guard/Flat-Footed modifier mapping, and Deafened
-  membership are executable. Deafened has no further mechanical implementation. Other declared
-  conditions are unimplemented content and must not be migrated as if they worked.
+  `UnityStrikeContext` reads target conditions for Off-Guard targeting and prepared predicate
+  options. `UnityRageActorStateProvider` reads Fatigued and Encumbered, case-insensitively, for Rage
+  and Quick-Tempered restrictions. `Pf2eRulesEngine` also reads target conditions for the dead
+  legacy `AttackResultPipeline`, but that reader has no production resolution entry. Haunting
+  Hymn's direct legacy branch adds Deafened on critical failure. Most methods in
+  `DefinedConditions` are documentation-only no-ops.
+- **Actual behavior:** sourced Slowed changes turn-start actions, Off-Guard/Flat-Footed contributes
+  the legacy AC modifier and Strike/Sneak Attack targeting option, and Fatigued/Encumbered can block
+  reachable Rage behavior. Deafened membership is executable only through Haunting Hymn's dormant
+  direct-call branch and has no further mechanical consumer. Other declared conditions are
+  unimplemented content and must not be migrated as if they worked.
 - **Authority/state:** Unity `Conditions` plus dungeon save DTOs. Generic `ConditionState` exists in
   `RulesState` but is neither enrolled nor mutated by production operations.
-- **Necessary integration:** a foundation slice is justified only for the three actual consumers:
-  generic sourced add/remove condition Ops, reducers and Facts over the existing `ConditionState`,
-  plus complete enrollment/persistence. Off-Guard and Deafened remain named feature semantics.
-  Replace all Unity readers/writers in the same vertical changes; do not synchronize both stores.
+- **Necessary integration:** the demonstrated consumers justify generic sourced add/remove
+  condition Ops, reducers and Facts over the existing `ConditionState`, plus complete
+  enrollment/persistence. Slowed, Off-Guard, Rage/Quick-Tempered restrictions, and any approved
+  Deafened behavior remain feature semantics. Replace each Unity reader/writer with its owning
+  vertical change; do not synchronize both stores.
 - **Verification/fixtures:** `Pf2eModifierTests` covers stacking with cover and armor;
-  `Pf2eRulesTests` covers Sneak Attack aliases; dungeon actor/save tests cover sourced condition
-  round trips. Missing: generic condition reducer tests, multiple-source removal, Deafened mechanics,
-  and live persistence from rules state.
+  `Pf2eRulesTests` covers Sneak Attack aliases; `RulesRageUnityTests` proves lowercase imported
+  Fatigued blocks Rage and Encumbered blocks Quick-Tempered; dungeon actor/save tests cover sourced
+  condition round trips. Missing: generic condition reducer tests, multiple-source removal,
+  Deafened mechanics, and live persistence from rules state.
 - **Exact future owner:** the foundation owns new `ConditionOperations`, `ConditionReducers`,
   `ConditionFacts`, and `ConditionRuleRuntime` types under `Assets/Scripts/Rules/Runtime`; the
   Off-Guard feature owns a new `OffGuardRules` module in that directory, and the owning spell
@@ -593,9 +708,11 @@ Each row names the present behavior, not wider PF2e completeness.
   proficiencies, spell setup, and supported rule synthetics into mutable `PreparedCharacter`.
   `Pf2eRulesEngine` supplies prepared Strike contributions and trait alterations.
 - **Actual behavior:** tested verticals are Barbarian/Rage/Fury/Quick-Tempered/Raging
-  Intimidation; Rogue/Thief finesse/Sneak Attack; Cleric preparation and the limited spell lists;
-  skill/class proficiency math; supported predicate `and`/`or`/`not`/`gte`, atomic options and
-  skill-rank checks. Toggleable/target roll options are deliberately not always active.
+  Intimidation data preparation; Rogue/Thief finesse/Sneak Attack; Cleric preparation and the
+  limited spell lists; skill/class proficiency math; supported predicate `and`/`or`/`not`/`gte`,
+  atomic options and skill-rank checks. Raging Intimidation's trait helper has direct EditMode
+  coverage but no production caller, so this is not a reachable action-trait behavior. Toggleable/
+  target roll options are deliberately not always active.
 - **Authority/state:** `CreatureComponent`, `CharacterBuild`, and mutable `PreparedCharacter` remain
   pre-enrollment data/derived caches. Selected results are captured by feature adapters. They are
   not a general live rules-state slice.
@@ -797,8 +914,10 @@ together.
 ### Safe implementation waves
 
 1. Preserve and verify the existing foundation. Land no speculative expansion.
-2. If approved, add generic sourced condition operations because Slowed, Off-Guard, and Deafened are
-   three present consumers. Do not attach Unity authority yet.
+2. If approved, add generic sourced condition operations because multiple reachable features
+   consume sourced membership: Slowed, Off-Guard/Sneak Attack, and Rage/Quick-Tempered. Keep
+   Deafened application with an explicitly approved Haunting Hymn migration; its dormant direct
+   branch alone does not justify enabling that spell. Do not attach Unity authority yet.
 3. Migrate one named feature at a time. The feature worker creates feature files and tests without
    editing central composition until ready.
 4. In a serialized integration wave, the general caller worker updates complete combatant
@@ -877,7 +996,9 @@ For every mapped vertical feature:
 8. Run Unity `6000.2.1f1` EditMode and PlayMode suites without `-quit`; store results outside
    `Assets`. Inspect the complete diff, generated files, and serialized changes.
 
-At this inventory base, representative assertions are concrete: 877 of 878 baseline EditMode tests
-passed, with the sole failure in unrelated autosave-file replacement, and all 190 PlayMode tests
-passed. Those baseline results are evidence for the inventory date only; each implementation must
-produce its own current-head evidence.
+At this inventory base, saved NUnit XML reports dated 2026-09-13 record 877 of 878 baseline EditMode
+tests passing. The sole failure was
+`DungeonRunMenuServiceTests.MissingCorruptAndCompatibleAutosavesDriveContinueStatus`, whose message
+reports that its temporary `autosave.json` could not be removed for replacement. The saved PlayMode
+report records all 190 tests passing. These are real baseline artifacts for the inventory date, not
+a clean current-head gate; each implementation must produce its own current-head evidence.
