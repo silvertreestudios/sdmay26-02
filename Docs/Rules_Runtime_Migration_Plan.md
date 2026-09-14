@@ -371,8 +371,10 @@ path. `AddCombatantsOp` is the one authoritative commit path.
 
 The complete production registration currently contains `CreatureState`, `HealthState`,
 `GridPosition`, land `GridDistance`, initiative modifier, spell slots, active rule bindings,
-equipment, ammunition, and restored active effects. Addition also initializes action economy and
-multiple attack penalty and inserts encounter timing. It does **not** populate
+equipment, ammunition, and active effects reconstructed from restored legacy
+`SpellEffectController` timed effects. That reconstruction is an enrollment adapter, not general
+dungeon persistence for rules-native effects. Addition also initializes action economy and multiple
+attack penalty and inserts encounter timing. It does **not** populate
 `CreatureStatisticsState`, `ConditionState`, or `FocusPointState`. Those generic slices and seed
 APIs exist and have pure tests, but are not production encounter authorities. Any later migration
 must extend the complete registration and its atomic reducer rather than seed a second path.
@@ -383,7 +385,7 @@ must extend the complete registration and its atomic reducer rather than seed a 
 | --- | --- | --- | --- | --- |
 | Typed dispatch | `IRuleOp<TResult>`, `OpResult<TResult>`, handlers, middleware, reducers, Fact listeners/observers, root and causal-tree settlement in `Assets/Scripts/Rules/Runtime` | Dispatcher frames plus immutable snapshots; reducers alone write | **No migration. Foundation-owned.** Extend only for a demonstrated vertical need | `DispatcherTests`, `RuleExtensionTests`, `RulesRuntimeTests`, `FactObserverTests`, and `ResolvedOperationObserverTests` assert structural outcomes, rollback, ordering, observer failures, nested work, and settlement |
 | Action lifecycle | `ActionOp<TResult>`, `ActionProfile`, `ActionRuntime`, `CommitActionCostsOp`, and `ActionBegunOp`; callers query `IActionDefinition.GetAvailability` | Action economy, spell slots, Focus Points when present, ammunition, and binding frequency are committed atomically | **No migration. Foundation-owned.** Every migrated action must use it once | `ActionLifecycleTests` plus Strike, spell, Stride, and Rage tests assert validation before cost, atomic payment, and begun-before-handler order |
-| Active effects/bindings | `CreateActiveEffectOp`, `UpdateActiveEffectStateOp`, `RemoveActiveEffectOp`, `RuleRegistry`, `ActiveRuleBinding`, `ActiveEffectInstance`, `FrequencyState`, `ActiveEffectTimingState` | `RulesState.ActiveEffects`, `.RuleBindings`, `.Frequencies`, `.ActiveEffectTimings` | **No migration. Foundation-owned.** Feature definitions/listeners/state remain feature-owned | `ActiveEffectLifecycleTests` and `EncounterRuntimeTests` assert registry validation, exact types/versions, paired removal, timing, and deterministic expiration |
+| Active effects/bindings | `CreateActiveEffectOp`, `UpdateActiveEffectStateOp`, `RemoveActiveEffectOp`, `RuleRegistry`, `ActiveRuleBinding`, `ActiveEffectInstance`, `FrequencyState`, `ActiveEffectTimingState` | `RulesState.ActiveEffects`, `.RuleBindings`, `.Frequencies`, `.ActiveEffectTimings` | **No migration. Foundation-owned.** Feature definitions/listeners/state remain feature-owned | `ActiveEffectLifecycleTests` and `EncounterRuntimeTests` assert registry validation, exact types/versions, paired removal, timing, and deterministic expiration. Missing: dungeon saves do not serialize general rules-native effects, bindings, or timing; rules-native Light is a concrete reachable omission |
 | Checks/modifiers | `AttackCheckOp`, `SkillCheckOp`, `SavingThrowOp`, collect-modifier Ops, `ModifierCollection`, `RulesSelectors` | Operation-local results plus `RulesState.Statistics` when seeded; production Statistics is currently absent | Foundation is complete for current consumers. **Caller/composition migration** must enroll statistics before general Unity reads are removed | `CheckOperationTests`, `CheckModifierCollectionTests`, and `ModifierSelectorTests`; missing: production enrollment/projection tests for all imported statistics |
 | Typed damage | `TypedDamageResolver`, `TypedDamageDice`, `TypedFlatDamage`, and `TypedDefenseAdjustment`; Strike/spell handlers dispatch final `ApplyDamageOp` | Operation-local typed groups, then `HealthState` | **No shared migration.** Feature adapters currently capture defenses from Unity | Strike and spell attack tests cover critical-before-defense and per-type adjustments; missing: persisted/authoritative defense state |
 | Prompt/selection | `ChoiceRequest<T>`, `IPromptAdapter<T>`, `PromptChoiceOp<T>`, `SelectionWorkflow<T>`, and `ISelectionResolver` | Operation-local immutable selection; no persistent state | **No migration. Foundation-owned.** Unity selectors remain feature adapters | `PromptOperationTests`, `SelectionValueTests`, `SelectionWorkflowTests` cover choice ownership, cancellation, invalid selections, and ordering |
@@ -434,12 +436,20 @@ Each row names the present behavior, not wider PF2e completeness.
   clamps at maximum; a positive-to-zero transition emits once; final defeat settles reaction work
   before encounter outcome. Source-scoped temporary HP replacement/removal and immunity are
   authoritative.
-- **Authority/persistent state:** `HealthState` including current, maximum, temporary amount/source,
-  immunity sources, and defeat. Serialized creature values only seed and project.
-- **Migration:** no migration. Features must dispatch generic health Ops rather than mutate Unity.
-- **Verification:** `HealthReducerTests`, `UnityCombatRulesBridgeTests`, Strike/spell/Rage tests, and
-  lethal-damage PlayMode tests. Missing: non-encounter legacy spell calls cannot run during an
-  encounter by design.
+- **Authority/persistent state:** during an attached encounter, `HealthState` owns current, maximum,
+  temporary amount/source, immunity sources, and committed defeat; `CreatureComponent.Health` and
+  `hp` read that bridge snapshot. Dungeon persistence splits its projection across callers: the
+  autosave coordinator writes party current HP and defeat to the outer party record, the encounter
+  director writes living-enemy current HP and records defeated enemy identities separately, and the
+  nested `DungeonActorStateAdapter` writes only temporary HP amount/source/immunities. Maximum HP is
+  reconstructed from creature content on restore.
+- **Migration:** no health-rules migration. Features must dispatch generic health Ops rather than
+  mutate Unity. Persistence work must preserve the current split restore contract or replace it in
+  one coordinated schema/caller change; the nested actor state is not a complete health snapshot.
+- **Verification:** `HealthReducerTests`, `UnityCombatRulesBridgeTests`, Strike/spell/Rage tests,
+  `DungeonActorStateAdapterTests`, `DungeonAutosaveCoordinatorTests`, and lethal-damage PlayMode
+  tests cover rules health, temporary-health restoration, party autosave HP/defeat, and encounter
+  defeat flows. Missing: non-encounter legacy spell calls cannot run during an encounter by design.
 - **Exact owner:** foundation `Health*.cs`; caller projection in
   `UnityHealthProjectionModule.cs` and `CreatureComponent.cs`.
 
@@ -514,9 +524,9 @@ Each row names the present behavior, not wider PF2e completeness.
 - **Current behavior and entry points:** `UnitySpellDefinitionCatalog` parses all spell JSON.
   `PreparedSpellBook` authorizes exact `SpellReference`/slot pools. `RulesCastSpellAction` dispatches
   `CastSpellActionOp`. The action validates definition, rank, variant, preparation, targets, and
-  resources before costs. `UnitySpellcastingEncounterModule` enrolls slots/restored effects and
-  installs supported actions. `UnityResolvedSpellCastPresentationObserver` and attack/light
-  observers project outcomes.
+  resources before costs. `UnitySpellcastingEncounterModule` enrolls slots, reconstructs supported
+  legacy `SpellEffectController` timed effects as rules registrations, and installs supported
+  actions. `UnityResolvedSpellCastPresentationObserver` and attack/light observers project outcomes.
 - **Actual rules behavior:** cantrips cost actions but no slot; ranked spells atomically spend the
   exact authorized slot and actions; interruption after costs retains those committed costs;
   self-target effect directives ignore player-supplied target IDs. `ResolveSpellAttackOp` uses the
@@ -526,19 +536,25 @@ Each row names the present behavior, not wider PF2e completeness.
   `2d4` spirit damage.
 - **Authority/persistent state:** `SpellSlotState`, action economy, active effects/bindings/timing,
   MAP, and health. `PreparedSpellBook` is immutable authorization input. Restored legacy timed
-  effects are converted to paired rules effect/binding registrations and later projected back.
-- **Migration:** shell, restoration, Divine Lance, and Light are migrated for implemented behavior.
-  The 82 other catalog definitions are not thereby implemented. Divine Lance is the only current
-  definition that matches the generic attack parser. Other attack-tagged spell shapes are rejected
-  by current target, range, overlay, or damage constraints; in particular, nonempty overlays reject
-  Ignition and Telekinetic Projectile. No action should be installed until its actual behavior is
-  supported.
+  effects are converted to paired rules effect/binding registrations and later projected back. The
+  dungeon actor adapter does not capture general `RulesState.ActiveEffects`, bindings, or timing.
+  Consequently, a reachable rules-native Light cast can trigger its normal action-boundary
+  autosave, but the Light effect and its rules-owned duration state are omitted and do not survive
+  reload.
+- **Migration:** shell, the legacy-timed-effect restoration adapter, Divine Lance, and Light are
+  migrated for implemented encounter behavior; this does not claim durable persistence for
+  rules-native effects. The 82 other catalog definitions are not thereby implemented. Divine Lance
+  is the only current definition that matches the generic attack parser. Other attack-tagged spell
+  shapes are rejected by current target, range, overlay, or damage constraints; in particular,
+  nonempty overlays reject Ignition and Telekinetic Projectile. No action should be installed until
+  its actual behavior is supported.
 - **Verification:** `PreparedSpellBookTests`, `CastSpellRulesTests`, `SpellAttackRulesTests`,
   `SpellAttackUnityTests`, and `SpellcastingPresentationPlayModeTests`. Expected assertions include
   exact slot ownership, no partial costs on invalid choices, costs retained after interruption,
   stale target rejection, attack MAP sharing, idempotent effect presentation/removal, and initial
   plus reinforcement installation. Missing: a catalog fixture that explicitly proves rejection of
-  the current overlaid attack spell variants.
+  the current overlaid attack spell variants, and save/restore coverage plus a persistence contract
+  for rules-native Light's effect, binding, and timing.
 - **Exact owner:** generic shell in `SpellcastingContracts.cs`, `SpellcastingRules.cs`, and
   `SpellAttack*.cs`; spell-specific rules/adapters own their definitions and presentation.
   `UnitySpellcastingEncounterModule.cs` remains an integration hotspot modified only by the caller
@@ -560,14 +576,21 @@ Each row names the present behavior, not wider PF2e completeness.
   action economy. Initial binding installation uses an enrollment-time Rage input snapshot.
   Availability, validation, and Rage start instead call `UnityRageActorStateProvider`, which reads
   prepared ownership, current Unity conditions and armor, level, and Constitution on each request.
+  Dungeon capture stores only `RageWasActive` alongside the separately captured temporary-health
+  fields. Restore deliberately does not resume Rage: `NormalizeRestoredHealth` clears Rage-owned
+  temporary HP, records its source immunity, and preserves temporary HP from another source.
 - **Migration:** rules workflow is migrated. The live prepared-character, condition, armor, and
   statistic reads are transitional feature-owned Unity dependencies; replace them when their
-  authorities migrate, without adding Rage fields to bridge/shared state.
+  authorities migrate, without adding Rage fields to bridge/shared state. Treat the current
+  end-on-reload normalization as an explicit persistence contract, not evidence that general active
+  effects are serialized; changing it requires a separately approved product decision.
 - **Verification:** `RageRulesTests`, `RulesRageUnityTests`, and
   `TestsState/Pf2eBarbarianSmokeTests.cs`; expected assertions cover atomic cost/effect/temporary HP,
   restrictions, Quick-Tempered timing/one-shot, expiration, suspension/outcome cleanup, initial and
-  reinforcement behavior. Missing: a rules-authoritative replacement for the live Unity inputs and
-  coverage of condition, armor, or statistic changes between enrollment and action evaluation.
+  reinforcement behavior. `DungeonActorStateAdapterTests` asserts the special Rage autosave round
+  trip removes Rage-owned temporary HP without restoring the effect. Missing: a rules-authoritative
+  replacement for the live Unity inputs and coverage of condition, armor, or statistic changes
+  between enrollment and action evaluation.
 - **Exact owner:** `RageRules.cs`, `UnityRageActorStateProvider.cs`, `RulesRageAction.cs`, and the
   Rage enrollment adapter in `UnityEncounterModuleSet.cs` until it can move to its own adapter file.
 
@@ -894,12 +917,25 @@ rule proves a narrower boundary:
 - `DungeonEncounterCreatureCatalog.asset` is a Unity address catalog. `encounter-enemies.json` is
   dungeon generation content. Neither is rules state.
 
-Persistence is still an integration dependency: `DungeonActorStateAdapter` currently serializes
-Unity conditions, legacy timed spell effects, prepared effects, equipment, ammunition, health and
-defeat. Whenever one of those slices migrates, the general caller worker must switch save capture
-and restore to the authoritative snapshot in the same coordinated change and remove the old writer.
-No schema compatibility layer is required for unshipped formats; update schema, fixtures, and code
-together.
+Persistence is still an integration dependency, but it is not one adapter-owned state blob.
+`DungeonAutosaveCoordinator` schedules action-boundary and persistent-state saves. For party members
+it writes current HP and defeat directly to the outer `DungeonPartyMemberSaveState`; for enemies,
+`DungeonEncounterRuntimeController` and `DungeonEncounterDirector` write current HP only for living
+enemy records and preserve defeated enemies as lifecycle identities. The nested
+`DungeonActorStateAdapter` captures temporary HP amount/source/immunities, Unity conditions, legacy
+`SpellEffectController` timed effects, prepared-character effects, equipment, ammunition, and the
+rules-derived `RageWasActive` marker. On restore, its callers supply outer current HP and defeat,
+creature content supplies maximum HP, and the adapter reconstructs one `HealthState` before
+encounter enrollment.
+
+Those legacy timed and prepared-effect fields are not a general serialization of rules-native
+`ActiveEffects`, paired `RuleBindings`, or `ActiveEffectTimings`. Rage has a narrow marker used to
+normalize its temporary health to an ended effect, while rules-native Light currently has no save
+representation and is lost on reload. Whenever one of these slices crosses the rules authority
+boundary, the general caller worker must switch every owning capture/restore caller and its fixtures
+in the same coordinated change, preserve any intentional normalization such as Rage unless a
+product change is approved, and remove the old writer. No schema compatibility layer is required
+for unshipped formats; update schema, fixtures, and code together.
 
 ## Work ownership and integration order
 
@@ -960,8 +996,13 @@ These are decisions to make before the named migration, not implicit authorizati
    No demonstrated writer requires a new shared persistent slice yet.
 7. **Flanking topology boundary:** prefer a feature-local immutable query over a new shared
    topology API unless another implemented feature proves the same need.
-8. **Legacy save state:** condition/effect persistence is Unity-shaped. Each migrated slice requires
-   a coordinated breaking schema/fixture update; no compatibility versions or dual restore paths.
+8. **Dungeon save boundary:** health persistence is split among the autosave coordinator/director,
+   outer party or enemy/lifecycle records, and the nested actor adapter; condition and legacy effect
+   persistence remains Unity-shaped. General rules-native effects/bindings/timing have no save
+   representation, so Light currently does not survive reload, while Rage intentionally normalizes
+   to an ended effect. Each approved durability or authority change requires a coordinated breaking
+   schema/caller/fixture update; do not silently change Rage semantics, add compatibility versions,
+   or create dual restore paths.
 9. **Data-only catalog scope:** 84 loaded spell definitions and unsupported item rule keys are not an
    implementation backlog by themselves. A human must select any additional vertical feature.
 10. **Tracked `.orig` files and commented `LineOfSight`:** these are cleanup gaps, not migration
@@ -990,7 +1031,9 @@ For every mapped vertical feature:
    and release whenever feature state or an installed action is involved.
 5. Add PlayMode coverage for selection, scene lifecycle, FSM/action completion, animation,
    projection, UI, or component installation.
-6. Update persistence tests when authority crosses the save boundary.
+6. Update persistence tests when authority crosses the save boundary. Assert the exact owner of
+   outer current HP/defeat, nested temporary-health state, required rules-native
+   effect/binding/timing durability, and intentional feature normalization such as Rage.
 7. Remove the old writer and fallback in the same change, then use `rg` to prove no remaining call
    path. Coordinated breaking changes are required for unshipped formats.
 8. Run Unity `6000.2.1f1` EditMode and PlayMode suites without `-quit`; store results outside
