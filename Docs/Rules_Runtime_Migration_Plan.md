@@ -138,11 +138,13 @@ The 140 non-meta files divide exactly as follows:
   `tangle-vine`, `telekinetic-hand`, `telekinetic-projectile`, `thunderstrike`,
   `vanishing-tracks`, `ventriloquism`, `vitality-lash`, and `void-warp`.
 
-`Pf2eItemCatalog.Load` makes parseable item JSON available for preparation, while
+`Pf2eItemCatalog.LoadFromResources` makes parseable item JSON available for preparation, while
 `UnitySpellDefinitionCatalog.Load` parses all 84 spell files into immutable definitions. Loading is
 not implementation. In particular, the spell catalog recognizes a generic self-target
-`CreateActiveEffect` directive and a narrow one-creature attack shape, but an installed action is
-allowed only when the prepared spell and its supported behavior compose successfully.
+`CreateActiveEffect` directive and a narrow one-creature attack shape. Of the current JSON, only
+Divine Lance passes that attack parser; nonempty overlays disqualify Ignition and Telekinetic
+Projectile. An installed action is allowed only when the prepared spell and its supported behavior
+compose successfully.
 
 Across the JSON inventory, rule keys discovered were `ActiveEffectLike`, `ActorTraits`,
 `AdjustModifier`, `Aura`, `ChoiceSet`, `CreateActiveEffect`, `DamageDice`, `EphemeralEffect`,
@@ -162,7 +164,7 @@ still accounted for:
 
 - EditMode general/caller coverage: `Combat/Exploration/DungeonDoorInteractionPolicyTests.cs`,
   `Combat/Exploration/ExplorationStepPlannerTests.cs`, `CombatLogEntryFormatterTests.cs`,
-  `DungeonEncounterMaterializerTests.cs`, `DungeonEncounterStateMachineTests.cs`, all two
+  `DungeonEncounterMaterializerTests.cs`, `DungeonEncounterStateMachineTests.cs`, all four
   `DungeonGeneration/*.cs` tests, all four `DungeonPersistence/**/*.cs` tests,
   `EncounterLifecycleTestExtensions.cs`, `GridClassTests.cs`, all eight `KayKit/*.cs` tests,
   `LenaRogueSceneFixtureTests.cs`, `Pf2eAreaTargetingTests.cs`, `Pf2eModifierTests.cs`,
@@ -175,7 +177,7 @@ still accounted for:
   `DungeonEncounterDirectorPlayModeTests.cs`, `DungeonEncounterRuntimeControllerPlayModeTests.cs`,
   `DungeonExplorationRuntimePlayModeTests.cs`, `DungeonProductionFlowPlayModeTests.cs`,
   `DungeonRunTraversalPlayModeTests.cs`, `EncounterLifecycleTestExtensions.cs`,
-  `FactObserverBehaviourPlayModeTests.cs`, both `KayKit*PlayModeTests.cs`, `MinimalCombatGrid.cs`,
+  `FactObserverBehaviourPlayModeTests.cs`, all three `KayKit*PlayModeTests.cs`, `MinimalCombatGrid.cs`,
   `PlayModeBase.cs`, `ProceduralDungeonScenePlayModeTests.cs`,
   `RulesStrikeIntegrationPlayModeTests.cs`, `SpellcastingPresentationPlayModeTests.cs`, all five
   `TestsState/*.cs` files, and all three `TestsUI/*.cs` files.
@@ -222,9 +224,11 @@ Each row names the present behavior, not wider PF2e completeness.
   reinforcements but do not determine initiative or turns.
 - **Actual rules behavior:** initiative rolls use `IRollService`; stable registration order breaks
   ties. An exact `TurnIdentity` gates action authority. Turn start resets movement, applies ordered
-  adapters, commits the final action contribution, and skips defeated actors. Turn end resets
-  actions/reaction/MAP/movement and advances. Outcome policy is either victory-or-defeat or
-  protagonist-defeat-only. Reinforcements never advance a turn and use round eligibility rules.
+  adapters, and skips defeated actors; for an actor that reaches the turn commit, it records the
+  final action contribution and refreshes the reaction. Turn end clears actions, resets MAP and
+  movement, preserves the current reaction availability, and advances. Outcome policy is either
+  victory-or-defeat or protagonist-defeat-only. Reinforcements never advance a turn and use round
+  eligibility rules.
 - **Authority/persistent state:** `EncounterState`, `ActionEconomyState`,
   `MultipleAttackPenaltyState`, `MovementBudgetState`, roster registrations, and effect timing.
   Unity `Combatants`/`activeCombatants` are host mappings and presentation lists, not turn state.
@@ -340,16 +344,17 @@ Each row names the present behavior, not wider PF2e completeness.
   MAP, and health. `PreparedSpellBook` is immutable authorization input. Restored legacy timed
   effects are converted to paired rules effect/binding registrations and later projected back.
 - **Migration:** shell, restoration, Divine Lance, and Light are migrated for implemented behavior.
-  The 82 other catalog definitions are not thereby implemented. `ignition` and
-  `telekinetic-projectile` match the generic attack parser but are not prepared by production;
-  other attack-tagged spell shapes may be rejected by target/range/damage constraints. No action
-  should be installed until its actual behavior is supported.
+  The 82 other catalog definitions are not thereby implemented. Divine Lance is the only current
+  definition that matches the generic attack parser. Other attack-tagged spell shapes are rejected
+  by current target, range, overlay, or damage constraints; in particular, nonempty overlays reject
+  Ignition and Telekinetic Projectile. No action should be installed until its actual behavior is
+  supported.
 - **Verification:** `PreparedSpellBookTests`, `CastSpellRulesTests`, `SpellAttackRulesTests`,
   `SpellAttackUnityTests`, and `SpellcastingPresentationPlayModeTests`. Expected assertions include
   exact slot ownership, no partial costs on invalid choices, costs retained after interruption,
   stale target rejection, attack MAP sharing, idempotent effect presentation/removal, and initial
-  plus reinforcement installation. Missing: production fixtures for any catalog-parseable but
-  unprepared attack spell.
+  plus reinforcement installation. Missing: a catalog fixture that explicitly proves rejection of
+  the current overlaid attack spell variants.
 - **Exact owner:** generic shell in `SpellcastingContracts.cs`, `SpellcastingRules.cs`, and
   `SpellAttack*.cs`; spell-specific rules/adapters own their definitions and presentation.
   `UnitySpellcastingEncounterModule.cs` remains an integration hotspot modified only by the caller
@@ -368,16 +373,17 @@ Each row names the present behavior, not wider PF2e completeness.
   temporary HP and records the
   source-specific immunity while preserving foreign temporary HP.
 - **Authority/persistent state:** bindings/frequency, `RageEffectState`, effect timing, health and
-  action economy. `UnityRageActorStateProvider` still captures prepared ownership and current Unity
-  condition names at enrollment.
-- **Migration:** rules workflow is migrated. Conditions and prepared-character capture are
-  transitional feature-owned Unity adapters; replace them when their authorities migrate, without
-  adding Rage fields to bridge/shared state.
+  action economy. Initial binding installation uses an enrollment-time Rage input snapshot.
+  Availability, validation, and Rage start instead call `UnityRageActorStateProvider`, which reads
+  prepared ownership, current Unity conditions and armor, level, and Constitution on each request.
+- **Migration:** rules workflow is migrated. The live prepared-character, condition, armor, and
+  statistic reads are transitional feature-owned Unity dependencies; replace them when their
+  authorities migrate, without adding Rage fields to bridge/shared state.
 - **Verification:** `RageRulesTests`, `RulesRageUnityTests`, and
   `TestsState/Pf2eBarbarianSmokeTests.cs`; expected assertions cover atomic cost/effect/temporary HP,
   restrictions, Quick-Tempered timing/one-shot, expiration, suspension/outcome cleanup, initial and
-  reinforcement behavior. Missing: re-evaluation of Fatigued/Encumbered after enrollment because
-  the provider freezes current Unity data.
+  reinforcement behavior. Missing: a rules-authoritative replacement for the live Unity inputs and
+  coverage of condition, armor, or statistic changes between enrollment and action evaluation.
 - **Exact owner:** `RageRules.cs`, `UnityRageActorStateProvider.cs`, `RulesRageAction.cs`, and the
   Rage enrollment adapter in `UnityEncounterModuleSet.cs` until it can move to its own adapter file.
 
@@ -507,7 +513,7 @@ encounters instead enroll `SpellSlotState` from `PreparedSpellBook`.
 | Guidance | Friendly target within 30 feet; +1 status to the first attack/save/skill/initiative query, mutates `Consumed`, creates indefinite Guidance Immunity, and expires Guidance at source turn start | `GuidanceRules.cs` plus feature adapter; consumption must occur through an Op/reducer or listener, never during a selector; immunity needs an explicit implemented duration decision | No representative end-to-end current test. Add target, one-consumption, stacking, expiry, and immunity fixtures before migration |
 | Haunting Hymn | 15-foot cone; each affected creature makes basic Fortitude against caster spell DC for `1d8` sonic; critical failure also adds mechanically inert Deafened | `HauntingHymnRules.cs` plus area-selection adapter; dispatch save, typed damage, and condition Ops | `Pf2eAreaTargetingTests` covers cone geometry, but no direct spell fixture. Add all degrees, deterministic roll/damage, multiple targets, line of effect, and Deafened assertions |
 | Bless | Captures friendly creatures in a 15-foot emanation at cast time; each receives +1 status attack for ten target turn starts | `BlessRules.cs` plus feature adapter. Preserve current snapshot-target behavior unless product explicitly chooses a live aura | No direct spell fixture. Add target set, stacking, refresh, ten-boundary expiry, and source/target defeat tests |
-| Infuse Vitality | Selects one friendly target per action spent, up to 3 within 30 feet; for ten target turn starts, weapon/unarmed Strikes add `1d4` vitality through a legacy Strike adjustment | `InfuseVitalityRules.cs` plus feature adapter; use Strike modifier/damage middleware and active effect timing | `RulesStrikeUnityTests.PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage` covers captured contribution. Add selection/action-variant, duration, duplicate target, and typed-damage tests |
+| Infuse Vitality | The production selector prompts for exactly one friendly target within 30 feet for every 1-, 2-, or 3-action cast. Direct programmatic `Cast` calls accept from one through `ActionCost` unique friendly targets. Each affected target gains `1d4` vitality weapon/unarmed Strike damage for ten target turn starts through a legacy Strike adjustment | `InfuseVitalityRules.cs` plus feature adapter; add the missing multi-target selection workflow for higher-action variants, then use Strike modifier/damage middleware and active effect timing | `RulesStrikeUnityTests.PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage` covers captured contribution. Add selection/action-variant, duration, duplicate target, and typed-damage tests |
 | Heal | 1 action: target within 5; 2 actions: target within 30 and +8 healing for living target; 3 actions: 30-foot emanation. Rolls `1d8`; heals friendly living creatures, deals basic Fortitude vitality damage to undead | `HealRules.cs` plus feature area/target adapter; reuse health, save, typed damage, and action/slot operations | No direct current spell fixture. Add every variant, friend/undead/nonfriend, range, degrees, slot/cost atomicity, and deterministic roll tests |
 
 After each migrated spell is installed, delete its legacy class/effect path and update
@@ -553,9 +559,10 @@ and shared test fixtures after a batch is ready.
   exact values they need. Strike enrollment already converts weapon definitions, ammo, and loaded
   state to rules values.
 - **Actual behavior:** typed bonus/penalty stacking is implemented; equipped armor and cover affect
-  AC; imported weapon action bonus is an untyped attack base. Creature immunities are loaded in JSON
-  DTO shape but not mapped to executable combat behavior. Item inventory, bulk, prices, materials,
-  most traits, and most action/passive/reaction descriptions are data-only.
+  AC; imported weapon action bonus is an untyped attack base. Creature immunities are authored in
+  JSON, but the importer DTOs expose no immunity field and `CreatureDtoMapper` does not map them, so
+  `JsonUtility` discards those arrays. Item inventory, bulk, prices, materials, most traits, and most
+  action/passive/reaction descriptions are data-only.
 - **Authority/state:** equipment/ammo/load are migrated; base statistics, typed defenses, traits,
   condition-provided modifiers, and most inventory remain Unity/prepared inputs.
 - **Necessary integration:** a general caller/composition migration may add
@@ -566,7 +573,7 @@ and shared test fixtures after a batch is ready.
 - **Verification/fixtures:** `Pf2eModifierTests`, `Pf2eRulesTests`, `RulesStrikeUnityTests`,
   `SpellAttackRulesTests`, creature catalog/materializer tests, and data fixtures listed above.
   Missing: production statistics enrollment, initiative-statistic choice beyond current imported
-  Perception modifier, and executable immunity rules.
+  Perception modifier, immunity import coverage, and executable immunity rules.
 - **Exact future owner:** general caller/composition owns changes to `EncounterCombatantState.cs`,
   `EncounterReducers.cs`, `UnityCombatantEnrollmentPipeline.cs`,
   `UnityEncounterComposition.cs`, and a feature-agnostic statistics capture adapter. Strike/spell
