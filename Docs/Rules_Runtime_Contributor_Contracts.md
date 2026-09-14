@@ -54,7 +54,9 @@ OpResult<StrikeResolution> result = await dispatcher.Dispatch(
 ```
 
 `StrikeActionOp(CreatureId, ItemId, CreatureId)` derives from `ActionOp<StrikeResolution>` and
-supplies its fixed definition through `GetBaseProfile`. Its `StrikeActionHandler.Handle` implements
+passes `StrikeActionDefinition.DefinitionId` to the base constructor as its fixed definition. Its
+`GetBaseProfile` override resolves the selected item and builds the item-dependent traits and
+ammunition cost. `StrikeActionHandler.Handle` implements
 `IOpHandler<StrikeActionOp, StrikeResolution>`: after the engine-owned action boundary, it awaits
 `OpHandlerContext.Dispatch` for `ResolveStrikeOp`, `ApplyDamageOp`, loaded-state changes, and MAP,
 then returns the feature outcome value. These are executable production contracts in
