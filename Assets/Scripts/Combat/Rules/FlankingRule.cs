@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Game.Creature;
+using Game.Rules.Runtime;
 using Game.Strikes;
 using GridPrivate;
 using GridPublic;
@@ -8,10 +9,22 @@ using UnityEngine;
 
 namespace Game.Combat.Rules
 {
+    /// <summary>
+    /// Captures Unity-only Flanking inputs and delegates the named rule to
+    /// <see cref="FlankingRules"/>.
+    /// </summary>
     public static class FlankingRule
     {
         private const int DefaultUnarmedReachFeet = 5;
 
+        /// <summary>
+        /// Evaluates the retained legacy Strike context through the runtime Flanking selector.
+        /// </summary>
+        /// <remarks>
+        /// Production rules-backed Strikes use the snapshot overload. This adapter remains for
+        /// compiled legacy calculation fixtures and intentionally searches only the current grid's
+        /// occupants instead of discovering scene combatants.
+        /// </remarks>
         public static bool GrantsOffGuardToMeleeAttack(
             GameObject attacker,
             GameObject target,
@@ -22,6 +35,9 @@ namespace Game.Combat.Rules
                 return false;
 
             Tile[,] tiles = TryGetTiles();
+            if (tiles == null)
+                return false;
+
             return IsFlanking(
                 attacker,
                 target,
@@ -30,6 +46,9 @@ namespace Game.Combat.Rules
             );
         }
 
+        /// <summary>
+        /// Adapts a standalone Unity grid to the same runtime Flanking selector used in encounters.
+        /// </summary>
         public static bool IsFlanking(
             GameObject attacker,
             GameObject target,
@@ -37,60 +56,130 @@ namespace Game.Combat.Rules
             int attackerReachFeet = DefaultUnarmedReachFeet
         )
         {
-            if (!CanFlank(attacker) || target == null || !target.activeInHierarchy)
+            if (attacker == null || target == null || tiles == null)
                 return false;
 
-            if (!ThreatensTarget(attacker, target, tiles, attackerReachFeet))
+            Dictionary<CreatureId, CreatureComponent> creatures = new();
+            RulesStateSeed seed = new();
+            int nextId = 1;
+            CreatureId attackerId = default;
+            CreatureId targetId = default;
+            foreach (GameObject combatant in GetGridCombatants(tiles, attacker, target))
+            {
+                CreatureComponent creature = combatant.GetComponent<CreatureComponent>();
+                if (creature == null)
+                    continue;
+
+                CreatureId id = new($"legacy-flanking-{nextId++}");
+                creatures.Add(id, creature);
+                int hitPoints = Math.Max(0, creature.hp);
+                seed.SeedCreature(new CreatureState(id, new PlayerId("legacy-flanking-adapter")))
+                    .SeedHealth(id, new HealthState(hitPoints, hitPoints))
+                    .SeedPosition(id, ToRulesPosition(combatant));
+                if (combatant == attacker)
+                    attackerId = id;
+                if (combatant == target)
+                    targetId = id;
+            }
+
+            if (attackerId.IsEmpty || targetId.IsEmpty)
                 return false;
 
-            Team attackerTeam = attacker.GetComponent<Team>();
-            Team targetTeam = target.GetComponent<Team>();
+            RulesSnapshot snapshot = new InMemoryRulesStore(seed).Snapshot;
+            return IsFlanking(snapshot, attackerId, targetId, creatures, tiles, attackerReachFeet);
+        }
+
+        /// <summary>
+        /// Captures current Unity availability, relationships, reach, and topology while resolving
+        /// roster identity, health, and positions from one authoritative rules snapshot.
+        /// </summary>
+        public static bool IsFlanking(
+            RulesSnapshot snapshot,
+            CreatureId attacker,
+            CreatureId target,
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+            Tile[,] tiles,
+            int attackerReachFeet = DefaultUnarmedReachFeet
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (creatures == null)
+                throw new ArgumentNullException(nameof(creatures));
+            if (tiles == null)
+                throw new ArgumentNullException(nameof(tiles));
             if (
-                attackerTeam == null
-                || targetTeam == null
-                || AreFriendly(attackerTeam.Name, targetTeam.Name)
+                attacker.IsEmpty
+                || target.IsEmpty
+                || attackerReachFeet <= 0
+                || !creatures.TryGetValue(attacker, out CreatureComponent attackerCreature)
+                || !creatures.TryGetValue(target, out CreatureComponent targetCreature)
+                || attackerCreature == null
+                || targetCreature == null
             )
                 return false;
 
-            Vector3Int attackerCell = CellOf(attacker);
-            Vector3Int targetCell = CellOf(target);
+            GameObject attackerObject = attackerCreature.gameObject;
+            GameObject targetObject = targetCreature.gameObject;
+            Team attackerTeam = attackerObject.GetComponent<Team>();
+            Team targetTeam = targetObject.GetComponent<Team>();
+            bool attackerCanFlank =
+                CanUseFlankingBoundary(attackerObject)
+                && attackerTeam != null
+                && targetTeam != null
+                && !AreFriendly(attackerTeam.Name, targetTeam.Name);
+            bool attackerThreatens = ThreatensTarget(
+                attackerObject,
+                targetObject,
+                tiles,
+                attackerReachFeet
+            );
 
-            foreach (GameObject ally in GetCombatants(tiles))
+            List<FlankingParticipant> participants = new();
+            foreach (KeyValuePair<CreatureId, CreatureState> entry in snapshot.Creatures)
             {
-                if (ally == null || ally == attacker || ally == target)
-                    continue;
-                if (!CanFlank(ally))
-                    continue;
-
-                Team allyTeam = ally.GetComponent<Team>();
-                if (
-                    allyTeam == null
-                    || !AreFriendly(attackerTeam.Name, allyTeam.Name)
-                    || AreFriendly(allyTeam.Name, targetTeam.Name)
-                )
+                CreatureId id = entry.Key;
+                if (!creatures.TryGetValue(id, out CreatureComponent creature) || creature == null)
                     continue;
 
-                if (!ThreatensTarget(ally, target, tiles, GetBestMeleeReachFeet(ally)))
-                    continue;
-                if (IsOppositeSideOrCorner(attackerCell, CellOf(ally), targetCell))
-                    return true;
+                GameObject candidate = creature.gameObject;
+                Team candidateTeam = candidate.GetComponent<Team>();
+                int reachFeet = GetBestMeleeReachFeet(candidate);
+                participants.Add(
+                    new FlankingParticipant(
+                        id,
+                        CanUseFlankingBoundary(candidate),
+                        attackerTeam != null
+                            && candidateTeam != null
+                            && AreFriendly(attackerTeam.Name, candidateTeam.Name),
+                        targetTeam != null
+                            && candidateTeam != null
+                            && AreFriendly(candidateTeam.Name, targetTeam.Name),
+                        ThreatensTarget(candidate, targetObject, tiles, reachFeet)
+                    )
+                );
             }
 
-            return false;
+            return FlankingRules.IsFlanking(
+                snapshot,
+                attacker,
+                target,
+                new FlankingContext(
+                    attackerCanFlank,
+                    targetObject.activeInHierarchy,
+                    attackerThreatens,
+                    participants
+                )
+            );
         }
 
-        private static bool CanFlank(GameObject combatant)
+        private static bool CanUseFlankingBoundary(GameObject combatant)
         {
             if (combatant == null || !combatant.activeInHierarchy)
                 return false;
 
             ActionController controller = combatant.GetComponent<ActionController>();
-            CreatureComponent creature = combatant.GetComponent<CreatureComponent>();
-            return controller != null
-                && controller.enabled
-                && creature != null
-                && creature.hp > 0
-                && GetBestMeleeReachFeet(combatant) > 0;
+            return controller != null && controller.enabled && GetBestMeleeReachFeet(combatant) > 0;
         }
 
         private static bool ThreatensTarget(
@@ -103,17 +192,17 @@ namespace Game.Combat.Rules
             if (attacker == null || target == null || reachFeet <= 0)
                 return false;
 
-            StrikeTargetRequest request = new()
-            {
-                ReachFeet = reachFeet,
-                IsRanged = false,
-                RequiresLineOfEffect = true,
-            };
-
-            if (tiles != null)
-                return StrikeTargeting.Evaluate(attacker, target, tiles, request) != null;
-
-            return StrikeTargeting.IsWithinStrikeRange(CellOf(attacker), CellOf(target), request);
+            return StrikeTargeting.Evaluate(
+                    attacker,
+                    target,
+                    tiles,
+                    new StrikeTargetRequest
+                    {
+                        ReachFeet = reachFeet,
+                        IsRanged = false,
+                        RequiresLineOfEffect = true,
+                    }
+                ) != null;
         }
 
         private static int GetBestMeleeReachFeet(GameObject combatant)
@@ -145,66 +234,34 @@ namespace Game.Combat.Rules
             return reachFeet;
         }
 
-        private static IEnumerable<GameObject> GetCombatants(Tile[,] tiles)
-        {
-            HashSet<GameObject> seen = new();
-            if (tiles != null)
-            {
-                for (int x = 0; x < tiles.GetLength(0); x++)
-                {
-                    for (int z = 0; z < tiles.GetLength(1); z++)
-                    {
-                        Tile tile = tiles[x, z];
-                        if (tile == null)
-                            continue;
-
-                        foreach (GameObject occupant in tile.Occupants)
-                        {
-                            if (occupant != null && seen.Add(occupant))
-                                yield return occupant;
-                        }
-                    }
-                }
-                yield break;
-            }
-
-            foreach (
-                ActionController controller in UnityEngine.Object.FindObjectsByType<ActionController>(
-                    FindObjectsSortMode.None
-                )
-            )
-            {
-                if (controller != null && seen.Add(controller.gameObject))
-                    yield return controller.gameObject;
-            }
-        }
-
-        private static bool IsOppositeSideOrCorner(
-            Vector3Int attackerCell,
-            Vector3Int allyCell,
-            Vector3Int targetCell
+        private static IEnumerable<GameObject> GetGridCombatants(
+            Tile[,] tiles,
+            GameObject attacker,
+            GameObject target
         )
         {
-            Vector2Int attackerDirection = DirectionFromTarget(attackerCell, targetCell);
-            Vector2Int allyDirection = DirectionFromTarget(allyCell, targetCell);
-            if (attackerDirection == Vector2Int.zero || allyDirection == Vector2Int.zero)
-                return false;
+            HashSet<GameObject> seen = new();
+            if (attacker != null && seen.Add(attacker))
+                yield return attacker;
+            if (target != null && seen.Add(target))
+                yield return target;
 
-            return attackerDirection.x == -allyDirection.x
-                && attackerDirection.y == -allyDirection.y;
+            for (int x = 0; x < tiles.GetLength(0); x++)
+            for (int z = 0; z < tiles.GetLength(1); z++)
+            {
+                Tile tile = tiles[x, z];
+                if (tile == null)
+                    continue;
+                foreach (GameObject occupant in tile.Occupants)
+                    if (occupant != null && seen.Add(occupant))
+                        yield return occupant;
+            }
         }
 
-        private static Vector2Int DirectionFromTarget(Vector3Int cell, Vector3Int targetCell)
+        private static GridPosition ToRulesPosition(GameObject combatant)
         {
-            return new Vector2Int(
-                Math.Sign(cell.x - targetCell.x),
-                Math.Sign(cell.z - targetCell.z)
-            );
-        }
-
-        private static Vector3Int CellOf(GameObject go)
-        {
-            return Vector3Int.RoundToInt(go.transform.position);
+            Vector3Int cell = Vector3Int.RoundToInt(combatant.transform.position);
+            return new GridPosition(cell.x, cell.y, cell.z);
         }
 
         private static bool AreFriendly(string firstTeam, string secondTeam)

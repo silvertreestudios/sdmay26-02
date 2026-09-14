@@ -173,23 +173,14 @@ namespace Game.Rules.Unity.Strike
             bool offGuard =
                 !item.IsRanged
                 && FlankingRule.IsFlanking(
-                    attacker.gameObject,
-                    defender.gameObject,
+                    snapshot,
+                    actor,
+                    target,
+                    creatures,
                     tiles,
                     Math.Max(5, item.ReachFeet)
                 );
-            Conditions conditions = defender.GetComponent<Conditions>();
-            if (conditions != null)
-            {
-                offGuard |= conditions
-                    .GetConditionNames()
-                    .Select(CreatureSlug.FromName)
-                    .Any(slug =>
-                        string.Equals(slug, "flat-footed", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(slug, "offguard", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(slug, "off-guard", StringComparison.OrdinalIgnoreCase)
-                    );
-            }
+            offGuard |= OffGuardRules.IsOffGuard(snapshot, target);
             return StrikeTargetingOutcome.Legal(
                 result.DistanceFeet,
                 result.RangePenalty,
