@@ -27,31 +27,66 @@ state. A populated generic state type is not assumed merely because its slice ex
 
 ## Reproducible inventory and completeness
 
-The inventory was generated from the checkout root with the following read-only shape. `.meta`
-files were excluded because they identify assets but contain no behavior or rules data.
+The inventory was generated from the checkout root with the following read-only shape. The ordered
+sets cover all authored player-runtime C#, its production assembly definitions and retained source
+artifacts, authored data/presentation assets loaded through `Resources` or scene-bound `TextAsset`
+references, and both test roots.
+`.meta` files were excluded because they identify assets but contain no behavior or rules data.
 
 ```powershell
-$roots = @(
-  'Assets/Scripts',
-  'Assets/Resources/DataFiles',
-  'Assets/Tests/EditMode',
-  'Assets/Tests/PlayMode'
-)
-foreach ($root in $roots) {
-  Get-ChildItem -LiteralPath $root -Recurse -File |
-    Where-Object Extension -ne '.meta' |
-    Sort-Object FullName
+$sets = [ordered]@{
+  'Assets/Scripts' = @(Get-ChildItem -LiteralPath 'Assets/Scripts' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+  'Assets/KayKit/Runtime' = @(Get-ChildItem -LiteralPath 'Assets/KayKit/Runtime' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+  'Assets/UIStuff C#' = @(Get-ChildItem -LiteralPath 'Assets/UIStuff' -Recurse -File -Filter '*.cs')
+  'Assets root/runtime support' = @(Get-Item -LiteralPath 'Assets/InputSystem_Actions.cs',
+    'Assets/InputSystem_Actions.inputactions', 'Assets/MainGameAssembly.asmdef',
+    'Assets/TutorialInfo/Scripts/Readme.cs')
+  'Assets/Maps/KayKit' = @(Get-ChildItem -LiteralPath 'Assets/Maps/KayKit' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+  'Assets/Resources/DataFiles' = @(Get-ChildItem -LiteralPath 'Assets/Resources/DataFiles' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+  'Assets/Resources/Data' = @(Get-ChildItem -LiteralPath 'Assets/Resources/Data' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+  'Assets/Resources/Icons' = @(Get-ChildItem -LiteralPath 'Assets/Resources/Icons' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+  'Assets/UIStuff/Resources' = @(Get-ChildItem -LiteralPath 'Assets/UIStuff/Resources' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+  'Assets/Tests/EditMode' = @(Get-ChildItem -LiteralPath 'Assets/Tests/EditMode' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+  'Assets/Tests/PlayMode' = @(Get-ChildItem -LiteralPath 'Assets/Tests/PlayMode' -Recurse -File |
+    Where-Object Extension -ne '.meta')
+}
+foreach ($entry in $sets.GetEnumerator()) {
+  $entry.Value | Sort-Object FullName
 }
 ```
 
 The resulting closed inventory is:
 
-| Root | Non-meta files | Contents |
+| Selection | Files | Contents |
 | --- | ---: | --- |
 | `Assets/Scripts` | 275 | 271 `.cs`, 2 `.asmdef`, and 2 noncompiled `.orig` conflict artifacts |
+| `Assets/KayKit/Runtime` | 16 | 16 player-runtime C# files |
+| `Assets/UIStuff` C# | 11 | 11 player-runtime C# files under menus, HUD, and character creation |
+| `Assets` root/runtime support | 4 | Generated input C#, its `.inputactions` source, `MainGameAssembly.asmdef`, and `TutorialInfo/Scripts/Readme.cs` |
+| `Assets/Maps/KayKit` | 2 | Authored dungeon-map JSON assigned to scene `TextAsset` fields |
 | `Assets/Resources/DataFiles` | 140 | 139 JSON files and 1 `DungeonEncounterCreatureCatalog.asset` |
+| `Assets/Resources/Data` | 3 | Legacy character-creation JSON: ancestry, class, and a player-character template |
+| `Assets/Resources/Icons` | 19 | UI icon resources; 17 have literal UI Toolkit references and 2 are currently unreferenced |
+| `Assets/UIStuff/Resources` | 5 | Storyboard JSON and UI font assets loaded through `Resources` |
 | `Assets/Tests/EditMode` | 61 | 59 C# files and 2 assembly definitions |
 | `Assets/Tests/PlayMode` | 25 | 24 C# files and 1 assembly definition |
+
+An independent recursive `.cs` sweep under `Assets` found 397 C# files: 83 in the two test roots,
+14 editor-only files in `Editor` path segments, and 300 player-runtime files. The latter are
+accounted for exactly by 271 under `Assets/Scripts`, 16 under `Assets/KayKit/Runtime`, 11 under
+`Assets/UIStuff`, `Assets/InputSystem_Actions.cs`, and `Assets/TutorialInfo/Scripts/Readme.cs`.
+The 14 editor-only files are tooling, not player entry points. `Assets/TextMesh Pro/Resources`
+contains nine imported package resources and is not authored game data. Serialized scenes,
+prefabs, UI documents/styles, models, and art were inspected where they establish a caller or
+`Resources` reference, but are presentation wiring rather than authored runtime code or rules data.
 
 For a reproducible closed-set check, relative paths were normalized to `/`, sorted ordinally,
 joined with LF including a final LF, encoded as UTF-8 without BOM, and hashed with SHA-256:
@@ -59,30 +94,36 @@ joined with LF including a final LF, encoded as UTF-8 without BOM, and hashed wi
 | Root | Path-inventory SHA-256 |
 | --- | --- |
 | `Assets/Scripts` | `af1c8e8e1423d6a0ef89dd670448396a88a01043ca6e7d59be10f475b10f03f0` |
+| `Assets/KayKit/Runtime` | `14d7ae7e097e91433b800c27d910a32ed6a16f6e2e456179910deebd4c35505e` |
+| `Assets/UIStuff` C# | `4e6a2d784e4193dfd3d5a8c39e97b082615900617e4d48893f99d72ccbd2c6a4` |
+| `Assets` root/runtime support | `ad21d95d2faefcda779fdc2f0e8b37a61584f1ec8643007160e8f143b53e732c` |
+| `Assets/Maps/KayKit` | `ba676a472a013edc90054b46528b381429aede35796661343c064eea8d2dd068` |
 | `Assets/Resources/DataFiles` | `7e0e3e18d690b53a3328d01d27aee4864ab03b842c8153838a689a2163417095` |
+| `Assets/Resources/Data` | `53d37ebfb35d65fb41108d8f414c6496ab0c428f10f02d7023880aaab9cfb38b` |
+| `Assets/Resources/Icons` | `44e96509772079ac523d59ff127de4ef38e93a59dce4867b7d73d8be67fd4aa9` |
+| `Assets/UIStuff/Resources` | `2386c9d507c8a4986adeb191dd7d9c3a2dd256ff555588758f30f5ab05d84818` |
 | `Assets/Tests/EditMode` | `fa0b46013dc879e4c943c6f150b5660f117816314259acfdd3d77df18ad89164` |
 | `Assets/Tests/PlayMode` | `3036ac368709b1b9a042e53522a64aee43141cbabdda78a9f573b1c038f267bb` |
 
-The exact hash operation for each root was:
+The exact hash operation for each selection was:
 
 ```powershell
 $paths = [System.Collections.Generic.List[string]]::new()
-Get-ChildItem -LiteralPath $root -Recurse -File |
-  Where-Object Extension -ne '.meta' |
-  ForEach-Object {
+$entry.Value | ForEach-Object {
     $paths.Add([IO.Path]::GetRelativePath((Get-Location).Path, $_.FullName).Replace('\', '/'))
-  }
+}
 $paths.Sort([StringComparer]::Ordinal)
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes(([string]::Join("`n", $paths) + "`n"))
 [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 ```
 
-Every file was included in one of the subsystem rows below. Final validation repeated these counts
-and validated all 21 unique backticked current paths beginning with `Assets/` using `Test-Path`;
-none were missing. The plan does not add a second machine-readable inventory because the checked-in
-path lists and count gate already provide a reviewable completeness proof.
+Every production-code file was included in one of the subsystem rows below. Final validation
+repeated the counts and hashes and checked every unique backticked current path beginning with
+`Assets/` using `Test-Path`; none were missing. The plan does not add a second machine-readable
+inventory because the checked-in path selections and count/hash gates provide the completeness
+proof.
 
-### Production-script inventory by subsystem
+### Production-code inventory by subsystem
 
 | Subsystem | Count | Enumerated files or closed directory inventory | Disposition |
 | --- | ---: | --- | --- |
@@ -95,14 +136,27 @@ path lists and count gate already provide a reviewable completeness proof.
 | Dungeon generation | 15 | Every non-meta file in `Assets/Scripts/DungeonGeneration` | Non-encounter procedural policy and persistence data; no rules-runtime migration |
 | Dungeon persistence | 8 | Every non-meta file in `Assets/Scripts/DungeonPersistence` | General save/caller integration; must follow authority migrations |
 | General Unity infrastructure | 21 | The five root files in `Assets/Scripts` (`AssemblyInfo.cs`, `AudioManager.cs`, `Movement.cs`, `SceneTransitionManager.cs`, and `UnversalEvents.cs`), `Assets/Scripts/Camera/CameraManager.cs`, every non-meta file in `Assets/Scripts/Interfaces`, and every non-meta file in `Assets/Scripts/Utility` | No rules migration unless a caller changes |
+| KayKit player runtime | 16 | Every C# file in `Assets/KayKit/Runtime`: animation/equipment presentation, dungeon document/catalog parsing, map/line-of-sight adapters, and door visual/collider state | Presentation and topology adapters; combat door legality/cost is transitional behavior described below |
+| UI, menus, and character creation | 11 | Every C# file under `Assets/UIStuff`: `CharacterCreation/CharacterCreationScript.cs`, `CharacterCreation/TutorialManager.cs`, `HowToPlayMenu/HowToPlayMenuControl.cs`, `HUD/CombatLog.cs`, `HUD/CombatLogInterface.cs`, `HUD/HUDController.cs`, `MainMenu/MainMenuControl.cs`, `SettingsMenu/SettingsMenuControl.cs`, `StatusMenu/StatusMenuControl.cs`, `StoryBoard/StoryBoardControl.cs`, and `WinScreen/WinScreenControl.cs` | Presentation/callers plus the disconnected legacy character-build calculator described below |
+| Root/runtime support | 4 | `Assets/InputSystem_Actions.cs`, `Assets/InputSystem_Actions.inputactions`, `Assets/MainGameAssembly.asmdef`, and `Assets/TutorialInfo/Scripts/Readme.cs` | Generated input API/source configuration, production assembly boundary, and inert tutorial-template metadata |
 
-The two tracked `.orig` files contain conflict markers and are not compiled. They are historical
-copies, not alternate Stride or Strike behavior. Removing them is repository cleanup outside this
-migration plan, not a compatibility step.
+Within the UI row, `HUDController` reads the current controller action list, invokes chosen actions,
+controls presentation/camera/input settings, and requests dungeon autosave checkpoints.
+`MainMenuControl` inspects autosave status and starts/replaces or continues dungeon runs through the
+persistence service. The remaining menu/HUD scripts are presentation and scene-flow callers except
+for the legacy character-build calculations mapped below. These callers must switch with an
+authority migration but must not reproduce operation legality or outcomes.
 
-### Runtime-data inventory
+These rows total 306 checked-in production/source inputs: 300 player-runtime C# files, three
+production assembly definitions, one Input System source asset, and two `.orig` artifacts. The two
+tracked `.orig` files contain conflict markers and are not compiled. They are historical copies,
+not alternate Stride or Strike behavior. Removing them is repository cleanup outside this migration
+plan, not a compatibility step.
 
-The 140 non-meta files divide exactly as follows:
+### Rules, character-build, and presentation data inventory
+
+The 143 non-meta files in `Assets/Resources/DataFiles` and `Assets/Resources/Data` divide exactly as
+follows:
 
 - `actions` (2): `quick-tempered`, `rage`.
 - `ancestries` (1): `human`.
@@ -137,6 +191,28 @@ The 140 non-meta files divide exactly as follows:
   `summon-instrument`, `summon-plant-or-fungus`, `summon-undead`, `sure-strike`, `tailwind`,
   `tangle-vine`, `telekinetic-hand`, `telekinetic-projectile`, `thunderstrike`,
   `vanishing-tracks`, `ventriloquism`, `vitality-lash`, and `void-warp`.
+- `legacy character creation` (3): `ancestry.json`, `class.json`, and `playerCharacter.json`.
+  `CharacterCreationScript` loads the first two by literal `Resources` paths; the third is a
+  template and has no literal production load call.
+
+The other 24 authored resources are presentation inputs. Of the 19 files under
+`Assets/Resources/Icons`, 17 have literal UI Toolkit `resource('Icons/...')` references; `move2.png`
+and `speed.png` have no discovered literal reference but remain loadable resources. The five files
+under `Assets/UIStuff/Resources` comprise `storyboard.json` (loaded by `StoryBoardControl` and
+`WinScreenControl`) plus two font files and their two referenced SDF assets. These resources carry
+no rules authority.
+
+The two JSON files under `Assets/Maps/KayKit` are authored topology inputs rather than
+`Resources` data. `GeneratedDungeonFixture.json` is assigned to the production
+`ProceduralDungeon` scene's `Map.jsonSource`; `KayKitDungeonExample.json` is assigned to the
+reference scene that is deliberately excluded from build settings. `Map` parses either such an
+authored `TextAsset` or generated runtime JSON into dungeon topology. These files are dungeon
+generation/topology fixtures, not encounter rules authority.
+
+A separate recursive JSON sweep found 146 files under `Assets`: the 139 DataFiles JSON, three
+legacy character-creation files, `storyboard.json`, and these two KayKit maps account for all 145
+authored game JSON files. The remaining `Assets/TextMesh Pro/Sprites/EmojiOne.json` belongs to the
+imported TextMesh Pro package.
 
 `Pf2eItemCatalog.LoadFromResources` makes parseable item JSON available for preparation, while
 `UnitySpellDefinitionCatalog.Load` parses all 84 spell files into immutable definitions. Loading is
@@ -474,6 +550,41 @@ Each row names the present behavior, not wider PF2e completeness.
   enrollment wiring. This proposal reuses `ConditionId` and `ConditionState`; it must not introduce
   another condition DTO without resolving source identity.
 
+### Legacy UI character builder
+
+- **Current implementation/entry points:** `CharacterCreationScript.OnEnable` loads
+  `Assets/Resources/Data/ancestry.json` and `Assets/Resources/Data/class.json`. UI callbacks apply
+  ancestry boosts/flaws, a free ancestry boost, background boosts, a class boost, and four final
+  boosts; they also calculate HP from ancestry plus class and copy speed/size, class proficiencies,
+  feats, and subclass choices into an in-memory `PlayerCharacter`. `FinishCreation` checks for null
+  fields, displays warnings for ability modifiers above 4 without clearing its readiness result,
+  and returns to the main menu whenever the null-field check succeeds. Its `JsonUtility.ToJson`
+  calls only update a string or log debug output; none writes a character save.
+- **Actual behavior:** this is a separate, UI-hosted character-build calculator. It does not load
+  `playerCharacter.json`, save the created JSON, construct a `CreatureComponent`, call
+  `CreatureJsonConverter`/`Pf2eCharacterPreparer`, or enroll a combatant. The only production
+  references to `PlayerCharacter` are inside `CharacterCreationScript`; the scene and
+  `CharacterCreatorTests` instantiate that UI. Its calculated values therefore are neither current
+  encounter authority nor a usable prepared-character source.
+- **Authority/state:** the mutable `PlayerCharacter`, attribute contribution dictionary, and UI
+  selection fields are disconnected legacy state. Treating those results as presentation-only
+  would hide real rule calculations, but treating them as live game behavior would overstate their
+  reachability.
+- **Necessary integration:** first make a product decision whether this creator is intended to
+  become a playable-character source and which build rules it supports. If approved, the owning
+  character-build feature must validate and persist one explicit build representation, feed that
+  representation through the normal preparation/enrollment path, and remove duplicate UI-owned
+  calculations as each rule becomes authoritative. Do not infer additional feats, choices, or
+  validation from the UI and do not connect its current partial object to combat silently.
+- **Verification/fixtures:** `CharacterCreatorTests` exercises tutorial flow and default-character
+  navigation but does not prove build math, validation, serialization, preparation, or combat
+  enrollment. An approved integration needs deterministic build fixtures and an end-to-end
+  created-character preparation test.
+- **Exact future owner:** the selected character-build feature owns
+  `Assets/UIStuff/CharacterCreation/CharacterCreationScript.cs`, its DTO/data contract, and focused
+  tests. The general caller integrator owns only the eventual handoff to
+  `CreatureJsonConverter`/`Pf2eCharacterPreparer` and enrollment.
+
 ### Prepared characters, build choices, and item rule elements
 
 - **Current implementation/entry points:** `CreatureJsonConverter` imports creature stats,
@@ -500,27 +611,74 @@ Each row names the present behavior, not wider PF2e completeness.
   and `Pf2eItemCatalog.cs` remain data adapters. Each vertical feature owns its converter into
   runtime values. The general caller/composition worker owns only shared statistics enrollment.
 
-### Legacy Unity spells
+### Dormant legacy Unity spell implementations
 
-`SpellRegistry` implements six non-rules-native spell classes. `SpellcastingRuntime.Cast` explicitly
-rejects legacy resolution during an attached encounter, so these are pre-encounter/legacy behavior,
-not a fallback for failed rules actions. `SpellcastingState` is mutable legacy slot state; production
-encounters instead enroll `SpellSlotState` from `PreparedSpellBook`.
+`SpellRegistry` contains six non-rules-native spell implementations, but no installed production
+action can reach them. Creature initialization initially adds legacy `CastSpellAction` instances;
+encounter attachment removes all of them and installs only supported `RulesCastSpellAction`
+instances, while `SpellcastingRuntime.Cast` rejects legacy resolution during an attached encounter.
+Outside an attached encounter, `ActionController.ActionPoints` returns zero, so the normal legacy
+action call with `spendActions: true` fails its affordability check. A direct programmatic call with
+`spendActions: false` can reach some definitions, but that is an API-level capability rather than an
+installed production action. Heal and Haunting Hymn ultimately use health APIs that require an
+attached rules bridge, so even their direct unattached paths cannot complete. `SpellcastingState`
+is mutable legacy slot state; production encounters instead enroll `SpellSlotState` from
+`PreparedSpellBook`.
 
-| Spell | Current actual behavior | Required vertical migration and exact owner | Verification and missing coverage |
+The table records dormant/direct implementation semantics as migration evidence, not shipped
+behavior that must automatically be preserved. A product decision must explicitly select each
+spell and its desired semantics before a vertical migration may install it.
+
+| Spell | Dormant/direct implementation semantics | Required vertical migration and exact owner | Verification and missing coverage |
 | --- | --- | --- | --- |
 | Shield | Self; `ShieldSpellEffect` supplies +1 circumstance AC and expires at source turn start | New `ShieldRules` module under `Assets/Scripts/Rules/Runtime` plus feature-owned Unity selection/presentation adapter in `Combat/Spells`; use active effect/binding and modifier collection | Legacy behavior has indirect spell/effect coverage only; add pure AC stacking, duration, refresh, and enrollment tests |
 | Guidance | Friendly target within 30 feet; +1 status to the first attack/save/skill/initiative query, mutates `Consumed`, creates indefinite Guidance Immunity, and expires Guidance at source turn start | `GuidanceRules.cs` plus feature adapter; consumption must occur through an Op/reducer or listener, never during a selector; immunity needs an explicit implemented duration decision | No representative end-to-end current test. Add target, one-consumption, stacking, expiry, and immunity fixtures before migration |
 | Haunting Hymn | 15-foot cone; each affected creature makes basic Fortitude against caster spell DC for `1d8` sonic; critical failure also adds mechanically inert Deafened | `HauntingHymnRules.cs` plus area-selection adapter; dispatch save, typed damage, and condition Ops | `Pf2eAreaTargetingTests` covers cone geometry, but no direct spell fixture. Add all degrees, deterministic roll/damage, multiple targets, line of effect, and Deafened assertions |
 | Bless | Captures friendly creatures in a 15-foot emanation at cast time; each receives +1 status attack for ten target turn starts | `BlessRules.cs` plus feature adapter. Preserve current snapshot-target behavior unless product explicitly chooses a live aura | No direct spell fixture. Add target set, stacking, refresh, ten-boundary expiry, and source/target defeat tests |
-| Infuse Vitality | The production selector prompts for exactly one friendly target within 30 feet for every 1-, 2-, or 3-action cast. Direct programmatic `Cast` calls accept from one through `ActionCost` unique friendly targets. Each affected target gains `1d4` vitality weapon/unarmed Strike damage for ten target turn starts through a legacy Strike adjustment | `InfuseVitalityRules.cs` plus feature adapter; add the missing multi-target selection workflow for higher-action variants, then use Strike modifier/damage middleware and active effect timing | `RulesStrikeUnityTests.PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage` covers captured contribution. Add selection/action-variant, duration, duplicate target, and typed-damage tests |
+| Infuse Vitality | Its unreachable legacy selector prompts for exactly one friendly target within 30 feet for every 1-, 2-, or 3-action variant. Direct `Cast` accepts from one through `ActionCost` unique friendly targets. Each accepted target gains `1d4` vitality weapon/unarmed Strike damage for ten target turn starts through a legacy Strike adjustment | Do not assume either target contract is intended and do not add a missing multi-target selector. A product decision must choose target count/selection behavior first; only then may an `InfuseVitalityRules` feature use Strike damage middleware and active-effect timing | `RulesStrikeUnityTests.PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage` covers captured contribution, not a reachable cast. An approved feature needs selection/action-variant, duration, duplicate-target, and typed-damage tests |
 | Heal | 1 action: target within 5; 2 actions: target within 30 and +8 healing for living target; 3 actions: 30-foot emanation. Rolls `1d8`; heals friendly living creatures, deals basic Fortitude vitality damage to undead | `HealRules.cs` plus feature area/target adapter; reuse health, save, typed damage, and action/slot operations | No direct current spell fixture. Add every variant, friend/undead/nonfriend, range, degrees, slot/cost atomicity, and deterministic roll tests |
 
-After each migrated spell is installed, delete its legacy class/effect path and update
-`CastSpellAction`/`SpellRegistry` in the same change. No compatibility dispatch by spell slug is
-allowed. Feature workers create their own rules and Unity adapter files; the caller composition
+For each explicitly approved spell, install its rules-native action and then delete its legacy
+class/effect path and update `CastSpellAction`/`SpellRegistry` in the same change. No compatibility
+dispatch by spell slug is allowed. Feature workers create their own rules and Unity adapter files;
+the caller composition
 worker alone updates `UnitySpellcastingEncounterModule.cs`, the action installer/catalog wiring,
 and shared test fixtures after a batch is ready.
+
+### Combat door opening
+
+- **Current implementation/entry points:** `DungeonEncounterRuntimeController.TryPrepareDoorInteraction`
+  selects the current combat actor (or an exploration party member), rejects an actor already taking
+  an action, and checks combat turn authority. `DungeonDoorInteractionPolicy.Evaluate` then decides
+  party membership, life state, cardinal adjacency, closed-door state, one-action combat cost, and
+  affordability. `ApplyDoorInteraction` calls `DungeonDoorController.TryOpen` first, calls
+  `ActionController.SpendActions` second, then refreshes rules topology and records/publishes the
+  open-door state.
+- **Actual behavior:** combat door legality and its one-action cost are rules behavior outside the
+  `ActionOp` lifecycle. The current mutation order can open the door before action spending is
+  committed. This is an architectural/atomicity gap to preserve in the inventory, not authority to
+  correct gameplay in this documentation change. Exploration opening is intentionally free and
+  remains caller policy.
+- **Authority/state:** attached encounter actions are already rules-owned. Door open/collider state,
+  stable-ID persistence, encounter-room activation, and map/line-of-sight refresh are Unity-owned
+  world projection. `DungeonDoorController` and the KayKit map adapters do not become legality or
+  action-economy authorities.
+- **Necessary integration:** an explicitly approved Open Door feature should dispatch one action
+  operation/profile so turn, actor, affordability, and cost share the normal validation/cost/handler
+  lifecycle. Its resolved handler/observer may then open the Unity door, persist the stable ID,
+  activate newly reachable rooms, and refresh topology in a defined post-commit order. Preserve the
+  current combat criteria unless a separate product decision changes them; do not route exploration
+  opening through combat action economy and do not add a general door-state slice without a proven
+  rules consumer.
+- **Verification/fixtures:** `DungeonDoorInteractionPolicyTests` covers mode, actor, life, adjacency,
+  open state, cost, and affordability in isolation. Missing coverage is action-lifecycle atomicity,
+  cost failure without world mutation, exact current-turn identity, and PlayMode verification that
+  projection, persistence, reachable-room activation, and topology refresh follow a committed
+  operation.
+- **Exact future owner:** a feature-owned Open Door rules module/action under
+  `Assets/Scripts/Rules/Runtime` and a narrow Unity adapter own the combat operation. The general
+  dungeon caller owns `DungeonEncounterRuntimeController`; KayKit retains door visual/collider and
+  map-topology projection.
 
 ### Teams, flanking, targeting, line of effect, cover, and areas
 
@@ -605,11 +763,17 @@ rule proves a narrower boundary:
   autosave repository mechanics, and scene recovery. These orchestrate encounters and persist
   projections; they do not replace encounter rules authority.
 - Exploration party formation and route planning. The leader's individual Strides are rules-backed,
-  while follower planning, doors, stairs, and encounter-boundary interruption are caller policy.
-  `DungeonDoorInteractionPolicy` correctly asks for one encounter action in combat and none in
-  exploration through existing action economy; opening/visual state is not a PF2e rules slice.
-- Grid rendering, hover/highlight FSM, input, camera, animation, audio, combat-log formatting, UI,
-  token meshes, scene transitions, object pooling, and coroutine/event utilities.
+  while follower planning, stairs, exploration-mode doors, and encounter-boundary interruption are
+  caller policy. Combat door legality/cost is the transitional rules behavior documented above;
+  door visuals and topology projection remain outside the rules slice.
+- The 16 KayKit runtime files provide animation/equipment presentation, dungeon document/catalog
+  adapters, grid/line-of-sight topology, and door visual/collider state. They do not decide combat
+  action legality or costs. Their topology/projection role is an integration dependency for Stride,
+  Strike, spells, and a future approved combat-door action, not a reason to migrate the package as a
+  whole.
+- Grid rendering, hover/highlight FSM, generated input bindings, camera, animation, audio,
+  combat-log formatting, non-character-build UI, token meshes, scene transitions, tutorial metadata,
+  object pooling, and coroutine/event utilities.
 - `DungeonEncounterCreatureCatalog.asset` is a Unity address catalog. `encounter-enemies.json` is
   dungeon generation content. Neither is rules state.
 
@@ -640,8 +804,10 @@ together.
 4. In a serialized integration wave, the general caller worker updates complete combatant
    registration, `UnityEncounterModuleSet`, `UnityCombatRulesBridge`, persistence, and general
    consumers. It removes the former writer/fallback in the same change.
-5. Migrate legacy spells individually or as a deliberately small, reviewed batch. Never keep both
-   `SpellRegistry` and rules-native encounter behavior authoritative for the same spell.
+5. Only after product selection, migrate a dormant legacy spell individually or as a deliberately
+   small, reviewed batch. Its direct implementation semantics are inputs to that decision, not an
+   automatic behavior contract. Never keep both `SpellRegistry` and rules-native encounter behavior
+   authoritative for the same spell.
 6. Delete dead legacy attack/effect types only after `rg` proves no remaining compiled consumer.
 
 ### Hotspots that must not be edited concurrently
@@ -681,6 +847,15 @@ These are decisions to make before the named migration, not implicit authorizati
    implementation backlog by themselves. A human must select any additional vertical feature.
 10. **Tracked `.orig` files and commented `LineOfSight`:** these are cleanup gaps, not migration
     foundations or executable fallbacks.
+11. **Legacy character-creation authority:** decide whether the disconnected UI builder is intended
+    to create playable characters and which build rules it owns before connecting or migrating it.
+    Its partial `PlayerCharacter` must not silently become a second preparation format.
+12. **Dormant spell semantics:** select each legacy spell explicitly before enabling or migrating
+    it. In particular, choose Infuse Vitality's target-count/selection behavior instead of treating
+    either its one-target selector or its direct-call multi-target acceptance as authoritative.
+13. **Combat door operation boundary:** the current criteria and one-action cost are known behavior,
+    but moving them into the action lifecycle requires an approved Open Door vertical and coordinated
+    projection/persistence tests; this plan does not perform that gameplay correction.
 
 ## Verification contract for future migrations
 
