@@ -88,7 +88,12 @@ public sealed class RulesStrikeUnityTests
         CreatureComponent target = CreateCreature("Target", "enemy", 100, 10);
         torgrim.gameObject.AddComponent<Conditions>();
         lena.gameObject.AddComponent<Conditions>();
-        target.gameObject.AddComponent<Conditions>().Add("Off-Guard", new ConditionSource());
+        ConditionEncounterModule.Apply(
+            target.gameObject,
+            new ConditionState(OffGuardRules.ConditionId, 1),
+            RuleSource.FromSlug("strike-test-off-guard"),
+            new ConditionSource()
+        );
         SpellEffectController effects = lena.gameObject.AddComponent<SpellEffectController>();
         effects.AddOrRefresh(new InfuseVitalitySpellEffect(torgrim.gameObject));
         TestActionController torgrimController =
@@ -144,6 +149,45 @@ public sealed class RulesStrikeUnityTests
             rogueStrike.Value.Damage.Single(part => part.DamageType == "slashing").Amount,
             Is.EqualTo(4 + lena.dexMod)
         );
+    }
+
+    [Test]
+    public void RulesStrikeUsesSnapshotFlankingFromOppositeLivingAlly()
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature("Target", "enemies", 20, 10);
+        CreatureComponent ally = CreateCreature("Ally", "heroes", 20, 10);
+        TestActionController attackerController =
+            attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        TestActionController allyController = ally.gameObject.AddComponent<TestActionController>();
+        Place(attacker.gameObject, 0);
+        Place(target.gameObject, 1);
+        Place(ally.gameObject, 2);
+        Tile[,] tiles = CreateTiles(3);
+        Occupy(tiles, attacker.gameObject);
+        Occupy(tiles, target.gameObject);
+        Occupy(tiles, ally.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController, allyController },
+            tiles,
+            new ScriptedRollService(20, 15, 10, 4),
+            "heroes"
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        bridge.BeginTurn(actor, 3);
+        RulesStrikeAction action = attackerController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(candidate => candidate.ActionName == "Unarmed Strike");
+
+        ResolvedOpResult<StrikeResolution> result = RequireResolved(
+            bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId))
+        );
+
+        Assert.That(result.Value.OffGuard, Is.True);
     }
 
     [Test]
