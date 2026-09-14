@@ -38,50 +38,28 @@ A downstream feature should follow this boundary:
 4. Return a structural outcome. An ordinary illegal request is `InvalidOpResult<TResult>`; a
    resolved miss or other unsuccessful game outcome is still a resolved result.
 5. React to committed state with a feature-owned Fact listener when more rules work is required.
-   Use an observer only for external projection such as animation, logs, audio, or Unity state.
+   A rules-backed action emits `ActionBegunFact<TResult>` after costs and the action-begun window,
+   then `ActionResolvedFact<TResult>` after its awaited child mechanics. Register feature visuals
+   through `IUnityActionPresenter<TOp, TResult>`; keep generic health, hit, and defeat projection in
+   the shared projectors that already own it.
 6. Add pure deterministic EditMode tests at the lowest owning layer. Add bridge or PlayMode tests
    only when enrollment, attachment, lifecycle, selection, or presentation is part of the change.
 
-The following pseudocode shows the ownership shape, not a production API or a promise to implement
-an example feature:
+The current Strike entry point is a concrete example of the public dispatch shape:
 
 ```csharp
-// Feature-owned immutable request; it contains stable rules values, never GameObjects.
-sealed class ExampleActionOp : ActionOp<ExampleOutcome>
-{
-    public ExampleActionOp(
-        CreatureId actor,
-        ActionDefinitionId definitionId,
-        CreatureId target
-    )
-        : base(actor, definitionId)
-    {
-        Target = target;
-    }
-
-    public CreatureId Target { get; }
-}
-
-// Feature-owned orchestration after the engine validates and commits action costs.
-sealed class ExampleActionHandler : IOpHandler<ExampleActionOp, ExampleOutcome>
-{
-    public async ValueTask<ExampleOutcome> Handle(
-        OpFrame<ExampleActionOp> frame,
-        OpHandlerContext context
-    )
-    {
-        OpResult<DamageOutcome> change = await context.Dispatch(
-            new ApplyDamageOp(frame.Op.Target, finalDamage, origin, source)
-        );
-        return MapCommittedDamage(change);
-    }
-}
+OpResult<StrikeResolution> result = await dispatcher.Dispatch(
+    new StrikeActionOp(actor, item, target)
+);
 ```
 
-Use the concrete operation signatures in production code when implementing a feature. The example
-intentionally omits feature-specific validation, dependency fields, and result mapping. It only
-illustrates that named workflow stays vertical while shared state changes go through existing
-generic operations.
+`StrikeActionOp(CreatureId, ItemId, CreatureId)` derives from `ActionOp<StrikeResolution>` and
+supplies its fixed definition through `GetBaseProfile`. Its `StrikeActionHandler.Handle` implements
+`IOpHandler<StrikeActionOp, StrikeResolution>`: after the engine-owned action boundary, it awaits
+`OpHandlerContext.Dispatch` for `ResolveStrikeOp`, `ApplyDamageOp`, loaded-state changes, and MAP,
+then returns the feature outcome value. These are executable production contracts in
+`StrikeRules.cs`, not placeholder APIs. Follow the same separation for a new feature while using
+that feature's real immutable values, validators, and result type.
 
 ## Caller and composition contract
 
