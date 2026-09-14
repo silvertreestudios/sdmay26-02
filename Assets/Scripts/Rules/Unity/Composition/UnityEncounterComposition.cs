@@ -56,6 +56,77 @@ namespace Game.Rules.Unity.Composition
         void Apply();
     }
 
+    /// <summary>Freezes Unity-authored base statistics before rules enrollment commits.</summary>
+    /// <remarks>
+    /// This adapter captures only immutable creature inputs. Conditions, active effects, cover,
+    /// multiple attack penalty, and other situational contributions remain owned by their rule
+    /// modules and are not copied into the base-statistics slice.
+    /// </remarks>
+    internal static class UnityCreatureStatisticsAdapter
+    {
+        internal static CreatureStatisticsState Capture(
+            CreatureComponent creature,
+            CreatureId creatureId
+        )
+        {
+            if (creature == null)
+                throw new ArgumentNullException(nameof(creature));
+            if (creatureId.IsEmpty)
+                throw new ArgumentException(
+                    "A creature ID is required for statistics capture.",
+                    nameof(creatureId)
+                );
+
+            Dictionary<Skill, int> skills = new();
+            foreach (SkillValue value in creature.skills ?? new List<SkillValue>())
+                AddSkill(skills, value.skillName, value.skillMod);
+
+            AddSkill(skills, "athletics", creature.strMod);
+            AddSkill(skills, "acrobatics", creature.dexMod);
+            AddSkill(skills, "stealth", creature.dexMod);
+            AddSkill(skills, "thievery", creature.dexMod);
+            AddSkill(skills, "sleight of hand", creature.dexMod);
+            AddSkill(skills, "sleight", creature.dexMod);
+            AddSkill(skills, "acro", creature.dexMod);
+            AddSkill(skills, "arcana", creature.intMod);
+            AddSkill(skills, "history", creature.intMod);
+            AddSkill(skills, "investigation", creature.intMod);
+            AddSkill(skills, "lore", creature.intMod);
+            AddSkill(skills, "engineering", creature.intMod);
+            AddSkill(skills, "society", creature.intMod);
+            AddSkill(skills, "perception", creature.wisMod);
+            AddSkill(skills, "insight", creature.wisMod);
+            AddSkill(skills, "survival", creature.wisMod);
+            AddSkill(skills, "medicine", creature.wisMod);
+            AddSkill(skills, "nature", creature.wisMod);
+            AddSkill(skills, "deception", creature.chaMod);
+            AddSkill(skills, "intimidation", creature.chaMod);
+            AddSkill(skills, "performance", creature.chaMod);
+            AddSkill(skills, "persuasion", creature.chaMod);
+            AddSkill(skills, "diplomacy", creature.chaMod);
+
+            return new CreatureStatisticsState(
+                creatureId,
+                creature.attackBonus,
+                creature.ac,
+                creature.fortitudeSave + creature.allSaves,
+                creature.reflexSave + creature.allSaves,
+                creature.willSave + creature.allSaves,
+                skills,
+                Array.Empty<Modifier>()
+            );
+        }
+
+        private static void AddSkill(IDictionary<Skill, int> skills, string skillName, int modifier)
+        {
+            if (string.IsNullOrWhiteSpace(skillName))
+                return;
+            Skill skill = Skill.FromName(skillName);
+            if (!skills.ContainsKey(skill))
+                skills.Add(skill, modifier);
+        }
+    }
+
     /// <summary>Collects typed feature contributions while enrollment remains reversible.</summary>
     internal sealed class UnityCombatantEnrollmentBuilder
     {
@@ -67,6 +138,7 @@ namespace Game.Rules.Unity.Composition
         private readonly List<ActiveEffectInstance> activeEffects = new();
         private readonly CompositeLifetime preparationLifetime;
         private readonly CreatureState creatureState;
+        private readonly CreatureStatisticsState statistics;
         private readonly HealthState health;
         private readonly GridPosition position;
         private readonly GridDistance landSpeed;
@@ -75,6 +147,7 @@ namespace Game.Rules.Unity.Composition
             ActionController controller,
             CreatureComponent creature,
             CreatureState creatureState,
+            CreatureStatisticsState statistics,
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
@@ -85,6 +158,12 @@ namespace Game.Rules.Unity.Composition
             Creature = creature ?? throw new ArgumentNullException(nameof(creature));
             this.creatureState =
                 creatureState ?? throw new ArgumentNullException(nameof(creatureState));
+            this.statistics = statistics ?? throw new ArgumentNullException(nameof(statistics));
+            if (statistics.Creature != creatureState.Id)
+                throw new ArgumentException(
+                    "The statistics state must describe the enrollment creature.",
+                    nameof(statistics)
+                );
             this.health = health;
             this.position = position;
             this.landSpeed = landSpeed;
@@ -153,6 +232,7 @@ namespace Game.Rules.Unity.Composition
         internal CombatantRulesState BuildState(int initiativeModifier) =>
             new(
                 creatureState,
+                statistics,
                 health,
                 position,
                 landSpeed,

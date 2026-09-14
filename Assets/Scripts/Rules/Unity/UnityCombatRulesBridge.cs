@@ -733,6 +733,7 @@ namespace Game.Rules.Unity
                 controller,
                 creature,
                 new CreatureState(creatureId, playerId),
+                UnityCreatureStatisticsAdapter.Capture(creature, creatureId),
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet),
@@ -894,6 +895,7 @@ namespace Game.Rules.Unity
         {
             CreatureId id = state.Creature.Id;
             seed.SeedCreature(state.Creature)
+                .SeedStatistics(state.Statistics)
                 .SeedHealth(id, state.Health)
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)

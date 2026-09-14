@@ -31,6 +31,9 @@ namespace Game.Rules.Runtime.Tests
             /// <summary>The creature identity slice.</summary>
             Creature,
 
+            /// <summary>The creature statistics slice.</summary>
+            Statistics,
+
             /// <summary>The health slice.</summary>
             Health,
 
@@ -1334,6 +1337,7 @@ namespace Game.Rules.Runtime.Tests
 
         /// <summary>Verifies every addition-owned state slice is preflighted before any write.</summary>
         [TestCase(AdditionRegistrationCollision.Creature)]
+        [TestCase(AdditionRegistrationCollision.Statistics)]
         [TestCase(AdditionRegistrationCollision.Health)]
         [TestCase(AdditionRegistrationCollision.Position)]
         [TestCase(AdditionRegistrationCollision.LandSpeed)]
@@ -1359,6 +1363,7 @@ namespace Game.Rules.Runtime.Tests
             );
             CombatantRulesState registration = new CombatantRulesState(
                 new CreatureState(Reinforcement, Enemies),
+                Statistics(Reinforcement),
                 new HealthState(10, 10),
                 new GridPosition(3, 0, 2),
                 new GridDistance(25),
@@ -1374,6 +1379,9 @@ namespace Game.Rules.Runtime.Tests
             {
                 case AdditionRegistrationCollision.Creature:
                     seed.SeedCreature(new CreatureState(Reinforcement, Enemies));
+                    break;
+                case AdditionRegistrationCollision.Statistics:
+                    seed.SeedStatistics(Statistics(Reinforcement));
                     break;
                 case AdditionRegistrationCollision.Health:
                     seed.SeedHealth(Reinforcement, new HealthState(7, 10));
@@ -1445,6 +1453,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(
                 dispatcher.Snapshot.Creatures.Count(),
                 Is.EqualTo(before.Creatures.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.Statistics.Count(),
+                Is.EqualTo(before.Statistics.Count())
             );
             Assert.That(dispatcher.Snapshot.Health.Count(), Is.EqualTo(before.Health.Count()));
             Assert.That(
@@ -1990,6 +2002,7 @@ namespace Game.Rules.Runtime.Tests
                         Registration(Hero, Players),
                         new CombatantRulesState(
                             new CreatureState(Enemy, Enemies),
+                            Statistics(Enemy),
                             new HealthState(10, 10),
                             new GridPosition(0, 0, 0),
                             new GridDistance(25),
@@ -2313,6 +2326,7 @@ namespace Game.Rules.Runtime.Tests
             foreach (CreatureId creature in rejectedCreatures)
             {
                 Assert.That(dispatcher.Snapshot.Creatures.Contains(creature), Is.False);
+                Assert.That(dispatcher.Snapshot.Statistics.Contains(creature), Is.False);
                 Assert.That(dispatcher.Snapshot.Health.Contains(creature), Is.False);
                 Assert.That(dispatcher.Snapshot.ActionEconomy.Contains(creature), Is.False);
             }
@@ -2358,6 +2372,7 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, team),
+                Statistics(creature),
                 health,
                 position,
                 new GridDistance(25),
@@ -2377,6 +2392,7 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, team),
+                Statistics(creature),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
@@ -2408,6 +2424,9 @@ namespace Game.Rules.Runtime.Tests
             long order
         ) => new InitiativeEntry(creature, team, roll, 0, order, RoundNumber.First);
 
+        private static CreatureStatisticsState Statistics(CreatureId creature) =>
+            new(creature, 0, 10, 0, 0, 0, new Dictionary<Skill, int>(), Array.Empty<Modifier>());
+
         private static RulesStateSeed BaseSeed() =>
             new RulesStateSeed()
                 .SeedHealth(Hero, new HealthState(10, 10))
@@ -2421,6 +2440,7 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, Enemies),
+                Statistics(creature),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
