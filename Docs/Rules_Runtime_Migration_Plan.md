@@ -82,7 +82,8 @@ $sets = [ordered]@{
     Where-Object Extension -ne '.meta')
   'Assets/KayKit/Runtime' = @(Get-ChildItem -LiteralPath 'Assets/KayKit/Runtime' -Recurse -File |
     Where-Object Extension -ne '.meta')
-  'Assets/UIStuff C#' = @(Get-ChildItem -LiteralPath 'Assets/UIStuff' -Recurse -File -Filter '*.cs')
+  'Assets/UIStuff source' = @(Get-ChildItem -LiteralPath 'Assets/UIStuff' -Recurse -File |
+    Where-Object { $_.Extension -in '.cs', '.orig' })
   'Assets root/runtime support' = @(Get-Item -LiteralPath 'Assets/InputSystem_Actions.cs',
     'Assets/InputSystem_Actions.inputactions', 'Assets/MainGameAssembly.asmdef',
     'Assets/TutorialInfo/Scripts/Readme.cs')
@@ -117,7 +118,7 @@ The resulting closed inventory is:
 | --- | ---: | --- |
 | `Assets/Scripts` | 275 | 271 `.cs`, 2 `.asmdef`, and 2 noncompiled `.orig` conflict artifacts |
 | `Assets/KayKit/Runtime` | 16 | 16 player-runtime C# files |
-| `Assets/UIStuff` C# | 11 | 11 player-runtime C# files under menus, HUD, and character creation |
+| `Assets/UIStuff` source | 12 | 11 player-runtime C# files under menus, HUD, and character creation, plus 1 noncompiled `.orig` conflict artifact |
 | `Assets` root/runtime support | 4 | Generated input C#, its `.inputactions` source, `MainGameAssembly.asmdef`, and `TutorialInfo/Scripts/Readme.cs` |
 | `Assets/Maps/KayKit` | 2 | Authored dungeon-map JSON assigned to scene `TextAsset` fields |
 | `Assets/KayKit/Catalogs` | 5 | One dungeon topology catalog and four presentation/source catalogs |
@@ -135,7 +136,8 @@ An independent recursive `.cs` sweep under `Assets` found 397 C# files: 83 in th
 14 editor-only files in `Editor` path segments, and 300 player-runtime files. The latter are
 accounted for exactly by 271 under `Assets/Scripts`, 16 under `Assets/KayKit/Runtime`, 11 under
 `Assets/UIStuff`, `Assets/InputSystem_Actions.cs`, and `Assets/TutorialInfo/Scripts/Readme.cs`.
-The 14 editor-only files are tooling, not player entry points. `Assets/TextMesh Pro/Resources`
+The UI source selection additionally retains `Assets/UIStuff/HUD/HUDController.cs.orig`. The 14
+editor-only files are tooling, not player entry points. `Assets/TextMesh Pro/Resources`
 contains nine imported package resources and is not authored game data. Serialized creature seeds,
 scene placements, map settings, and topology catalogs are rule inputs and are explicitly inventoried
 below. Other scenes, prefabs, UI documents/styles, models, and art were inspected where they
@@ -148,7 +150,7 @@ joined with LF including a final LF, encoded as UTF-8 without BOM, and hashed wi
 | --- | --- |
 | `Assets/Scripts` | `af1c8e8e1423d6a0ef89dd670448396a88a01043ca6e7d59be10f475b10f03f0` |
 | `Assets/KayKit/Runtime` | `14d7ae7e097e91433b800c27d910a32ed6a16f6e2e456179910deebd4c35505e` |
-| `Assets/UIStuff` C# | `4e6a2d784e4193dfd3d5a8c39e97b082615900617e4d48893f99d72ccbd2c6a4` |
+| `Assets/UIStuff` source | `63c2accd74d1c99884f2959d4bab0bc3b3ba9a5877fadb7df113dbad62465ba8` |
 | `Assets` root/runtime support | `ad21d95d2faefcda779fdc2f0e8b37a61584f1ec8643007160e8f143b53e732c` |
 | `Assets/Maps/KayKit` | `ba676a472a013edc90054b46528b381429aede35796661343c064eea8d2dd068` |
 | `Assets/KayKit/Catalogs` | `b7472687feebf34ec85c702b05d803e4892308d482b1b54506acc1a32412e928` |
@@ -194,7 +196,7 @@ proof.
 | Dungeon persistence | 8 | Every non-meta file in `Assets/Scripts/DungeonPersistence` | General save/caller integration; must follow authority migrations |
 | General Unity infrastructure | 21 | The five root files in `Assets/Scripts` (`AssemblyInfo.cs`, `AudioManager.cs`, `Movement.cs`, `SceneTransitionManager.cs`, and `UnversalEvents.cs`), `Assets/Scripts/Camera/CameraManager.cs`, every non-meta file in `Assets/Scripts/Interfaces`, and every non-meta file in `Assets/Scripts/Utility` | No rules migration unless a caller changes |
 | KayKit player runtime | 16 | Every C# file in `Assets/KayKit/Runtime`: animation/equipment presentation, dungeon document/catalog parsing, map/line-of-sight adapters, and door visual/collider state | Presentation and topology adapters; combat door legality/cost is transitional behavior described below |
-| UI, menus, and character creation | 11 | Every C# file under `Assets/UIStuff`: `CharacterCreation/CharacterCreationScript.cs`, `CharacterCreation/TutorialManager.cs`, `HowToPlayMenu/HowToPlayMenuControl.cs`, `HUD/CombatLog.cs`, `HUD/CombatLogInterface.cs`, `HUD/HUDController.cs`, `MainMenu/MainMenuControl.cs`, `SettingsMenu/SettingsMenuControl.cs`, `StatusMenu/StatusMenuControl.cs`, `StoryBoard/StoryBoardControl.cs`, and `WinScreen/WinScreenControl.cs` | Presentation/callers plus the disconnected legacy character-build calculator described below |
+| UI, menus, and character creation | 12 | Every C# file under `Assets/UIStuff`: `CharacterCreation/CharacterCreationScript.cs`, `CharacterCreation/TutorialManager.cs`, `HowToPlayMenu/HowToPlayMenuControl.cs`, `HUD/CombatLog.cs`, `HUD/CombatLogInterface.cs`, `HUD/HUDController.cs`, `MainMenu/MainMenuControl.cs`, `SettingsMenu/SettingsMenuControl.cs`, `StatusMenu/StatusMenuControl.cs`, `StoryBoard/StoryBoardControl.cs`, and `WinScreen/WinScreenControl.cs`; plus retained `HUD/HUDController.cs.orig` | Presentation/callers plus the disconnected legacy character-build calculator described below; the `.orig` file is a noncompiled conflict artifact, not alternate HUD behavior |
 | Root/runtime support | 4 | `Assets/InputSystem_Actions.cs`, `Assets/InputSystem_Actions.inputactions`, `Assets/MainGameAssembly.asmdef`, and `Assets/TutorialInfo/Scripts/Readme.cs` | Generated input API/source configuration, production assembly boundary, and inert tutorial-template metadata |
 
 Within the UI row, `HUDController` reads the current controller action list, invokes chosen actions,
@@ -204,11 +206,12 @@ persistence service. The remaining menu/HUD scripts are presentation and scene-f
 for the legacy character-build calculations mapped below. These callers must switch with an
 authority migration but must not reproduce operation legality or outcomes.
 
-These rows total 306 checked-in production/source inputs: 300 player-runtime C# files, three
-production assembly definitions, one Input System source asset, and two `.orig` artifacts. The two
-tracked `.orig` files contain conflict markers and are not compiled. They are historical copies,
-not alternate Stride or Strike behavior. Removing them is repository cleanup outside this migration
-plan, not a compatibility step.
+These rows total 307 checked-in production/source inputs: 300 player-runtime C# files, three
+production assembly definitions, one Input System source asset, and three `.orig` artifacts. The
+three tracked `.orig` files contain conflict markers and are imported as default assets rather than
+compiled scripts. They are historical copies,
+not alternate Stride, Strike, or HUD behavior. Removing them is repository cleanup outside this
+migration plan, not a compatibility step.
 
 ### Rules, character-build, and presentation data inventory
 
@@ -805,19 +808,22 @@ and shared test fixtures after a batch is ready.
   action-economy authorities.
 - **Necessary integration:** an explicitly approved Open Door feature should dispatch one action
   operation/profile so turn, actor, affordability, and cost share the normal validation/cost/handler
-  lifecycle. Its resolved handler/observer may then open the Unity door, persist the stable ID,
-  activate newly reachable rooms, and refresh topology in a defined post-commit order. Preserve the
-  current combat criteria unless a separate product decision changes them; do not route exploration
-  opening through combat action economy and do not add a general door-state slice without a proven
-  rules consumer.
+  lifecycle. Its feature handler must remain Unity-free and return a pure structural Open Door
+  outcome after the engine commits the action cost. A feature-owned resolved-operation observer,
+  not the handler, may then open the Unity door, persist the stable ID, activate newly reachable
+  rooms, and refresh topology in a defined post-resolution order. Preserve the current combat
+  criteria unless a separate product decision changes them; do not route exploration opening
+  through combat action economy and do not add a general door-state slice without a proven rules
+  consumer.
 - **Verification/fixtures:** `DungeonDoorInteractionPolicyTests` covers mode, actor, life, adjacency,
-  open state, cost, and affordability in isolation. Missing coverage is action-lifecycle atomicity,
-  cost failure without world mutation, exact current-turn identity, and PlayMode verification that
-  projection, persistence, reachable-room activation, and topology refresh follow a committed
-  operation.
+  open state, cost, and affordability in isolation. Missing coverage is a pure handler-outcome test,
+  action-lifecycle atomicity, cost failure without observer/world mutation, exact current-turn
+  identity, and PlayMode verification that the feature-owned observer applies door projection,
+  persistence, reachable-room activation, and topology refresh only after successful resolution.
 - **Exact future owner:** a feature-owned Open Door rules module/action under
-  `Assets/Scripts/Rules/Runtime` and a narrow Unity adapter own the combat operation. The general
-  dungeon caller owns `DungeonEncounterRuntimeController`; KayKit retains door visual/collider and
+  `Assets/Scripts/Rules/Runtime` owns the pure combat operation and outcome; a feature-owned Unity
+  observer owns the decision to apply that resolved outcome. The general dungeon caller owns the
+  world-mutation API in `DungeonEncounterRuntimeController`; KayKit retains door visual/collider and
   map-topology projection.
 
 ### Teams, flanking, targeting, line of effect, cover, and areas
@@ -1005,8 +1011,8 @@ These are decisions to make before the named migration, not implicit authorizati
    or create dual restore paths.
 9. **Data-only catalog scope:** 84 loaded spell definitions and unsupported item rule keys are not an
    implementation backlog by themselves. A human must select any additional vertical feature.
-10. **Tracked `.orig` files and commented `LineOfSight`:** these are cleanup gaps, not migration
-    foundations or executable fallbacks.
+10. **Three tracked `.orig` files and commented `LineOfSight`:** these are cleanup gaps, not
+    migration foundations or executable fallbacks.
 11. **Legacy character-creation authority:** decide whether the disconnected UI builder is intended
     to create playable characters and which build rules it owns before connecting or migrating it.
     Its partial `PlayerCharacter` must not silently become a second preparation format.
@@ -1014,7 +1020,8 @@ These are decisions to make before the named migration, not implicit authorizati
     it. In particular, choose Infuse Vitality's target-count/selection behavior instead of treating
     either its one-target selector or its direct-call multi-target acceptance as authoritative.
 13. **Combat door operation boundary:** the current criteria and one-action cost are known behavior,
-    but moving them into the action lifecycle requires an approved Open Door vertical and coordinated
+    but moving them into the action lifecycle requires an approved Open Door vertical, a pure
+    handler outcome, a feature-owned external-mutation observer, and coordinated
     projection/persistence tests; this plan does not perform that gameplay correction.
 
 ## Verification contract for future migrations
