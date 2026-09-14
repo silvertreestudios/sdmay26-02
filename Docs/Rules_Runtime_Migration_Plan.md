@@ -167,13 +167,20 @@ joined with LF including a final LF, encoded as UTF-8 without BOM, and hashed wi
 The exact hash operation for each selection was:
 
 ```powershell
-$paths = [System.Collections.Generic.List[string]]::new()
-$entry.Value | ForEach-Object {
+foreach ($entry in $sets.GetEnumerator()) {
+  $paths = [System.Collections.Generic.List[string]]::new()
+  $entry.Value | ForEach-Object {
     $paths.Add([IO.Path]::GetRelativePath((Get-Location).Path, $_.FullName).Replace('\', '/'))
+  }
+  $paths.Sort([StringComparer]::Ordinal)
+  $bytes = [Text.UTF8Encoding]::new($false).GetBytes(([string]::Join("`n", $paths) + "`n"))
+  [pscustomobject]@{
+    Selection = $entry.Key
+    Files = $paths.Count
+    PathInventorySHA256 =
+      [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+  }
 }
-$paths.Sort([StringComparer]::Ordinal)
-$bytes = [Text.UTF8Encoding]::new($false).GetBytes(([string]::Join("`n", $paths) + "`n"))
-[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 ```
 
 Every production-code file was included in one of the subsystem rows below. Final validation
@@ -458,7 +465,9 @@ Each row names the present behavior, not wider PF2e completeness.
 
 ### Stride and movement
 
-- **Current behavior and entry points:** `RulesStrideAction` creates a
+- **Current behavior and entry points:** `PlayerActionController.Awake` and
+  `AIActionController.Awake` each install `RulesStrideAction` into their controller-owned action
+  list. The action creates a
   `StridePathSelectionRequest` and dispatches `StrideActionOp`; planned/AI selectors use
   `ISelectionResolver`. `UnityStrideProjectionObserver` projects each committed `TokenMovedFact`.
   `UnityCombatRulesBridge.CreateExplorationStride` builds a temporary one-action composition for
@@ -486,10 +495,11 @@ Each row names the present behavior, not wider PF2e completeness.
 ### Strike, reload, ammunition, MAP, and attack presentation
 
 - **Current behavior and entry points:** `UnityStrikeEncounterModule` prepares every weapon plus
-  unarmed `StrikeItemDefinition`, equipment/ammunition state, and installed
-  `RulesStrikeAction`/`RulesReloadWeaponAction`. `StrikeActionOp`, `ResolveStrikeOp`, and
-  `ReloadActionOp` own rules resolution. `UnityStrikePresentationObserver` animates and formats the
-  result.
+  unarmed `StrikeItemDefinition` and equipment/ammunition state. During common initial/reinforcement
+  enrollment it contributes a `UnityStrikeActionInstaller` plan; after the rules registration
+  commits, that plan reconciles controller-owned `RulesStrikeAction` and
+  `RulesReloadWeaponAction` entries. `StrikeActionOp`, `ResolveStrikeOp`, and `ReloadActionOp` own
+  rules resolution. `UnityStrikePresentationObserver` animates and formats the result.
 - **Actual rules behavior:** target legality checks enemy identity, range, line of effect/cover, and
   current topology through `UnityStrikeContext`; attack checks use typed modifiers and normal or
   agile MAP; miss still spends and advances MAP; critical doubles base damage before deadly; fatal
@@ -528,8 +538,11 @@ Each row names the present behavior, not wider PF2e completeness.
   `PreparedSpellBook` authorizes exact `SpellReference`/slot pools. `RulesCastSpellAction` dispatches
   `CastSpellActionOp`. The action validates definition, rank, variant, preparation, targets, and
   resources before costs. `UnitySpellcastingEncounterModule` enrolls slots, reconstructs supported
-  legacy `SpellEffectController` timed effects as rules registrations, and installs supported
-  actions. `UnityResolvedSpellCastPresentationObserver` and attack/light observers project outcomes.
+  legacy `SpellEffectController` timed effects as rules registrations, and contributes a
+  `UnitySpellActionInstaller` plan for both initial participants and reinforcements. After the rules
+  registration commits, that plan removes every legacy `CastSpellAction` and reconciles only the
+  generically supported `RulesCastSpellAction` entries. `UnityResolvedSpellCastPresentationObserver`
+  and attack/light observers project outcomes.
 - **Actual rules behavior:** cantrips cost actions but no slot; ranked spells atomically spend the
   exact authorized slot and actions; interruption after costs retains those committed costs;
   self-target effect directives ignore player-supplied target IDs. `ResolveSpellAttackOp` uses the
@@ -565,8 +578,9 @@ Each row names the present behavior, not wider PF2e completeness.
 
 ### Rage and Quick-Tempered
 
-- **Current behavior and entry points:** `UnityRageEncounterModule` contributes initial bindings and
-  configures `RageRules`; `RulesRageAction` dispatches `RageActionOp`.
+- **Current behavior and entry points:** `CreatureComponent.InitializeRuntimeActions` installs one
+  `RulesRageAction` when the prepared creature owns Rage. `UnityRageEncounterModule` contributes
+  initial bindings and configures `RageRules`; the installed action dispatches `RageActionOp`.
   `QuickTemperedInitiativeAssignedListener` reacts to committed initiative assignment.
 - **Actual rules behavior:** ordinary Rage validates ownership and Fatigued restriction,
   spends one action, creates the Rage effect, grants source temporary HP, and ends after ten source
@@ -757,8 +771,11 @@ Each row names the present behavior, not wider PF2e completeness.
 ### Dormant legacy Unity spell implementations
 
 `SpellRegistry` contains six non-rules-native spell implementations, but no installed production
-action can reach them. Creature initialization initially adds legacy `CastSpellAction` instances;
-encounter attachment removes all of them and installs only supported `RulesCastSpellAction`
+action can reach them. `CreatureComponent.InitializeRuntimeActions` invokes
+`CastSpellAction.AddSpellActions`, which initially adds legacy `CastSpellAction` entries only for
+prepared spells recognized by `SpellRegistry`. During common combatant enrollment,
+`UnitySpellcastingEncounterModule` contributes the installation plan that removes all of those
+legacy entries after commit and reconciles only generically supported `RulesCastSpellAction`
 instances, while `SpellcastingRuntime.Cast` rejects legacy resolution during an attached encounter.
 Outside an attached encounter, `ActionController.ActionPoints` returns zero, so the normal legacy
 action call with `spendActions: true` fails its affordability check. A direct programmatic call with
@@ -887,10 +904,20 @@ and shared test fixtures after a batch is ready.
 
 The creature fixtures include Goblin Scuttle, Scamper, Grab, Void Healing, and a kobold Sneak Attack
 passive; the broader item catalog includes Rogue/Cleric feats and class features; the spell catalog
-contains 84 spells. Runtime creature initialization installs only implemented Rage, supported spell
-actions, and encounter Strike/reload actions. String action/reaction/passive lists are otherwise
-display/import data. `DefinedConditions` no-op methods and unsupported rule keys are likewise not
-behavior.
+contains 84 spells. Action installation has separate owners and phases:
+
+- `PlayerActionController.Awake` and `AIActionController.Awake` install the rules-backed Stride.
+- Idempotent `CreatureComponent.InitializeRuntimeActions`, called from creature `Start` or eagerly
+  after JSON materialization, installs Rage when prepared ownership exists and adds only the legacy
+  spell entries whose prepared spells are recognized by `SpellRegistry`.
+- The spellcasting enrollment module prepares the post-commit installation that removes those
+  legacy spell entries and reconciles supported rules-native spell entries for both initial
+  participants and reinforcements.
+- The Strike enrollment module independently prepares the post-commit installation that reconciles
+  rules-backed Strike and required reload entries from the enrolled item definitions.
+
+String action/reaction/passive lists are otherwise display/import data. `DefinedConditions` no-op
+methods and unsupported rule keys are likewise not behavior.
 
 Future work must start from an explicitly selected vertical feature and its existing fixture. It
 must not bulk-register these names, create generic placeholder operations, or infer PF2e scope from
