@@ -17,11 +17,13 @@ namespace Game.Rules.Runtime
     {
         internal RuleDefinition(
             RuleDefinitionId id,
+            IReadOnlyList<Type> effectStateTypes,
             IReadOnlyList<MiddlewareRegistration> middleware,
             IReadOnlyList<FactListenerRegistration> factListeners
         )
         {
             Id = id;
+            EffectStateTypes = effectStateTypes;
             Middleware = middleware;
             FactListeners = factListeners;
         }
@@ -30,6 +32,16 @@ namespace Game.Rules.Runtime
         /// Gets the stable ID referenced by active bindings.
         /// </summary>
         public RuleDefinitionId Id { get; }
+
+        /// <summary>
+        /// Gets the exact immutable state types that active effects using this definition may own.
+        /// </summary>
+        /// <remarks>
+        /// An empty collection means the definition is binding-only and cannot back an active
+        /// effect. Each feature declares this contract during explicit registry composition so
+        /// creation and restored enrollment reject definition/state mismatches before commit.
+        /// </remarks>
+        public IReadOnlyList<Type> EffectStateTypes { get; }
 
         /// <summary>
         /// Gets the definition's immutable middleware registrations.
@@ -51,6 +63,7 @@ namespace Game.Rules.Runtime
             new List<MiddlewareRegistration>();
         private readonly List<FactListenerRegistration> factListeners =
             new List<FactListenerRegistration>();
+        private readonly List<Type> effectStateTypes = new List<Type>();
         private long registrationOrder;
 
         internal RuleDefinitionBuilder(RuleDefinitionId id)
@@ -64,6 +77,25 @@ namespace Game.Rules.Runtime
         /// Gets the stable ID assigned to the definition under construction.
         /// </summary>
         public RuleDefinitionId Id { get; }
+
+        /// <summary>Allows one exact immutable state type on active effects using this definition.</summary>
+        /// <typeparam name="TState">The concrete state type owned by the feature.</typeparam>
+        /// <returns>This definition builder so registrations can be chained.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// An active-effect state type was already declared for this definition.
+        /// </exception>
+        public RuleDefinitionBuilder EffectState<TState>()
+            where TState : IEffectState
+        {
+            Type stateType = typeof(TState);
+            if (effectStateTypes.Count != 0)
+                throw new InvalidOperationException(
+                    $"Definition {Id.Value} already declares active-effect state type "
+                        + $"{effectStateTypes[0].Name}."
+                );
+            effectStateTypes.Add(stateType);
+            return this;
+        }
 
         /// <summary>
         /// Adds one typed middleware extension to this definition.
@@ -159,6 +191,7 @@ namespace Game.Rules.Runtime
             FactListenerRegistration[] listenerCopy = factListeners.ToArray();
             return new RuleDefinition(
                 Id,
+                Array.AsReadOnly(effectStateTypes.ToArray()),
                 Array.AsReadOnly(middlewareCopy),
                 Array.AsReadOnly(listenerCopy)
             );

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -387,9 +388,14 @@ namespace Game.Rules.Runtime
             {
                 SpellEffectDirective directive = definition.Effects[index];
                 CreatureId target = ResolveTarget(directive, frame.Op);
-                string instanceKey = $"{frame.Id.Value}-{index}";
-                ActiveEffectId effectId = new ActiveEffectId($"spell-effect-{instanceKey}");
-                BindingId bindingId = new BindingId($"spell-binding-{instanceKey}");
+                string instanceKey = string.Concat(
+                    frame.Id.Value.ToString(CultureInfo.InvariantCulture),
+                    ":",
+                    index.ToString(CultureInfo.InvariantCulture)
+                );
+                var identity = context.CreateActiveEffectIdentity("spell", instanceKey);
+                ActiveEffectId effectId = identity.EffectId;
+                BindingId bindingId = identity.BindingId;
                 RuleSource source = RuleSource.FromSlug(frame.Op.Spell.Spell.Value);
                 ActiveEffectInstance effect = new ActiveEffectInstance(
                     effectId,

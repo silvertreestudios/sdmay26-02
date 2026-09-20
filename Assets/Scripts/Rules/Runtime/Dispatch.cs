@@ -36,6 +36,7 @@ namespace Game.Rules.Runtime
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private readonly IRollService rollService;
+        private readonly ActiveEffectIdentityScope activeEffectIdentities;
         private readonly IReadOnlyDictionary<Type, IRegistration> registrations;
         private readonly RuleRegistry ruleRegistry;
         private readonly ActionRuntime actionRuntime;
@@ -45,6 +46,7 @@ namespace Game.Rules.Runtime
             IRulesStore store,
             IOpIdProvider ids,
             IRollService rollService,
+            ActiveEffectIdentityScope activeEffectIdentities,
             IDictionary<Type, IRegistration> registrations,
             RuleRegistry ruleRegistry,
             ActionRuntime actionRuntime
@@ -53,6 +55,9 @@ namespace Game.Rules.Runtime
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
             this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
+            this.activeEffectIdentities =
+                activeEffectIdentities
+                ?? throw new ArgumentNullException(nameof(activeEffectIdentities));
             this.registrations = new ReadOnlyDictionary<Type, IRegistration>(
                 new Dictionary<Type, IRegistration>(registrations)
             );
@@ -78,6 +83,11 @@ namespace Game.Rules.Runtime
         /// Gets the human-readable diagnostics associated with <see cref="Trace"/>.
         /// </summary>
         public ResolutionDiagnostics Diagnostics { get; }
+
+        internal (ActiveEffectId EffectId, BindingId BindingId) CreateActiveEffectIdentity(
+            string kind,
+            string localIdentity
+        ) => activeEffectIdentities.Create(kind, localIdentity);
 
         /// <summary>
         /// Dispatches an externally allowed operation as a new root resolution.

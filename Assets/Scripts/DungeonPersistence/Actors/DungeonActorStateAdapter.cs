@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.DungeonPersistence.Repository;
@@ -19,7 +18,7 @@ namespace Game.DungeonPersistence.Actors
     {
         internal static DungeonActorSaveState Capture(
             ActionController controller,
-            Func<GameObject, string> identifyActor
+            Func<GameObject, DungeonRulesActorReference> identifyActor
         )
         {
             if (controller == null)
@@ -29,11 +28,8 @@ namespace Game.DungeonPersistence.Actors
             CreatureComponent creature = RequireCreature(controller);
             HealthState health = creature.Health;
 
-            IReadOnlyList<DungeonConditionSaveState> conditions = CaptureConditions(controller);
-            IReadOnlyList<DungeonTimedEffectSaveState> timedEffects = CaptureTimedEffects(
-                controller,
-                identifyActor
-            );
+            IReadOnlyList<DungeonRulesEffectSaveState> rulesEffects =
+                DungeonRulesEffectPersistence.Capture(controller, identifyActor);
             IReadOnlyList<DungeonPreparedEffectSaveState> preparedEffects =
                 creature.Prepared == null
                     ? Array.Empty<DungeonPreparedEffectSaveState>()
@@ -53,13 +49,7 @@ namespace Game.DungeonPersistence.Actors
                 TemporaryHitPointImmunities = health
                     .TemporaryHitPointImmunities.Select(source => source.Slug)
                     .ToArray(),
-                RageWasActive =
-                    controller.TryGetCombatRules(
-                        out UnityCombatRulesBridge bridge,
-                        out CreatureId creatureId
-                    ) && RageRules.IsRaging(bridge.Snapshot, creatureId),
-                Conditions = conditions.ToArray(),
-                TimedEffects = timedEffects.ToArray(),
+                RulesEffects = rulesEffects.ToArray(),
                 PreparedEffects = preparedEffects.ToArray(),
                 Equipment = CaptureEquipment(creature),
             };
@@ -70,7 +60,7 @@ namespace Game.DungeonPersistence.Actors
             DungeonActorSaveState saved,
             int currentHitPoints,
             bool isDefeated,
-            Func<string, GameObject> resolveActor
+            Func<DungeonRulesActorReference, GameObject> resolveActor
         )
         {
             if (controller == null)
@@ -97,21 +87,14 @@ namespace Game.DungeonPersistence.Actors
             RuleSource[] immunities = saved
                 .TemporaryHitPointImmunities.Select(RuleSource.FromSlug)
                 .ToArray();
-            HealthState health = RageRules.NormalizeRestoredHealth(
-                new HealthState(
-                    currentHitPoints,
-                    creature.maxHp,
-                    saved.TemporaryHitPoints,
-                    temporarySource,
-                    immunities
-                ),
-                saved.RageWasActive
+            HealthState health = new(
+                currentHitPoints,
+                creature.maxHp,
+                saved.TemporaryHitPoints,
+                temporarySource,
+                immunities
             );
 
-            ConditionApplicationSnapshot[] conditions = PrepareConditions(saved.Conditions);
-            ActiveSpellEffect[] timedEffects = saved
-                .TimedEffects.Select(effect => RestoreTimedEffect(effect, resolveActor))
-                .ToArray();
             ActivePf2eEffect[] preparedEffects = saved
                 .PreparedEffects.Select(effect => new ActivePf2eEffect(
                     effect.Name,
@@ -154,19 +137,10 @@ namespace Game.DungeonPersistence.Actors
             return () =>
             {
                 creature.InitializeHealthBeforeEncounter(health);
-                Conditions conditionController =
-                    controller.GetComponent<Conditions>()
-                    ?? controller.gameObject.AddComponent<Conditions>();
-                conditionController.RestoreApplications(conditions);
-
-                SpellEffectController spellEffects =
-                    controller.GetComponent<SpellEffectController>();
-                if (spellEffects != null || timedEffects.Length > 0)
-                {
-                    (
-                        spellEffects ?? SpellEffectController.GetOrAdd(controller.gameObject)
-                    ).RestoreEffects(timedEffects);
-                }
+                DungeonRulesEffectSeed effectSeed =
+                    controller.GetComponent<DungeonRulesEffectSeed>()
+                    ?? controller.gameObject.AddComponent<DungeonRulesEffectSeed>();
+                effectSeed.Initialize(saved.RulesEffects, resolveActor);
 
                 creature.Prepared?.RestoreActiveEffects(preparedEffects);
                 creature.equippedLeftHand = leftHand;
@@ -178,122 +152,6 @@ namespace Game.DungeonPersistence.Actors
                 if (isDefeated)
                     creature.RestoreDefeatBeforeEncounter();
             };
-        }
-
-        private static IReadOnlyList<DungeonConditionSaveState> CaptureConditions(
-            ActionController controller
-        )
-        {
-            Conditions conditions = controller.GetComponent<Conditions>();
-            if (conditions == null)
-                return Array.Empty<DungeonConditionSaveState>();
-
-            Dictionary<ConditionSource, string> keys = new();
-            List<DungeonConditionSaveState> captured = new();
-            foreach (ConditionApplicationSnapshot application in conditions.CaptureApplications())
-            {
-                if (!keys.TryGetValue(application.Source, out string sourceKey))
-                {
-                    sourceKey = $"source-{keys.Count + 1:D4}";
-                    keys.Add(application.Source, sourceKey);
-                }
-                captured.Add(
-                    new DungeonConditionSaveState
-                    {
-                        ConditionId = application.ConditionId,
-                        SourceKey = sourceKey,
-                    }
-                );
-            }
-            return captured;
-        }
-
-        private static ConditionApplicationSnapshot[] PrepareConditions(
-            IReadOnlyList<DungeonConditionSaveState> saved
-        )
-        {
-            Dictionary<string, ConditionSource> sources = new(StringComparer.Ordinal);
-            return saved
-                .Select(application =>
-                {
-                    if (!sources.TryGetValue(application.SourceKey, out ConditionSource source))
-                    {
-                        source = new ConditionSource();
-                        sources.Add(application.SourceKey, source);
-                    }
-                    return new ConditionApplicationSnapshot(application.ConditionId, source);
-                })
-                .ToArray();
-        }
-
-        private static IReadOnlyList<DungeonTimedEffectSaveState> CaptureTimedEffects(
-            ActionController controller,
-            Func<GameObject, string> identifyActor
-        )
-        {
-            SpellEffectController effects = controller.GetComponent<SpellEffectController>();
-            if (effects == null)
-                return Array.Empty<DungeonTimedEffectSaveState>();
-
-            return effects
-                .Effects.Where(effect => !effect.Consumed)
-                .Select(effect =>
-                {
-                    string sourceActorId =
-                        effect.Source != null
-                            ? identifyActor(effect.Source)
-                            : effect.PersistentSourceActorId;
-                    if (string.IsNullOrWhiteSpace(sourceActorId))
-                    {
-                        throw new InvalidOperationException(
-                            $"Timed effect '{effect.SourceLabel}' has no source actor."
-                        );
-                    }
-                    return new DungeonTimedEffectSaveState
-                    {
-                        Kind = GetEffectKind(effect),
-                        SourceActorId = sourceActorId,
-                        RemainingTurnStarts = effect.RemainingTargetTurnStarts,
-                    };
-                })
-                .ToArray();
-        }
-
-        private static string GetEffectKind(ActiveSpellEffect effect)
-        {
-            return effect switch
-            {
-                ShieldSpellEffect => "shield",
-                GuidanceSpellEffect => "guidance",
-                GuidanceImmunitySpellEffect => "guidance-immunity",
-                BlessSpellEffect => "bless",
-                InfuseVitalitySpellEffect => "infuse-vitality",
-                _ => throw new InvalidOperationException(
-                    $"Timed effect type '{effect.GetType().Name}' is not persistable."
-                ),
-            };
-        }
-
-        private static ActiveSpellEffect RestoreTimedEffect(
-            DungeonTimedEffectSaveState saved,
-            Func<string, GameObject> resolveActor
-        )
-        {
-            GameObject source = resolveActor(saved.SourceActorId);
-            ActiveSpellEffect effect = saved.Kind switch
-            {
-                "shield" => new ShieldSpellEffect(source),
-                "guidance" => new GuidanceSpellEffect(source),
-                "guidance-immunity" => new GuidanceImmunitySpellEffect(source),
-                "bless" => new BlessSpellEffect(source),
-                "infuse-vitality" => new InfuseVitalitySpellEffect(source),
-                _ => throw new InvalidOperationException(
-                    $"Timed effect kind '{saved.Kind}' is not supported."
-                ),
-            };
-            effect.RestorePersistentSource(saved.SourceActorId, source);
-            effect.RemainingTargetTurnStarts = saved.RemainingTurnStarts;
-            return effect;
         }
 
         private static DungeonEquipmentSaveState CaptureEquipment(CreatureComponent creature)

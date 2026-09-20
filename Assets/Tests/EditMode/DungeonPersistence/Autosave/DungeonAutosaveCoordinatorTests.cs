@@ -1426,8 +1426,7 @@ public sealed class DungeonAutosaveCoordinatorTests
         {
             TemporaryHitPointSource = string.Empty,
             TemporaryHitPointImmunities = Array.Empty<string>(),
-            Conditions = Array.Empty<DungeonConditionSaveState>(),
-            TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            RulesEffects = Array.Empty<DungeonRulesEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {

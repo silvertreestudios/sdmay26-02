@@ -232,7 +232,7 @@ namespace Game.Rules.Runtime.Tests
         private static RuleRegistryBuilder CreateRegistryBuilder()
         {
             RuleRegistryBuilder builder = new();
-            builder.Define(EffectDefinition);
+            builder.Define(EffectDefinition).EffectState<SpellEffectState>();
             return builder;
         }
 

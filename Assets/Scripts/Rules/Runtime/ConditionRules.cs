@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
@@ -131,10 +132,14 @@ namespace Game.Rules.Runtime
                     throw new InvalidOperationException(
                         "Condition application requires registered target and source creatures."
                     );
-                // Frames are unique even for several applications in one root operation.
-                ActiveEffectId id = new($"condition-effect:{frame.Id.Value}");
+                // Frames are unique even for several applications in one root operation. The
+                // dispatcher scope keeps the same local frame numbers unique across encounters.
+                var identity = context.CreateActiveEffectIdentity(
+                    "condition",
+                    frame.Id.Value.ToString(CultureInfo.InvariantCulture)
+                );
                 ActiveEffectInstance effect = new(
-                    id,
+                    identity.EffectId,
                     DefinitionId,
                     op.SourceCreature,
                     op.Source,
@@ -142,10 +147,10 @@ namespace Game.Rules.Runtime
                     op.State
                 );
                 ActiveRuleBinding binding = new(
-                    new BindingId(id.Value),
+                    identity.BindingId,
                     DefinitionId,
                     op.Target,
-                    id,
+                    identity.EffectId,
                     op.Source,
                     frame.Id.Value
                 );

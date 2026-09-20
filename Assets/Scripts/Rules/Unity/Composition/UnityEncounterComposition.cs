@@ -65,11 +65,15 @@ namespace Game.Rules.Unity.Composition
         private readonly List<EquipmentState> equipment = new();
         private readonly List<AmmunitionState> ammunition = new();
         private readonly List<ActiveEffectInstance> activeEffects = new();
+        private readonly List<ActiveEffectTimingRestore> activeEffectTimings = new();
+        private readonly HashSet<CreatureId> externalEffectReferences = new();
+        private readonly List<RegistrationToken> durableReservations = new();
         private readonly CompositeLifetime preparationLifetime;
         private readonly CreatureState creatureState;
         private readonly HealthState health;
         private readonly GridPosition position;
         private readonly GridDistance landSpeed;
+        private readonly ActiveEffectIdentityScope activeEffectIdentities;
 
         internal UnityCombatantEnrollmentBuilder(
             ActionController controller,
@@ -78,6 +82,7 @@ namespace Game.Rules.Unity.Composition
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
+            ActiveEffectIdentityScope activeEffectIdentities,
             CompositeLifetime preparationLifetime
         )
         {
@@ -88,6 +93,9 @@ namespace Game.Rules.Unity.Composition
             this.health = health;
             this.position = position;
             this.landSpeed = landSpeed;
+            this.activeEffectIdentities =
+                activeEffectIdentities
+                ?? throw new ArgumentNullException(nameof(activeEffectIdentities));
             this.preparationLifetime =
                 preparationLifetime ?? throw new ArgumentNullException(nameof(preparationLifetime));
         }
@@ -96,9 +104,31 @@ namespace Game.Rules.Unity.Composition
         internal CreatureComponent Creature { get; }
         internal CreatureId CreatureId => creatureState.Id;
 
+        /// <summary>Creates a new effect identity in the owning bridge's global namespace.</summary>
+        internal (ActiveEffectId EffectId, BindingId BindingId) CreateActiveEffectIdentity(
+            string kind,
+            string localIdentity
+        ) => activeEffectIdentities.Create(kind, localIdentity);
+
         /// <summary>Retains reversible feature preparation until success or rollback.</summary>
         internal TResource Own<TResource>(TResource resource)
             where TResource : IDisposable => preparationLifetime.Add(resource);
+
+        /// <summary>
+        /// Registers a provisional association that becomes durable with the combatant addition.
+        /// </summary>
+        /// <remarks>
+        /// The rollback runs when any later preparation or addition step fails. The enrollment
+        /// plan retains the token only after the rules snapshot proves that the atomic batch
+        /// committed, including when a post-commit notification subsequently throws.
+        /// </remarks>
+        internal void Reserve(Action rollback)
+        {
+            RegistrationToken reservation = preparationLifetime.Add(
+                new RegistrationToken(rollback)
+            );
+            durableReservations.Add(reservation);
+        }
 
         /// <summary>Adds feature-owned spell-slot state to the atomic combatant registration.</summary>
         internal void AddSpellSlots(IEnumerable<SpellSlotState> states)
@@ -140,6 +170,25 @@ namespace Game.Rules.Unity.Composition
             activeEffects.AddRange(effects);
         }
 
+        /// <summary>Adds exact remaining schedules for restored active effects.</summary>
+        internal void AddActiveEffectTimings(IEnumerable<ActiveEffectTimingRestore> timings)
+        {
+            if (timings == null)
+                throw new ArgumentNullException(nameof(timings));
+            activeEffectTimings.AddRange(timings);
+        }
+
+        /// <summary>
+        /// Adds stable effect actor references that are not live combatants in this encounter.
+        /// </summary>
+        internal void AddExternalEffectReferences(IEnumerable<CreatureId> references)
+        {
+            if (references == null)
+                throw new ArgumentNullException(nameof(references));
+            foreach (CreatureId reference in references)
+                externalEffectReferences.Add(reference);
+        }
+
         /// <summary>Adds one fully prepared Unity installation.</summary>
         internal void AddInstallation(IUnityCombatantInstallationContribution contribution) =>
             installations.Add(
@@ -148,6 +197,8 @@ namespace Game.Rules.Unity.Composition
 
         internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations =>
             installations;
+
+        internal IReadOnlyList<RegistrationToken> DurableReservations => durableReservations;
 
         /// <summary>Freezes the prepared base and feature contributions into one immutable state.</summary>
         internal CombatantRulesState BuildState(int initiativeModifier) =>
@@ -161,7 +212,9 @@ namespace Game.Rules.Unity.Composition
                 ruleBindings,
                 equipment,
                 ammunition,
-                activeEffects
+                activeEffects,
+                activeEffectTimings,
+                externalEffectReferences.ToArray()
             );
     }
 
