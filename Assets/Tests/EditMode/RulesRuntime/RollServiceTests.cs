@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -111,6 +112,35 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public void DataBackedParsersIgnoreAmbientCultureAndRejectLocalizedShapes()
+        {
+            CultureInfo originalCulture = CultureInfo.CurrentCulture;
+            CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;
+
+            try
+            {
+                CultureInfo french = CultureInfo.GetCultureInfo("fr-FR");
+                CultureInfo.CurrentCulture = french;
+                CultureInfo.CurrentUICulture = french;
+
+                Assert.That(DiceExpression.TryParse("2d4", out DiceExpression dice), Is.True);
+                Assert.That(dice, Is.EqualTo(new DiceExpression(2, 4)));
+                Assert.That(DistanceValues.TryParseFeet("60 feet", out int feet), Is.True);
+                Assert.That(feet, Is.EqualTo(60));
+
+                Assert.That(DiceExpression.TryParse("2,0d4", out dice), Is.False);
+                Assert.That(dice, Is.EqualTo(default(DiceExpression)));
+                Assert.That(DistanceValues.TryParseFeet("60,0 feet", out feet), Is.False);
+                Assert.That(feet, Is.Zero);
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = originalCulture;
+                CultureInfo.CurrentUICulture = originalUiCulture;
+            }
+        }
+
+        [Test]
         public void SeededRuntimeSourceProducesOnlyValuesInTheRequestedRange()
         {
             RandomRollService rolls = new RandomRollService(12345);
@@ -121,6 +151,30 @@ namespace Game.Rules.Runtime.Tests
                 Assert.That(result.Values, Has.Count.EqualTo(3));
                 Assert.That(result.Values.All(value => value >= 1 && value <= 8), Is.True);
             }
+        }
+
+        [Test]
+        public void SeededRuntimeRollSourcesRepeatSequencesWithoutSharingState()
+        {
+            const int seed = 1977;
+            RandomRollService first = new RandomRollService(seed);
+            RandomRollService second = new RandomRollService(seed);
+            RandomRollService control = new RandomRollService(seed);
+
+            RollResult firstOpening = first.Roll(DiceExpressions.D20);
+            RollResult secondOpening = second.Roll(DiceExpressions.D20);
+            RollResult controlOpening = control.Roll(DiceExpressions.D20);
+
+            Assert.That(firstOpening, Is.EqualTo(controlOpening));
+            Assert.That(secondOpening, Is.EqualTo(controlOpening));
+
+            first.Roll(new DiceExpression(3, 6));
+
+            Assert.That(
+                second.Roll(new DiceExpression(2, 8)),
+                Is.EqualTo(control.Roll(new DiceExpression(2, 8))),
+                "Advancing one seeded source must not advance another source with the same seed."
+            );
         }
 
         [Test]

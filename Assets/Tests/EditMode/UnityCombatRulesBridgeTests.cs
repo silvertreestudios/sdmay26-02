@@ -47,6 +47,7 @@ public sealed class UnityCombatRulesBridgeTests
                         new CreatureId("initial"),
                         new PlayerId("module-order-player")
                     ),
+                    Statistics(new CreatureId("initial")),
                     new HealthState(1, 1),
                     new GridPosition(0, 0, 0),
                     new GridDistance(0),
@@ -61,6 +62,7 @@ public sealed class UnityCombatRulesBridgeTests
                         new CreatureId("reinforcement"),
                         new PlayerId("module-order-player")
                     ),
+                    Statistics(new CreatureId("reinforcement")),
                     new HealthState(1, 1),
                     new GridPosition(1, 0, 0),
                     new GridDistance(0),
@@ -131,6 +133,55 @@ public sealed class UnityCombatRulesBridgeTests
             CreatureId reinforcementId = bridge.GetCreatureId(reinforcement);
             AssertFeatureState(bridge.Snapshot, initialId);
             AssertFeatureState(bridge.Snapshot, reinforcementId);
+            bridge.ReleaseOwnership();
+        }
+        finally
+        {
+            Object.DestroyImmediate(initialObject);
+            Object.DestroyImmediate(anchorObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void InitialAndReinforcementEnrollmentCaptureImmutableCompleteBaseStatistics()
+    {
+        GameObject initialObject = new GameObject("statistics-initial");
+        GameObject anchorObject = new GameObject("statistics-anchor");
+        GameObject reinforcementObject = new GameObject("statistics-reinforcement");
+        try
+        {
+            BridgeTestActionController initial = ConfigureCombatant(
+                initialObject,
+                "Players",
+                Vector3Int.zero
+            );
+            BridgeTestActionController anchor = ConfigureCombatant(
+                anchorObject,
+                "Enemies",
+                Vector3Int.right
+            );
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Players",
+                new Vector3Int(2, 0, 0)
+            );
+            ConfigureStatistics(initialObject.GetComponent<CreatureComponent>(), 0);
+            ConfigureStatistics(reinforcementObject.GetComponent<CreatureComponent>(), 10);
+            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+                new ActionController[] { initial, anchor },
+                CreateTiles(3),
+                new ScriptedRollService(20, 1, 10),
+                "Players"
+            );
+            bridge.AdvanceEncounter();
+
+            bridge.AddCombatants(new ActionController[] { reinforcement });
+            ConfigureStatistics(initialObject.GetComponent<CreatureComponent>(), 20);
+            ConfigureStatistics(reinforcementObject.GetComponent<CreatureComponent>(), 30);
+
+            AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(initial), 0);
+            AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(reinforcement), 10);
             bridge.ReleaseOwnership();
         }
         finally
@@ -1247,6 +1298,8 @@ public sealed class UnityCombatRulesBridgeTests
             CreatureId id = bridge.GetCreatureId(controller);
             RecordingMovementObserver observer = new RecordingMovementObserver();
 
+            Assert.That(bridge.Snapshot.Statistics.Contains(id), Is.True);
+
             bool resolved = await bridge.DispatchProjectedStride(
                 id,
                 new MovementPath(
@@ -1473,6 +1526,48 @@ public sealed class UnityCombatRulesBridgeTests
         team.Name = teamName;
         return combatant.AddComponent<BridgeTestActionController>();
     }
+
+    private static void ConfigureStatistics(CreatureComponent creature, int offset)
+    {
+        creature.attackBonus = 7 + offset;
+        creature.ac = 18 + offset;
+        creature.fortitudeSave = 5 + offset;
+        creature.reflexSave = 6 + offset;
+        creature.willSave = 4 + offset;
+        creature.allSaves = 1;
+        creature.strMod = 2 + offset;
+        creature.dexMod = 3 + offset;
+        creature.intMod = 5 + offset;
+        creature.wisMod = 4 + offset;
+        creature.skills = new List<SkillValue>
+        {
+            new SkillValue { skillName = "Perception", skillMod = 9 + offset },
+        };
+    }
+
+    private static void AssertStatistics(RulesSnapshot snapshot, CreatureId creature, int offset)
+    {
+        CreatureStatisticsState statistics = snapshot.Statistics[creature];
+        Assert.That(statistics.Creature, Is.EqualTo(creature));
+        Assert.That(statistics.AttackModifier, Is.EqualTo(7 + offset));
+        Assert.That(statistics.ArmorClass, Is.EqualTo(18 + offset));
+        Assert.That(statistics.FortitudeModifier, Is.EqualTo(6 + offset));
+        Assert.That(statistics.ReflexModifier, Is.EqualTo(7 + offset));
+        Assert.That(statistics.WillModifier, Is.EqualTo(5 + offset));
+        Assert.That(
+            statistics.GetSkillModifier(Skill.FromName("perception")),
+            Is.EqualTo(9 + offset)
+        );
+        Assert.That(statistics.GetSkillModifier(Skill.Athletics), Is.EqualTo(2 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Acrobatics), Is.EqualTo(3 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Crafting), Is.EqualTo(5 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Occultism), Is.EqualTo(5 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Religion), Is.EqualTo(4 + offset));
+        Assert.That(statistics.Modifiers, Is.Empty);
+    }
+
+    private static CreatureStatisticsState Statistics(CreatureId creature) =>
+        new(creature, 0, 10, 0, 0, 0, new Dictionary<Skill, int>(), Array.Empty<Modifier>());
 
     private static GridPrivate.Tile[,] CreateTiles(int width)
     {

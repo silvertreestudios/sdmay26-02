@@ -250,6 +250,7 @@ namespace Game.Rules.Runtime
                     );
                 if (
                     state.Creatures.Contains(entry.Creature)
+                    || state.Statistics.Contains(entry.Creature)
                     || state.Health.Contains(entry.Creature)
                     || state.Positions.Contains(entry.Creature)
                     || state.LandSpeeds.Contains(entry.Creature)
@@ -355,6 +356,7 @@ namespace Game.Rules.Runtime
                 InitiativeEntry entry = addition.Initiative;
                 CombatantRulesState registration = addition.Combatant;
                 state.Creatures.Set(entry.Creature, registration.Creature);
+                state.Statistics.Set(entry.Creature, registration.Statistics);
                 state.Health.Set(entry.Creature, registration.Health);
                 state.Positions.Set(entry.Creature, registration.Position);
                 state.LandSpeeds.Set(entry.Creature, registration.LandSpeed);

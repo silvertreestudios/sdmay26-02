@@ -9,6 +9,7 @@ namespace Game.Rules.Runtime
     {
         /// <summary>Creates one complete combatant registration.</summary>
         /// <param name="creature">The combatant identity and controlling side.</param>
+        /// <param name="statistics">The combatant's immutable base statistics.</param>
         /// <param name="health">The combatant's initial authoritative health.</param>
         /// <param name="position">The combatant's initial authoritative grid position.</param>
         /// <param name="landSpeed">The combatant's authoritative land Speed.</param>
@@ -24,6 +25,7 @@ namespace Game.Rules.Runtime
         /// </exception>
         public CombatantRulesState(
             CreatureState creature,
+            CreatureStatisticsState statistics,
             HealthState health,
             GridPosition position,
             GridDistance landSpeed,
@@ -36,6 +38,12 @@ namespace Game.Rules.Runtime
         )
         {
             Creature = creature ?? throw new ArgumentNullException(nameof(creature));
+            Statistics = statistics ?? throw new ArgumentNullException(nameof(statistics));
+            if (statistics.Creature != creature.Id)
+                throw new ArgumentException(
+                    "The statistics state must describe the registered combatant.",
+                    nameof(statistics)
+                );
             ActiveEffects = CopyEffects(activeEffects);
             SpellSlots = CopyOwned(spellSlots, creature.Id);
             RuleBindings = CopyBindings(ruleBindings, creature.Id, ActiveEffects);
@@ -49,6 +57,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the participant's stable identity and controlling side.</summary>
         public CreatureState Creature { get; }
+
+        /// <summary>Gets the participant's immutable base statistics.</summary>
+        public CreatureStatisticsState Statistics { get; }
 
         /// <summary>Gets the participant's health at registration time.</summary>
         public HealthState Health { get; }
