@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Game.Rules.Runtime;
 using UnityEngine;
 using UnityEngine.Events;
 
@@ -7,11 +8,37 @@ using UnityEngine.Events;
 /// </summary>
 public class ConditionSource
 {
+    private readonly RuleSource replaySource;
+    private readonly bool hasReplaySource;
+
     /// <summary>
     /// The names of the source
     /// </summary>
     List<string> sourceQualifiers = new();
     List<(string, List<IConditionTarget>)> conditions = new();
+
+    /// <summary>Creates an ordinary condition source with no passive replay identity.</summary>
+    public ConditionSource() { }
+
+    /// <summary>Creates a condition source whose import can be recognized after persistence.</summary>
+    /// <param name="replaySource">The stable rules provenance used only by this imported source.</param>
+    protected ConditionSource(RuleSource replaySource)
+    {
+        if (replaySource.IsEmpty)
+            throw new System.ArgumentException(
+                "A passive replay source is required.",
+                nameof(replaySource)
+            );
+        this.replaySource = replaySource;
+        hasReplaySource = true;
+    }
+
+    /// <summary>Reports stable provenance only for a source whose import may be replayed.</summary>
+    internal bool TryGetReplaySource(out RuleSource source)
+    {
+        source = replaySource;
+        return hasReplaySource;
+    }
 
     public void Apply(IConditionTarget target)
     {

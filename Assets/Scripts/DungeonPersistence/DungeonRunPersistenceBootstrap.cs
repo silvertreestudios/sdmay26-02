@@ -1008,10 +1008,13 @@ namespace Game.DungeonPersistence
             Dictionary<string, DungeonActorSaveState> enemyState = ParseEnemyState(
                 floor.RuntimeState.Creatures
             );
-            Dictionary<string, GameObject> preflightActors = party.ToDictionary(
-                controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
+            Dictionary<DungeonRulesActorReference, GameObject> preflightActors = party.ToDictionary(
+                controller =>
+                    DungeonRulesActorReference.Party(
+                        controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId
+                    ),
                 controller => controller.gameObject,
-                StringComparer.Ordinal
+                EqualityComparer<DungeonRulesActorReference>.Default
             );
             runtime.InitializePersisted(
                 floor,
@@ -1021,7 +1024,7 @@ namespace Game.DungeonPersistence
                 explorationPresentation
             );
 
-            Dictionary<string, GameObject> actors = new(preflightActors, StringComparer.Ordinal);
+            Dictionary<DungeonRulesActorReference, GameObject> actors = new(preflightActors);
             foreach (
                 DungeonEncounterMember member in runtime.GetComponentsInChildren<DungeonEncounterMember>(
                     includeInactive: true
@@ -1029,10 +1032,13 @@ namespace Game.DungeonPersistence
             )
             {
                 if (member != null && member.IsConfigured)
-                    actors.Add(member.InstanceId, member.gameObject);
+                    actors.Add(
+                        DungeonRulesActorReference.Floor(floor.Generation.Depth, member.InstanceId),
+                        member.gameObject
+                    );
             }
-            GameObject ResolveActor(string actorId) =>
-                actors.TryGetValue(actorId, out GameObject actor) ? actor : null;
+            GameObject ResolveActor(DungeonRulesActorReference actorReference) =>
+                actors.TryGetValue(actorReference, out GameObject actor) ? actor : null;
 
             Action[] partyRestores = savedParty
                 .Select(
@@ -1090,13 +1096,16 @@ namespace Game.DungeonPersistence
         )
         {
             _ = ParseEnemyState(floor.RuntimeState.Creatures);
-            Dictionary<string, GameObject> actors = party.ToDictionary(
-                controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId,
+            Dictionary<DungeonRulesActorReference, GameObject> actors = party.ToDictionary(
+                controller =>
+                    DungeonRulesActorReference.Party(
+                        controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId
+                    ),
                 controller => controller.gameObject,
-                StringComparer.Ordinal
+                EqualityComparer<DungeonRulesActorReference>.Default
             );
-            GameObject ResolveActor(string actorId) =>
-                actors.TryGetValue(actorId, out GameObject actor) ? actor : null;
+            GameObject ResolveActor(DungeonRulesActorReference actorReference) =>
+                actors.TryGetValue(actorReference, out GameObject actor) ? actor : null;
             _ = savedParty
                 .Select(
                     (member, index) =>
@@ -1144,13 +1153,17 @@ namespace Game.DungeonPersistence
                     "The encounter-free initial room has too few unique party cells."
                 );
 
-            Dictionary<GameObject, string> actorIds = party.ToDictionary(
+            Dictionary<GameObject, DungeonRulesActorReference> actorIds = party.ToDictionary(
                 controller => controller.gameObject,
-                controller => controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId
+                controller =>
+                    DungeonRulesActorReference.Party(
+                        controller.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId
+                    )
             );
-            string IdentifyActor(GameObject actor) =>
-                actor != null && actorIds.TryGetValue(actor, out string id)
-                    ? id
+            DungeonRulesActorReference IdentifyActor(GameObject actor) =>
+                actor != null
+                && actorIds.TryGetValue(actor, out DungeonRulesActorReference actorReference)
+                    ? actorReference
                     : throw new InvalidOperationException(
                         $"Actor '{actor?.name}' has no dungeon persistence identity."
                     );

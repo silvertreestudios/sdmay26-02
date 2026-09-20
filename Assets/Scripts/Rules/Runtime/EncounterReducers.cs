@@ -230,9 +230,23 @@ namespace Game.Rules.Runtime
                 new Dictionary<ActiveEffectId, ActiveEffectInstance>();
             Dictionary<ActiveEffectId, ActiveRuleBinding> incomingEffectBindings =
                 new Dictionary<ActiveEffectId, ActiveRuleBinding>();
+            Dictionary<ActiveEffectId, ActiveEffectTimingRestore> incomingEffectTimings = new();
             HashSet<CreatureId> incomingCreatures = new HashSet<CreatureId>(
                 context.Op.Additions.Select(addition => addition.Combatant.Creature.Id)
             );
+            HashSet<CreatureId> externalEffectReferences = new HashSet<CreatureId>(
+                context.Op.Additions.SelectMany(addition =>
+                    addition.Combatant.ExternalEffectReferences
+                )
+            );
+            if (externalEffectReferences.Overlaps(rosterCreatures))
+                return ReductionResult<CombatantsAddedOutcome>.Reject(
+                    "An external effect actor reference is already enrolled."
+                );
+            if (externalEffectReferences.Overlaps(incomingCreatures))
+                return ReductionResult<CombatantsAddedOutcome>.Reject(
+                    "An external effect actor reference is enrolled in the same batch."
+                );
             foreach (CombatantAddition addition in context.Op.Additions)
             {
                 InitiativeEntry entry = addition.Initiative;
@@ -314,7 +328,7 @@ namespace Game.Rules.Runtime
                             $"Active effect {effect.Id.Value} is already registered."
                         );
                     if (
-                        !ActiveEffectReduction.TryValidateCreationState(
+                        !ActiveEffectReduction.TryValidateStoredState(
                             registry,
                             effect,
                             out string rejection
@@ -324,9 +338,17 @@ namespace Game.Rules.Runtime
                     if (
                         !rosterCreatures.Contains(effect.SourceCreature)
                         && !incomingCreatures.Contains(effect.SourceCreature)
+                        && !externalEffectReferences.Contains(effect.SourceCreature)
                     )
                         return ReductionResult<CombatantsAddedOutcome>.Reject(
                             $"Active effect {effect.Id.Value} has an unenrolled source."
+                        );
+                }
+                foreach (ActiveEffectTimingRestore timing in registration.ActiveEffectTimings)
+                {
+                    if (!incomingEffectTimings.TryAdd(timing.Effect, timing))
+                        return ReductionResult<CombatantsAddedOutcome>.Reject(
+                            $"Active effect {timing.Effect.Value} has duplicate restored timing."
                         );
                 }
             }
@@ -342,13 +364,34 @@ namespace Game.Rules.Runtime
                         $"Active effect {pair.Key.Value} requires exactly one associated binding in the batch."
                     );
                 if (
-                    !ActiveEffectReduction.TryValidateCreationBinding(
+                    !ActiveEffectReduction.TryValidateStoredBinding(
                         pair.Value,
                         binding,
                         out string rejection
                     )
                 )
                     return ReductionResult<CombatantsAddedOutcome>.Reject(rejection);
+            }
+            foreach (
+                KeyValuePair<
+                    ActiveEffectId,
+                    ActiveEffectTimingRestore
+                > pair in incomingEffectTimings
+            )
+            {
+                if (!incomingEffects.TryGetValue(pair.Key, out ActiveEffectInstance effect))
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(
+                        $"Restored timing references unknown active effect {pair.Key.Value}."
+                    );
+                bool expectsEncounterExpiry = effect.Duration.Kind == EffectDurationKind.Encounter;
+                if (
+                    effect.Duration.Kind == EffectDurationKind.Indefinite
+                    || pair.Value.ExpiresWithEncounter != expectsEncounterExpiry
+                    || (!expectsEncounterExpiry && pair.Value.RemainingBoundaries <= 0)
+                )
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(
+                        $"Restored timing for active effect {pair.Key.Value} conflicts with its duration."
+                    );
             }
             foreach (CombatantAddition addition in context.Op.Additions)
             {
@@ -373,10 +416,23 @@ namespace Game.Rules.Runtime
                     ActiveRuleBinding binding = incomingEffectBindings[effect.Id];
                     state.ActiveEffects.Set(effect.Id, effect);
                     if (effect.Duration.Kind != EffectDurationKind.Indefinite)
-                        state.ActiveEffectTimings.Set(
+                    {
+                        ActiveEffectTimingState timing = incomingEffectTimings.TryGetValue(
                             effect.Id,
-                            ActiveEffectTimingState.ForEncounter(effect, binding, encounter)
-                        );
+                            out ActiveEffectTimingRestore restored
+                        )
+                            ? new ActiveEffectTimingState(
+                                effect.Id,
+                                encounter.Id,
+                                binding.Id,
+                                effect.SourceCreature,
+                                restored.RemainingBoundaries,
+                                restored.ExpiresWithEncounter,
+                                binding.CreationOrder
+                            )
+                            : ActiveEffectTimingState.ForEncounter(effect, binding, encounter);
+                        state.ActiveEffectTimings.Set(effect.Id, timing);
+                    }
                 }
             }
             InitiativeEntry[] roster = encounter
@@ -525,7 +581,8 @@ namespace Game.Rules.Runtime
                 );
             int cursor = encounter.Cursor + 1;
             RoundNumber round = encounter.Round;
-            if (cursor >= encounter.Roster.Count)
+            bool startsNewRound = cursor >= encounter.Roster.Count;
+            if (startsNewRound)
             {
                 cursor = 0;
                 round = round.Next();
@@ -549,7 +606,15 @@ namespace Game.Rules.Runtime
                 if (
                     timing.Encounter != encounter.Id
                     || timing.ExpiresWithEncounter
-                    || timing.SourceCreature != entry.Creature
+                    || (
+                        timing.SourceCreature != entry.Creature
+                        && !(
+                            startsNewRound
+                            && !encounter.Roster.Any(rosterEntry =>
+                                rosterEntry.Creature == timing.SourceCreature
+                            )
+                        )
+                    )
                     || timing.RemainingBoundaries <= 0
                 )
                     continue;

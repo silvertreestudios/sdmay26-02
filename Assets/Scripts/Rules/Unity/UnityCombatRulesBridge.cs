@@ -26,6 +26,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
         private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
         private readonly Dictionary<CreatureId, ActionController> controllers = new();
+        private readonly Dictionary<CreatureComponent, CreatureId> reservedCreatureIds = new();
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
@@ -33,6 +34,8 @@ namespace Game.Rules.Unity
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
+        private readonly ActiveEffectIdentityScope activeEffectIdentities;
+        private readonly SequentialOpIdProvider operationIds;
         private readonly RuleDispatcher dispatcher;
         private readonly UnityEncounterComposition composition;
         private readonly UnityCombatantEnrollmentPipeline enrollmentPipeline;
@@ -76,6 +79,7 @@ namespace Game.Rules.Unity
                 topologyProvider,
                 strideFriendshipProvider
             );
+            activeEffectIdentities = ActiveEffectIdentityScope.CreateUnique();
             UnityEncounterModuleSet modules = UnityEncounterModuleSet.Create(
                 this,
                 actionPresentationCoordinator,
@@ -100,10 +104,13 @@ namespace Game.Rules.Unity
                 RulesStateSeed seed = new RulesStateSeed();
                 if (!attachControllers)
                     enrollment.SeedExploration(seed);
+                operationIds = new SequentialOpIdProvider(enrollment.FirstAvailableOperationId);
                 RuleDispatcherBuilder dispatcherBuilder = new RuleDispatcherBuilder(
                     new InMemoryRulesStore(seed),
-                    rollService ?? throw new ArgumentNullException(nameof(rollService))
+                    rollService ?? throw new ArgumentNullException(nameof(rollService)),
+                    operationIds
                 )
+                    .UseActiveEffectIdentityScope(activeEffectIdentities)
                     .UseHealthRules()
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
@@ -258,6 +265,9 @@ namespace Game.Rules.Unity
                 playerIds,
                 StringComparer.OrdinalIgnoreCase
             );
+            Dictionary<CreatureComponent, CreatureId> savedCreatureReservations = new(
+                reservedCreatureIds
+            );
             return new RegistrationToken(() =>
             {
                 nextCreatureId = savedNextCreatureId;
@@ -265,8 +275,37 @@ namespace Game.Rules.Unity
                 foreach (KeyValuePair<string, PlayerId> pair in savedPlayers)
                     playerIds.Add(pair.Key, pair.Value);
                 strideFriendshipProvider.Reset(savedPlayers);
+                reservedCreatureIds.Clear();
+                foreach (
+                    KeyValuePair<CreatureComponent, CreatureId> pair in savedCreatureReservations
+                )
+                    reservedCreatureIds.Add(pair.Key, pair.Value);
             });
         }
+
+        /// <summary>
+        /// Reserves the encounter identity a live Unity creature will claim if it enrolls later.
+        /// </summary>
+        /// <remarks>
+        /// The surrounding enrollment identity reservation owns rollback. This lets rules state
+        /// refer to a currently omitted live actor without replacing its identity when the same
+        /// creature joins as a reinforcement.
+        /// </remarks>
+        internal CreatureId ReserveCreatureId(CreatureComponent creature)
+        {
+            if (creature == null)
+                throw new ArgumentNullException(nameof(creature));
+            if (creatureIds.TryGetValue(creature, out CreatureId registered))
+                return registered;
+            if (reservedCreatureIds.TryGetValue(creature, out CreatureId reserved))
+                return reserved;
+            CreatureId created = AllocateCreatureId();
+            reservedCreatureIds.Add(creature, created);
+            return created;
+        }
+
+        /// <summary>Reports whether an ID currently has a provisional or durable Unity mapping.</summary>
+        internal bool HasRegistrationMap(CreatureId creature) => controllers.ContainsKey(creature);
 
         /// <summary>Gets the stable rules ID assigned to a registered creature.</summary>
         /// <param name="creature">The registered Unity creature.</param>
@@ -457,6 +496,7 @@ namespace Game.Rules.Unity
             );
             try
             {
+                operationIds.EnsureNextAtLeast(enrollment.FirstAvailableOperationId);
                 enrollment.Commit();
                 enrollment.AttachAndInstall();
                 enrollment.TransferTo(encounterLifetime);
@@ -725,7 +765,12 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException(
                     "Every combat controller requires a creature component."
                 );
-            CreatureId creatureId = AllocateCreatureId();
+            CreatureId creatureId = reservedCreatureIds.TryGetValue(
+                creature,
+                out CreatureId reserved
+            )
+                ? reserved
+                : AllocateCreatureId();
             PlayerId playerId = GetPlayerId(controller);
             Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
             int speedFeet = Mathf.Max(0, Mathf.RoundToInt(creature.speed));
@@ -736,6 +781,7 @@ namespace Game.Rules.Unity
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet),
+                activeEffectIdentities,
                 preparationLifetime
             );
         }

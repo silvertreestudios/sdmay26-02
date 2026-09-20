@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
@@ -25,6 +26,11 @@ namespace Game.Creature.Rules
             ConditionSource displaySource
         )
         {
+            RuleSource applicationSource =
+                displaySource != null
+                && displaySource.TryGetReplaySource(out RuleSource replaySource)
+                    ? replaySource
+                    : source;
             Conditions display =
                 target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>();
             ActionController controller = target.GetComponent<ActionController>();
@@ -42,7 +48,7 @@ namespace Game.Creature.Rules
                         state.Condition,
                         state.Value,
                         actor,
-                        source,
+                        applicationSource,
                         EffectDuration.Indefinite
                     )
                 );
@@ -55,8 +61,75 @@ namespace Game.Creature.Rules
             }
             ConditionSeed seed =
                 target.GetComponent<ConditionSeed>() ?? target.AddComponent<ConditionSeed>();
-            seed.ApplyBeforeAttachment(state, source);
+            if (!HasPendingPassiveReplay(target, state, applicationSource, displaySource))
+                seed.ApplyBeforeAttachment(state, applicationSource);
             display.Add(state.Condition.Value, displaySource);
+        }
+
+        private static bool HasPendingPassiveReplay(
+            GameObject target,
+            ConditionState state,
+            RuleSource source,
+            ConditionSource displaySource
+        )
+        {
+            if (
+                displaySource == null
+                || !displaySource.TryGetReplaySource(out RuleSource replaySource)
+                || replaySource != source
+            )
+                return false;
+            DungeonRulesEffectSeed restored = target.GetComponent<DungeonRulesEffectSeed>();
+            if (restored == null)
+                return false;
+
+            // Only an explicitly identified passive replay may consume its matching restored
+            // application. Ordinary ConditionSource instances always create independent effects.
+            bool Matches(
+                IEffectState candidate,
+                RuleSource effectSource,
+                RuleSource bindingSource
+            ) =>
+                effectSource == source
+                && bindingSource == source
+                && candidate is ConditionState condition
+                && condition.Equals(state);
+
+            if (
+                restored.Projections.Any(projection =>
+                    projection.Effect.DefinitionId == ConditionRules.DefinitionId
+                    && projection.Binding.DefinitionId == ConditionRules.DefinitionId
+                    && projection.Binding.EffectId == projection.Effect.Id
+                    && projection.Effect.SourceCreature == projection.Binding.Owner
+                    && Matches(
+                        projection.Effect.State,
+                        projection.Effect.Source,
+                        projection.Binding.Source
+                    )
+                )
+            )
+                return true;
+
+            return restored.Effects.Any(effect =>
+                string.Equals(
+                    effect.DefinitionId,
+                    ConditionRules.DefinitionId.Value,
+                    StringComparison.Ordinal
+                )
+                && effect.SourceActor.Equals(effect.BindingOwnerActor)
+                && string.Equals(effect.RuleSource, source.Slug, StringComparison.Ordinal)
+                && DungeonRulesEffectPersistence.Codecs.Restore(
+                    ConditionRules.DefinitionId,
+                    effect.StateKind,
+                    effect.StatePayload,
+                    _ =>
+                        throw new InvalidOperationException(
+                            "A condition payload cannot contain an actor reference."
+                        )
+                )
+                    is ConditionState condition
+                && condition.Equals(state)
+            );
         }
 
         /// <inheritdoc/>
@@ -83,12 +156,15 @@ namespace Game.Creature.Rules
             for (int i = 0; i < applications.Length; i++)
             {
                 var application = applications[i];
-                ActiveEffectId id = new($"condition-seed:{builder.CreatureId.Value}:{i}");
+                var identity = builder.CreateActiveEffectIdentity(
+                    "condition-seed",
+                    $"{builder.CreatureId.Value}:{i}"
+                );
                 builder.AddActiveEffects(
                     new[]
                     {
                         new ActiveEffectInstance(
-                            id,
+                            identity.EffectId,
                             ConditionRules.DefinitionId,
                             builder.CreatureId,
                             application.Source,
@@ -101,10 +177,10 @@ namespace Game.Creature.Rules
                     new[]
                     {
                         new ActiveRuleBinding(
-                            new BindingId(id.Value),
+                            identity.BindingId,
                             ConditionRules.DefinitionId,
                             builder.CreatureId,
-                            id,
+                            identity.EffectId,
                             application.Source,
                             i
                         ),
