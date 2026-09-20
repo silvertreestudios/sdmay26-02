@@ -22,7 +22,7 @@ namespace Game.Rules.Runtime
         public Dictionary<BindingId, FrequencyState> Frequencies { get; }
         public Dictionary<EncounterId, EncounterState> Encounters { get; }
         public Dictionary<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
-        public Dictionary<DoorId, DoorState> Doors { get; }
+        public Dictionary<RuleStateSlot, object> StateValues { get; }
 
         public RulesStateData(RulesStateSeed seed)
             : this(
@@ -44,7 +44,7 @@ namespace Game.Rules.Runtime
                 new Dictionary<BindingId, FrequencyState>(seed.Frequencies),
                 new Dictionary<EncounterId, EncounterState>(seed.Encounters),
                 new Dictionary<ActiveEffectId, ActiveEffectTimingState>(seed.ActiveEffectTimings),
-                new Dictionary<DoorId, DoorState>(seed.Doors)
+                new Dictionary<RuleStateSlot, object>(seed.StateValues)
             ) { }
 
         public RulesStateData(
@@ -66,7 +66,7 @@ namespace Game.Rules.Runtime
             Dictionary<BindingId, FrequencyState> frequencies,
             Dictionary<EncounterId, EncounterState> encounters,
             Dictionary<ActiveEffectId, ActiveEffectTimingState> activeEffectTimings,
-            Dictionary<DoorId, DoorState> doors
+            Dictionary<RuleStateSlot, object> stateValues
         )
         {
             Version = version;
@@ -87,7 +87,7 @@ namespace Game.Rules.Runtime
             Frequencies = frequencies;
             Encounters = encounters;
             ActiveEffectTimings = activeEffectTimings;
-            Doors = doors;
+            StateValues = stateValues;
         }
     }
 }

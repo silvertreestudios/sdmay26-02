@@ -1,7 +1,12 @@
+using System;
+using System.Collections.Generic;
+
 namespace Game.Rules.Runtime
 {
     public sealed class RulesStateDraft
     {
+        private readonly StateSliceDraft<RuleStateSlot, object> stateValues;
+
         public StateSliceDraft<CreatureId, CreatureState> Creatures { get; }
 
         /// <summary>
@@ -56,9 +61,6 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets transaction-scoped access to active-effect schedules.</summary>
         public StateSliceDraft<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; }
-
-        /// <summary>Gets transaction-scoped access to durable authoritative door state.</summary>
-        public StateSliceDraft<DoorId, DoorState> Doors { get; }
 
         internal RulesStateDraft(RulesStateData data)
         {
@@ -130,10 +132,62 @@ namespace Game.Rules.Runtime
                 data.ActiveEffectTimings,
                 (id, value) => !id.IsEmpty && value != null && id == value.Effect
             );
-            Doors = new StateSliceDraft<DoorId, DoorState>(
-                data.Doors,
-                (id, value) => !id.IsEmpty && value != null && id == value.Id
+            stateValues = new StateSliceDraft<RuleStateSlot, object>(
+                data.StateValues,
+                (key, value) =>
+                    !key.IsEmpty && value != null && key.ValueType.IsInstanceOfType(value)
             );
+        }
+
+        /// <summary>Gets a feature-owned immutable value in the current reducer transaction.</summary>
+        /// <typeparam name="TState">The immutable state type declared by the key.</typeparam>
+        /// <param name="key">The owning feature's stable state key.</param>
+        /// <returns>The current transaction value.</returns>
+        /// <exception cref="ArgumentException"><paramref name="key"/> is empty.</exception>
+        /// <exception cref="KeyNotFoundException">No value is registered for the key.</exception>
+        public TState GetState<TState>(RuleStateKey<TState> key)
+            where TState : class
+        {
+            RequireStateKey(key);
+            if (!stateValues.TryGet(key.Slot, out object value))
+                throw new KeyNotFoundException($"No rules state is registered for '{key}'.");
+            return (TState)value;
+        }
+
+        /// <summary>Tries to get a feature-owned value in the current reducer transaction.</summary>
+        /// <typeparam name="TState">The immutable state type declared by the key.</typeparam>
+        /// <param name="key">The owning feature's stable state key.</param>
+        /// <param name="value">The transaction value when registered; otherwise, the default.</param>
+        /// <returns><see langword="true"/> when the key is registered.</returns>
+        /// <exception cref="ArgumentException"><paramref name="key"/> is empty.</exception>
+        public bool TryGetState<TState>(RuleStateKey<TState> key, out TState value)
+            where TState : class
+        {
+            RequireStateKey(key);
+            if (stateValues.TryGet(key.Slot, out object stored))
+            {
+                value = (TState)stored;
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        /// <summary>Sets an immutable feature-owned value for this reducer transaction.</summary>
+        /// <typeparam name="TState">The immutable state type declared by the key.</typeparam>
+        /// <param name="key">The owning feature's stable state key.</param>
+        /// <param name="value">The complete replacement value.</param>
+        /// <returns><see langword="true"/> when the transaction value changed.</returns>
+        /// <exception cref="ArgumentException"><paramref name="key"/> is empty.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+        public bool SetState<TState>(RuleStateKey<TState> key, TState value)
+            where TState : class
+        {
+            RequireStateKey(key);
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            return stateValues.Set(key.Slot, value);
         }
 
         internal bool IsDirty =>
@@ -154,7 +208,7 @@ namespace Game.Rules.Runtime
             || Frequencies.IsDirty
             || Encounters.IsDirty
             || ActiveEffectTimings.IsDirty
-            || Doors.IsDirty;
+            || stateValues.IsDirty;
 
         internal RulesStateData Build(long version)
         {
@@ -177,8 +231,15 @@ namespace Game.Rules.Runtime
                 Frequencies.BuildCommittedValues(),
                 Encounters.BuildCommittedValues(),
                 ActiveEffectTimings.BuildCommittedValues(),
-                Doors.BuildCommittedValues()
+                stateValues.BuildCommittedValues()
             );
+        }
+
+        private static void RequireStateKey<TState>(RuleStateKey<TState> key)
+            where TState : class
+        {
+            if (key.IsEmpty)
+                throw new ArgumentException("A rule-state key is required.", nameof(key));
         }
     }
 }

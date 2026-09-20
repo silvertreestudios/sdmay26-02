@@ -1120,7 +1120,7 @@ namespace Game.Combat.Encounters
         }
 
         private bool IsDoorOpen(DungeonDoorController door) =>
-            doorWorld.Snapshot.Doors[new DoorId(door.StableId)].IsOpen;
+            doorWorld.IsOpen(new DoorId(door.StableId));
 
         private sealed class DoorProjectionObserver : IFactObserver<DoorOpenedFact>
         {

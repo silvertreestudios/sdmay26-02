@@ -122,7 +122,7 @@ dispatcher or enrollment hooks merely for symmetry.
 | Light | Runtime effect presentation; spell effect creation and duration remain data-driven |
 | Health projection | Runtime Fact projection |
 | Encounter projection | Runtime Fact projection into the Unity-owned presentation FIFO |
-| Open Door | Floor-owned authoritative door store plus an explicitly installed encounter action validator and handler |
+| Open Door | Floor-owned authoritative door store plus an explicitly installed encounter action validator and handler. Its immutable `DoorWorldState` uses the store's generic typed-state slot, so shared state APIs do not name or interpret doors. |
 
 ## Construction order
 

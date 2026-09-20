@@ -82,6 +82,41 @@ namespace Game.Rules.Runtime
         public override int GetHashCode() => HashCode.Combine(Id, Cell, IsOpen);
     }
 
+    /// <summary>
+    /// Immutable, feature-owned aggregate for every authoritative door on one generated floor.
+    /// </summary>
+    internal sealed class DoorWorldState
+    {
+        private readonly Dictionary<DoorId, DoorState> doors;
+
+        internal DoorWorldState(IEnumerable<DoorState> doors)
+        {
+            if (doors == null)
+                throw new ArgumentNullException(nameof(doors));
+
+            this.doors = new Dictionary<DoorId, DoorState>();
+            foreach (DoorState door in doors)
+            {
+                if (door == null)
+                    throw new ArgumentException("Door state cannot contain null.", nameof(doors));
+                if (!this.doors.TryAdd(door.Id, door))
+                    throw new ArgumentException("Door identities must be unique.", nameof(doors));
+            }
+        }
+
+        private DoorWorldState(Dictionary<DoorId, DoorState> doors) => this.doors = doors;
+
+        internal IEnumerable<DoorState> Doors => doors.Values;
+
+        internal bool TryGet(DoorId id, out DoorState door) => doors.TryGetValue(id, out door);
+
+        internal DoorWorldState WithDoor(DoorState door)
+        {
+            Dictionary<DoorId, DoorState> updated = new(doors) { [door.Id] = door };
+            return new DoorWorldState(updated);
+        }
+    }
+
     /// <summary>Identifies why an attempt to open an ordinary door was rejected.</summary>
     public enum DoorOpenRejection
     {
@@ -281,15 +316,8 @@ namespace Game.Rules.Runtime
         {
             if (doors == null)
                 throw new ArgumentNullException(nameof(doors));
-            DoorState[] copied = doors.ToArray();
-            if (copied.Any(door => door == null))
-                throw new ArgumentException("Door state cannot contain null.", nameof(doors));
-            if (copied.Select(door => door.Id).Distinct().Count() != copied.Length)
-                throw new ArgumentException("Door identities must be unique.", nameof(doors));
-
-            RulesStateSeed seed = new RulesStateSeed();
-            foreach (DoorState door in copied)
-                seed.SeedDoor(door);
+            DoorWorldState initialState = new(doors);
+            RulesStateSeed seed = new RulesStateSeed().SeedState(DoorRules.StateKey, initialState);
             dispatcher = new RuleDispatcherBuilder(
                 new InMemoryRulesStore(seed),
                 rollService ?? throw new ArgumentNullException(nameof(rollService))
@@ -301,6 +329,12 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the latest authoritative floor-door snapshot.</summary>
         public RulesSnapshot Snapshot => dispatcher.Snapshot;
+
+        /// <summary>Gets whether one stable door is authoritatively open.</summary>
+        /// <param name="door">The stable floor-door identity.</param>
+        /// <returns><see langword="true"/> when the registered door is open.</returns>
+        /// <exception cref="KeyNotFoundException">The door is not part of this floor.</exception>
+        public bool IsOpen(DoorId door) => DoorRules.GetDoor(Snapshot, door).IsOpen;
 
         /// <summary>Evaluates an interaction without charging or mutating anything.</summary>
         /// <param name="request">The immutable request to inspect.</param>
@@ -342,9 +376,9 @@ namespace Game.Rules.Runtime
         /// <returns>A detached stable-ID sequence for persistence.</returns>
         public IReadOnlyList<string> CaptureOpenDoorIds() =>
             Array.AsReadOnly(
-                Snapshot
-                    .Doors.Select(pair => pair.Value)
-                    .Where(door => door.IsOpen)
+                DoorRules
+                    .GetWorldState(Snapshot)
+                    .Doors.Where(door => door.IsOpen)
                     .Select(door => door.Id.Value)
                     .OrderBy(value => value, StringComparer.Ordinal)
                     .ToArray()
@@ -354,6 +388,33 @@ namespace Game.Rules.Runtime
     /// <summary>Owns pure selectors and dispatcher composition for the Open Door feature.</summary>
     public static class DoorRules
     {
+        internal static RuleStateKey<DoorWorldState> StateKey { get; } = new("door-world");
+
+        internal static DoorWorldState GetWorldState(RulesSnapshot snapshot) =>
+            snapshot.GetState(StateKey);
+
+        internal static DoorState GetDoor(RulesSnapshot snapshot, DoorId door)
+        {
+            if (!TryGetDoor(snapshot, door, out DoorState state))
+                throw new KeyNotFoundException($"Unknown door '{door}'.");
+            return state;
+        }
+
+        /// <summary>Tries to read one door from the feature-owned state in an exact snapshot.</summary>
+        /// <param name="snapshot">The authoritative snapshot to query.</param>
+        /// <param name="door">The stable door identity.</param>
+        /// <param name="state">The immutable door state when found; otherwise, the default.</param>
+        /// <returns><see langword="true"/> when the floor state contains the door.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="snapshot"/> is <see langword="null"/>.</exception>
+        public static bool TryGetDoor(RulesSnapshot snapshot, DoorId door, out DoorState state)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            state = default;
+            return snapshot.TryGetState(StateKey, out DoorWorldState world)
+                && world.TryGet(door, out state);
+        }
+
         /// <summary>Evaluates ordinary door legality from authoritative state.</summary>
         /// <param name="snapshot">The authoritative door snapshot.</param>
         /// <param name="request">The immutable door and actor facts.</param>
@@ -362,7 +423,7 @@ namespace Game.Rules.Runtime
         {
             if (snapshot == null)
                 throw new ArgumentNullException(nameof(snapshot));
-            if (!snapshot.Doors.TryGet(request.Door, out DoorState door))
+            if (!TryGetDoor(snapshot, request.Door, out DoorState door))
                 return new DoorOpenValidation(DoorOpenRejection.DoorDoesNotExist);
             return Validate(door, request);
         }
@@ -472,18 +533,22 @@ namespace Game.Rules.Runtime
             FactSink facts
         )
         {
-            DoorOpenValidation validation = state.Doors.TryGet(
-                context.Op.Request.Door,
-                out DoorState current
+            if (
+                !state.TryGetState(DoorRules.StateKey, out DoorWorldState world)
+                || !world.TryGet(context.Op.Request.Door, out DoorState current)
             )
-                ? DoorRules.Validate(current, context.Op.Request)
-                : new DoorOpenValidation(DoorOpenRejection.DoorDoesNotExist);
+            {
+                return ReductionResult<DoorOpenedOutcome>.Reject(
+                    new DoorOpenValidation(DoorOpenRejection.DoorDoesNotExist).Reason
+                );
+            }
+
+            DoorOpenValidation validation = DoorRules.Validate(current, context.Op.Request);
             if (!validation.IsValid)
                 return ReductionResult<DoorOpenedOutcome>.Reject(validation.Reason);
 
-            DoorState door = current;
-            DoorState opened = door.Open();
-            state.Doors.Set(opened.Id, opened);
+            DoorState opened = current.Open();
+            state.SetState(DoorRules.StateKey, world.WithDoor(opened));
             facts.Stage(new DoorOpenedFact(opened.Id, opened.Cell));
             return ReductionResult<DoorOpenedOutcome>.Accept(new DoorOpenedOutcome(opened.Id));
         }

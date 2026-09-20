@@ -30,7 +30,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
 
             ResolvedOpResult<DoorOpenedOutcome> resolved = RequireResolved(result);
-            Assert.That(world.Snapshot.Doors[Door].IsOpen, Is.True);
+            Assert.That(world.IsOpen(Door), Is.True);
             Assert.That(world.CaptureOpenDoorIds(), Is.EqualTo(new[] { Door.Value }));
             Assert.That(resolved.Facts.OfType<DoorOpenedFact>().Count(), Is.EqualTo(1));
             Assert.That(observer.Calls, Is.EqualTo(1));
@@ -58,7 +58,7 @@ namespace Game.Tests.EditMode.RulesRuntime
                 rejection != DoorOpenRejection.ActorIsNotAlive
             );
             long version = world.Snapshot.Version;
-            bool wasOpen = world.Snapshot.Doors[Door].IsOpen;
+            bool wasOpen = world.IsOpen(Door);
 
             DoorOpenValidation validation = world.Validate(request);
             OpResult<DoorOpenedOutcome> result = world.Open(request);
@@ -66,7 +66,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(validation.Rejection, Is.EqualTo(rejection));
             Assert.That(result, Is.TypeOf<InvalidOpResult<DoorOpenedOutcome>>());
             Assert.That(world.Snapshot.Version, Is.EqualTo(version));
-            Assert.That(world.Snapshot.Doors[Door].IsOpen, Is.EqualTo(wasOpen));
+            Assert.That(world.IsOpen(Door), Is.EqualTo(wasOpen));
         }
 
         [Test]
@@ -87,7 +87,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(profile.Cost, Is.EqualTo(ActionCost.One));
             Assert.That(profile.HasTrait(Trait.FromSlug("manipulate")), Is.True);
             Assert.That(encounter.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(2));
-            Assert.That(world.Snapshot.Doors[Door].IsOpen, Is.True);
+            Assert.That(world.IsOpen(Door), Is.True);
             Assert.That(resolved.Facts.OfType<ActionCostSpentFact>().Count(), Is.EqualTo(1));
             Assert.That(
                 resolved.Facts.OfType<ActionBegunFact<DoorOpenedOutcome>>().Count(),
@@ -115,7 +115,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             Assert.That(encounter.Snapshot.ActionEconomy[Actor].ActionsRemaining, Is.EqualTo(3));
             Assert.That(encounter.Snapshot.Version, Is.EqualTo(encounterVersion));
             Assert.That(world.Snapshot.Version, Is.EqualTo(doorVersion));
-            Assert.That(world.Snapshot.Doors[Door].IsOpen, Is.True);
+            Assert.That(world.IsOpen(Door), Is.True);
             Assert.That(result.Facts, Is.Empty);
         }
 
@@ -213,7 +213,9 @@ namespace Game.Tests.EditMode.RulesRuntime
             )
             {
                 Calls++;
-                SawOpenState = currentSnapshot.Doors[fact.Door].IsOpen;
+                SawOpenState =
+                    DoorRules.TryGetDoor(currentSnapshot, fact.Door, out DoorState door)
+                    && door.IsOpen;
             }
         }
     }
