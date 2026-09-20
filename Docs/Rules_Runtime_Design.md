@@ -202,6 +202,12 @@ an action, replay causal damage, refresh a duration, synthesize replacement iden
 Unity component a parallel authority. New effect-state types extend the codec catalog rather than a
 central feature-name switch.
 
+The restore transport is consumed only after successful enrollment and is refreshed from the final
+rules snapshot when encounter ownership ends. Stable actor references may outlive a materialized
+combatant; the restore contract carries those references explicitly instead of rejecting otherwise
+valid effects. Counted effects always restore a positive remaining schedule, and new dispatcher
+identity begins above restored creation-order high water so active identities cannot be reused.
+
 ### Determinism and ordering
 
 Registration and execution order are explicit. Modules do not discover or register themselves.

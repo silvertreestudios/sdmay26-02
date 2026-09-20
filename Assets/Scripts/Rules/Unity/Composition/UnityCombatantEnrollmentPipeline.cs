@@ -186,6 +186,26 @@ namespace Game.Rules.Unity.Composition
             }
         }
 
+        /// <summary>
+        /// Gets the first operation ID above every restored binding creation-order value.
+        /// </summary>
+        internal long FirstAvailableOperationId
+        {
+            get
+            {
+                long maximum = combatants
+                    .SelectMany(combatant => combatant.State.RuleBindings)
+                    .Select(binding => binding.CreationOrder)
+                    .DefaultIfEmpty(0)
+                    .Max();
+                if (maximum == long.MaxValue)
+                    throw new InvalidOperationException(
+                        "Restored binding creation order exhausts operation identity."
+                    );
+                return maximum + 1;
+            }
+        }
+
         /// <summary>Attaches exact Unity authority and applies precomputed installations once.</summary>
         internal void AttachAndInstall()
         {

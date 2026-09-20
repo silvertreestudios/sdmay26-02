@@ -622,7 +622,8 @@ namespace Game.Tests.EditMode.RulesRuntime
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
                 Array.Empty<ActiveEffectInstance>(),
-                Array.Empty<ActiveEffectTimingRestore>()
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
 
         private static RageActorState CreateActorState(

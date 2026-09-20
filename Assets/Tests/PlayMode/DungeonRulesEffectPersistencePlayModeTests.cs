@@ -97,6 +97,31 @@ public sealed class DungeonRulesEffectPersistencePlayModeTests
                     .Count(light => light.gameObject.name == "Spell Effect Light"),
                 Is.EqualTo(1)
             );
+
+            bridge.ReleaseOwnership();
+            DungeonActorSaveState detached = DungeonActorStateAdapter.Capture(
+                hero.GetComponent<ActionController>(),
+                actor => actor == hero ? "hero" : "enemy"
+            );
+            Assert.That(detached.RulesEffects, Has.Length.EqualTo(1));
+            bridge = UnityCombatRulesBridge.Create(
+                new[]
+                {
+                    hero.GetComponent<ActionController>(),
+                    enemy.GetComponent<ActionController>(),
+                },
+                tiles,
+                new ScriptedRollService(20, 10),
+                "players"
+            );
+            yield return null;
+
+            Assert.That(bridge.Snapshot.ActiveEffects.Count(), Is.EqualTo(1));
+            Assert.That(
+                hero.GetComponentsInChildren<UnityEngine.Light>(true)
+                    .Count(light => light.gameObject.name == "Spell Effect Light"),
+                Is.EqualTo(1)
+            );
         }
         finally
         {

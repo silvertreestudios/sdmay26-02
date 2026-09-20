@@ -102,7 +102,8 @@ namespace Game.Rules.Unity
                     enrollment.SeedExploration(seed);
                 RuleDispatcherBuilder dispatcherBuilder = new RuleDispatcherBuilder(
                     new InMemoryRulesStore(seed),
-                    rollService ?? throw new ArgumentNullException(nameof(rollService))
+                    rollService ?? throw new ArgumentNullException(nameof(rollService)),
+                    new SequentialOpIdProvider(enrollment.FirstAvailableOperationId)
                 )
                     .UseHealthRules()
                     .UseMultipleAttackPenaltyRules()

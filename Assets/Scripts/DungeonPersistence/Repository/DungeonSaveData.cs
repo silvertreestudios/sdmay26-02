@@ -754,6 +754,11 @@ namespace Game.DungeonPersistence.Repository
                         && effect.ExpiresWithEncounter
                             != (duration.Kind == EffectDurationKind.Encounter)
                     )
+                    || (
+                        effect.HasTiming
+                        && duration.Kind != EffectDurationKind.Encounter
+                        && effect.RemainingBoundaries <= 0
+                    )
                 )
                     return true;
                 DungeonRulesEffectPersistence.Codecs.GetReferencedActors(

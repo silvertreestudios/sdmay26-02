@@ -98,16 +98,44 @@ namespace Game.DungeonPersistence.Actors
     }
 
     /// <summary>
-    /// Temporarily carries validated rules-effect save envelopes until combatant enrollment commits
-    /// them to the new encounter's authoritative store.
+    /// Carries one immutable rules effect across the detached exploration boundary.
+    /// </summary>
+    internal sealed class DungeonRulesEffectProjection
+    {
+        internal DungeonRulesEffectProjection(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            ActiveEffectTimingState timing
+        )
+        {
+            Effect = effect ?? throw new ArgumentNullException(nameof(effect));
+            Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            Timing = timing;
+        }
+
+        internal ActiveEffectInstance Effect { get; }
+        internal ActiveRuleBinding Binding { get; }
+        internal ActiveEffectTimingState Timing { get; }
+    }
+
+    /// <summary>
+    /// Carries validated save envelopes or a detached immutable projection until combatant
+    /// enrollment commits them to the new encounter's authoritative store.
     /// </summary>
     internal sealed class DungeonRulesEffectSeed : MonoBehaviour
     {
         private DungeonRulesEffectSaveState[] effects = Array.Empty<DungeonRulesEffectSaveState>();
+        private DungeonRulesEffectProjection[] projections =
+            Array.Empty<DungeonRulesEffectProjection>();
         private Func<string, GameObject> resolveActor = _ =>
             throw new InvalidOperationException("The rules-effect seed is not initialized.");
+        private IReadOnlyDictionary<CreatureId, GameObject> projectedActors =
+            new Dictionary<CreatureId, GameObject>();
+        private IReadOnlyDictionary<CreatureId, string> projectedExternalActors =
+            new Dictionary<CreatureId, string>();
 
         internal IReadOnlyList<DungeonRulesEffectSaveState> Effects => effects;
+        internal IReadOnlyList<DungeonRulesEffectProjection> Projections => projections;
 
         internal void Initialize(
             IEnumerable<DungeonRulesEffectSaveState> restoredEffects,
@@ -119,38 +147,120 @@ namespace Game.DungeonPersistence.Actors
                 ?? throw new ArgumentNullException(nameof(restoredEffects));
             Func<string, GameObject> copiedResolver =
                 actorResolver ?? throw new ArgumentNullException(nameof(actorResolver));
-            foreach (string actorId in copied.SelectMany(DungeonRulesEffectPersistence.ActorIds))
-            {
-                if (copiedResolver(actorId) == null)
-                    throw new InvalidOperationException(
-                        $"Saved rules effect references unavailable actor '{actorId}'."
-                    );
-            }
             effects = copied;
+            projections = Array.Empty<DungeonRulesEffectProjection>();
             resolveActor = copiedResolver;
             GetComponent<ConditionSeed>()?.Clear();
         }
 
-        internal CreatureId ResolveCreature(string actorId, UnityCombatRulesBridge owner)
+        internal CreatureId ResolveCreature(
+            string actorId,
+            UnityCombatRulesBridge owner,
+            Func<string, CreatureId> resolveExternal
+        )
         {
             GameObject actor = resolveActor(actorId);
             if (
-                actor == null
-                || !actor.TryGetComponent(out CreatureComponent creature)
-                || !owner.TryGetCreatureId(creature, out CreatureId id)
+                actor != null
+                && actor.TryGetComponent(out CreatureComponent creature)
+                && owner.TryGetCreatureId(creature, out CreatureId id)
             )
-                throw new InvalidOperationException(
-                    $"Saved rules-effect actor '{actorId}' is not enrolled in this encounter."
-                );
-            return id;
+                return id;
+            return resolveExternal(actorId);
         }
+
+        internal CreatureId ResolveProjectedCreature(
+            CreatureId projectedCreature,
+            UnityCombatRulesBridge owner,
+            Func<string, CreatureId> resolveExternal
+        )
+        {
+            if (projectedExternalActors.TryGetValue(projectedCreature, out string actorId))
+                return resolveExternal(actorId);
+            if (
+                projectedActors.TryGetValue(projectedCreature, out GameObject actor)
+                && actor != null
+                && actor.TryGetComponent(out CreatureComponent creature)
+                && owner.TryGetCreatureId(creature, out CreatureId id)
+            )
+                return id;
+            throw new InvalidOperationException(
+                $"Detached rules-effect creature '{projectedCreature.Value}' is unavailable."
+            );
+        }
+
+        internal IReadOnlyList<DungeonRulesEffectSaveState> Capture(
+            Func<GameObject, string> identifyActor
+        )
+        {
+            if (identifyActor == null)
+                throw new ArgumentNullException(nameof(identifyActor));
+            if (projections.Length == 0)
+                return effects;
+
+            string IdentifyCreature(CreatureId creature)
+            {
+                if (projectedExternalActors.TryGetValue(creature, out string actorId))
+                    return actorId;
+                if (projectedActors.TryGetValue(creature, out GameObject actor) && actor != null)
+                    return identifyActor(actor);
+                throw new InvalidOperationException(
+                    $"Detached rules effect references unavailable creature '{creature.Value}'."
+                );
+            }
+
+            return projections
+                .Select(projection =>
+                    DungeonRulesEffectPersistence.Capture(projection, IdentifyCreature)
+                )
+                .ToArray();
+        }
+
+        internal void Project(
+            IEnumerable<DungeonRulesEffectProjection> detachedEffects,
+            IReadOnlyDictionary<CreatureId, GameObject> actors,
+            IReadOnlyDictionary<CreatureId, string> externalActors
+        )
+        {
+            projections =
+                detachedEffects?.ToArray()
+                ?? throw new ArgumentNullException(nameof(detachedEffects));
+            projectedActors = actors ?? throw new ArgumentNullException(nameof(actors));
+            projectedExternalActors =
+                externalActors ?? throw new ArgumentNullException(nameof(externalActors));
+            effects = Array.Empty<DungeonRulesEffectSaveState>();
+            GetComponent<ConditionSeed>()?.Clear();
+        }
+
+        internal void ConsumeRestoredEffects()
+        {
+            effects = Array.Empty<DungeonRulesEffectSaveState>();
+            projections = Array.Empty<DungeonRulesEffectProjection>();
+            resolveActor = _ =>
+                throw new InvalidOperationException("The rules-effect seed was consumed.");
+        }
+
+        internal void RememberExternalActors(
+            IReadOnlyDictionary<CreatureId, string> externalActors
+        ) =>
+            projectedExternalActors =
+                externalActors ?? throw new ArgumentNullException(nameof(externalActors));
+
+        internal bool TryGetExternalActorId(CreatureId creature, out string actorId) =>
+            projectedExternalActors.TryGetValue(creature, out actorId);
     }
 
     /// <summary>Enrolls saved generic effect envelopes through the common combatant addition.</summary>
-    internal sealed class DungeonRulesEffectPersistenceModule : IUnityCombatantEnrollmentModule
+    internal sealed class DungeonRulesEffectPersistenceModule
+        : IUnityEncounterRuntimeModule,
+            IUnityCombatantEnrollmentModule
     {
         private readonly UnityCombatRulesBridge owner;
         private readonly DungeonEffectStateCodecCatalog codecs;
+        private readonly Dictionary<string, CreatureId> externalCreatures = new(
+            StringComparer.Ordinal
+        );
+        private readonly Dictionary<CreatureId, string> externalActorIds = new();
 
         internal DungeonRulesEffectPersistenceModule(
             UnityCombatRulesBridge owner,
@@ -167,15 +277,47 @@ namespace Game.DungeonPersistence.Actors
             if (seed == null)
                 return;
 
+            HashSet<CreatureId> references = new();
+            CreatureId Resolve(string actorId)
+            {
+                CreatureId id = seed.ResolveCreature(actorId, owner, ResolveExternal);
+                if (externalActorIds.ContainsKey(id))
+                    references.Add(id);
+                return id;
+            }
+
+            CreatureId ResolveProjected(CreatureId projectedCreature)
+            {
+                CreatureId id = seed.ResolveProjectedCreature(
+                    projectedCreature,
+                    owner,
+                    ResolveExternal
+                );
+                if (externalActorIds.ContainsKey(id))
+                    references.Add(id);
+                return id;
+            }
+
+            void Add(
+                ActiveEffectInstance effect,
+                ActiveRuleBinding binding,
+                ActiveEffectTimingRestore? timing
+            )
+            {
+                if (binding.Owner != builder.CreatureId)
+                    throw new InvalidOperationException(
+                        $"Saved effect '{effect.Id.Value}' is enrolled through the wrong binding owner."
+                    );
+                builder.AddActiveEffects(new[] { effect });
+                builder.AddRuleBindings(new[] { binding });
+                if (timing.HasValue)
+                    builder.AddActiveEffectTimings(new[] { timing.Value });
+            }
+
             foreach (DungeonRulesEffectSaveState saved in seed.Effects)
             {
-                CreatureId bindingOwner = seed.ResolveCreature(saved.BindingOwnerActorId, owner);
-                if (bindingOwner != builder.CreatureId)
-                    throw new InvalidOperationException(
-                        $"Saved effect '{saved.EffectId}' is enrolled through the wrong binding owner."
-                    );
-                CreatureId source = seed.ResolveCreature(saved.SourceActorId, owner);
-                Func<string, CreatureId> resolve = actorId => seed.ResolveCreature(actorId, owner);
+                CreatureId bindingOwner = Resolve(saved.BindingOwnerActorId);
+                CreatureId source = Resolve(saved.SourceActorId);
                 ActiveEffectId effectId = new(saved.EffectId);
                 RuleDefinitionId definitionId = new(saved.DefinitionId);
                 RuleSource ruleSource = RuleSource.FromSlug(saved.RuleSource);
@@ -188,7 +330,7 @@ namespace Game.DungeonPersistence.Actors
                         saved.DurationKind,
                         saved.DurationAmount
                     ),
-                    codecs.Restore(saved.StateKind, saved.StatePayload, resolve),
+                    codecs.Restore(saved.StateKind, saved.StatePayload, Resolve),
                     new EffectStateVersion(saved.EffectStateVersion)
                 );
                 ActiveRuleBinding binding = new(
@@ -200,22 +342,124 @@ namespace Game.DungeonPersistence.Actors
                     saved.CreationOrder,
                     saved.BindingEnabled
                 );
-                builder.AddActiveEffects(new[] { effect });
-                builder.AddRuleBindings(new[] { binding });
-                if (saved.HasTiming)
-                {
-                    builder.AddActiveEffectTimings(
-                        new[]
-                        {
-                            new ActiveEffectTimingRestore(
-                                effectId,
-                                saved.RemainingBoundaries,
-                                saved.ExpiresWithEncounter
-                            ),
-                        }
-                    );
-                }
+                Add(
+                    effect,
+                    binding,
+                    saved.HasTiming
+                        ? new ActiveEffectTimingRestore(
+                            effectId,
+                            saved.RemainingBoundaries,
+                            saved.ExpiresWithEncounter
+                        )
+                        : null
+                );
             }
+            foreach (DungeonRulesEffectProjection projection in seed.Projections)
+            {
+                ActiveEffectInstance projectedEffect = projection.Effect;
+                ActiveRuleBinding projectedBinding = projection.Binding;
+                (string kind, string payload) = codecs.Capture(
+                    projectedEffect.State,
+                    creature => creature.Value
+                );
+                ActiveEffectInstance effect = new(
+                    projectedEffect.Id,
+                    projectedEffect.DefinitionId,
+                    ResolveProjected(projectedEffect.SourceCreature),
+                    projectedEffect.Source,
+                    projectedEffect.Duration,
+                    codecs.Restore(
+                        kind,
+                        payload,
+                        actorId => ResolveProjected(new CreatureId(actorId))
+                    ),
+                    projectedEffect.EffectStateVersion
+                );
+                ActiveRuleBinding binding = new(
+                    projectedBinding.Id,
+                    projectedBinding.DefinitionId,
+                    ResolveProjected(projectedBinding.Owner),
+                    projectedBinding.EffectId,
+                    projectedBinding.Source,
+                    projectedBinding.CreationOrder,
+                    projectedBinding.IsEnabled
+                );
+                ActiveEffectTimingRestore? timing =
+                    projection.Timing == null
+                        ? null
+                        : new ActiveEffectTimingRestore(
+                            projectedEffect.Id,
+                            projection.Timing.RemainingBoundaries,
+                            projection.Timing.ExpiresWithEncounter
+                        );
+                Add(effect, binding, timing);
+            }
+            builder.AddExternalEffectReferences(references);
+            seed.RememberExternalActors(externalActorIds);
+            builder.AddInstallation(new ConsumeSeedInstallation(seed));
+        }
+
+        /// <inheritdoc/>
+        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
+        {
+            if (dispatcher == null)
+                throw new ArgumentNullException(nameof(dispatcher));
+            if (lifetime == null)
+                throw new ArgumentNullException(nameof(lifetime));
+            lifetime.Add(new RegistrationToken(ProjectDetachedEffects));
+        }
+
+        private CreatureId ResolveExternal(string actorId)
+        {
+            if (string.IsNullOrWhiteSpace(actorId))
+                throw new ArgumentException("A saved effect actor identity is required.");
+            if (externalCreatures.TryGetValue(actorId, out CreatureId existing))
+                return existing;
+            CreatureId created = new($"dungeon-external:{actorId}");
+            if (
+                externalActorIds.TryGetValue(created, out string collision)
+                && !string.Equals(collision, actorId, StringComparison.Ordinal)
+            )
+                throw new InvalidOperationException(
+                    $"Saved actor identities '{collision}' and '{actorId}' collide."
+                );
+            externalCreatures.Add(actorId, created);
+            externalActorIds[created] = actorId;
+            return created;
+        }
+
+        private void ProjectDetachedEffects()
+        {
+            RulesSnapshot snapshot = owner.Snapshot;
+            Dictionary<CreatureId, GameObject> actors = new();
+            foreach (KeyValuePair<CreatureId, CreatureState> entry in snapshot.Creatures)
+            {
+                ActionController controller = owner.GetController(entry.Key);
+                if (controller != null)
+                    actors.Add(entry.Key, controller.gameObject);
+            }
+            foreach (KeyValuePair<CreatureId, GameObject> actor in actors)
+            {
+                ActionController controller = actor.Value.GetComponent<ActionController>();
+                DungeonRulesEffectSeed seed =
+                    controller.GetComponent<DungeonRulesEffectSeed>()
+                    ?? controller.gameObject.AddComponent<DungeonRulesEffectSeed>();
+                seed.Project(
+                    DungeonRulesEffectPersistence.Project(snapshot, actor.Key),
+                    actors,
+                    externalActorIds
+                );
+            }
+        }
+
+        private sealed class ConsumeSeedInstallation : IUnityCombatantInstallationContribution
+        {
+            private readonly DungeonRulesEffectSeed seed;
+
+            internal ConsumeSeedInstallation(DungeonRulesEffectSeed seed) =>
+                this.seed = seed ?? throw new ArgumentNullException(nameof(seed));
+
+            public void Apply() => seed.ConsumeRestoredEffects();
         }
     }
 
@@ -236,54 +480,83 @@ namespace Game.DungeonPersistence.Actors
                     out CreatureId target
                 )
             )
-                return Array.Empty<DungeonRulesEffectSaveState>();
+            {
+                DungeonRulesEffectSeed seed = controller.GetComponent<DungeonRulesEffectSeed>();
+                return seed == null
+                    ? Array.Empty<DungeonRulesEffectSaveState>()
+                    : seed.Capture(identifyActor);
+            }
 
+            DungeonRulesEffectSeed attachedSeed = controller.GetComponent<DungeonRulesEffectSeed>();
             string IdentifyCreature(CreatureId creature) =>
-                identifyActor(bridge.GetController(creature).gameObject);
-            List<DungeonRulesEffectSaveState> captured = new();
+                attachedSeed != null
+                && attachedSeed.TryGetExternalActorId(creature, out string actorId)
+                    ? actorId
+                    : identifyActor(bridge.GetController(creature).gameObject);
+            return Project(bridge.Snapshot, target)
+                .Select(projection => Capture(projection, IdentifyCreature))
+                .ToArray();
+        }
+
+        internal static IReadOnlyList<DungeonRulesEffectProjection> Project(
+            RulesSnapshot snapshot,
+            CreatureId target
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            List<DungeonRulesEffectProjection> projected = new();
             foreach (
-                ActiveRuleBinding binding in bridge
-                    .Snapshot.RuleBindings.Select(pair => pair.Value)
+                ActiveRuleBinding binding in snapshot
+                    .RuleBindings.Select(pair => pair.Value)
                     .Where(binding => binding.Owner == target && binding.EffectId.HasValue)
                     .OrderBy(binding => binding.CreationOrder)
                     .ThenBy(binding => binding.Id.Value, StringComparer.Ordinal)
             )
             {
                 ActiveEffectId effectId = binding.EffectId.Value;
-                if (
-                    !bridge.Snapshot.ActiveEffects.TryGet(effectId, out ActiveEffectInstance effect)
-                )
+                if (!snapshot.ActiveEffects.TryGet(effectId, out ActiveEffectInstance effect))
                     throw new InvalidOperationException(
                         $"Effect binding '{binding.Id.Value}' has no active effect."
                     );
-                (string kind, string payload) = Codecs.Capture(effect.State, IdentifyCreature);
-                bool hasTiming = bridge.Snapshot.ActiveEffectTimings.TryGet(
-                    effect.Id,
-                    out ActiveEffectTimingState timing
-                );
-                captured.Add(
-                    new DungeonRulesEffectSaveState
-                    {
-                        EffectId = effect.Id.Value,
-                        BindingId = binding.Id.Value,
-                        DefinitionId = effect.DefinitionId.Value,
-                        SourceActorId = IdentifyCreature(effect.SourceCreature),
-                        BindingOwnerActorId = IdentifyCreature(binding.Owner),
-                        RuleSource = effect.Source.Slug,
-                        DurationKind = effect.Duration.Kind,
-                        DurationAmount = effect.Duration.Amount,
-                        EffectStateVersion = effect.EffectStateVersion.Value,
-                        CreationOrder = binding.CreationOrder,
-                        BindingEnabled = binding.IsEnabled,
-                        HasTiming = hasTiming,
-                        RemainingBoundaries = hasTiming ? timing.RemainingBoundaries : 0,
-                        ExpiresWithEncounter = hasTiming && timing.ExpiresWithEncounter,
-                        StateKind = kind,
-                        StatePayload = payload,
-                    }
-                );
+                snapshot.ActiveEffectTimings.TryGet(effect.Id, out ActiveEffectTimingState timing);
+                projected.Add(new DungeonRulesEffectProjection(effect, binding, timing));
             }
-            return captured;
+            return projected;
+        }
+
+        internal static DungeonRulesEffectSaveState Capture(
+            DungeonRulesEffectProjection projection,
+            Func<CreatureId, string> identifyCreature
+        )
+        {
+            if (projection == null)
+                throw new ArgumentNullException(nameof(projection));
+            if (identifyCreature == null)
+                throw new ArgumentNullException(nameof(identifyCreature));
+            ActiveEffectInstance effect = projection.Effect;
+            ActiveRuleBinding binding = projection.Binding;
+            ActiveEffectTimingState timing = projection.Timing;
+            (string kind, string payload) = Codecs.Capture(effect.State, identifyCreature);
+            return new DungeonRulesEffectSaveState
+            {
+                EffectId = effect.Id.Value,
+                BindingId = binding.Id.Value,
+                DefinitionId = effect.DefinitionId.Value,
+                SourceActorId = identifyCreature(effect.SourceCreature),
+                BindingOwnerActorId = identifyCreature(binding.Owner),
+                RuleSource = effect.Source.Slug,
+                DurationKind = effect.Duration.Kind,
+                DurationAmount = effect.Duration.Amount,
+                EffectStateVersion = effect.EffectStateVersion.Value,
+                CreationOrder = binding.CreationOrder,
+                BindingEnabled = binding.IsEnabled,
+                HasTiming = timing != null,
+                RemainingBoundaries = timing?.RemainingBoundaries ?? 0,
+                ExpiresWithEncounter = timing?.ExpiresWithEncounter ?? false,
+                StateKind = kind,
+                StatePayload = payload,
+            };
         }
 
         internal static IEnumerable<string> ActorIds(DungeonRulesEffectSaveState effect)

@@ -228,6 +228,10 @@ public sealed class DungeonActorStateAdapterTests
 
         restoredObject = CreatureJsonConverter.CreateFromFile("DataFiles/playerCharacters/Torgrim");
         CreatureComponent restoredCreature = restoredObject.GetComponent<CreatureComponent>();
+        restoredCreature.Prepared.OwnedItems.RemoveAll(item =>
+            string.Equals(item.Item.Slug, "quick-tempered", StringComparison.OrdinalIgnoreCase)
+        );
+        restoredCreature.Prepared.RollOptions.Remove("feat:quick-tempered");
         restoredObject.AddComponent<Conditions>();
         restoredObject.AddComponent<Team>().Name = "players";
         DungeonPersistenceTestActionController restoredController =
@@ -371,6 +375,243 @@ public sealed class DungeonActorStateAdapterTests
         );
         Assert.That(RageRules.IsRaging(activeBridge.Snapshot, restoredActor), Is.False);
         Assert.That(restoredCreature.Health.Temporary, Is.Zero);
+
+        activeBridge.ReleaseOwnership();
+        DungeonActorSaveState detachedCheckpoint = DungeonActorStateAdapter.Capture(
+            restoredController,
+            value => value == restoredObject ? "hero" : "enemy"
+        );
+        Assert.That(detachedCheckpoint.RulesEffects, Has.Length.EqualTo(2));
+        Assert.That(
+            detachedCheckpoint.RulesEffects.Any(effect =>
+                effect.StateKind == "rage"
+                || string.Equals(effect.EffectId, slowedTwoEffectId, StringComparison.Ordinal)
+            ),
+            Is.False
+        );
+
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { restoredController, restoredOpponentController },
+            CreateTiles(),
+            new ScriptedRollService(20, 10),
+            "players"
+        );
+        restoredActor = activeBridge.GetCreatureId(restoredCreature);
+        Assert.That(activeBridge.Snapshot.ActiveEffects.Count(), Is.EqualTo(2));
+        Assert.That(RageRules.IsRaging(activeBridge.Snapshot, restoredActor), Is.False);
+        long restoredCreationOrder = activeBridge
+            .Snapshot.RuleBindings.Select(pair => pair.Value)
+            .Where(binding => binding.EffectId.HasValue)
+            .Max(binding => binding.CreationOrder);
+        Assert.That(
+            activeBridge.Dispatch(
+                new ApplyConditionOp(
+                    restoredActor,
+                    SlowedRules.ConditionId,
+                    3,
+                    restoredActor,
+                    RuleSource.FromSlug("new-encounter-slowed"),
+                    EffectDuration.Indefinite
+                )
+            ),
+            Is.TypeOf<ResolvedOpResult<ActiveEffectCreationOutcome>>()
+        );
+        ActiveRuleBinding newBinding = activeBridge
+            .Snapshot.RuleBindings.Select(pair => pair.Value)
+            .Single(binding =>
+                binding.EffectId.HasValue
+                && binding.Source == RuleSource.FromSlug("new-encounter-slowed")
+            );
+        Assert.That(newBinding.CreationOrder, Is.GreaterThan(restoredCreationOrder));
+        Assert.That(activeBridge.Snapshot.ActiveEffects.Count(), Is.EqualTo(3));
+
+        activeBridge.ReleaseOwnership();
+        DungeonActorSaveState nextDetachedCheckpoint = DungeonActorStateAdapter.Capture(
+            restoredController,
+            value => value == restoredObject ? "hero" : "enemy"
+        );
+        Assert.That(nextDetachedCheckpoint.RulesEffects, Has.Length.EqualTo(3));
+    }
+
+    [Test]
+    public void RestorePreservesDefeatedSourceIdentityAndAdvancesItsRemainingRoundClock()
+    {
+        SourceFixture hero = CreateFixture("Hero", out restoredObject);
+        restoredObject.AddComponent<Team>().Name = "players";
+        SourceFixture enemy = CreateFixture("Living Enemy", out restoredOpponentObject);
+        restoredOpponentObject.AddComponent<Team>().Name = "enemies";
+        restoredOpponentObject.transform.position = Vector3.right;
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            _ => "unused"
+        );
+        saved.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = "condition-effect:80",
+                BindingId = "condition-binding:80",
+                DefinitionId = ConditionRules.DefinitionId.Value,
+                SourceActorId = "defeated-enemy",
+                BindingOwnerActorId = "hero",
+                RuleSource = "enemy-slowed",
+                DurationKind = EffectDurationKind.Rounds,
+                DurationAmount = 1,
+                CreationOrder = 80,
+                BindingEnabled = true,
+                HasTiming = true,
+                RemainingBoundaries = 1,
+                StateKind = "condition",
+                StatePayload = $"{{\"Condition\":\"{SlowedRules.ConditionId.Value}\",\"Value\":2}}",
+            },
+        };
+        Func<string, GameObject> resolve = actorId =>
+            actorId == "hero" ? restoredObject
+            : actorId == "living-enemy" ? restoredOpponentObject
+            : null;
+        DungeonActorStateAdapter.PrepareRestore(
+            hero.Controller,
+            saved,
+            hero.Creature.Health.Current,
+            false,
+            resolve
+        )();
+        DungeonActorStateAdapter.PrepareRestore(
+            enemy.Controller,
+            DungeonActorStateAdapter.Capture(enemy.Controller, _ => "unused"),
+            enemy.Creature.Health.Current,
+            false,
+            resolve
+        )();
+
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { hero.Controller, enemy.Controller },
+            CreateTiles(),
+            new ScriptedRollService(20, 10),
+            "players"
+        );
+        CreatureId heroId = activeBridge.GetCreatureId(hero.Creature);
+        ActiveEffectInstance restored = activeBridge.Snapshot.ActiveEffects[
+            new ActiveEffectId("condition-effect:80")
+        ];
+        Assert.That(restored.SourceCreature.Value, Is.EqualTo("dungeon-external:defeated-enemy"));
+        DungeonActorSaveState attachedCapture = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            actor => actor == restoredObject ? "hero" : "living-enemy"
+        );
+        Assert.That(
+            attachedCapture.RulesEffects.Single().SourceActorId,
+            Is.EqualTo("defeated-enemy")
+        );
+
+        activeBridge.BeginTurn(heroId, 1);
+        Assert.That(activeBridge.Snapshot.ActiveEffects.Contains(restored.Id), Is.True);
+        activeBridge.BeginTurn(heroId, 3);
+        Assert.That(activeBridge.Snapshot.ActiveEffects.Contains(restored.Id), Is.False);
+    }
+
+    [Test]
+    public void ParseActorRejectsZeroRemainingBoundariesForCountedEffect()
+    {
+        SourceFixture hero = CreateFixture("Hero", out restoredObject);
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            _ => "unused"
+        );
+        saved.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = "condition-effect:10",
+                BindingId = "condition-binding:10",
+                DefinitionId = ConditionRules.DefinitionId.Value,
+                SourceActorId = "hero",
+                BindingOwnerActorId = "hero",
+                RuleSource = "slowed",
+                DurationKind = EffectDurationKind.Rounds,
+                DurationAmount = 1,
+                CreationOrder = 10,
+                BindingEnabled = true,
+                HasTiming = true,
+                RemainingBoundaries = 0,
+                StateKind = "condition",
+                StatePayload = "{\"Condition\":\"slowed\",\"Value\":1}",
+            },
+        };
+
+        DungeonSaveResult<DungeonActorSaveState> parsed = DungeonSaveJson.ParseActor(
+            JsonUtility.ToJson(saved)
+        );
+
+        Assert.That(parsed.IsSuccess, Is.False);
+        Assert.That(
+            parsed.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonSaveDiagnosticCode.CorruptSave)
+        );
+    }
+
+    [Test]
+    public void FailedEnrollmentDoesNotConsumeRestoredEffectSeed()
+    {
+        SourceFixture hero = CreateFixture("Hero", out restoredObject);
+        restoredObject.AddComponent<Team>().Name = "players";
+        SourceFixture enemy = CreateFixture("Enemy", out restoredOpponentObject);
+        restoredOpponentObject.AddComponent<Team>().Name = "enemies";
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            _ => "unused"
+        );
+        saved.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = "unknown-effect",
+                BindingId = "unknown-binding",
+                DefinitionId = "unknown-definition",
+                SourceActorId = "hero",
+                BindingOwnerActorId = "hero",
+                RuleSource = "unknown",
+                DurationKind = EffectDurationKind.Indefinite,
+                CreationOrder = 5,
+                BindingEnabled = true,
+                StateKind = "condition",
+                StatePayload = $"{{\"Condition\":\"{SlowedRules.ConditionId.Value}\",\"Value\":1}}",
+            },
+        };
+        Func<string, GameObject> resolve = actorId =>
+            actorId == "hero" ? restoredObject
+            : actorId == "enemy" ? restoredOpponentObject
+            : null;
+        DungeonActorStateAdapter.PrepareRestore(
+            hero.Controller,
+            saved,
+            hero.Creature.Health.Current,
+            false,
+            resolve
+        )();
+        DungeonActorStateAdapter.PrepareRestore(
+            enemy.Controller,
+            DungeonActorStateAdapter.Capture(enemy.Controller, _ => "unused"),
+            enemy.Creature.Health.Current,
+            false,
+            resolve
+        )();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            UnityCombatRulesBridge.Create(
+                new ActionController[] { hero.Controller, enemy.Controller },
+                CreateTiles(),
+                new ScriptedRollService(20, 10),
+                "players"
+            )
+        );
+
+        DungeonActorSaveState retained = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            actor => actor == restoredObject ? "hero" : "enemy"
+        );
+        Assert.That(retained.RulesEffects, Has.Length.EqualTo(1));
+        Assert.That(retained.RulesEffects.Single().EffectId, Is.EqualTo("unknown-effect"));
     }
 
     [Test]

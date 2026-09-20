@@ -66,6 +66,7 @@ namespace Game.Rules.Unity.Composition
         private readonly List<AmmunitionState> ammunition = new();
         private readonly List<ActiveEffectInstance> activeEffects = new();
         private readonly List<ActiveEffectTimingRestore> activeEffectTimings = new();
+        private readonly HashSet<CreatureId> externalEffectReferences = new();
         private readonly CompositeLifetime preparationLifetime;
         private readonly CreatureState creatureState;
         private readonly HealthState health;
@@ -149,6 +150,17 @@ namespace Game.Rules.Unity.Composition
             activeEffectTimings.AddRange(timings);
         }
 
+        /// <summary>
+        /// Adds stable effect actor references that are not live combatants in this encounter.
+        /// </summary>
+        internal void AddExternalEffectReferences(IEnumerable<CreatureId> references)
+        {
+            if (references == null)
+                throw new ArgumentNullException(nameof(references));
+            foreach (CreatureId reference in references)
+                externalEffectReferences.Add(reference);
+        }
+
         /// <summary>Adds one fully prepared Unity installation.</summary>
         internal void AddInstallation(IUnityCombatantInstallationContribution contribution) =>
             installations.Add(
@@ -171,7 +183,8 @@ namespace Game.Rules.Unity.Composition
                 equipment,
                 ammunition,
                 activeEffects,
-                activeEffectTimings
+                activeEffectTimings,
+                externalEffectReferences.ToArray()
             );
     }
 

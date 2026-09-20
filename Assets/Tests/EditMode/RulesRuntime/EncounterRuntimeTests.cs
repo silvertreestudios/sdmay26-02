@@ -1382,7 +1382,8 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
                 Array.Empty<ActiveEffectInstance>(),
-                Array.Empty<ActiveEffectTimingRestore>()
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
             RulesStateSeed seed = new RulesStateSeed();
             switch (collision)
@@ -2014,7 +2015,8 @@ namespace Game.Rules.Runtime.Tests
                             Array.Empty<EquipmentState>(),
                             Array.Empty<AmmunitionState>(),
                             new[] { effect },
-                            Array.Empty<ActiveEffectTimingRestore>()
+                            Array.Empty<ActiveEffectTimingRestore>(),
+                            Array.Empty<CreatureId>()
                         ),
                     }
                 )
@@ -2030,6 +2032,132 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(timing.RemainingBoundaries, Is.EqualTo(expectedBoundaries));
             Assert.That(timing.ExpiresWithEncounter, Is.EqualTo(expiresWithEncounter));
             Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
+        }
+
+        [Test]
+        public async Task RestoredExternalSourceEffectExpiresAtTheNextRoundBoundary()
+        {
+            CreatureId externalSource = new CreatureId("external-defeated-source");
+            RuleDefinitionId definition = new RuleDefinitionId("external-source-effect");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                new RulesStateSeed(),
+                registry,
+                true
+            );
+            ActiveEffectId effectId = new ActiveEffectId("external-source-effect-1");
+            BindingId bindingId = new BindingId("external-source-binding-1");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                externalSource,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Hero,
+                effectId,
+                Source,
+                1
+            );
+            CombatantRulesState hero = new CombatantRulesState(
+                new CreatureState(Hero, Players),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                0,
+                Array.Empty<SpellSlotState>(),
+                new[] { binding },
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                new[] { effect },
+                new[] { new ActiveEffectTimingRestore(effectId, 1, false) },
+                new[] { externalSource }
+            );
+
+            Resolved(
+                await dispatcher.Dispatch(
+                    new StartTestEncounterOp(
+                        Encounter,
+                        new[] { hero, Registration(Enemy, Enemies) },
+                        EncounterConclusionPolicy.ProtagonistDefeatOnly
+                    )
+                )
+            );
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+
+            EncounterState firstTurn = dispatcher.Snapshot.Encounters[Encounter];
+            Resolved(await dispatcher.Dispatch(new EndTurnOp(firstTurn.CurrentTurn.Value)));
+            EncounterState secondTurn = dispatcher.Snapshot.Encounters[Encounter];
+            Resolved(await dispatcher.Dispatch(new EndTurnOp(secondTurn.CurrentTurn.Value)));
+
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(bindingId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
+        }
+
+        [Test]
+        public async Task RestoredCountedEffectRejectsZeroRemainingBoundaries()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("zero-boundary-effect");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition);
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                new RulesStateSeed(),
+                registry,
+                true
+            );
+            ActiveEffectId effectId = new ActiveEffectId("zero-boundary-effect-1");
+            BindingId bindingId = new BindingId("zero-boundary-binding-1");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Hero,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Hero,
+                effectId,
+                Source,
+                1
+            );
+            CombatantRulesState hero = new CombatantRulesState(
+                new CreatureState(Hero, Players),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                0,
+                Array.Empty<SpellSlotState>(),
+                new[] { binding },
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                new[] { effect },
+                new[] { new ActiveEffectTimingRestore(effectId, 0, false) },
+                Array.Empty<CreatureId>()
+            );
+
+            Resolved(await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players)));
+            InvalidOperationException failure = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(
+                        new AddCombatantsOp(Encounter, new[] { hero, Registration(Enemy, Enemies) })
+                    )
+            );
+
+            Assert.That(failure.Message, Does.Contain("conflicts with its duration"));
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
         }
 
         [Test]
@@ -2383,7 +2511,8 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
                 Array.Empty<ActiveEffectInstance>(),
-                Array.Empty<ActiveEffectTimingRestore>()
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
 
         private static CombatantRulesState Registration(
@@ -2403,7 +2532,8 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
                 effects,
-                Array.Empty<ActiveEffectTimingRestore>()
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
 
         private static EncounterState ActiveTurnEncounter() =>
@@ -2459,7 +2589,8 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
                 Array.Empty<ActiveEffectInstance>(),
-                Array.Empty<ActiveEffectTimingRestore>()
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
 
         private static RuleDispatcher CreateDispatcher(

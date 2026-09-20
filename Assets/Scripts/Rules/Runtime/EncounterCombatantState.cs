@@ -75,6 +75,9 @@ namespace Game.Rules.Runtime
         /// <param name="activeEffectTimings">
         /// Remaining encounter-clock schedules for effects whose original duration has advanced.
         /// </param>
+        /// <param name="externalEffectReferences">
+        /// Stable actor identities referenced by restored effects but not enrolled as combatants.
+        /// </param>
         /// <exception cref="ArgumentNullException">A required reference or collection is null.</exception>
         /// <exception cref="ArgumentException">
         /// A collection contains an invalid owner, duplicate identity, or null entry.
@@ -90,12 +93,14 @@ namespace Game.Rules.Runtime
             IReadOnlyList<EquipmentState> equipment,
             IReadOnlyList<AmmunitionState> ammunition,
             IReadOnlyList<ActiveEffectInstance> activeEffects,
-            IReadOnlyList<ActiveEffectTimingRestore> activeEffectTimings
+            IReadOnlyList<ActiveEffectTimingRestore> activeEffectTimings,
+            IReadOnlyList<CreatureId> externalEffectReferences
         )
         {
             Creature = creature ?? throw new ArgumentNullException(nameof(creature));
             ActiveEffects = CopyEffects(activeEffects);
             ActiveEffectTimings = CopyTimings(activeEffectTimings, ActiveEffects);
+            ExternalEffectReferences = CopyExternalReferences(externalEffectReferences);
             SpellSlots = CopyOwned(spellSlots, creature.Id);
             RuleBindings = CopyBindings(ruleBindings, creature.Id, ActiveEffects);
             Equipment = CopyOwned(equipment, creature.Id);
@@ -138,6 +143,11 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets exact remaining schedules restored with active effects.</summary>
         public IReadOnlyList<ActiveEffectTimingRestore> ActiveEffectTimings { get; }
+
+        /// <summary>
+        /// Gets stable actor identities used by restored effects without a live encounter actor.
+        /// </summary>
+        public IReadOnlyList<CreatureId> ExternalEffectReferences { get; }
 
         private static IReadOnlyList<SpellSlotState> CopyOwned(
             IReadOnlyList<SpellSlotState> values,
@@ -240,6 +250,19 @@ namespace Game.Rules.Runtime
                 );
             if (values.Select(value => value.Effect).Distinct().Count() != values.Count)
                 throw new ArgumentException("Restored effect timing IDs must be unique.");
+            return Array.AsReadOnly(values.ToArray());
+        }
+
+        private static IReadOnlyList<CreatureId> CopyExternalReferences(
+            IReadOnlyList<CreatureId> values
+        )
+        {
+            if (values == null)
+                throw new ArgumentNullException(nameof(values));
+            if (values.Any(value => value.IsEmpty) || values.Distinct().Count() != values.Count)
+                throw new ArgumentException(
+                    "External effect actor references must be complete and unique."
+                );
             return Array.AsReadOnly(values.ToArray());
         }
     }

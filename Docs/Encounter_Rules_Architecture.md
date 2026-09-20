@@ -231,12 +231,28 @@ replaying damage, or creating replacement identities. Existing pre-encounter `Co
 entries are cleared when an explicit dungeon rules seed is installed so repeated reload cannot
 enroll the same application through two paths.
 
+After a successful addition installs Unity authority, the temporary restore seed is consumed. On
+ownership release, the persistence module projects the final immutable rules effects back into a
+detached seed before the next exploration checkpoint or encounter. This projection is the
+between-encounter transport, not a second live authority: later removals, expiry, and Rage ending
+come from the final rules snapshot, while conditions newly applied during exploration continue to
+use `ConditionSeed`. Failed preparation or addition leaves the original restore seed available for
+retry.
+
 The save graph validates globally unique effect and binding IDs, binding-owner association, all
 source/owner/payload actor references, codec payloads, and consistency between duration and timing.
 Finite and encounter effects restore their remaining schedule rather than deriving a fresh one;
 indefinite effects have no timing record. Rage is restored as an ordinary active effect, so reload
 alone neither ends Rage nor changes its temporary Hit Points. Real gameplay removal and encounter
 termination continue through the existing Rage and active-effect operations.
+
+An effect may retain a stable source or payload actor identity after that dungeon actor has been
+defeated and is no longer materialized. Restoration represents that reference explicitly as an
+external effect actor rather than discarding the effect or inventing a live `GameObject`. A counted
+duration whose source remains external advances once at each new-round boundary. Counted restores
+require a positive remaining boundary count. Dispatcher operation IDs start above every restored
+binding creation order so new feature-generated effect and binding IDs cannot collide with active
+restored identities.
 
 Finite effects created for a source in a populated initialized encounter are scheduled immediately,
 before the first explicit advance, just as they are during an active encounter. This lets
