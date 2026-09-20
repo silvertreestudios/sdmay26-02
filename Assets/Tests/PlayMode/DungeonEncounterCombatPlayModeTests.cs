@@ -1,10 +1,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
 using Game.Creature;
+using Game.Creature.Rules;
+using Game.DungeonPersistence.Actors;
+using Game.DungeonPersistence.Repository;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
@@ -72,6 +76,69 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
         Assert.That(dormantEnemy.Controller.StartTurnCount, Is.Zero);
         Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
+    }
+
+    /// <summary>
+    /// Verifies combat startup does not re-import a passive condition already waiting in restored
+    /// rules state.
+    /// </summary>
+    [Test]
+    public void StartDungeonCombat_RestoredSlowPassiveEnrollsOneApplication()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 200);
+        CombatantFixture restoredZombie = CreateCombatant("Restored Zombie", "Enemies", 100);
+        restoredZombie.Creature.passives.Add("Slow");
+        InstallRestoredSlowed(restoredZombie, 40, "restored-zombie");
+
+        Assert.DoesNotThrow(() =>
+            manager.StartDungeonCombat(new[] { player.Controller, restoredZombie.Controller })
+        );
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        CreatureId zombie = bridge.GetCreatureId(restoredZombie.Controller);
+        Assert.That(
+            ConditionRules.GetValue(bridge.Snapshot, zombie, SlowedRules.ConditionId),
+            Is.EqualTo(1)
+        );
+        Assert.That(ConditionRules.GetApplications(bridge.Snapshot, zombie).Count(), Is.EqualTo(1));
+    }
+
+    /// <summary>
+    /// Verifies restored reinforcement identities advance the live dispatcher before addition.
+    /// </summary>
+    [Test]
+    public void AddDungeonReinforcements_RestoredHighWaterProtectsLaterEffectIdentity()
+    {
+        const long restoredCreationOrder = 200;
+        CombatantFixture player = CreateCombatant("Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 100);
+        CombatantFixture reinforcement = CreateCombatant("Restored Reinforcement", "Enemies", 50);
+        InstallRestoredSlowed(reinforcement, restoredCreationOrder, "restored-reinforcement");
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+
+        manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        CreatureId actor = bridge.GetCreatureId(reinforcement.Controller);
+        RuleSource newSource = RuleSource.FromSlug("post-reinforcement-condition");
+        Assert.That(
+            bridge.Dispatch(
+                new ApplyConditionOp(
+                    actor,
+                    SlowedRules.ConditionId,
+                    2,
+                    actor,
+                    newSource,
+                    EffectDuration.Indefinite
+                )
+            ),
+            Is.TypeOf<ResolvedOpResult<ActiveEffectCreationOutcome>>()
+        );
+        ActiveRuleBinding created = bridge
+            .Snapshot.RuleBindings.Select(pair => pair.Value)
+            .Single(binding => binding.EffectId.HasValue && binding.Source == newSource);
+        Assert.That(created.CreationOrder, Is.GreaterThan(restoredCreationOrder));
+        Assert.That(bridge.Snapshot.ActiveEffects.Count, Is.EqualTo(2));
     }
 
     /// <summary>Verifies an active typed roster never suppresses a missing Unity mapping.</summary>
@@ -979,6 +1046,44 @@ public sealed class DungeonEncounterCombatPlayModeTests
         team.Name = teamName;
         manager.AddCombatant(controller);
         return new CombatantFixture(gameObject, creature, conditions, controller);
+    }
+
+    private static void InstallRestoredSlowed(
+        CombatantFixture fixture,
+        long creationOrder,
+        string actorId
+    )
+    {
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            fixture.Controller,
+            _ => actorId
+        );
+        saved.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = $"restored-slowed-effect-{creationOrder}",
+                BindingId = $"restored-slowed-binding-{creationOrder}",
+                DefinitionId = ConditionRules.DefinitionId.Value,
+                SourceActorId = actorId,
+                BindingOwnerActorId = actorId,
+                RuleSource = SlowedRules.Source.Slug,
+                DurationKind = EffectDurationKind.Indefinite,
+                EffectStateVersion = 0,
+                CreationOrder = creationOrder,
+                BindingEnabled = true,
+                HasTiming = false,
+                StateKind = "condition",
+                StatePayload = $"{{\"Condition\":\"{SlowedRules.ConditionId.Value}\",\"Value\":1}}",
+            },
+        };
+        DungeonActorStateAdapter.PrepareRestore(
+            fixture.Controller,
+            saved,
+            fixture.Creature.Health.Current,
+            isDefeated: false,
+            restoredId => restoredId == actorId ? fixture.GameObject : null
+        )();
     }
 
     private GameObject Create(string name)

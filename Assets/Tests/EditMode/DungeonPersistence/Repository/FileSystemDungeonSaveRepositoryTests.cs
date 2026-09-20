@@ -267,6 +267,40 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
+    public void LoadAcceptsCurrentPartyEffectSourcedByCurrentFloorEnemyWithVisitedHistory()
+    {
+        DungeonRunSave valid = DungeonRunSave
+            .CreateNew(Party(12), CreateFloor(0, encounterId: "older-encounter"))
+            .WithAddedAndSelectedFloor(Party(10), CreateFloor(2, encounterId: "current-encounter"));
+        DungeonRunSaveManifest manifest = valid.Manifest;
+        manifest.Party[0].State.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = "current-floor-slowed-effect",
+                BindingId = "current-floor-slowed-binding",
+                DefinitionId = ConditionRules.DefinitionId.Value,
+                SourceActorId = InstanceId("current-encounter", 1),
+                BindingOwnerActorId = "party-slot",
+                RuleSource = "current-floor-enemy-slowed",
+                DurationKind = EffectDurationKind.Indefinite,
+                BindingEnabled = true,
+                StateKind = "condition",
+                StatePayload = "{\"Condition\":\"slowed\",\"Value\":1}",
+            },
+        };
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(
+            manifest,
+            valid.FloorPayloads.ToArray()
+        );
+
+        Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
+        Assert.That(result.IsSuccess, Is.True, result.Diagnostics.FirstOrDefault()?.Message);
+        Assert.That(result.Value.Manifest.Party[0].State.RulesEffects, Has.Length.EqualTo(1));
+    }
+
+    [Test]
     public void LoadRejectsOutdatedManifestAndUnsupportedFloorDocumentVersions()
     {
         FileSystemDungeonSaveRepository repository = new(directory);

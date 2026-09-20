@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
@@ -55,8 +56,52 @@ namespace Game.Creature.Rules
             }
             ConditionSeed seed =
                 target.GetComponent<ConditionSeed>() ?? target.AddComponent<ConditionSeed>();
-            seed.ApplyBeforeAttachment(state, source);
+            if (!HasPendingRestoredApplication(target, state, source))
+                seed.ApplyBeforeAttachment(state, source);
             display.Add(state.Condition.Value, displaySource);
+        }
+
+        private static bool HasPendingRestoredApplication(
+            GameObject target,
+            ConditionState state,
+            RuleSource source
+        )
+        {
+            DungeonRulesEffectSeed restored = target.GetComponent<DungeonRulesEffectSeed>();
+            if (restored == null)
+                return false;
+
+            bool Matches(IEffectState candidate, RuleSource candidateSource) =>
+                candidateSource == source
+                && candidate is ConditionState condition
+                && condition.Equals(state);
+
+            if (
+                restored.Projections.Any(projection =>
+                    projection.Effect.DefinitionId == ConditionRules.DefinitionId
+                    && Matches(projection.Effect.State, projection.Effect.Source)
+                )
+            )
+                return true;
+
+            return restored.Effects.Any(effect =>
+                string.Equals(
+                    effect.DefinitionId,
+                    ConditionRules.DefinitionId.Value,
+                    StringComparison.Ordinal
+                )
+                && string.Equals(effect.RuleSource, source.Slug, StringComparison.Ordinal)
+                && DungeonRulesEffectPersistence.Codecs.Restore(
+                    effect.StateKind,
+                    effect.StatePayload,
+                    _ =>
+                        throw new InvalidOperationException(
+                            "A condition payload cannot contain an actor reference."
+                        )
+                )
+                    is ConditionState condition
+                && condition.Equals(state)
+            );
         }
 
         /// <inheritdoc/>

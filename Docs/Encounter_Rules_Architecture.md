@@ -229,15 +229,18 @@ before `ActiveEffectCreatedFact` reaches presentation observers. Light and other
 presentation reconstruct from that Fact without recasting, spending action or spell costs,
 replaying damage, or creating replacement identities. Existing pre-encounter `ConditionSeed`
 entries are cleared when an explicit dungeon rules seed is installed so repeated reload cannot
-enroll the same application through two paths.
+enroll the same application through two paths. Passive import checks pending restored condition
+state before adding a new pre-encounter application, so combat startup cannot recreate a restored
+passive condition before enrollment.
 
 After a successful addition installs Unity authority, the temporary restore seed is consumed. On
 ownership release, the persistence module projects the final immutable rules effects back into a
 detached seed before the next exploration checkpoint or encounter. This projection is the
 between-encounter transport, not a second live authority: later removals, expiry, and Rage ending
 come from the final rules snapshot, while conditions newly applied during exploration continue to
-use `ConditionSeed`. Failed preparation or addition leaves the original restore seed available for
-retry.
+use `ConditionSeed`. Detached checkpoint capture folds those new condition applications into the
+same generic envelope alongside the projected rules effects. Failed preparation or addition leaves
+the original restore seed available for retry.
 
 The save graph validates globally unique effect and binding IDs, binding-owner association, all
 source/owner/payload actor references, codec payloads, and consistency between duration and timing.
@@ -251,8 +254,8 @@ defeated and is no longer materialized. Restoration represents that reference ex
 external effect actor rather than discarding the effect or inventing a live `GameObject`. A counted
 duration whose source remains external advances once at each new-round boundary. Counted restores
 require a positive remaining boundary count. Dispatcher operation IDs start above every restored
-binding creation order so new feature-generated effect and binding IDs cannot collide with active
-restored identities.
+binding creation order, including restored effects supplied by later combatant additions, so new
+feature-generated effect and binding IDs cannot collide with active restored identities.
 
 Finite effects created for a source in a populated initialized encounter are scheduled immediately,
 before the first explicit advance, just as they are during an active encounter. This lets

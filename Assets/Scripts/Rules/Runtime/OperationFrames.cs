@@ -151,6 +151,23 @@ namespace Game.Rules.Runtime
                 throw new InvalidOperationException("The operation ID sequence is exhausted.");
             return new OpId(next++);
         }
+
+        /// <summary>
+        /// Advances the next generated value to at least the supplied positive lower bound.
+        /// </summary>
+        /// <param name="minimumNextValue">
+        /// The smallest value a later call to <see cref="Next"/> may return.
+        /// </param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="minimumNextValue"/> is zero or negative.
+        /// </exception>
+        public void EnsureNextAtLeast(long minimumNextValue)
+        {
+            if (minimumNextValue <= 0)
+                throw new ArgumentOutOfRangeException(nameof(minimumNextValue));
+            if (next < minimumNextValue)
+                next = minimumNextValue;
+        }
     }
 
     internal interface IOpFrameView

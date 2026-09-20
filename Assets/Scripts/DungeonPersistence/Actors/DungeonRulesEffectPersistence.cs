@@ -482,9 +482,11 @@ namespace Game.DungeonPersistence.Actors
             )
             {
                 DungeonRulesEffectSeed seed = controller.GetComponent<DungeonRulesEffectSeed>();
-                return seed == null
-                    ? Array.Empty<DungeonRulesEffectSaveState>()
-                    : seed.Capture(identifyActor);
+                IReadOnlyList<DungeonRulesEffectSaveState> projected =
+                    seed == null
+                        ? Array.Empty<DungeonRulesEffectSaveState>()
+                        : seed.Capture(identifyActor);
+                return CaptureDetachedConditions(controller, identifyActor, projected);
             }
 
             DungeonRulesEffectSeed attachedSeed = controller.GetComponent<DungeonRulesEffectSeed>();
@@ -496,6 +498,84 @@ namespace Game.DungeonPersistence.Actors
             return Project(bridge.Snapshot, target)
                 .Select(projection => Capture(projection, IdentifyCreature))
                 .ToArray();
+        }
+
+        private static IReadOnlyList<DungeonRulesEffectSaveState> CaptureDetachedConditions(
+            ActionController controller,
+            Func<GameObject, string> identifyActor,
+            IReadOnlyList<DungeonRulesEffectSaveState> projected
+        )
+        {
+            ConditionSeed conditionSeed = controller.GetComponent<ConditionSeed>();
+            if (conditionSeed == null || conditionSeed.Applications.Count == 0)
+                return projected;
+
+            string actorId = identifyActor(controller.gameObject);
+            if (string.IsNullOrWhiteSpace(actorId))
+                throw new InvalidOperationException(
+                    $"Detached condition owner '{controller.name}' has no stable actor identity."
+                );
+
+            List<DungeonRulesEffectSaveState> captured = new(projected);
+            HashSet<string> effectIds = new(
+                projected.Select(effect => effect.EffectId),
+                StringComparer.Ordinal
+            );
+            HashSet<string> bindingIds = new(
+                projected.Select(effect => effect.BindingId),
+                StringComparer.Ordinal
+            );
+            long creationOrder = projected
+                .Select(effect => effect.CreationOrder)
+                .DefaultIfEmpty(-1)
+                .Max();
+            int identityOrdinal = 0;
+            foreach (var application in conditionSeed.Applications)
+            {
+                if (creationOrder == long.MaxValue)
+                    throw new InvalidOperationException(
+                        "Detached condition creation order exhausts operation identity."
+                    );
+                creationOrder++;
+
+                string identity;
+                do
+                {
+                    identity = $"condition-seed-save:{actorId}:{identityOrdinal++}";
+                } while (effectIds.Contains(identity) || bindingIds.Contains(identity));
+                effectIds.Add(identity);
+                bindingIds.Add(identity);
+
+                (string kind, string payload) = Codecs.Capture(
+                    application.State,
+                    _ =>
+                        throw new InvalidOperationException(
+                            "A condition payload cannot contain an actor reference."
+                        )
+                );
+                captured.Add(
+                    new DungeonRulesEffectSaveState
+                    {
+                        EffectId = identity,
+                        BindingId = identity,
+                        DefinitionId = ConditionRules.DefinitionId.Value,
+                        SourceActorId = actorId,
+                        BindingOwnerActorId = actorId,
+                        RuleSource = application.Source.Slug,
+                        DurationKind = EffectDurationKind.Indefinite,
+                        DurationAmount = 0,
+                        EffectStateVersion = 0,
+                        CreationOrder = creationOrder,
+                        BindingEnabled = true,
+                        HasTiming = false,
+                        RemainingBoundaries = 0,
+                        ExpiresWithEncounter = false,
+                        StateKind = kind,
+                        StatePayload = payload,
+                    }
+                );
+            }
+            return captured;
         }
 
         internal static IReadOnlyList<DungeonRulesEffectProjection> Project(

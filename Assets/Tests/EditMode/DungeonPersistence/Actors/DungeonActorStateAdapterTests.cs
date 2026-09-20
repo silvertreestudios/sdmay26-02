@@ -94,6 +94,56 @@ public sealed class DungeonActorStateAdapterTests
     }
 
     [Test]
+    public void DetachedConditionSeedRoundTripsThroughActorPersistenceEntryPoints()
+    {
+        SourceFixture source = CreateFixture("Detached Condition Source", out sourceObject);
+        new Slowed(2).Apply(new ConditionSource(), sourceObject);
+
+        DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
+            source.Controller,
+            actor => actor == sourceObject ? "hero" : throw new InvalidOperationException()
+        );
+
+        Assert.That(captured.RulesEffects, Has.Length.EqualTo(1));
+        Assert.That(captured.RulesEffects[0].StateKind, Is.EqualTo("condition"));
+        Assert.That(captured.RulesEffects[0].SourceActorId, Is.EqualTo("hero"));
+        Assert.That(captured.RulesEffects[0].BindingOwnerActorId, Is.EqualTo("hero"));
+
+        SourceFixture restored = CreateFixture("Restored Condition Owner", out restoredObject);
+        restoredObject.AddComponent<Team>().Name = "players";
+        SourceFixture opponent = CreateFixture(
+            "Restored Condition Opponent",
+            out restoredOpponentObject
+        );
+        restoredOpponentObject.AddComponent<Team>().Name = "enemies";
+        restoredOpponentObject.transform.position = Vector3.right;
+        DungeonActorStateAdapter.PrepareRestore(
+            restored.Controller,
+            captured,
+            restored.Creature.Health.Current,
+            isDefeated: false,
+            actorId => actorId == "hero" ? restoredObject : null
+        )();
+
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { restored.Controller, opponent.Controller },
+            CreateTiles(),
+            new ScriptedRollService(20, 10),
+            "players"
+        );
+
+        CreatureId restoredActor = activeBridge.GetCreatureId(restored.Creature);
+        Assert.That(
+            ConditionRules.GetValue(activeBridge.Snapshot, restoredActor, SlowedRules.ConditionId),
+            Is.EqualTo(2)
+        );
+        Assert.That(
+            ConditionRules.GetApplications(activeBridge.Snapshot, restoredActor).Count(),
+            Is.EqualTo(1)
+        );
+    }
+
+    [Test]
     public void CaptureResolvesEquivalentSerializedEquipmentByStableName()
     {
         SourceFixture source = CreateFixture("Source", out sourceObject);

@@ -33,6 +33,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
+        private readonly SequentialOpIdProvider operationIds;
         private readonly RuleDispatcher dispatcher;
         private readonly UnityEncounterComposition composition;
         private readonly UnityCombatantEnrollmentPipeline enrollmentPipeline;
@@ -100,10 +101,11 @@ namespace Game.Rules.Unity
                 RulesStateSeed seed = new RulesStateSeed();
                 if (!attachControllers)
                     enrollment.SeedExploration(seed);
+                operationIds = new SequentialOpIdProvider(enrollment.FirstAvailableOperationId);
                 RuleDispatcherBuilder dispatcherBuilder = new RuleDispatcherBuilder(
                     new InMemoryRulesStore(seed),
                     rollService ?? throw new ArgumentNullException(nameof(rollService)),
-                    new SequentialOpIdProvider(enrollment.FirstAvailableOperationId)
+                    operationIds
                 )
                     .UseHealthRules()
                     .UseMultipleAttackPenaltyRules()
@@ -458,6 +460,7 @@ namespace Game.Rules.Unity
             );
             try
             {
+                operationIds.EnsureNextAtLeast(enrollment.FirstAvailableOperationId);
                 enrollment.Commit();
                 enrollment.AttachAndInstall();
                 enrollment.TransferTo(encounterLifetime);

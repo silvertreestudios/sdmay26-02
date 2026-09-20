@@ -328,6 +328,8 @@ namespace Game.DungeonPersistence.Repository
             Dictionary<int, DungeonLevelDocument> documents = new();
             HashSet<string> referencePaths = new(StringComparer.Ordinal);
             HashSet<string> payloadPaths = new(StringComparer.Ordinal);
+            HashSet<string> effectIds = new(StringComparer.Ordinal);
+            HashSet<string> bindingIds = new(StringComparer.Ordinal);
             int previousDepth = -1;
             for (int index = 0; index < manifest.Floors.Length; index++)
             {
@@ -394,7 +396,15 @@ namespace Game.DungeonPersistence.Repository
                         );
                     enemyStates.Add(actor.Value);
                 }
-                ValidateActorGraph(manifest.Party, floor, enemyStates, payload.Path);
+                ValidateActorGraph(
+                    manifest.Party,
+                    floor,
+                    enemyStates,
+                    payload.Path,
+                    reference.Depth == manifest.CurrentDepth,
+                    effectIds,
+                    bindingIds
+                );
                 documents.Add(reference.Depth, floor);
             }
 
@@ -408,7 +418,10 @@ namespace Game.DungeonPersistence.Repository
             IReadOnlyList<DungeonPartyMemberSaveState> party,
             DungeonLevelDocument floor,
             IEnumerable<DungeonActorSaveState> enemyStates,
-            string floorPath
+            string floorPath,
+            bool includePartyEffects,
+            HashSet<string> effectIds,
+            HashSet<string> bindingIds
         )
         {
             HashSet<string> actorIds = new(StringComparer.Ordinal);
@@ -434,11 +447,13 @@ namespace Game.DungeonPersistence.Repository
                     );
             }
 
-            Dictionary<string, DungeonActorSaveState> allStates = party.ToDictionary(
-                member => member.RosterSlotId,
-                member => member.State,
-                StringComparer.Ordinal
-            );
+            Dictionary<string, DungeonActorSaveState> allStates = includePartyEffects
+                ? party.ToDictionary(
+                    member => member.RosterSlotId,
+                    member => member.State,
+                    StringComparer.Ordinal
+                )
+                : new Dictionary<string, DungeonActorSaveState>(StringComparer.Ordinal);
             using (IEnumerator<DungeonActorSaveState> enemyState = enemyStates.GetEnumerator())
             {
                 foreach (DungeonCreatureRuntimeState creature in floor.RuntimeState.Creatures)
@@ -450,8 +465,6 @@ namespace Game.DungeonPersistence.Repository
                     allStates.Add(creature.InstanceId, enemyState.Current);
                 }
             }
-            HashSet<string> effectIds = new(StringComparer.Ordinal);
-            HashSet<string> bindingIds = new(StringComparer.Ordinal);
             foreach (KeyValuePair<string, DungeonActorSaveState> actor in allStates)
             foreach (DungeonRulesEffectSaveState effect in actor.Value.RulesEffects)
             {
