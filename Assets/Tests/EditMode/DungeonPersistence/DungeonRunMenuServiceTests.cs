@@ -134,7 +134,7 @@ public sealed class DungeonRunMenuServiceTests
 
         File.WriteAllText(repository.AutosavePath, currentJson);
         string incompatibleJson = currentJson.Replace(
-            "\"DocumentVersion\":3",
+            "\"DocumentVersion\":4",
             "\"DocumentVersion\":99",
             StringComparison.Ordinal
         );

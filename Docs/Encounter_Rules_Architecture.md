@@ -244,14 +244,20 @@ the original restore seed available for retry.
 
 The save graph validates globally unique effect and binding IDs, binding-owner association, all
 source/owner/payload actor references, codec payloads, and consistency between duration and timing.
+Party actor references are run-global roster identities; non-party references pair their floor
+depth with the floor-local encounter identity. Validation resolves those references against the
+whole visited-run graph, while restore materializes only actors on the selected floor and represents
+valid references from other floors as external actors. A same-named encounter member on another
+depth therefore cannot replace an absent source carried through a stair transition.
 Finite and encounter effects restore their remaining schedule rather than deriving a fresh one;
 indefinite effects have no timing record. Rage is restored as an ordinary active effect, so reload
 alone neither ends Rage nor changes its temporary Hit Points. Real gameplay removal and encounter
 termination continue through the existing Rage and active-effect operations.
 
 An effect may retain a stable source or payload actor identity after that dungeon actor has been
-defeated and is no longer materialized. Restoration represents that reference explicitly as an
-external effect actor rather than discarding the effect or inventing a live `GameObject`. A counted
+defeated or left on another floor and is no longer materialized. Restoration represents that
+reference explicitly as an external effect actor rather than discarding the effect or inventing a
+live `GameObject`. A counted
 duration whose source remains external advances once at each new-round boundary. Counted restores
 require a positive remaining boundary count. Dispatcher operation IDs start above every restored
 binding creation order, including restored effects supplied by later combatant additions, so new

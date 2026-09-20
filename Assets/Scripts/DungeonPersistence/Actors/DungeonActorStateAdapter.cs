@@ -18,7 +18,7 @@ namespace Game.DungeonPersistence.Actors
     {
         internal static DungeonActorSaveState Capture(
             ActionController controller,
-            Func<GameObject, string> identifyActor
+            Func<GameObject, DungeonRulesActorReference> identifyActor
         )
         {
             if (controller == null)
@@ -60,7 +60,7 @@ namespace Game.DungeonPersistence.Actors
             DungeonActorSaveState saved,
             int currentHitPoints,
             bool isDefeated,
-            Func<string, GameObject> resolveActor
+            Func<DungeonRulesActorReference, GameObject> resolveActor
         )
         {
             if (controller == null)

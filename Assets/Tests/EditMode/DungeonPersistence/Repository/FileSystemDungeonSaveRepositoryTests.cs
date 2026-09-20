@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
+using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Repository;
 using Game.Rules.Runtime;
 using NUnit.Framework;
@@ -210,7 +211,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
-    public void LoadRejectsInactiveFloorWithPartyEnemyIdentityCollision()
+    public void LoadAllowsRunGlobalPartyAndFloorLocalEnemyToShareLocalText()
     {
         DungeonRunSave valid = DungeonRunSave
             .CreateNew(Party(12), CreateFloor(0))
@@ -224,9 +225,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         );
 
         Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
-        Assert.That(result.IsSuccess, Is.False);
-        Assert.That(result.Diagnostics.Single().Message, Does.Contain("duplicated"));
-        Assert.That(result.Diagnostics.Single().Message, Does.Contain("floors/0.json"));
+        Assert.That(result.IsSuccess, Is.True, result.Diagnostics.FirstOrDefault()?.Message);
     }
 
     [Test]
@@ -241,8 +240,11 @@ public sealed class FileSystemDungeonSaveRepositoryTests
                 EffectId = "effect-1",
                 BindingId = "binding-1",
                 DefinitionId = "rage-effect",
-                SourceActorId = "missing-actor",
-                BindingOwnerActorId = InstanceId("encounter-1", 1),
+                SourceActor = DungeonRulesActorReference.Floor(0, "missing-actor"),
+                BindingOwnerActor = DungeonRulesActorReference.Floor(
+                    0,
+                    InstanceId("encounter-1", 1)
+                ),
                 RuleSource = "rage",
                 DurationKind = EffectDurationKind.Minutes,
                 DurationAmount = 1,
@@ -280,8 +282,11 @@ public sealed class FileSystemDungeonSaveRepositoryTests
                 EffectId = "current-floor-slowed-effect",
                 BindingId = "current-floor-slowed-binding",
                 DefinitionId = ConditionRules.DefinitionId.Value,
-                SourceActorId = InstanceId("current-encounter", 1),
-                BindingOwnerActorId = "party-slot",
+                SourceActor = DungeonRulesActorReference.Floor(
+                    2,
+                    InstanceId("current-encounter", 1)
+                ),
+                BindingOwnerActor = DungeonRulesActorReference.Party("party-slot"),
                 RuleSource = "current-floor-enemy-slowed",
                 DurationKind = EffectDurationKind.Indefinite,
                 BindingEnabled = true,
@@ -307,7 +312,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         Assert.That(repository.Save(CreateRun(0, 2)).IsSuccess, Is.True);
         string json = File.ReadAllText(repository.AutosavePath);
         string outdated = json.Replace(
-            "\"DocumentVersion\":3",
+            "\"DocumentVersion\":4",
             "\"DocumentVersion\":2",
             StringComparison.Ordinal
         );

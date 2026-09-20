@@ -1056,7 +1056,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
     {
         DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
             fixture.Controller,
-            _ => actorId
+            _ => DungeonRulesActorReference.Party(actorId)
         );
         saved.RulesEffects = new[]
         {
@@ -1065,8 +1065,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 EffectId = $"restored-slowed-effect-{creationOrder}",
                 BindingId = $"restored-slowed-binding-{creationOrder}",
                 DefinitionId = ConditionRules.DefinitionId.Value,
-                SourceActorId = actorId,
-                BindingOwnerActorId = actorId,
+                SourceActor = DungeonRulesActorReference.Party(actorId),
+                BindingOwnerActor = DungeonRulesActorReference.Party(actorId),
                 RuleSource = SlowedRules.Source.Slug,
                 DurationKind = EffectDurationKind.Indefinite,
                 EffectStateVersion = 0,
@@ -1082,7 +1082,10 @@ public sealed class DungeonEncounterCombatPlayModeTests
             saved,
             fixture.Creature.Health.Current,
             isDefeated: false,
-            restoredId => restoredId == actorId ? fixture.GameObject : null
+            restoredActor =>
+                restoredActor.Equals(DungeonRulesActorReference.Party(actorId))
+                    ? fixture.GameObject
+                    : null
         )();
     }
 

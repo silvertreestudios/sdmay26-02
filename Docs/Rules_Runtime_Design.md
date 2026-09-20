@@ -205,8 +205,10 @@ central feature-name switch.
 The restore transport is consumed only after successful enrollment and is refreshed from the final
 rules snapshot when encounter ownership ends. Stable actor references may outlive a materialized
 combatant; the restore contract carries those references explicitly instead of rejecting otherwise
-valid effects. Counted effects always restore a positive remaining schedule, and new dispatcher
-identity begins above restored creation-order high water so active identities cannot be reused.
+valid effects. Run-global actors and floor-local actors remain distinct in that transport so local
+identifiers reused on another floor cannot change an effect's provenance. Counted effects always
+restore a positive remaining schedule, and new dispatcher identity begins above restored
+creation-order high water so active identities cannot be reused.
 
 ### Determinism and ordering
 

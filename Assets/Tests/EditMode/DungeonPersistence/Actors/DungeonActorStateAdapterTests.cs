@@ -64,7 +64,9 @@ public sealed class DungeonActorStateAdapterTests
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             source.Controller,
             actor =>
-                actor == effectSourceObject ? "source-slot" : throw new InvalidOperationException()
+                actor == effectSourceObject
+                    ? PartyActor("source-slot")
+                    : throw new InvalidOperationException()
         );
         SourceFixture restored = CreateFixture("Restored", out restoredObject);
         restored.Creature.Build = new CharacterBuild();
@@ -74,7 +76,7 @@ public sealed class DungeonActorStateAdapterTests
             captured,
             currentHitPoints: 7,
             isDefeated: false,
-            actorId => actorId == "source-slot" ? effectSourceObject : null
+            actor => actor.Equals(PartyActor("source-slot")) ? effectSourceObject : null
         );
 
         apply();
@@ -101,13 +103,14 @@ public sealed class DungeonActorStateAdapterTests
 
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             source.Controller,
-            actor => actor == sourceObject ? "hero" : throw new InvalidOperationException()
+            actor =>
+                actor == sourceObject ? PartyActor("hero") : throw new InvalidOperationException()
         );
 
         Assert.That(captured.RulesEffects, Has.Length.EqualTo(1));
         Assert.That(captured.RulesEffects[0].StateKind, Is.EqualTo("condition"));
-        Assert.That(captured.RulesEffects[0].SourceActorId, Is.EqualTo("hero"));
-        Assert.That(captured.RulesEffects[0].BindingOwnerActorId, Is.EqualTo("hero"));
+        Assert.That(captured.RulesEffects[0].SourceActor, Is.EqualTo(PartyActor("hero")));
+        Assert.That(captured.RulesEffects[0].BindingOwnerActor, Is.EqualTo(PartyActor("hero")));
 
         SourceFixture restored = CreateFixture("Restored Condition Owner", out restoredObject);
         restoredObject.AddComponent<Team>().Name = "players";
@@ -122,7 +125,7 @@ public sealed class DungeonActorStateAdapterTests
             captured,
             restored.Creature.Health.Current,
             isDefeated: false,
-            actorId => actorId == "hero" ? restoredObject : null
+            actor => actor.Equals(PartyActor("hero")) ? restoredObject : null
         )();
 
         activeBridge = UnityCombatRulesBridge.Create(
@@ -160,7 +163,7 @@ public sealed class DungeonActorStateAdapterTests
 
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             source.Controller,
-            _ => "unused"
+            _ => PartyActor("unused")
         );
 
         Assert.That(captured.Equipment.RightHandId, Is.EqualTo("Heavy Crossbow"));
@@ -247,9 +250,9 @@ public sealed class DungeonActorStateAdapterTests
         );
         activeBridge.BeginTurn(actor, 1);
 
-        Func<GameObject, string> identify = value =>
-            value == sourceObject ? "hero"
-            : value == effectSourceObject ? "enemy"
+        Func<GameObject, DungeonRulesActorReference> identify = value =>
+            value == sourceObject ? PartyActor("hero")
+            : value == effectSourceObject ? FloorActor(0, "enemy")
             : throw new InvalidOperationException();
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             sourceController,
@@ -269,8 +272,8 @@ public sealed class DungeonActorStateAdapterTests
         );
         int slowedTwoRemaining = slowedTwo.RemainingBoundaries;
         string slowedTwoEffectId = slowedTwo.EffectId;
-        Assert.That(slowedTwo.SourceActorId, Is.EqualTo("enemy"));
-        Assert.That(slowedTwo.BindingOwnerActorId, Is.EqualTo("hero"));
+        Assert.That(slowedTwo.SourceActor, Is.EqualTo(FloorActor(0, "enemy")));
+        Assert.That(slowedTwo.BindingOwnerActor, Is.EqualTo(PartyActor("hero")));
         Assert.That(slowedTwo.DurationKind, Is.EqualTo(EffectDurationKind.Rounds));
         Assert.That(slowedTwo.DurationAmount, Is.EqualTo(2));
         Assert.That(slowedTwo.EffectStateVersion, Is.EqualTo(0));
@@ -294,9 +297,9 @@ public sealed class DungeonActorStateAdapterTests
         restoredOpponent.InitializeHealthBeforeEncounter(10, 10);
         DungeonPersistenceTestActionController restoredOpponentController =
             restoredOpponentObject.AddComponent<DungeonPersistenceTestActionController>();
-        Func<string, GameObject> resolve = actorId =>
-            actorId == "hero" ? restoredObject
-            : actorId == "enemy" ? restoredOpponentObject
+        Func<DungeonRulesActorReference, GameObject> resolve = actor =>
+            actor.Equals(PartyActor("hero")) ? restoredObject
+            : actor.Equals(FloorActor(0, "enemy")) ? restoredOpponentObject
             : null;
         Action apply = DungeonActorStateAdapter.PrepareRestore(
             restoredController,
@@ -365,7 +368,7 @@ public sealed class DungeonActorStateAdapterTests
 
         DungeonActorSaveState secondCapture = DungeonActorStateAdapter.Capture(
             restoredController,
-            value => value == restoredObject ? "hero" : "enemy"
+            value => value == restoredObject ? PartyActor("hero") : FloorActor(0, "enemy")
         );
         activeBridge.ReleaseOwnership();
         DungeonActorStateAdapter.PrepareRestore(
@@ -429,7 +432,7 @@ public sealed class DungeonActorStateAdapterTests
         activeBridge.ReleaseOwnership();
         DungeonActorSaveState detachedCheckpoint = DungeonActorStateAdapter.Capture(
             restoredController,
-            value => value == restoredObject ? "hero" : "enemy"
+            value => value == restoredObject ? PartyActor("hero") : FloorActor(0, "enemy")
         );
         Assert.That(detachedCheckpoint.RulesEffects, Has.Length.EqualTo(2));
         Assert.That(
@@ -478,7 +481,7 @@ public sealed class DungeonActorStateAdapterTests
         activeBridge.ReleaseOwnership();
         DungeonActorSaveState nextDetachedCheckpoint = DungeonActorStateAdapter.Capture(
             restoredController,
-            value => value == restoredObject ? "hero" : "enemy"
+            value => value == restoredObject ? PartyActor("hero") : FloorActor(0, "enemy")
         );
         Assert.That(nextDetachedCheckpoint.RulesEffects, Has.Length.EqualTo(3));
     }
@@ -493,7 +496,7 @@ public sealed class DungeonActorStateAdapterTests
         restoredOpponentObject.transform.position = Vector3.right;
         DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
             hero.Controller,
-            _ => "unused"
+            _ => PartyActor("unused")
         );
         saved.RulesEffects = new[]
         {
@@ -502,8 +505,8 @@ public sealed class DungeonActorStateAdapterTests
                 EffectId = "condition-effect:80",
                 BindingId = "condition-binding:80",
                 DefinitionId = ConditionRules.DefinitionId.Value,
-                SourceActorId = "defeated-enemy",
-                BindingOwnerActorId = "hero",
+                SourceActor = FloorActor(0, "defeated-enemy"),
+                BindingOwnerActor = PartyActor("hero"),
                 RuleSource = "enemy-slowed",
                 DurationKind = EffectDurationKind.Rounds,
                 DurationAmount = 1,
@@ -515,9 +518,9 @@ public sealed class DungeonActorStateAdapterTests
                 StatePayload = $"{{\"Condition\":\"{SlowedRules.ConditionId.Value}\",\"Value\":2}}",
             },
         };
-        Func<string, GameObject> resolve = actorId =>
-            actorId == "hero" ? restoredObject
-            : actorId == "living-enemy" ? restoredOpponentObject
+        Func<DungeonRulesActorReference, GameObject> resolve = actor =>
+            actor.Equals(PartyActor("hero")) ? restoredObject
+            : actor.Equals(FloorActor(0, "living-enemy")) ? restoredOpponentObject
             : null;
         DungeonActorStateAdapter.PrepareRestore(
             hero.Controller,
@@ -528,7 +531,7 @@ public sealed class DungeonActorStateAdapterTests
         )();
         DungeonActorStateAdapter.PrepareRestore(
             enemy.Controller,
-            DungeonActorStateAdapter.Capture(enemy.Controller, _ => "unused"),
+            DungeonActorStateAdapter.Capture(enemy.Controller, _ => FloorActor(0, "unused")),
             enemy.Creature.Health.Current,
             false,
             resolve
@@ -544,14 +547,17 @@ public sealed class DungeonActorStateAdapterTests
         ActiveEffectInstance restored = activeBridge.Snapshot.ActiveEffects[
             new ActiveEffectId("condition-effect:80")
         ];
-        Assert.That(restored.SourceCreature.Value, Is.EqualTo("dungeon-external:defeated-enemy"));
+        Assert.That(
+            restored.SourceCreature.Value,
+            Is.EqualTo($"dungeon-external:{FloorActor(0, "defeated-enemy").StableKey}")
+        );
         DungeonActorSaveState attachedCapture = DungeonActorStateAdapter.Capture(
             hero.Controller,
-            actor => actor == restoredObject ? "hero" : "living-enemy"
+            actor => actor == restoredObject ? PartyActor("hero") : FloorActor(0, "living-enemy")
         );
         Assert.That(
-            attachedCapture.RulesEffects.Single().SourceActorId,
-            Is.EqualTo("defeated-enemy")
+            attachedCapture.RulesEffects.Single().SourceActor,
+            Is.EqualTo(FloorActor(0, "defeated-enemy"))
         );
 
         activeBridge.BeginTurn(heroId, 1);
@@ -566,7 +572,7 @@ public sealed class DungeonActorStateAdapterTests
         SourceFixture hero = CreateFixture("Hero", out restoredObject);
         DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
             hero.Controller,
-            _ => "unused"
+            _ => PartyActor("unused")
         );
         saved.RulesEffects = new[]
         {
@@ -575,8 +581,8 @@ public sealed class DungeonActorStateAdapterTests
                 EffectId = "condition-effect:10",
                 BindingId = "condition-binding:10",
                 DefinitionId = ConditionRules.DefinitionId.Value,
-                SourceActorId = "hero",
-                BindingOwnerActorId = "hero",
+                SourceActor = PartyActor("hero"),
+                BindingOwnerActor = PartyActor("hero"),
                 RuleSource = "slowed",
                 DurationKind = EffectDurationKind.Rounds,
                 DurationAmount = 1,
@@ -609,7 +615,7 @@ public sealed class DungeonActorStateAdapterTests
         restoredOpponentObject.AddComponent<Team>().Name = "enemies";
         DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
             hero.Controller,
-            _ => "unused"
+            _ => PartyActor("unused")
         );
         saved.RulesEffects = new[]
         {
@@ -618,8 +624,8 @@ public sealed class DungeonActorStateAdapterTests
                 EffectId = "unknown-effect",
                 BindingId = "unknown-binding",
                 DefinitionId = "unknown-definition",
-                SourceActorId = "hero",
-                BindingOwnerActorId = "hero",
+                SourceActor = PartyActor("hero"),
+                BindingOwnerActor = PartyActor("hero"),
                 RuleSource = "unknown",
                 DurationKind = EffectDurationKind.Indefinite,
                 CreationOrder = 5,
@@ -628,9 +634,9 @@ public sealed class DungeonActorStateAdapterTests
                 StatePayload = $"{{\"Condition\":\"{SlowedRules.ConditionId.Value}\",\"Value\":1}}",
             },
         };
-        Func<string, GameObject> resolve = actorId =>
-            actorId == "hero" ? restoredObject
-            : actorId == "enemy" ? restoredOpponentObject
+        Func<DungeonRulesActorReference, GameObject> resolve = actor =>
+            actor.Equals(PartyActor("hero")) ? restoredObject
+            : actor.Equals(FloorActor(0, "enemy")) ? restoredOpponentObject
             : null;
         DungeonActorStateAdapter.PrepareRestore(
             hero.Controller,
@@ -641,7 +647,7 @@ public sealed class DungeonActorStateAdapterTests
         )();
         DungeonActorStateAdapter.PrepareRestore(
             enemy.Controller,
-            DungeonActorStateAdapter.Capture(enemy.Controller, _ => "unused"),
+            DungeonActorStateAdapter.Capture(enemy.Controller, _ => FloorActor(0, "unused")),
             enemy.Creature.Health.Current,
             false,
             resolve
@@ -658,7 +664,7 @@ public sealed class DungeonActorStateAdapterTests
 
         DungeonActorSaveState retained = DungeonActorStateAdapter.Capture(
             hero.Controller,
-            actor => actor == restoredObject ? "hero" : "enemy"
+            actor => actor == restoredObject ? PartyActor("hero") : FloorActor(0, "enemy")
         );
         Assert.That(retained.RulesEffects, Has.Length.EqualTo(1));
         Assert.That(retained.RulesEffects.Single().EffectId, Is.EqualTo("unknown-effect"));
@@ -670,7 +676,7 @@ public sealed class DungeonActorStateAdapterTests
         SourceFixture source = CreateFixture("Source", out sourceObject);
         DungeonActorSaveState captured = DungeonActorStateAdapter.Capture(
             source.Controller,
-            _ => "unused"
+            _ => PartyActor("unused")
         );
         SourceFixture restored = CreateFixture("Restored", out restoredObject);
         restored.Creature.weapons = new();
@@ -740,6 +746,12 @@ public sealed class DungeonActorStateAdapterTests
         tiles[1, 0] = new Tile();
         return tiles;
     }
+
+    private static DungeonRulesActorReference PartyActor(string actorId) =>
+        DungeonRulesActorReference.Party(actorId);
+
+    private static DungeonRulesActorReference FloorActor(int depth, string actorId) =>
+        DungeonRulesActorReference.Floor(depth, actorId);
 
     private sealed class SourceFixture
     {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Game.Creature;
 using Game.Creature.Rules;
@@ -11,6 +12,77 @@ using UnityEngine;
 
 namespace Game.DungeonPersistence.Actors
 {
+    /// <summary>Identifies whether a persisted rules actor belongs to the run or one floor.</summary>
+    [Serializable]
+    internal enum DungeonRulesActorScope
+    {
+        Party,
+        Floor,
+    }
+
+    /// <summary>
+    /// Preserves an actor identity across dungeon floors without conflating reused floor-local IDs.
+    /// </summary>
+    [Serializable]
+    internal struct DungeonRulesActorReference : IEquatable<DungeonRulesActorReference>
+    {
+        public DungeonRulesActorScope Scope;
+        public int FloorDepth;
+        public string ActorId;
+
+        internal static DungeonRulesActorReference Party(string actorId) =>
+            Create(DungeonRulesActorScope.Party, -1, actorId);
+
+        internal static DungeonRulesActorReference Floor(int floorDepth, string actorId) =>
+            Create(DungeonRulesActorScope.Floor, floorDepth, actorId);
+
+        internal bool IsValid =>
+            !string.IsNullOrWhiteSpace(ActorId)
+            && (
+                (Scope == DungeonRulesActorScope.Party && FloorDepth == -1)
+                || (Scope == DungeonRulesActorScope.Floor && FloorDepth >= 0)
+            );
+
+        internal string StableKey =>
+            Scope == DungeonRulesActorScope.Party
+                ? $"party:{ActorId.Length}:{ActorId}"
+                : $"floor:{FloorDepth.ToString(CultureInfo.InvariantCulture)}:{ActorId.Length}:{ActorId}";
+
+        public bool Equals(DungeonRulesActorReference other) =>
+            Scope == other.Scope
+            && FloorDepth == other.FloorDepth
+            && string.Equals(ActorId, other.ActorId, StringComparison.Ordinal);
+
+        public override bool Equals(object obj) =>
+            obj is DungeonRulesActorReference other && Equals(other);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                (int)Scope,
+                FloorDepth,
+                ActorId == null ? 0 : StringComparer.Ordinal.GetHashCode(ActorId)
+            );
+
+        public override string ToString() => StableKey;
+
+        private static DungeonRulesActorReference Create(
+            DungeonRulesActorScope scope,
+            int floorDepth,
+            string actorId
+        )
+        {
+            DungeonRulesActorReference reference = new()
+            {
+                Scope = scope,
+                FloorDepth = floorDepth,
+                ActorId = actorId,
+            };
+            if (!reference.IsValid)
+                throw new ArgumentException("A persisted rules actor reference is invalid.");
+            return reference;
+        }
+    }
+
     /// <summary>
     /// Converts one concrete immutable effect-state type to and from its stable dungeon-save payload.
     /// </summary>
@@ -23,9 +95,15 @@ namespace Game.DungeonPersistence.Actors
     {
         string Kind { get; }
         Type StateType { get; }
-        string Capture(IEffectState state, Func<CreatureId, string> identifyCreature);
-        IEffectState Restore(string payload, Func<string, CreatureId> resolveCreature);
-        IReadOnlyList<string> GetReferencedActors(string payload);
+        string Capture(
+            IEffectState state,
+            Func<CreatureId, DungeonRulesActorReference> identifyCreature
+        );
+        IEffectState Restore(
+            string payload,
+            Func<DungeonRulesActorReference, CreatureId> resolveCreature
+        );
+        IReadOnlyList<DungeonRulesActorReference> GetReferencedActors(string payload);
     }
 
     /// <summary>Stores the explicit codecs used by the current encounter composition.</summary>
@@ -68,7 +146,7 @@ namespace Game.DungeonPersistence.Actors
 
         internal (string Kind, string Payload) Capture(
             IEffectState state,
-            Func<CreatureId, string> identifyCreature
+            Func<CreatureId, DungeonRulesActorReference> identifyCreature
         )
         {
             if (state == null)
@@ -83,11 +161,13 @@ namespace Game.DungeonPersistence.Actors
         internal IEffectState Restore(
             string kind,
             string payload,
-            Func<string, CreatureId> resolveCreature
+            Func<DungeonRulesActorReference, CreatureId> resolveCreature
         ) => Require(kind).Restore(payload, resolveCreature);
 
-        internal IReadOnlyList<string> GetReferencedActors(string kind, string payload) =>
-            Require(kind).GetReferencedActors(payload);
+        internal IReadOnlyList<DungeonRulesActorReference> GetReferencedActors(
+            string kind,
+            string payload
+        ) => Require(kind).GetReferencedActors(payload);
 
         private IDungeonEffectStateCodec Require(string kind)
         {
@@ -127,25 +207,27 @@ namespace Game.DungeonPersistence.Actors
         private DungeonRulesEffectSaveState[] effects = Array.Empty<DungeonRulesEffectSaveState>();
         private DungeonRulesEffectProjection[] projections =
             Array.Empty<DungeonRulesEffectProjection>();
-        private Func<string, GameObject> resolveActor = _ =>
+        private Func<DungeonRulesActorReference, GameObject> resolveActor = _ =>
             throw new InvalidOperationException("The rules-effect seed is not initialized.");
         private IReadOnlyDictionary<CreatureId, GameObject> projectedActors =
             new Dictionary<CreatureId, GameObject>();
-        private IReadOnlyDictionary<CreatureId, string> projectedExternalActors =
-            new Dictionary<CreatureId, string>();
+        private IReadOnlyDictionary<
+            CreatureId,
+            DungeonRulesActorReference
+        > projectedExternalActors = new Dictionary<CreatureId, DungeonRulesActorReference>();
 
         internal IReadOnlyList<DungeonRulesEffectSaveState> Effects => effects;
         internal IReadOnlyList<DungeonRulesEffectProjection> Projections => projections;
 
         internal void Initialize(
             IEnumerable<DungeonRulesEffectSaveState> restoredEffects,
-            Func<string, GameObject> actorResolver
+            Func<DungeonRulesActorReference, GameObject> actorResolver
         )
         {
             DungeonRulesEffectSaveState[] copied =
                 restoredEffects?.ToArray()
                 ?? throw new ArgumentNullException(nameof(restoredEffects));
-            Func<string, GameObject> copiedResolver =
+            Func<DungeonRulesActorReference, GameObject> copiedResolver =
                 actorResolver ?? throw new ArgumentNullException(nameof(actorResolver));
             effects = copied;
             projections = Array.Empty<DungeonRulesEffectProjection>();
@@ -154,33 +236,38 @@ namespace Game.DungeonPersistence.Actors
         }
 
         internal CreatureId ResolveCreature(
-            string actorId,
+            DungeonRulesActorReference actor,
             UnityCombatRulesBridge owner,
-            Func<string, CreatureId> resolveExternal
+            Func<DungeonRulesActorReference, CreatureId> resolveExternal
         )
         {
-            GameObject actor = resolveActor(actorId);
+            GameObject actorObject = resolveActor(actor);
             if (
-                actor != null
-                && actor.TryGetComponent(out CreatureComponent creature)
+                actorObject != null
+                && actorObject.TryGetComponent(out CreatureComponent creature)
                 && owner.TryGetCreatureId(creature, out CreatureId id)
             )
                 return id;
-            return resolveExternal(actorId);
+            return resolveExternal(actor);
         }
 
         internal CreatureId ResolveProjectedCreature(
             CreatureId projectedCreature,
             UnityCombatRulesBridge owner,
-            Func<string, CreatureId> resolveExternal
+            Func<DungeonRulesActorReference, CreatureId> resolveExternal
         )
         {
-            if (projectedExternalActors.TryGetValue(projectedCreature, out string actorId))
-                return resolveExternal(actorId);
             if (
-                projectedActors.TryGetValue(projectedCreature, out GameObject actor)
-                && actor != null
-                && actor.TryGetComponent(out CreatureComponent creature)
+                projectedExternalActors.TryGetValue(
+                    projectedCreature,
+                    out DungeonRulesActorReference actor
+                )
+            )
+                return resolveExternal(actor);
+            if (
+                projectedActors.TryGetValue(projectedCreature, out GameObject actorObject)
+                && actorObject != null
+                && actorObject.TryGetComponent(out CreatureComponent creature)
                 && owner.TryGetCreatureId(creature, out CreatureId id)
             )
                 return id;
@@ -190,7 +277,7 @@ namespace Game.DungeonPersistence.Actors
         }
 
         internal IReadOnlyList<DungeonRulesEffectSaveState> Capture(
-            Func<GameObject, string> identifyActor
+            Func<GameObject, DungeonRulesActorReference> identifyActor
         )
         {
             if (identifyActor == null)
@@ -198,10 +285,15 @@ namespace Game.DungeonPersistence.Actors
             if (projections.Length == 0)
                 return effects;
 
-            string IdentifyCreature(CreatureId creature)
+            DungeonRulesActorReference IdentifyCreature(CreatureId creature)
             {
-                if (projectedExternalActors.TryGetValue(creature, out string actorId))
-                    return actorId;
+                if (
+                    projectedExternalActors.TryGetValue(
+                        creature,
+                        out DungeonRulesActorReference actorReference
+                    )
+                )
+                    return actorReference;
                 if (projectedActors.TryGetValue(creature, out GameObject actor) && actor != null)
                     return identifyActor(actor);
                 throw new InvalidOperationException(
@@ -219,7 +311,7 @@ namespace Game.DungeonPersistence.Actors
         internal void Project(
             IEnumerable<DungeonRulesEffectProjection> detachedEffects,
             IReadOnlyDictionary<CreatureId, GameObject> actors,
-            IReadOnlyDictionary<CreatureId, string> externalActors
+            IReadOnlyDictionary<CreatureId, DungeonRulesActorReference> externalActors
         )
         {
             projections =
@@ -241,13 +333,15 @@ namespace Game.DungeonPersistence.Actors
         }
 
         internal void RememberExternalActors(
-            IReadOnlyDictionary<CreatureId, string> externalActors
+            IReadOnlyDictionary<CreatureId, DungeonRulesActorReference> externalActors
         ) =>
             projectedExternalActors =
                 externalActors ?? throw new ArgumentNullException(nameof(externalActors));
 
-        internal bool TryGetExternalActorId(CreatureId creature, out string actorId) =>
-            projectedExternalActors.TryGetValue(creature, out actorId);
+        internal bool TryGetExternalActor(
+            CreatureId creature,
+            out DungeonRulesActorReference actor
+        ) => projectedExternalActors.TryGetValue(creature, out actor);
     }
 
     /// <summary>Enrolls saved generic effect envelopes through the common combatant addition.</summary>
@@ -257,10 +351,9 @@ namespace Game.DungeonPersistence.Actors
     {
         private readonly UnityCombatRulesBridge owner;
         private readonly DungeonEffectStateCodecCatalog codecs;
-        private readonly Dictionary<string, CreatureId> externalCreatures = new(
-            StringComparer.Ordinal
-        );
-        private readonly Dictionary<CreatureId, string> externalActorIds = new();
+        private readonly Dictionary<DungeonRulesActorReference, CreatureId> externalCreatures =
+            new();
+        private readonly Dictionary<CreatureId, DungeonRulesActorReference> externalActors = new();
 
         internal DungeonRulesEffectPersistenceModule(
             UnityCombatRulesBridge owner,
@@ -278,10 +371,10 @@ namespace Game.DungeonPersistence.Actors
                 return;
 
             HashSet<CreatureId> references = new();
-            CreatureId Resolve(string actorId)
+            CreatureId Resolve(DungeonRulesActorReference actor)
             {
-                CreatureId id = seed.ResolveCreature(actorId, owner, ResolveExternal);
-                if (externalActorIds.ContainsKey(id))
+                CreatureId id = seed.ResolveCreature(actor, owner, ResolveExternal);
+                if (externalActors.ContainsKey(id))
                     references.Add(id);
                 return id;
             }
@@ -293,7 +386,7 @@ namespace Game.DungeonPersistence.Actors
                     owner,
                     ResolveExternal
                 );
-                if (externalActorIds.ContainsKey(id))
+                if (externalActors.ContainsKey(id))
                     references.Add(id);
                 return id;
             }
@@ -316,8 +409,8 @@ namespace Game.DungeonPersistence.Actors
 
             foreach (DungeonRulesEffectSaveState saved in seed.Effects)
             {
-                CreatureId bindingOwner = Resolve(saved.BindingOwnerActorId);
-                CreatureId source = Resolve(saved.SourceActorId);
+                CreatureId bindingOwner = Resolve(saved.BindingOwnerActor);
+                CreatureId source = Resolve(saved.SourceActor);
                 ActiveEffectId effectId = new(saved.EffectId);
                 RuleDefinitionId definitionId = new(saved.DefinitionId);
                 RuleSource ruleSource = RuleSource.FromSlug(saved.RuleSource);
@@ -360,7 +453,7 @@ namespace Game.DungeonPersistence.Actors
                 ActiveRuleBinding projectedBinding = projection.Binding;
                 (string kind, string payload) = codecs.Capture(
                     projectedEffect.State,
-                    creature => creature.Value
+                    creature => DungeonRulesActorReference.Party(creature.Value)
                 );
                 ActiveEffectInstance effect = new(
                     projectedEffect.Id,
@@ -371,7 +464,7 @@ namespace Game.DungeonPersistence.Actors
                     codecs.Restore(
                         kind,
                         payload,
-                        actorId => ResolveProjected(new CreatureId(actorId))
+                        actor => ResolveProjected(new CreatureId(actor.ActorId))
                     ),
                     projectedEffect.EffectStateVersion
                 );
@@ -395,7 +488,7 @@ namespace Game.DungeonPersistence.Actors
                 Add(effect, binding, timing);
             }
             builder.AddExternalEffectReferences(references);
-            seed.RememberExternalActors(externalActorIds);
+            seed.RememberExternalActors(externalActors);
             builder.AddInstallation(new ConsumeSeedInstallation(seed));
         }
 
@@ -409,22 +502,22 @@ namespace Game.DungeonPersistence.Actors
             lifetime.Add(new RegistrationToken(ProjectDetachedEffects));
         }
 
-        private CreatureId ResolveExternal(string actorId)
+        private CreatureId ResolveExternal(DungeonRulesActorReference actor)
         {
-            if (string.IsNullOrWhiteSpace(actorId))
+            if (!actor.IsValid)
                 throw new ArgumentException("A saved effect actor identity is required.");
-            if (externalCreatures.TryGetValue(actorId, out CreatureId existing))
+            if (externalCreatures.TryGetValue(actor, out CreatureId existing))
                 return existing;
-            CreatureId created = new($"dungeon-external:{actorId}");
+            CreatureId created = new($"dungeon-external:{actor.StableKey}");
             if (
-                externalActorIds.TryGetValue(created, out string collision)
-                && !string.Equals(collision, actorId, StringComparison.Ordinal)
+                externalActors.TryGetValue(created, out DungeonRulesActorReference collision)
+                && !collision.Equals(actor)
             )
                 throw new InvalidOperationException(
-                    $"Saved actor identities '{collision}' and '{actorId}' collide."
+                    $"Saved actor identities '{collision}' and '{actor}' collide."
                 );
-            externalCreatures.Add(actorId, created);
-            externalActorIds[created] = actorId;
+            externalCreatures.Add(actor, created);
+            externalActors[created] = actor;
             return created;
         }
 
@@ -447,7 +540,7 @@ namespace Game.DungeonPersistence.Actors
                 seed.Project(
                     DungeonRulesEffectPersistence.Project(snapshot, actor.Key),
                     actors,
-                    externalActorIds
+                    externalActors
                 );
             }
         }
@@ -471,7 +564,7 @@ namespace Game.DungeonPersistence.Actors
 
         internal static IReadOnlyList<DungeonRulesEffectSaveState> Capture(
             ActionController controller,
-            Func<GameObject, string> identifyActor
+            Func<GameObject, DungeonRulesActorReference> identifyActor
         )
         {
             if (
@@ -490,10 +583,10 @@ namespace Game.DungeonPersistence.Actors
             }
 
             DungeonRulesEffectSeed attachedSeed = controller.GetComponent<DungeonRulesEffectSeed>();
-            string IdentifyCreature(CreatureId creature) =>
+            DungeonRulesActorReference IdentifyCreature(CreatureId creature) =>
                 attachedSeed != null
-                && attachedSeed.TryGetExternalActorId(creature, out string actorId)
-                    ? actorId
+                && attachedSeed.TryGetExternalActor(creature, out DungeonRulesActorReference actor)
+                    ? actor
                     : identifyActor(bridge.GetController(creature).gameObject);
             return Project(bridge.Snapshot, target)
                 .Select(projection => Capture(projection, IdentifyCreature))
@@ -502,7 +595,7 @@ namespace Game.DungeonPersistence.Actors
 
         private static IReadOnlyList<DungeonRulesEffectSaveState> CaptureDetachedConditions(
             ActionController controller,
-            Func<GameObject, string> identifyActor,
+            Func<GameObject, DungeonRulesActorReference> identifyActor,
             IReadOnlyList<DungeonRulesEffectSaveState> projected
         )
         {
@@ -510,8 +603,8 @@ namespace Game.DungeonPersistence.Actors
             if (conditionSeed == null || conditionSeed.Applications.Count == 0)
                 return projected;
 
-            string actorId = identifyActor(controller.gameObject);
-            if (string.IsNullOrWhiteSpace(actorId))
+            DungeonRulesActorReference actor = identifyActor(controller.gameObject);
+            if (!actor.IsValid)
                 throw new InvalidOperationException(
                     $"Detached condition owner '{controller.name}' has no stable actor identity."
                 );
@@ -541,7 +634,7 @@ namespace Game.DungeonPersistence.Actors
                 string identity;
                 do
                 {
-                    identity = $"condition-seed-save:{actorId}:{identityOrdinal++}";
+                    identity = $"condition-seed-save:{actor.StableKey}:{identityOrdinal++}";
                 } while (effectIds.Contains(identity) || bindingIds.Contains(identity));
                 effectIds.Add(identity);
                 bindingIds.Add(identity);
@@ -559,8 +652,8 @@ namespace Game.DungeonPersistence.Actors
                         EffectId = identity,
                         BindingId = identity,
                         DefinitionId = ConditionRules.DefinitionId.Value,
-                        SourceActorId = actorId,
-                        BindingOwnerActorId = actorId,
+                        SourceActor = actor,
+                        BindingOwnerActor = actor,
                         RuleSource = application.Source.Slug,
                         DurationKind = EffectDurationKind.Indefinite,
                         DurationAmount = 0,
@@ -607,7 +700,7 @@ namespace Game.DungeonPersistence.Actors
 
         internal static DungeonRulesEffectSaveState Capture(
             DungeonRulesEffectProjection projection,
-            Func<CreatureId, string> identifyCreature
+            Func<CreatureId, DungeonRulesActorReference> identifyCreature
         )
         {
             if (projection == null)
@@ -623,8 +716,8 @@ namespace Game.DungeonPersistence.Actors
                 EffectId = effect.Id.Value,
                 BindingId = binding.Id.Value,
                 DefinitionId = effect.DefinitionId.Value,
-                SourceActorId = identifyCreature(effect.SourceCreature),
-                BindingOwnerActorId = identifyCreature(binding.Owner),
+                SourceActor = identifyCreature(effect.SourceCreature),
+                BindingOwnerActor = identifyCreature(binding.Owner),
                 RuleSource = effect.Source.Slug,
                 DurationKind = effect.Duration.Kind,
                 DurationAmount = effect.Duration.Amount,
@@ -639,14 +732,19 @@ namespace Game.DungeonPersistence.Actors
             };
         }
 
-        internal static IEnumerable<string> ActorIds(DungeonRulesEffectSaveState effect)
+        internal static IEnumerable<DungeonRulesActorReference> ActorReferences(
+            DungeonRulesEffectSaveState effect
+        )
         {
-            yield return effect.SourceActorId;
-            yield return effect.BindingOwnerActorId;
+            yield return effect.SourceActor;
+            yield return effect.BindingOwnerActor;
             foreach (
-                string actorId in Codecs.GetReferencedActors(effect.StateKind, effect.StatePayload)
+                DungeonRulesActorReference actor in Codecs.GetReferencedActors(
+                    effect.StateKind,
+                    effect.StatePayload
+                )
             )
-                yield return actorId;
+                yield return actor;
         }
 
         internal static EffectDuration RestoreDuration(EffectDurationKind kind, int amount) =>
@@ -672,7 +770,10 @@ namespace Game.DungeonPersistence.Actors
         public string Kind => "condition";
         public Type StateType => typeof(ConditionState);
 
-        public string Capture(IEffectState state, Func<CreatureId, string> identifyCreature)
+        public string Capture(
+            IEffectState state,
+            Func<CreatureId, DungeonRulesActorReference> identifyCreature
+        )
         {
             ConditionState condition = (ConditionState)state;
             return JsonUtility.ToJson(
@@ -680,16 +781,19 @@ namespace Game.DungeonPersistence.Actors
             );
         }
 
-        public IEffectState Restore(string payload, Func<string, CreatureId> resolveCreature)
+        public IEffectState Restore(
+            string payload,
+            Func<DungeonRulesActorReference, CreatureId> resolveCreature
+        )
         {
             Payload value = Parse(payload);
             return new ConditionState(new ConditionId(value.Condition), value.Value);
         }
 
-        public IReadOnlyList<string> GetReferencedActors(string payload)
+        public IReadOnlyList<DungeonRulesActorReference> GetReferencedActors(string payload)
         {
             Parse(payload);
-            return Array.Empty<string>();
+            return Array.Empty<DungeonRulesActorReference>();
         }
 
         private static Payload Parse(string json)
@@ -708,13 +812,16 @@ namespace Game.DungeonPersistence.Actors
         {
             public string Spell;
             public int Rank;
-            public string TargetActorId;
+            public DungeonRulesActorReference TargetActor;
         }
 
         public string Kind => "spell";
         public Type StateType => typeof(SpellEffectState);
 
-        public string Capture(IEffectState state, Func<CreatureId, string> identifyCreature)
+        public string Capture(
+            IEffectState state,
+            Func<CreatureId, DungeonRulesActorReference> identifyCreature
+        )
         {
             SpellEffectState spell = (SpellEffectState)state;
             return JsonUtility.ToJson(
@@ -722,22 +829,25 @@ namespace Game.DungeonPersistence.Actors
                 {
                     Spell = spell.Spell.Spell.Value,
                     Rank = spell.Spell.Rank,
-                    TargetActorId = identifyCreature(spell.Target),
+                    TargetActor = identifyCreature(spell.Target),
                 }
             );
         }
 
-        public IEffectState Restore(string payload, Func<string, CreatureId> resolveCreature)
+        public IEffectState Restore(
+            string payload,
+            Func<DungeonRulesActorReference, CreatureId> resolveCreature
+        )
         {
             Payload value = Parse(payload);
             return new SpellEffectState(
                 new SpellReference(new SpellId(value.Spell), value.Rank),
-                resolveCreature(value.TargetActorId)
+                resolveCreature(value.TargetActor)
             );
         }
 
-        public IReadOnlyList<string> GetReferencedActors(string payload) =>
-            new[] { Parse(payload).TargetActorId };
+        public IReadOnlyList<DungeonRulesActorReference> GetReferencedActors(string payload) =>
+            new[] { Parse(payload).TargetActor };
 
         private static Payload Parse(string json)
         {
@@ -746,7 +856,7 @@ namespace Game.DungeonPersistence.Actors
                 value == null
                 || string.IsNullOrWhiteSpace(value.Spell)
                 || value.Rank < 1
-                || string.IsNullOrWhiteSpace(value.TargetActorId)
+                || !value.TargetActor.IsValid
             )
                 throw new ArgumentException("Saved spell effect state is invalid.");
             return value;
@@ -764,7 +874,10 @@ namespace Game.DungeonPersistence.Actors
         public string Kind => "rage";
         public Type StateType => typeof(RageEffectState);
 
-        public string Capture(IEffectState state, Func<CreatureId, string> identifyCreature) =>
+        public string Capture(
+            IEffectState state,
+            Func<CreatureId, DungeonRulesActorReference> identifyCreature
+        ) =>
             JsonUtility.ToJson(
                 new Payload
                 {
@@ -772,13 +885,15 @@ namespace Game.DungeonPersistence.Actors
                 }
             );
 
-        public IEffectState Restore(string payload, Func<string, CreatureId> resolveCreature) =>
-            new RageEffectState(Parse(payload).StartedByQuickTempered);
+        public IEffectState Restore(
+            string payload,
+            Func<DungeonRulesActorReference, CreatureId> resolveCreature
+        ) => new RageEffectState(Parse(payload).StartedByQuickTempered);
 
-        public IReadOnlyList<string> GetReferencedActors(string payload)
+        public IReadOnlyList<DungeonRulesActorReference> GetReferencedActors(string payload)
         {
             Parse(payload);
-            return Array.Empty<string>();
+            return Array.Empty<DungeonRulesActorReference>();
         }
 
         private static Payload Parse(string json) =>

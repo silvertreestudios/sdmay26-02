@@ -52,7 +52,7 @@ namespace Game.DungeonPersistence.Repository
 
     internal static class DungeonSaveSchema
     {
-        internal const int ManifestVersion = 3;
+        internal const int ManifestVersion = 4;
         internal const int FloorDocumentVersion = 1;
 
         internal static string FloorPath(int depth) =>
@@ -87,8 +87,8 @@ namespace Game.DungeonPersistence.Repository
         public string EffectId;
         public string BindingId;
         public string DefinitionId;
-        public string SourceActorId;
-        public string BindingOwnerActorId;
+        public DungeonRulesActorReference SourceActor;
+        public DungeonRulesActorReference BindingOwnerActor;
         public string RuleSource;
         public EffectDurationKind DurationKind;
         public int DurationAmount;
@@ -326,10 +326,9 @@ namespace Game.DungeonPersistence.Repository
                 );
 
             Dictionary<int, DungeonLevelDocument> documents = new();
+            Dictionary<int, IReadOnlyList<DungeonActorSaveState>> enemyStatesByDepth = new();
             HashSet<string> referencePaths = new(StringComparer.Ordinal);
             HashSet<string> payloadPaths = new(StringComparer.Ordinal);
-            HashSet<string> effectIds = new(StringComparer.Ordinal);
-            HashSet<string> bindingIds = new(StringComparer.Ordinal);
             int previousDepth = -1;
             for (int index = 0; index < manifest.Floors.Length; index++)
             {
@@ -396,16 +395,39 @@ namespace Game.DungeonPersistence.Repository
                         );
                     enemyStates.Add(actor.Value);
                 }
+                documents.Add(reference.Depth, floor);
+                enemyStatesByDepth.Add(reference.Depth, enemyStates);
+            }
+
+            HashSet<DungeonRulesActorReference> actorReferences = new(
+                manifest.Party.Select(member =>
+                    DungeonRulesActorReference.Party(member.RosterSlotId)
+                )
+            );
+            foreach (KeyValuePair<int, DungeonLevelDocument> entry in documents)
+            {
+                foreach (DungeonCreatureRuntimeState creature in entry.Value.RuntimeState.Creatures)
+                    actorReferences.Add(
+                        DungeonRulesActorReference.Floor(entry.Key, creature.InstanceId)
+                    );
+                foreach (string defeatedId in entry.Value.RuntimeState.DefeatedCreatureIds)
+                    actorReferences.Add(DungeonRulesActorReference.Floor(entry.Key, defeatedId));
+            }
+
+            HashSet<string> effectIds = new(StringComparer.Ordinal);
+            HashSet<string> bindingIds = new(StringComparer.Ordinal);
+            foreach (DungeonFloorSaveReference reference in manifest.Floors)
+            {
                 ValidateActorGraph(
                     manifest.Party,
-                    floor,
-                    enemyStates,
-                    payload.Path,
+                    documents[reference.Depth],
+                    enemyStatesByDepth[reference.Depth],
+                    reference.Path,
                     reference.Depth == manifest.CurrentDepth,
+                    actorReferences,
                     effectIds,
                     bindingIds
                 );
-                documents.Add(reference.Depth, floor);
             }
 
             if (!documents.TryGetValue(manifest.CurrentDepth, out DungeonLevelDocument current))
@@ -420,18 +442,12 @@ namespace Game.DungeonPersistence.Repository
             IEnumerable<DungeonActorSaveState> enemyStates,
             string floorPath,
             bool includePartyEffects,
+            HashSet<DungeonRulesActorReference> actorReferences,
             HashSet<string> effectIds,
             HashSet<string> bindingIds
         )
         {
             HashSet<string> actorIds = new(StringComparer.Ordinal);
-            foreach (DungeonPartyMemberSaveState member in party)
-            {
-                if (!actorIds.Add(member.RosterSlotId))
-                    throw new ArgumentException(
-                        $"Actor identity '{member.RosterSlotId}' is duplicated on '{floorPath}'."
-                    );
-            }
             foreach (DungeonCreatureRuntimeState creature in floor.RuntimeState.Creatures)
             {
                 if (!actorIds.Add(creature.InstanceId))
@@ -447,13 +463,14 @@ namespace Game.DungeonPersistence.Repository
                     );
             }
 
-            Dictionary<string, DungeonActorSaveState> allStates = includePartyEffects
-                ? party.ToDictionary(
-                    member => member.RosterSlotId,
-                    member => member.State,
-                    StringComparer.Ordinal
-                )
-                : new Dictionary<string, DungeonActorSaveState>(StringComparer.Ordinal);
+            Dictionary<DungeonRulesActorReference, DungeonActorSaveState> allStates =
+                includePartyEffects
+                    ? party.ToDictionary(
+                        member => DungeonRulesActorReference.Party(member.RosterSlotId),
+                        member => member.State,
+                        EqualityComparer<DungeonRulesActorReference>.Default
+                    )
+                    : new Dictionary<DungeonRulesActorReference, DungeonActorSaveState>();
             using (IEnumerator<DungeonActorSaveState> enemyState = enemyStates.GetEnumerator())
             {
                 foreach (DungeonCreatureRuntimeState creature in floor.RuntimeState.Creatures)
@@ -462,13 +479,21 @@ namespace Game.DungeonPersistence.Repository
                         throw new ArgumentException(
                             "Saved enemy actor state count is inconsistent."
                         );
-                    allStates.Add(creature.InstanceId, enemyState.Current);
+                    allStates.Add(
+                        DungeonRulesActorReference.Floor(
+                            floor.Generation.Depth,
+                            creature.InstanceId
+                        ),
+                        enemyState.Current
+                    );
                 }
             }
-            foreach (KeyValuePair<string, DungeonActorSaveState> actor in allStates)
+            foreach (
+                KeyValuePair<DungeonRulesActorReference, DungeonActorSaveState> actor in allStates
+            )
             foreach (DungeonRulesEffectSaveState effect in actor.Value.RulesEffects)
             {
-                if (!string.Equals(effect.BindingOwnerActorId, actor.Key, StringComparison.Ordinal))
+                if (!effect.BindingOwnerActor.Equals(actor.Key))
                     throw new ArgumentException(
                         $"Rules effect '{effect.EffectId}' is stored under the wrong binding owner on '{floorPath}'."
                     );
@@ -476,9 +501,13 @@ namespace Game.DungeonPersistence.Repository
                     throw new ArgumentException(
                         $"Rules effect or binding identity is duplicated on '{floorPath}'."
                     );
-                foreach (string referencedActor in DungeonRulesEffectPersistence.ActorIds(effect))
+                foreach (
+                    DungeonRulesActorReference referencedActor in DungeonRulesEffectPersistence.ActorReferences(
+                        effect
+                    )
+                )
                 {
-                    if (!actorIds.Contains(referencedActor))
+                    if (!actorReferences.Contains(referencedActor))
                         throw new ArgumentException(
                             $"Rules effect actor '{referencedActor}' is unavailable on '{floorPath}'."
                         );
@@ -743,8 +772,8 @@ namespace Game.DungeonPersistence.Repository
                 || string.IsNullOrWhiteSpace(effect.EffectId)
                 || string.IsNullOrWhiteSpace(effect.BindingId)
                 || string.IsNullOrWhiteSpace(effect.DefinitionId)
-                || string.IsNullOrWhiteSpace(effect.SourceActorId)
-                || string.IsNullOrWhiteSpace(effect.BindingOwnerActorId)
+                || !effect.SourceActor.IsValid
+                || !effect.BindingOwnerActor.IsValid
                 || string.IsNullOrWhiteSpace(effect.RuleSource)
                 || string.IsNullOrWhiteSpace(effect.StateKind)
                 || string.IsNullOrWhiteSpace(effect.StatePayload)
