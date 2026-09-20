@@ -21,6 +21,7 @@ clients or projections of the migrated state.
 | --- | --- |
 | Encounter phase, roster, initiative, round, and current turn | `EncounterState` in `RulesState` |
 | Encounter action economy | `ActionEconomyState`; controller values are read projections |
+| Base attack, Armor Class, saves, and skills | `CreatureStatisticsState`; immutable values are captured during common enrollment |
 | Health, temporary Hit Points, and defeat | `HealthState`; `CreatureComponent` receives committed projections |
 | Position, land Speed, and movement budget | Runtime movement slices; Unity transforms project committed movement |
 | Multiple attack penalty | `MultipleAttackPenaltyState` |
@@ -36,8 +37,9 @@ owner.
 The encounter is not fully rules-native. Rotting Aura owns its deterministic turn listener, dice,
 typed damage, and health workflow in the rules runtime, but a narrow feature adapter still captures
 its current Unity aura geometry and unmigrated creature traits, levels, weaknesses, and resistances.
-Prepared-character and component data are still read during enrollment, and some scene-compatible
-manager entry points remain. Treat those paths as migration seams, not alternative authorities.
+Prepared-character and component data, including immutable base statistics, are still read during
+enrollment, and some scene-compatible manager entry points remain. Treat those paths as migration
+seams, not alternative authorities.
 
 `UnityCombatRulesBridge.CreateExplorationStride` is a special temporary composition. It reuses the
 Stride rules without attaching combat authority or spending encounter action economy.
@@ -125,7 +127,8 @@ The private `UnityCombatRulesBridge` constructor performs these boundaries in or
 
 1. Create the mutable topology provider, shared feature contexts, catalogs, registry, explicit
    module set, composition, and enrollment pipeline.
-2. Call `UnityCombatantEnrollmentPipeline.Prepare` for all initial participants.
+2. Call `UnityCombatantEnrollmentPipeline.Prepare` for all initial participants, capturing each
+   combatant's immutable base statistics before commit.
 3. Build the dispatcher store from an empty `RulesStateSeed`; combat encounter construction does
    not seed combatant state.
 4. Configure shared runtimes on `RuleDispatcherBuilder`: health, MAP, checks, active effects,
@@ -154,9 +157,10 @@ preparation ahead of the authoritative commit, but the current Unity installatio
 fail afterward.
 
 `Prepare` validates the complete controller batch, reserves creature/player identity allocation,
-creates every Unity-to-rules map provisionally, validates future attachments, invokes every
-enrollment module, captures initiative modifiers, and freezes complete `CombatantRulesState` values
-plus installation plans. Creating all maps before module preparation lets restored effects resolve
+creates every Unity-to-rules map provisionally, validates future attachments, captures immutable
+base statistics, invokes every enrollment module, captures initiative modifiers, and freezes
+complete `CombatantRulesState` values plus installation plans. Creating all maps before module
+preparation lets restored effects resolve
 cross-combatant sources while preparation is still reversible.
 `UnityCombatantEnrollmentBuilder` exposes the supported contribution APIs:
 
@@ -438,6 +442,7 @@ that root ends. Do not transfer short-lived observation into the encounter lifet
 | Action lifecycle and atomic action/rule-resource costs | Production |
 | Encounter roster, initiative, turn progression, action economy, and conclusion | Production authority |
 | Health, temporary Hit Points, defeat, and Unity health projection | Production authority |
+| Base attack, Armor Class, saves, and skills | Production immutable enrollment state for initial participants and reinforcements |
 | Stride and movement topology/budget | Production; bridge still has first-slice Stride helpers |
 | Strike, checks, modifier collection, damage, ammunition/reload, and MAP | Production |
 | Spellcasting, spell attacks, resources, effects, generic dungeon restoration, and presentation | Production for implemented spells |

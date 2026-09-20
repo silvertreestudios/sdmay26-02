@@ -613,6 +613,16 @@ namespace Game.Tests.EditMode.RulesRuntime
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, team),
+                new CreatureStatisticsState(
+                    creature,
+                    0,
+                    10,
+                    0,
+                    0,
+                    0,
+                    new Dictionary<Skill, int>(),
+                    Array.Empty<Modifier>()
+                ),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
