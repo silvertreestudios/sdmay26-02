@@ -10,6 +10,9 @@ guide deliberately documents some production mechanisms that are not universal d
 requirements. If this guide and production code disagree about current behavior, the code is the
 source of truth and this guide should be updated with the change.
 
+For the playable-character boundary used to accept the bulk migration, see the
+[pre-built character acceptance contract](Rules_Runtime_PreBuilt_Character_Acceptance.md).
+
 ## Authority in a live encounter
 
 `UnityCombatRulesBridge` owns one `RuleDispatcher`, one `RulesState`, and one encounter lifetime.
