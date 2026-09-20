@@ -239,7 +239,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             {
                 EffectId = "effect-1",
                 BindingId = "binding-1",
-                DefinitionId = "rage-effect",
+                DefinitionId = RageActionDefinition.EffectDefinitionId.Value,
                 SourceActor = DungeonRulesActorReference.Floor(0, "missing-actor"),
                 BindingOwnerActor = DungeonRulesActorReference.Floor(
                     0,

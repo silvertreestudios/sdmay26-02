@@ -1005,6 +1005,49 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task AdditionRejectsDefinitionIncompatibleEffectStateWithoutMutation()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("typed-added-effect");
+            ActiveEffectId effectId = new ActiveEffectId("typed-added-effect-instance");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Reinforcement,
+                Source,
+                EffectDuration.Indefinite,
+                new OtherTestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("typed-added-effect-binding"),
+                definition,
+                Reinforcement,
+                effectId,
+                Source,
+                0
+            );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 5),
+                registry: registryBuilder.Build()
+            );
+            await dispatcher.Dispatch(
+                Start(Registration(Hero, Players), Registration(Enemy, Enemies))
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
+                dispatcher,
+                before,
+                Registration(Reinforcement, Enemies, new[] { binding }, new[] { effect })
+            );
+
+            Assert.That(rejected.Message, Does.Contain(nameof(OtherTestEffectState)));
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(binding.Id), Is.False);
+        }
+
+        [Test]
         public async Task AdditionRestoresNonInitialEffectVersionAndDisabledBindingExactly()
         {
             RuleDefinitionId definition = new RuleDefinitionId("versioned-added-effect");
@@ -1028,7 +1071,7 @@ namespace Game.Rules.Runtime.Tests
                 false
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10, 5),
                 registry: registryBuilder.Build()
@@ -1069,7 +1112,7 @@ namespace Game.Rules.Runtime.Tests
             RuleDefinitionId definition = new RuleDefinitionId("dangling-added-effect-binding");
             ActiveEffectId effectId = new ActiveEffectId("dangling-added-effect-instance");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10, 5),
                 registry: registryBuilder.Build(),
@@ -1154,7 +1197,7 @@ namespace Game.Rules.Runtime.Tests
                 1
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10, 5, 4),
                 registry: registryBuilder.Build()
@@ -1214,7 +1257,7 @@ namespace Game.Rules.Runtime.Tests
                 new[] { effect }
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10),
                 missingOwner
@@ -1302,7 +1345,7 @@ namespace Game.Rules.Runtime.Tests
                 new[] { effect }
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             registryBuilder.Define(wrongDefinition);
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10),
@@ -1812,7 +1855,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDefinitionId definition = new RuleDefinitionId("encounter-duration-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
@@ -1970,7 +2013,7 @@ namespace Game.Rules.Runtime.Tests
                 $"precombat-{kind.ToString().ToLowerInvariant()}"
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
@@ -2040,7 +2083,7 @@ namespace Game.Rules.Runtime.Tests
             CreatureId externalSource = new CreatureId("external-defeated-source");
             RuleDefinitionId definition = new RuleDefinitionId("external-source-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
@@ -2107,7 +2150,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDefinitionId definition = new RuleDefinitionId("zero-boundary-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
@@ -2165,7 +2208,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDefinitionId definition = new RuleDefinitionId("timed-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
@@ -2220,7 +2263,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDefinitionId definition = new RuleDefinitionId("atomic-timed-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             EncounterState awaitingBoundary = new EncounterState(
                 Encounter,
@@ -2337,7 +2380,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDefinitionId definition = new RuleDefinitionId("counted-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10, 20, 10),
@@ -3023,6 +3066,8 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class TestEffectState : IEffectState { }
+
+        private sealed class OtherTestEffectState : IEffectState { }
 
         private sealed class StartTestEncounterOp : IRuleOp<EncounterAdvanceOutcome>
         {

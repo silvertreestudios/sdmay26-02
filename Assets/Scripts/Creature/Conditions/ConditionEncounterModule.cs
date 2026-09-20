@@ -119,6 +119,7 @@ namespace Game.Creature.Rules
                 && effect.SourceActor.Equals(effect.BindingOwnerActor)
                 && string.Equals(effect.RuleSource, source.Slug, StringComparison.Ordinal)
                 && DungeonRulesEffectPersistence.Codecs.Restore(
+                    ConditionRules.DefinitionId,
                     effect.StateKind,
                     effect.StatePayload,
                     _ =>

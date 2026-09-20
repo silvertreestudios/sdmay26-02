@@ -267,6 +267,26 @@ public sealed class DungeonActorStateAdapterTests
         );
         Assert.That(parsed.IsSuccess, Is.True);
         Assert.That(parsed.Value.RulesEffects, Has.Length.EqualTo(4));
+        Assert.That(
+            parsed.Value.RulesEffects,
+            Has.Some.Matches<DungeonRulesEffectSaveState>(effect =>
+                effect.DefinitionId == ConditionRules.DefinitionId.Value
+                && effect.StateKind == "condition"
+            )
+        );
+        Assert.That(
+            parsed.Value.RulesEffects,
+            Has.Some.Matches<DungeonRulesEffectSaveState>(effect =>
+                effect.DefinitionId == RageActionDefinition.EffectDefinitionId.Value
+                && effect.StateKind == "rage"
+            )
+        );
+        Assert.That(
+            parsed.Value.RulesEffects,
+            Has.Some.Matches<DungeonRulesEffectSaveState>(effect =>
+                effect.DefinitionId == "spell-effect-light" && effect.StateKind == "spell"
+            )
+        );
         DungeonRulesEffectSaveState slowedTwo = parsed.Value.RulesEffects.Single(effect =>
             effect.StateKind == "condition" && effect.StatePayload.Contains("\"Value\":2")
         );
@@ -936,6 +956,44 @@ public sealed class DungeonActorStateAdapterTests
             parsed.Diagnostics.Single().Code,
             Is.EqualTo(DungeonSaveDiagnosticCode.CorruptSave)
         );
+    }
+
+    [Test]
+    public void ParseActorRejectsDefinitionAndCodecStateMismatch()
+    {
+        SourceFixture hero = CreateFixture("Hero", out restoredObject);
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            _ => PartyActor("unused")
+        );
+        saved.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = "corrupt-effect",
+                BindingId = "corrupt-binding",
+                DefinitionId = ConditionRules.DefinitionId.Value,
+                SourceActor = PartyActor("hero"),
+                BindingOwnerActor = PartyActor("hero"),
+                RuleSource = "corrupt-effect",
+                DurationKind = EffectDurationKind.Indefinite,
+                CreationOrder = 1,
+                BindingEnabled = true,
+                StateKind = "rage",
+                StatePayload = "{\"StartedByQuickTempered\":false}",
+            },
+        };
+
+        DungeonSaveResult<DungeonActorSaveState> parsed = DungeonSaveJson.ParseActor(
+            JsonUtility.ToJson(saved)
+        );
+
+        Assert.That(parsed.IsSuccess, Is.False);
+        Assert.That(
+            parsed.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonSaveDiagnosticCode.CorruptSave)
+        );
+        Assert.That(parsed.Diagnostics.Single().Message, Does.Contain("invalid entry"));
     }
 
     [Test]

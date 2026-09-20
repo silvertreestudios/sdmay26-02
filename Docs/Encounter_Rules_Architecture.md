@@ -209,10 +209,13 @@ Dungeon saves capture active rules state from the attached bridge, never from Un
 components. Each `DungeonRulesEffectSaveState` is a generic envelope containing the exact effect,
 binding, definition, stable source actor, stable binding owner, rule source, effect-state version,
 binding creation order and enabled state, duration, and materialized remaining timing. The state
-payload is delegated to an explicitly composed `IDungeonEffectStateCodec`, keyed by both a stable
-save kind and the concrete `IEffectState` type. Codecs own only serialization of their immutable
-feature state and any stable actor references in that state; the persistence layer contains no
-effect-name or spell-name switch.
+payload is delegated to an explicitly composed `IDungeonEffectStateCodec`, keyed by a stable save
+kind, the concrete `IEffectState` type, and every rule definition allowed to use that codec. The
+same definition declares its exact effect-state type in the `RuleRegistry`. Save validation checks
+the definition-to-codec pair before accepting an envelope, while active-effect creation and common
+combatant enrollment check the definition-to-state pair before an authoritative commit. Codecs own
+only serialization of their immutable feature state and any stable actor references in that state;
+the persistence layer contains no effect-name or spell-name switch.
 
 The current production catalog covers every active effect state type: `ConditionState`,
 `SpellEffectState`, and `RageEffectState`. A feature that introduces another persisted

@@ -33,9 +33,17 @@ namespace Game.Rules.Runtime
             out string rejection
         )
         {
-            if (!registry.TryGetDefinition(effect.DefinitionId, out _))
+            if (!registry.TryGetDefinition(effect.DefinitionId, out RuleDefinition definition))
             {
                 rejection = $"Rule definition {effect.DefinitionId.Value} is unknown.";
+                return false;
+            }
+            Type stateType = effect.State.GetType();
+            if (!definition.EffectStateTypes.Contains(stateType))
+            {
+                rejection =
+                    $"Rule definition {effect.DefinitionId.Value} does not accept "
+                    + $"{stateType.Name} active-effect state.";
                 return false;
             }
             rejection = string.Empty;

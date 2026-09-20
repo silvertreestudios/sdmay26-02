@@ -804,6 +804,7 @@ namespace Game.DungeonPersistence.Repository
                 )
                     return true;
                 DungeonRulesEffectPersistence.Codecs.GetReferencedActors(
+                    new RuleDefinitionId(effect.DefinitionId),
                     effect.StateKind,
                     effect.StatePayload
                 );

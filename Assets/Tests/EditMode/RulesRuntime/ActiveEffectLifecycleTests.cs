@@ -68,7 +68,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public void CreateEstablishesExactStateTypeOnTheInstance()
+        public void CreateRejectsStateTypeNotDeclaredByDefinitionWithoutCommit()
         {
             RuleRegistry registry = CreateRegistry();
             InMemoryRulesStore store = new InMemoryRulesStore(CreateActiveEncounterSeed());
@@ -79,12 +79,11 @@ namespace Game.Rules.Runtime.Tests
                 new CreateActiveEffectReducer(registry)
             );
 
-            Assert.That(result.IsAccepted, Is.True);
-            Assert.That(result.DidCommit, Is.True);
-            Assert.That(
-                result.Snapshot.ActiveEffects[EffectId].GetState<OtherEffectState>(),
-                Is.SameAs(effect.State)
-            );
+            Assert.That(result.IsRejected, Is.True);
+            Assert.That(result.DidCommit, Is.False);
+            Assert.That(result.RejectionReason, Does.Contain(nameof(OtherEffectState)));
+            Assert.That(result.Snapshot.ActiveEffects, Is.Empty);
+            Assert.That(result.Snapshot.RuleBindings, Is.Empty);
         }
 
         [Test]
@@ -363,7 +362,7 @@ namespace Game.Rules.Runtime.Tests
         private static RuleRegistry CreateRegistry()
         {
             RuleRegistryBuilder builder = new RuleRegistryBuilder();
-            builder.Define(DefinitionId);
+            builder.Define(DefinitionId).EffectState<AuraEffectState>();
             return builder.Build();
         }
 

@@ -200,7 +200,10 @@ provenance, duration, and remaining schedule, plus an explicitly registered code
 new encounter state and publishes the ordinary creation Facts only after commit. It must not recast
 an action, replay causal damage, refresh a duration, synthesize replacement identities, or make a
 Unity component a parallel authority. New effect-state types extend the codec catalog rather than a
-central feature-name switch. Newly created effect and effect-binding identities use one unique
+central feature-name switch. Each effect-backed rule definition explicitly declares its exact
+state type, and each persistence codec explicitly declares the definitions it supports. Validation
+rejects a mismatched definition, codec kind, or concrete state type before accepting a save or
+committing creation/enrollment. Newly created effect and effect-binding identities use one unique
 namespace shared by a rules host's enrollment and dispatcher callbacks, so independent hosts can
 persist their active state in the same graph without relying on encounter-local operation numbers.
 

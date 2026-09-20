@@ -460,7 +460,7 @@ namespace Game.Rules.Runtime
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
-            builder.Define(RageActionDefinition.EffectDefinitionId);
+            builder.Define(RageActionDefinition.EffectDefinitionId).EffectState<RageEffectState>();
             builder
                 .Define(LifecycleRuleDefinitionId)
                 .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnExpirationListener())

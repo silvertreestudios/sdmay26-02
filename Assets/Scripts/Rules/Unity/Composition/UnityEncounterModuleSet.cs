@@ -59,7 +59,7 @@ namespace Game.Rules.Unity.Composition
             );
 
             RuleRegistryBuilder registryBuilder = new();
-            registryBuilder.Define(ConditionRules.DefinitionId);
+            registryBuilder.Define(ConditionRules.DefinitionId).EffectState<ConditionState>();
             RottingAuraRules.DefineRuleBinding(registryBuilder, rottingAura);
             SlowedRules.DefineRuleBinding(registryBuilder);
             RageRules.DefineRuleBindings(registryBuilder);
@@ -70,7 +70,7 @@ namespace Game.Rules.Unity.Composition
                     .Select(effect => effect.DefinitionId)
                     .Distinct()
             )
-                registryBuilder.Define(definitionId);
+                registryBuilder.Define(definitionId).EffectState<SpellEffectState>();
 
             UnityActionPresentationRegistry actionPresentation = new(actionPresentationCoordinator);
             IUnityEncounterModule[] modules =

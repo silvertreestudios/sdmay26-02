@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.DungeonPersistence.Repository;
@@ -95,6 +96,7 @@ namespace Game.DungeonPersistence.Actors
     {
         string Kind { get; }
         Type StateType { get; }
+        IReadOnlyList<RuleDefinitionId> Definitions { get; }
         string Capture(
             IEffectState state,
             Func<CreatureId, DungeonRulesActorReference> identifyCreature
@@ -111,6 +113,10 @@ namespace Game.DungeonPersistence.Actors
     {
         private readonly IReadOnlyDictionary<string, IDungeonEffectStateCodec> byKind;
         private readonly IReadOnlyDictionary<Type, IDungeonEffectStateCodec> byType;
+        private readonly IReadOnlyDictionary<
+            RuleDefinitionId,
+            IDungeonEffectStateCodec
+        > byDefinition;
 
         internal DungeonEffectStateCodecCatalog(IEnumerable<IDungeonEffectStateCodec> codecs)
         {
@@ -121,6 +127,10 @@ namespace Game.DungeonPersistence.Actors
                     codec == null
                     || string.IsNullOrWhiteSpace(codec.Kind)
                     || codec.StateType == null
+                    || codec.Definitions == null
+                    || codec.Definitions.Count == 0
+                    || codec.Definitions.Any(definition => definition.IsEmpty)
+                    || codec.Definitions.Distinct().Count() != codec.Definitions.Count
                 )
                 || copied.Select(codec => codec.Kind).Distinct(StringComparer.Ordinal).Count()
                     != copied.Length
@@ -132,19 +142,39 @@ namespace Game.DungeonPersistence.Actors
                 );
             byKind = copied.ToDictionary(codec => codec.Kind, StringComparer.Ordinal);
             byType = copied.ToDictionary(codec => codec.StateType);
+            RuleDefinitionId[] definitions = copied
+                .SelectMany(codec => codec.Definitions)
+                .ToArray();
+            if (definitions.Distinct().Count() != definitions.Length)
+                throw new ArgumentException(
+                    "An effect definition can use only one persistence codec.",
+                    nameof(codecs)
+                );
+            byDefinition = copied
+                .SelectMany(codec => codec.Definitions.Select(definition => (definition, codec)))
+                .ToDictionary(pair => pair.definition, pair => pair.codec);
         }
 
-        internal static DungeonEffectStateCodecCatalog CreateProduction() =>
-            new(
+        internal static DungeonEffectStateCodecCatalog CreateProduction()
+        {
+            RuleDefinitionId[] spellDefinitions = UnitySpellDefinitionCatalog
+                .Load()
+                .Definitions.SelectMany(definition => definition.Effects)
+                .Select(effect => effect.DefinitionId)
+                .Distinct()
+                .ToArray();
+            return new DungeonEffectStateCodecCatalog(
                 new IDungeonEffectStateCodec[]
                 {
                     new ConditionEffectStateCodec(),
-                    new SpellEffectStateCodec(),
+                    new SpellEffectStateCodec(spellDefinitions),
                     new RageEffectStateCodec(),
                 }
             );
+        }
 
         internal (string Kind, string Payload) Capture(
+            RuleDefinitionId definition,
             IEffectState state,
             Func<CreatureId, DungeonRulesActorReference> identifyCreature
         )
@@ -155,24 +185,39 @@ namespace Game.DungeonPersistence.Actors
                 throw new InvalidOperationException(
                     $"Effect state type '{state.GetType().Name}' has no dungeon persistence codec."
                 );
+            Require(definition, codec.Kind);
             return (codec.Kind, codec.Capture(state, identifyCreature));
         }
 
         internal IEffectState Restore(
+            RuleDefinitionId definition,
             string kind,
             string payload,
             Func<DungeonRulesActorReference, CreatureId> resolveCreature
-        ) => Require(kind).Restore(payload, resolveCreature);
+        ) => Require(definition, kind).Restore(payload, resolveCreature);
 
         internal IReadOnlyList<DungeonRulesActorReference> GetReferencedActors(
+            RuleDefinitionId definition,
             string kind,
             string payload
-        ) => Require(kind).GetReferencedActors(payload);
+        ) => Require(definition, kind).GetReferencedActors(payload);
 
-        private IDungeonEffectStateCodec Require(string kind)
+        private IDungeonEffectStateCodec Require(RuleDefinitionId definition, string kind)
         {
             if (string.IsNullOrWhiteSpace(kind) || !byKind.TryGetValue(kind, out var codec))
                 throw new ArgumentException($"Unknown effect-state persistence kind '{kind}'.");
+            if (
+                definition.IsEmpty
+                || !byDefinition.TryGetValue(definition, out IDungeonEffectStateCodec expected)
+            )
+                throw new InvalidOperationException(
+                    $"Rule definition '{definition.Value}' has no effect-state persistence codec."
+                );
+            if (!ReferenceEquals(codec, expected))
+                throw new InvalidOperationException(
+                    $"Rule definition '{definition.Value}' requires effect-state kind "
+                        + $"'{expected.Kind}', not '{kind}'."
+                );
             return codec;
         }
     }
@@ -457,7 +502,7 @@ namespace Game.DungeonPersistence.Actors
                         saved.DurationKind,
                         saved.DurationAmount
                     ),
-                    codecs.Restore(saved.StateKind, saved.StatePayload, Resolve),
+                    codecs.Restore(definitionId, saved.StateKind, saved.StatePayload, Resolve),
                     new EffectStateVersion(saved.EffectStateVersion)
                 );
                 ActiveRuleBinding binding = new(
@@ -486,6 +531,7 @@ namespace Game.DungeonPersistence.Actors
                 ActiveEffectInstance projectedEffect = projection.Effect;
                 ActiveRuleBinding projectedBinding = projection.Binding;
                 (string kind, string payload) = codecs.Capture(
+                    projectedEffect.DefinitionId,
                     projectedEffect.State,
                     creature => DungeonRulesActorReference.Party(creature.Value)
                 );
@@ -496,6 +542,7 @@ namespace Game.DungeonPersistence.Actors
                     projectedEffect.Source,
                     projectedEffect.Duration,
                     codecs.Restore(
+                        projectedEffect.DefinitionId,
                         kind,
                         payload,
                         actor => ResolveProjected(new CreatureId(actor.ActorId))
@@ -719,6 +766,7 @@ namespace Game.DungeonPersistence.Actors
                 bindingIds.Add(bindingIdentity);
 
                 (string kind, string payload) = Codecs.Capture(
+                    ConditionRules.DefinitionId,
                     application.State,
                     _ =>
                         throw new InvalidOperationException(
@@ -789,7 +837,11 @@ namespace Game.DungeonPersistence.Actors
             ActiveEffectInstance effect = projection.Effect;
             ActiveRuleBinding binding = projection.Binding;
             ActiveEffectTimingState timing = projection.Timing;
-            (string kind, string payload) = Codecs.Capture(effect.State, identifyCreature);
+            (string kind, string payload) = Codecs.Capture(
+                effect.DefinitionId,
+                effect.State,
+                identifyCreature
+            );
             return new DungeonRulesEffectSaveState
             {
                 EffectId = effect.Id.Value,
@@ -819,6 +871,7 @@ namespace Game.DungeonPersistence.Actors
             yield return effect.BindingOwnerActor;
             foreach (
                 DungeonRulesActorReference actor in Codecs.GetReferencedActors(
+                    new RuleDefinitionId(effect.DefinitionId),
                     effect.StateKind,
                     effect.StatePayload
                 )
@@ -848,6 +901,8 @@ namespace Game.DungeonPersistence.Actors
 
         public string Kind => "condition";
         public Type StateType => typeof(ConditionState);
+        public IReadOnlyList<RuleDefinitionId> Definitions { get; } =
+            new[] { ConditionRules.DefinitionId };
 
         public string Capture(
             IEffectState state,
@@ -896,6 +951,20 @@ namespace Game.DungeonPersistence.Actors
 
         public string Kind => "spell";
         public Type StateType => typeof(SpellEffectState);
+        public IReadOnlyList<RuleDefinitionId> Definitions { get; }
+
+        internal SpellEffectStateCodec(IEnumerable<RuleDefinitionId> definitions)
+        {
+            RuleDefinitionId[] copied =
+                definitions?.Distinct().ToArray()
+                ?? throw new ArgumentNullException(nameof(definitions));
+            if (copied.Length == 0 || copied.Any(definition => definition.IsEmpty))
+                throw new ArgumentException(
+                    "At least one spell effect definition is required.",
+                    nameof(definitions)
+                );
+            Definitions = Array.AsReadOnly(copied);
+        }
 
         public string Capture(
             IEffectState state,
@@ -952,6 +1021,8 @@ namespace Game.DungeonPersistence.Actors
 
         public string Kind => "rage";
         public Type StateType => typeof(RageEffectState);
+        public IReadOnlyList<RuleDefinitionId> Definitions { get; } =
+            new[] { RageActionDefinition.EffectDefinitionId };
 
         public string Capture(
             IEffectState state,
