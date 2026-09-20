@@ -211,10 +211,10 @@ namespace Game.DungeonPersistence.Actors
             throw new InvalidOperationException("The rules-effect seed is not initialized.");
         private IReadOnlyDictionary<CreatureId, GameObject> projectedActors =
             new Dictionary<CreatureId, GameObject>();
-        private IReadOnlyDictionary<
+        private readonly Dictionary<
             CreatureId,
             DungeonRulesActorReference
-        > projectedExternalActors = new Dictionary<CreatureId, DungeonRulesActorReference>();
+        > projectedActorReferences = new();
 
         internal IReadOnlyList<DungeonRulesEffectSaveState> Effects => effects;
         internal IReadOnlyList<DungeonRulesEffectProjection> Projections => projections;
@@ -232,6 +232,8 @@ namespace Game.DungeonPersistence.Actors
             effects = copied;
             projections = Array.Empty<DungeonRulesEffectProjection>();
             resolveActor = copiedResolver;
+            projectedActors = new Dictionary<CreatureId, GameObject>();
+            projectedActorReferences.Clear();
             GetComponent<ConditionSeed>()?.Clear();
         }
 
@@ -258,19 +260,19 @@ namespace Game.DungeonPersistence.Actors
         )
         {
             if (
-                projectedExternalActors.TryGetValue(
-                    projectedCreature,
-                    out DungeonRulesActorReference actor
-                )
-            )
-                return resolveExternal(actor);
-            if (
                 projectedActors.TryGetValue(projectedCreature, out GameObject actorObject)
                 && actorObject != null
                 && actorObject.TryGetComponent(out CreatureComponent creature)
                 && owner.TryGetCreatureId(creature, out CreatureId id)
             )
                 return id;
+            if (
+                projectedActorReferences.TryGetValue(
+                    projectedCreature,
+                    out DungeonRulesActorReference actor
+                )
+            )
+                return resolveExternal(actor);
             throw new InvalidOperationException(
                 $"Detached rules-effect creature '{projectedCreature.Value}' is unavailable."
             );
@@ -288,14 +290,18 @@ namespace Game.DungeonPersistence.Actors
             DungeonRulesActorReference IdentifyCreature(CreatureId creature)
             {
                 if (
-                    projectedExternalActors.TryGetValue(
+                    projectedActorReferences.TryGetValue(
                         creature,
                         out DungeonRulesActorReference actorReference
                     )
                 )
                     return actorReference;
                 if (projectedActors.TryGetValue(creature, out GameObject actor) && actor != null)
-                    return identifyActor(actor);
+                {
+                    DungeonRulesActorReference identified = identifyActor(actor);
+                    RememberActorReference(creature, identified);
+                    return identified;
+                }
                 throw new InvalidOperationException(
                     $"Detached rules effect references unavailable creature '{creature.Value}'."
                 );
@@ -311,37 +317,57 @@ namespace Game.DungeonPersistence.Actors
         internal void Project(
             IEnumerable<DungeonRulesEffectProjection> detachedEffects,
             IReadOnlyDictionary<CreatureId, GameObject> actors,
-            IReadOnlyDictionary<CreatureId, DungeonRulesActorReference> externalActors
+            IReadOnlyDictionary<CreatureId, DungeonRulesActorReference> actorReferences
         )
         {
             projections =
                 detachedEffects?.ToArray()
                 ?? throw new ArgumentNullException(nameof(detachedEffects));
             projectedActors = actors ?? throw new ArgumentNullException(nameof(actors));
-            projectedExternalActors =
-                externalActors ?? throw new ArgumentNullException(nameof(externalActors));
+            if (actorReferences == null)
+                throw new ArgumentNullException(nameof(actorReferences));
+            foreach (KeyValuePair<CreatureId, DungeonRulesActorReference> actor in actorReferences)
+                RememberActorReference(actor.Key, actor.Value);
             effects = Array.Empty<DungeonRulesEffectSaveState>();
             GetComponent<ConditionSeed>()?.Clear();
         }
 
-        internal void ConsumeRestoredEffects()
+        internal void ConsumeRestoredEffects(
+            IReadOnlyDictionary<CreatureId, DungeonRulesActorReference> actorReferences
+        )
         {
+            if (actorReferences == null)
+                throw new ArgumentNullException(nameof(actorReferences));
             effects = Array.Empty<DungeonRulesEffectSaveState>();
             projections = Array.Empty<DungeonRulesEffectProjection>();
             resolveActor = _ =>
                 throw new InvalidOperationException("The rules-effect seed was consumed.");
+            projectedActors = new Dictionary<CreatureId, GameObject>();
+            // Creature IDs are encounter-local. Keep only identities resolved into the committed
+            // encounter so a reused ID cannot inherit provenance from the detached encounter.
+            projectedActorReferences.Clear();
+            foreach (KeyValuePair<CreatureId, DungeonRulesActorReference> actor in actorReferences)
+                RememberActorReference(actor.Key, actor.Value);
         }
 
-        internal void RememberExternalActors(
-            IReadOnlyDictionary<CreatureId, DungeonRulesActorReference> externalActors
-        ) =>
-            projectedExternalActors =
-                externalActors ?? throw new ArgumentNullException(nameof(externalActors));
+        internal void RememberActorReference(CreatureId creature, DungeonRulesActorReference actor)
+        {
+            if (!actor.IsValid)
+                throw new ArgumentException("A stable rules actor reference is required.");
+            if (
+                projectedActorReferences.TryGetValue(creature, out var existing)
+                && !existing.Equals(actor)
+            )
+                throw new InvalidOperationException(
+                    $"Rules creature '{creature.Value}' cannot represent both '{existing}' and '{actor}'."
+                );
+            projectedActorReferences[creature] = actor;
+        }
 
-        internal bool TryGetExternalActor(
+        internal bool TryGetActorReference(
             CreatureId creature,
             out DungeonRulesActorReference actor
-        ) => projectedExternalActors.TryGetValue(creature, out actor);
+        ) => projectedActorReferences.TryGetValue(creature, out actor);
     }
 
     /// <summary>Enrolls saved generic effect envelopes through the common combatant addition.</summary>
@@ -354,6 +380,7 @@ namespace Game.DungeonPersistence.Actors
         private readonly Dictionary<DungeonRulesActorReference, CreatureId> externalCreatures =
             new();
         private readonly Dictionary<CreatureId, DungeonRulesActorReference> externalActors = new();
+        private readonly Dictionary<CreatureId, DungeonRulesActorReference> actorReferences = new();
 
         internal DungeonRulesEffectPersistenceModule(
             UnityCombatRulesBridge owner,
@@ -374,6 +401,7 @@ namespace Game.DungeonPersistence.Actors
             CreatureId Resolve(DungeonRulesActorReference actor)
             {
                 CreatureId id = seed.ResolveCreature(actor, owner, ResolveExternal);
+                RememberActorReference(id, actor);
                 if (externalActors.ContainsKey(id))
                     references.Add(id);
                 return id;
@@ -381,11 +409,17 @@ namespace Game.DungeonPersistence.Actors
 
             CreatureId ResolveProjected(CreatureId projectedCreature)
             {
+                bool hasActorReference = seed.TryGetActorReference(
+                    projectedCreature,
+                    out DungeonRulesActorReference actor
+                );
                 CreatureId id = seed.ResolveProjectedCreature(
                     projectedCreature,
                     owner,
                     ResolveExternal
                 );
+                if (hasActorReference)
+                    RememberActorReference(id, actor);
                 if (externalActors.ContainsKey(id))
                     references.Add(id);
                 return id;
@@ -488,8 +522,7 @@ namespace Game.DungeonPersistence.Actors
                 Add(effect, binding, timing);
             }
             builder.AddExternalEffectReferences(references);
-            seed.RememberExternalActors(externalActors);
-            builder.AddInstallation(new ConsumeSeedInstallation(seed));
+            builder.AddInstallation(new ConsumeSeedInstallation(seed, actorReferences));
         }
 
         /// <inheritdoc/>
@@ -518,7 +551,20 @@ namespace Game.DungeonPersistence.Actors
                 );
             externalCreatures.Add(actor, created);
             externalActors[created] = actor;
+            RememberActorReference(created, actor);
             return created;
+        }
+
+        private void RememberActorReference(CreatureId creature, DungeonRulesActorReference actor)
+        {
+            if (
+                actorReferences.TryGetValue(creature, out DungeonRulesActorReference existing)
+                && !existing.Equals(actor)
+            )
+                throw new InvalidOperationException(
+                    $"Rules creature '{creature.Value}' cannot represent both '{existing}' and '{actor}'."
+                );
+            actorReferences[creature] = actor;
         }
 
         private void ProjectDetachedEffects()
@@ -540,7 +586,7 @@ namespace Game.DungeonPersistence.Actors
                 seed.Project(
                     DungeonRulesEffectPersistence.Project(snapshot, actor.Key),
                     actors,
-                    externalActors
+                    actorReferences
                 );
             }
         }
@@ -548,11 +594,22 @@ namespace Game.DungeonPersistence.Actors
         private sealed class ConsumeSeedInstallation : IUnityCombatantInstallationContribution
         {
             private readonly DungeonRulesEffectSeed seed;
+            private readonly IReadOnlyDictionary<
+                CreatureId,
+                DungeonRulesActorReference
+            > actorReferences;
 
-            internal ConsumeSeedInstallation(DungeonRulesEffectSeed seed) =>
+            internal ConsumeSeedInstallation(
+                DungeonRulesEffectSeed seed,
+                IReadOnlyDictionary<CreatureId, DungeonRulesActorReference> actorReferences
+            )
+            {
                 this.seed = seed ?? throw new ArgumentNullException(nameof(seed));
+                this.actorReferences =
+                    actorReferences ?? throw new ArgumentNullException(nameof(actorReferences));
+            }
 
-            public void Apply() => seed.ConsumeRestoredEffects();
+            public void Apply() => seed.ConsumeRestoredEffects(actorReferences);
         }
     }
 
@@ -583,11 +640,26 @@ namespace Game.DungeonPersistence.Actors
             }
 
             DungeonRulesEffectSeed attachedSeed = controller.GetComponent<DungeonRulesEffectSeed>();
-            DungeonRulesActorReference IdentifyCreature(CreatureId creature) =>
-                attachedSeed != null
-                && attachedSeed.TryGetExternalActor(creature, out DungeonRulesActorReference actor)
-                    ? actor
-                    : identifyActor(bridge.GetController(creature).gameObject);
+            DungeonRulesActorReference IdentifyCreature(CreatureId creature)
+            {
+                if (
+                    attachedSeed != null
+                    && attachedSeed.TryGetActorReference(
+                        creature,
+                        out DungeonRulesActorReference remembered
+                    )
+                )
+                    return remembered;
+
+                DungeonRulesActorReference identified = identifyActor(
+                    bridge.GetController(creature).gameObject
+                );
+                // Capture is the stable-identity boundary for effects created in this encounter.
+                // Retain it now so later detachment survives source omission or destruction.
+                attachedSeed ??= controller.gameObject.AddComponent<DungeonRulesEffectSeed>();
+                attachedSeed.RememberActorReference(creature, identified);
+                return identified;
+            }
             return Project(bridge.Snapshot, target)
                 .Select(projection => Capture(projection, IdentifyCreature))
                 .ToArray();

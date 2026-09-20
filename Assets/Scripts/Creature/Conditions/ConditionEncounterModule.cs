@@ -71,15 +71,29 @@ namespace Game.Creature.Rules
             if (restored == null)
                 return false;
 
-            bool Matches(IEffectState candidate, RuleSource candidateSource) =>
-                candidateSource == source
+            // Apply creates a self-sourced application. Suppress it only when the pending restore
+            // represents that same source/owner provenance, not merely the same visible value.
+            bool Matches(
+                IEffectState candidate,
+                RuleSource effectSource,
+                RuleSource bindingSource
+            ) =>
+                effectSource == source
+                && bindingSource == source
                 && candidate is ConditionState condition
                 && condition.Equals(state);
 
             if (
                 restored.Projections.Any(projection =>
                     projection.Effect.DefinitionId == ConditionRules.DefinitionId
-                    && Matches(projection.Effect.State, projection.Effect.Source)
+                    && projection.Binding.DefinitionId == ConditionRules.DefinitionId
+                    && projection.Binding.EffectId == projection.Effect.Id
+                    && projection.Effect.SourceCreature == projection.Binding.Owner
+                    && Matches(
+                        projection.Effect.State,
+                        projection.Effect.Source,
+                        projection.Binding.Source
+                    )
                 )
             )
                 return true;
@@ -90,6 +104,7 @@ namespace Game.Creature.Rules
                     ConditionRules.DefinitionId.Value,
                     StringComparison.Ordinal
                 )
+                && effect.SourceActor.Equals(effect.BindingOwnerActor)
                 && string.Equals(effect.RuleSource, source.Slug, StringComparison.Ordinal)
                 && DungeonRulesEffectPersistence.Codecs.Restore(
                     effect.StateKind,
