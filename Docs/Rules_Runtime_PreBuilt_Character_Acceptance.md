@@ -12,6 +12,14 @@ status, and contributor contracts maintained in other work. It identifies the pl
 and the evidence required at final integration; it does not replace those documents or claim that
 unintegrated sibling work is present.
 
+Once this change is integrated, this contract supersedes earlier classifications in sibling
+migration inventories, acceptance ledgers, and implementation handoffs that treated the
+disconnected legacy character builder as a blocker to bulk rules-runtime migration. Those
+historical blocker entries should then be read as superseded for bulk-migration acceptance. This
+clarification does not claim that any sibling document, branch, or implementation is integrated on
+this head; it changes only how those earlier classifications apply after this contract is
+integrated.
+
 ## Supported pre-built path
 
 A character is in scope when its authored creature data already reaches gameplay through one of the
