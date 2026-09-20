@@ -144,7 +144,7 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
-    public void InitialAndReinforcementEnrollmentCaptureCompleteBaseStatistics()
+    public void InitialAndReinforcementEnrollmentCaptureImmutableCompleteBaseStatistics()
     {
         GameObject initialObject = new GameObject("statistics-initial");
         GameObject anchorObject = new GameObject("statistics-anchor");
@@ -177,6 +177,8 @@ public sealed class UnityCombatRulesBridgeTests
             bridge.AdvanceEncounter();
 
             bridge.AddCombatants(new ActionController[] { reinforcement });
+            ConfigureStatistics(initialObject.GetComponent<CreatureComponent>(), 20);
+            ConfigureStatistics(reinforcementObject.GetComponent<CreatureComponent>(), 30);
 
             AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(initial), 0);
             AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(reinforcement), 10);
