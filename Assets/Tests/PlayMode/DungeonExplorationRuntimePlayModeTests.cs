@@ -2157,6 +2157,7 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         owner.transform.SetParent(parent, false);
         GameObject closed = Track(new GameObject("ClosedVisual"));
         closed.transform.SetParent(owner.transform, false);
+        closed.AddComponent<BoxCollider>();
         GameObject open = Track(new GameObject("OpenVisual"));
         open.transform.SetParent(owner.transform, false);
         DungeonDoorController controller = owner.AddComponent<DungeonDoorController>();
@@ -2304,6 +2305,20 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         Assert.That(fixture.Map.GetMapData()[cell.X, cell.Z], Is.EqualTo(TileType.Door));
         Assert.That(fixture.Grid.GetTiles()[cell.X, cell.Z], Is.Not.Null);
         Assert.That(fixture.Grid.GetLineOfSightBlocks()[cell.X, cell.Z], Is.False);
+        Assert.That(
+            GridLineOfSightData.IsBlocking(
+                fixture.Grid.GetTiles(),
+                new Vector3Int(cell.X, 0, cell.Z)
+            ),
+            Is.False,
+            "The shared line-of-effect snapshot must observe the opened doorway."
+        );
+        Assert.That(
+            door.ClosedVisual.GetComponentsInChildren<Collider>(includeInactive: true)
+                .All(collider => !collider.gameObject.activeInHierarchy),
+            Is.True,
+            "Opening the door must remove its closed collision representation."
+        );
     }
 
     private static DungeonCell CellOf(GameObject owner)

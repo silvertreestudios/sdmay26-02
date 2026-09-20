@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Game.KayKit
 {
     /// <summary>
-    /// Owns one generated door's stable identity, visual state, and synchronized grid state.
+    /// Projects one generated door's authoritative rules state into its visuals and grid state.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class DungeonDoorController : MonoBehaviour
@@ -80,11 +80,12 @@ namespace Game.KayKit
         }
 
         /// <summary>
-        /// Opens this door idempotently while atomically updating visuals, movement, pathfinding,
-        /// and line of sight. V1 doors expose no runtime close operation.
+        /// Projects a committed open-door state idempotently while atomically updating visuals,
+        /// movement, pathfinding, and line of sight. The caller must first commit the transition
+        /// through the door rules runtime; this component is a Unity projection, not an authority.
         /// </summary>
         /// <returns><see langword="true"/> when the doorway is open after the call.</returns>
-        public bool TryOpen()
+        public bool ProjectOpen()
         {
             if (IsOpen)
                 return true;

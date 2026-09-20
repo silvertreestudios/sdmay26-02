@@ -6,6 +6,76 @@ using System.Collections.ObjectModel;
 namespace Game.Rules.Runtime
 {
     /// <summary>
+    /// Identifies one immutable, feature-owned value stored in authoritative rules state.
+    /// </summary>
+    /// <typeparam name="TState">The immutable reference type owned by the feature.</typeparam>
+    /// <remarks>
+    /// The key's name and value type form its identity. Shared state infrastructure treats the
+    /// value as opaque; the owning feature defines its contents, selectors, and transitions.
+    /// </remarks>
+    public readonly struct RuleStateKey<TState> : IEquatable<RuleStateKey<TState>>
+        where TState : class
+    {
+        /// <summary>Creates a stable typed state key.</summary>
+        /// <param name="name">A non-empty stable name owned by the feature.</param>
+        public RuleStateKey(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("A rule-state key name is required.", nameof(name));
+            Slot = new RuleStateSlot(name, typeof(TState));
+        }
+
+        internal RuleStateSlot Slot { get; }
+
+        /// <summary>Gets whether this value contains no usable key.</summary>
+        public bool IsEmpty => Slot.IsEmpty;
+
+        /// <inheritdoc/>
+        public bool Equals(RuleStateKey<TState> other) => Slot.Equals(other.Slot);
+
+        /// <inheritdoc/>
+        public override bool Equals(object obj) =>
+            obj is RuleStateKey<TState> other && Equals(other);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() => Slot.GetHashCode();
+
+        /// <inheritdoc/>
+        public override string ToString() => Slot.ToString();
+
+        /// <summary>Compares two typed state keys.</summary>
+        public static bool operator ==(RuleStateKey<TState> left, RuleStateKey<TState> right) =>
+            left.Equals(right);
+
+        /// <summary>Compares two typed state keys.</summary>
+        public static bool operator !=(RuleStateKey<TState> left, RuleStateKey<TState> right) =>
+            !left.Equals(right);
+    }
+
+    internal readonly struct RuleStateSlot : IEquatable<RuleStateSlot>
+    {
+        internal RuleStateSlot(string name, Type valueType)
+        {
+            Name = name;
+            ValueType = valueType;
+        }
+
+        internal string Name { get; }
+        internal Type ValueType { get; }
+        internal bool IsEmpty => string.IsNullOrWhiteSpace(Name) || ValueType == null;
+
+        public bool Equals(RuleStateSlot other) =>
+            string.Equals(Name, other.Name, StringComparison.Ordinal)
+            && ValueType == other.ValueType;
+
+        public override bool Equals(object obj) => obj is RuleStateSlot other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(Name, ValueType);
+
+        public override string ToString() => Name ?? string.Empty;
+    }
+
+    /// <summary>
     /// Provides common, feature-agnostic queries over authoritative creature state slices.
     /// </summary>
     public static class StateSliceSnapshotExtensions

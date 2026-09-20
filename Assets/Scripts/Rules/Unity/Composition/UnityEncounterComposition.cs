@@ -14,6 +14,30 @@ namespace Game.Rules.Unity.Composition
     /// </remarks>
     internal interface IUnityEncounterModule { }
 
+    /// <summary>
+    /// Carries one explicitly installed feature module and its action catalog into encounter
+    /// construction without teaching the combat manager or bridge the feature's semantics.
+    /// </summary>
+    internal sealed class UnityEncounterExtension
+    {
+        internal UnityEncounterExtension(IUnityEncounterModule module, IActionCatalog actionCatalog)
+        {
+            Module = module ?? throw new ArgumentNullException(nameof(module));
+            ActionCatalog = actionCatalog ?? throw new ArgumentNullException(nameof(actionCatalog));
+        }
+
+        internal IUnityEncounterModule Module { get; }
+
+        internal IActionCatalog ActionCatalog { get; }
+    }
+
+    /// <summary>Owns exact, explicitly registered feature extensions for future encounters.</summary>
+    internal interface IUnityEncounterExtensionHost
+    {
+        /// <summary>Registers one extension until the returned exact-identity token is disposed.</summary>
+        IDisposable RegisterEncounterExtension(UnityEncounterExtension extension);
+    }
+
     /// <summary>Contributes feature-owned resolvers to the encounter dispatcher.</summary>
     internal interface IUnityEncounterDispatcherModule : IUnityEncounterModule
     {

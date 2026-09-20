@@ -39,6 +39,8 @@ namespace Game.Rules.Runtime
             new Dictionary<EncounterId, EncounterState>();
         internal Dictionary<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; } =
             new Dictionary<ActiveEffectId, ActiveEffectTimingState>();
+        internal Dictionary<RuleStateSlot, object> StateValues { get; } =
+            new Dictionary<RuleStateSlot, object>();
 
         /// <summary>Seeds an authoritative encounter state for deterministic fixtures.</summary>
         /// <param name="value">The complete immutable encounter state.</param>
@@ -59,6 +61,24 @@ namespace Game.Rules.Runtime
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
             ActiveEffectTimings[value.Effect] = value;
+            return this;
+        }
+
+        /// <summary>Seeds one immutable, feature-owned value before resolution begins.</summary>
+        /// <typeparam name="TState">The immutable state type declared by the key.</typeparam>
+        /// <param name="key">The owning feature's stable state key.</param>
+        /// <param name="value">The complete initial value.</param>
+        /// <returns>This seed so initial state can continue to be composed fluently.</returns>
+        /// <exception cref="ArgumentException"><paramref name="key"/> is empty.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+        public RulesStateSeed SeedState<TState>(RuleStateKey<TState> key, TState value)
+            where TState : class
+        {
+            if (key.IsEmpty)
+                throw new ArgumentException("A rule-state key is required.", nameof(key));
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            StateValues[key.Slot] = value;
             return this;
         }
 
