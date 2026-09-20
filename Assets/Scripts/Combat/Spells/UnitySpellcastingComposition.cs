@@ -12,6 +12,38 @@ using UnityEngine;
 
 namespace Game.Combat.Spells
 {
+    /// <summary>Captures Unity creature traits and typed defenses for spell resolution.</summary>
+    public sealed class UnitySpellCreatureDataProvider : ISpellCreatureDataProvider
+    {
+        private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
+
+        /// <summary>Creates an encounter-owned spell creature-data adapter.</summary>
+        public UnitySpellCreatureDataProvider(
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
+        ) => this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
+
+        /// <inheritdoc/>
+        public bool IsUndead(CreatureId creature) =>
+            SpellcastingRuntime.IsUndead(Require(creature));
+
+        /// <inheritdoc/>
+        public IReadOnlyList<TypedDefenseAdjustment> GetWeaknesses(CreatureId creature) =>
+            UnityAttackDataAdapter.CaptureWeaknesses(Require(creature));
+
+        /// <inheritdoc/>
+        public IReadOnlyList<TypedDefenseAdjustment> GetResistances(CreatureId creature) =>
+            UnityAttackDataAdapter.CaptureResistances(Require(creature));
+
+        private CreatureComponent Require(CreatureId creature)
+        {
+            if (!creatures.TryGetValue(creature, out CreatureComponent value) || value == null)
+                throw new InvalidOperationException(
+                    $"Encounter creature '{creature.Value}' has no live Unity spell data."
+                );
+            return value;
+        }
+    }
+
     /// <summary>Reads spellbooks from required encounter-owned creature mappings.</summary>
     public sealed class UnitySpellBookProvider : ISpellBookProvider
     {
@@ -157,7 +189,11 @@ namespace Game.Combat.Spells
                     throw new InvalidOperationException(
                         $"Prepared spell '{reference}' for encounter creature '{actor.Value}' has no catalog definition."
                     );
-                if (definition.Effects.Count == 0 && definition.Attacks.Count == 0)
+                if (
+                    definition.Effects.Count == 0
+                    && definition.Attacks.Count == 0
+                    && !catalog.TryGetCastRule(reference.Spell, out _)
+                )
                     throw new InvalidOperationException(
                         $"Prepared rules-native spell '{reference}' has no supported effect or attack."
                     );

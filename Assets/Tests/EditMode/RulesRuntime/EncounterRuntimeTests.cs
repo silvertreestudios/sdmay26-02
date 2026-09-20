@@ -2124,6 +2124,7 @@ namespace Game.Rules.Runtime.Tests
             );
             CombatantRulesState hero = new CombatantRulesState(
                 new CreatureState(Hero, Players),
+                Statistics(Hero),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
@@ -2191,6 +2192,7 @@ namespace Game.Rules.Runtime.Tests
             );
             CombatantRulesState hero = new CombatantRulesState(
                 new CreatureState(Hero, Players),
+                Statistics(Hero),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),

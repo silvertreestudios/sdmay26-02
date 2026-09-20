@@ -54,7 +54,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [Test]
-    public void PreStartInitializationAddsLegacySpellsButDoesNotAddLight()
+    public void PreStartInitializationDoesNotInstallAnySpellAuthority()
     {
         CreatureComponent cleric = CreateCreature("Pre-Start Cleric", 0, prepared: false);
         cleric.level = 1;
@@ -63,6 +63,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         cleric.InitializeRuntimeActions();
 
+        Assert.That(cleric.Prepared.Spellcasting, Is.Null);
         RulesCastSpellAction[] light = controller
             .GetActions()
             .OfType<RulesCastSpellAction>()
@@ -84,13 +85,7 @@ public sealed class SpellcastingPresentationPlayModeTests
                 .Any(action => action.Spell.Slug == "divine-lance"),
             Is.False
         );
-        Assert.That(
-            controller
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Count(action => action.ActionName == "Shield"),
-            Is.EqualTo(1)
-        );
+        Assert.That(controller.GetActions().OfType<CastSpellAction>(), Is.Empty);
     }
 
     [UnityTest]
@@ -117,6 +112,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         Assert.That(LightActions(initialController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(initialController, "divine-lance"), Has.Count.EqualTo(1));
+        AssertMigratedClericSpellActions(initialController);
         Assert.That(LightActions(noncasterController), Is.Empty);
         Assert.That(RulesActions(noncasterController, "divine-lance"), Is.Empty);
         Assert.That(
@@ -142,11 +138,53 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         Assert.That(LightActions(reinforcementController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(reinforcementController, "divine-lance"), Has.Count.EqualTo(1));
+        AssertMigratedClericSpellActions(reinforcementController);
         Assert.That(
             reinforcementController.GetActions().OfType<CastSpellAction>(),
             Is.Empty,
             "Reinforcement composition must remove Shield and every other legacy spell action."
         );
+    }
+
+    [UnityTest]
+    public IEnumerator ProductionShieldActionCastsThroughRulesAndCompletesPresentation()
+    {
+        InstallCoroutineRunner();
+        CreatureComponent cleric = CreateCreature("Shield Cleric", 0, prepared: true);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Shield Opponent", 1, prepared: false);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            "players"
+        );
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        RulesCastSpellAction shield = RulesActions(controller, "shield").Single();
+        actionCompleteCount = 0;
+        OnActionComplete.AddListener(CountActionComplete);
+
+        bridge.BeginTurn(actor, 3);
+        controller.IsTakingAction = true;
+        shield.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && actionCompleteCount == 0; frame++)
+            yield return null;
+
+        Assert.That(actionCompleteCount, Is.EqualTo(1));
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        ActiveEffectInstance effect = bridge
+            .Snapshot.ActiveEffects.Select(pair => pair.Value)
+            .Single(value => value.DefinitionId == SpellFeatureRules.ShieldEffect);
+        Assert.That(effect.SourceCreature, Is.EqualTo(actor));
+        Assert.That(effect.GetState<SpellEffectState>().Target, Is.EqualTo(actor));
+        Assert.That(effect.GetState<SpellEffectState>().Spell, Is.EqualTo(Reference("shield")));
+        Assert.That(controller.GetActions().OfType<CastSpellAction>(), Is.Empty);
     }
 
     [Test]
@@ -775,6 +813,16 @@ public sealed class SpellcastingPresentationPlayModeTests
 
     private void CountMissEvent(GameObject attacker) => missEventCount++;
 
+    private static void AssertMigratedClericSpellActions(ActionController controller)
+    {
+        Assert.That(RulesActions(controller, "shield"), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "guidance"), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "haunting-hymn"), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "bless"), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "infuse-vitality"), Has.Count.EqualTo(3));
+        Assert.That(RulesActions(controller, "heal"), Has.Count.EqualTo(3));
+    }
+
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
@@ -856,6 +904,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         private readonly UnitySpellDefinitionCatalog definitions;
         private readonly CreatureId owner;
         private readonly ISpellBook book;
+        private readonly IReadOnlyDictionary<SpellId, ISpellCastRule> rules;
         private bool definitionsAvailable = true;
 
         public TestSpellActionCatalog(
@@ -867,6 +916,7 @@ public sealed class SpellcastingPresentationPlayModeTests
             this.definitions = definitions;
             this.owner = owner;
             this.book = book;
+            rules = SpellFeatureRules.CreateCatalog(new PresentationSpellCreatureData());
         }
 
         public ActionProfile GetBaseProfile(ActionDefinitionId definitionId) =>
@@ -885,6 +935,9 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         public ISpellBook GetSpellBook(CreatureId creature) =>
             creature == owner ? book : EmptySpellBook.Instance;
+
+        public bool TryGetCastRule(SpellId spell, out ISpellCastRule rule) =>
+            rules.TryGetValue(spell, out rule);
 
         public void RemoveDefinitions() => definitionsAvailable = false;
     }
@@ -925,5 +978,22 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         public ISpellBook GetSpellBook(CreatureId creature) =>
             creature == owner ? book : EmptySpellBook.Instance;
+
+        public bool TryGetCastRule(SpellId spell, out ISpellCastRule rule)
+        {
+            rule = null;
+            return false;
+        }
+    }
+
+    private sealed class PresentationSpellCreatureData : ISpellCreatureDataProvider
+    {
+        public bool IsUndead(CreatureId creature) => false;
+
+        public IReadOnlyList<TypedDefenseAdjustment> GetWeaknesses(CreatureId creature) =>
+            Array.Empty<TypedDefenseAdjustment>();
+
+        public IReadOnlyList<TypedDefenseAdjustment> GetResistances(CreatureId creature) =>
+            Array.Empty<TypedDefenseAdjustment>();
     }
 }

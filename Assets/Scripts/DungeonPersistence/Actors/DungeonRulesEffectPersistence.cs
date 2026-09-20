@@ -161,6 +161,7 @@ namespace Game.DungeonPersistence.Actors
                 .Load()
                 .Definitions.SelectMany(definition => definition.Effects)
                 .Select(effect => effect.DefinitionId)
+                .Concat(SpellFeatureRules.PersistentDefinitionIds)
                 .Distinct()
                 .ToArray();
             return new DungeonEffectStateCodecCatalog(

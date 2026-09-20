@@ -286,6 +286,8 @@ namespace Game.Rules.Runtime
                 typeof(CollectSkillCheckModifiersOp),
                 typeof(CollectSavingThrowModifiersOp),
                 typeof(CollectAttackModifiersOp),
+                typeof(AdjustArmorClassOp),
+                typeof(CollectStrikeDamageDiceOp),
             };
             foreach (Type reservedType in reservedTypes)
             {
@@ -330,6 +332,18 @@ namespace Game.Rules.Runtime
             Add(
                 new HandlerRegistration<CollectAttackModifiersOp, ModifierCollection>(
                     new CollectAttackModifiersHandler(selectors),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<AdjustArmorClassOp, ModifierCollection>(
+                    new AdjustArmorClassHandler(),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<CollectStrikeDamageDiceOp, IReadOnlyList<TypedDamageDice>>(
+                    new CollectStrikeDamageDiceHandler(),
                     InvocationPolicy.NestedOnly
                 )
             );

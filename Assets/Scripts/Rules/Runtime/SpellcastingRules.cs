@@ -236,6 +236,27 @@ namespace Game.Rules.Runtime
             IEnumerable<ActiveEffectId> createdEffects,
             IEnumerable<SpellAttackResolution> attackResolutions
         )
+            : this(
+                actor,
+                spell,
+                createdEffects,
+                attackResolutions,
+                Array.Empty<SpellTargetResolution>()
+            ) { }
+
+        /// <summary>Creates a result that also carries feature-owned per-target outcomes.</summary>
+        /// <param name="actor">The caster that resolved the action.</param>
+        /// <param name="spell">The exact spell identity and cast rank.</param>
+        /// <param name="createdEffects">All active effects committed by the cast.</param>
+        /// <param name="attackResolutions">The actual spell-attack outcomes produced by the cast.</param>
+        /// <param name="targetResolutions">Feature-owned per-target outcomes.</param>
+        public CastSpellOutcome(
+            CreatureId actor,
+            SpellReference spell,
+            IEnumerable<ActiveEffectId> createdEffects,
+            IEnumerable<SpellAttackResolution> attackResolutions,
+            IEnumerable<SpellTargetResolution> targetResolutions
+        )
         {
             Actor = actor;
             Spell = spell;
@@ -247,6 +268,11 @@ namespace Game.Rules.Runtime
             AttackResolutions = new ReadOnlyCollection<SpellAttackResolution>(
                 (
                     attackResolutions ?? throw new ArgumentNullException(nameof(attackResolutions))
+                ).ToArray()
+            );
+            TargetResolutions = new ReadOnlyCollection<SpellTargetResolution>(
+                (
+                    targetResolutions ?? throw new ArgumentNullException(nameof(targetResolutions))
                 ).ToArray()
             );
         }
@@ -262,6 +288,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets spell-attack outcomes produced during this cast in definition order.</summary>
         public IReadOnlyList<SpellAttackResolution> AttackResolutions { get; }
+
+        /// <summary>Gets feature-owned save, damage, healing, and condition outcomes.</summary>
+        public IReadOnlyList<SpellTargetResolution> TargetResolutions { get; }
     }
 
     /// <summary>Registers generic spell validation and active-effect creation.</summary>
@@ -339,6 +368,11 @@ namespace Game.Rules.Runtime
             ActionValidationResult common = definition.Validate(snapshot, frame.Op);
             if (common is not ActionValidationResult.ValidActionValidationResult)
                 return common;
+            if (
+                catalog is ISpellActionCatalog actions
+                && actions.TryGetCastRule(frame.Op.Spell.Spell, out ISpellCastRule rule)
+            )
+                return rule.Validate(snapshot, frame.Op);
             if (!catalog.TryGetSpell(frame.Op.Spell, out SpellDefinition spell))
                 return ActionValidationResult.Invalid("The spell reference is unknown.");
             if (spell.Attacks.Count == 0)
@@ -369,9 +403,9 @@ namespace Game.Rules.Runtime
 
     internal sealed class CastSpellActionHandler : IOpHandler<CastSpellActionOp, CastSpellOutcome>
     {
-        private readonly ISpellDefinitionCatalog catalog;
+        private readonly ISpellActionCatalog catalog;
 
-        public CastSpellActionHandler(ISpellDefinitionCatalog catalog) =>
+        public CastSpellActionHandler(ISpellActionCatalog catalog) =>
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
 
         public async ValueTask<CastSpellOutcome> Handle(
@@ -381,6 +415,18 @@ namespace Game.Rules.Runtime
         {
             if (!catalog.TryGetSpell(frame.Op.Spell, out SpellDefinition definition))
                 throw new InvalidOperationException("A validated spell definition disappeared.");
+
+            if (catalog.TryGetCastRule(frame.Op.Spell.Spell, out ISpellCastRule feature))
+            {
+                SpellFeatureOutcome featureOutcome = await feature.Resolve(frame, context, catalog);
+                return new CastSpellOutcome(
+                    frame.Op.Actor,
+                    frame.Op.Spell,
+                    featureOutcome.CreatedEffects,
+                    Array.Empty<SpellAttackResolution>(),
+                    featureOutcome.Targets
+                );
+            }
 
             List<ActiveEffectId> created = new();
             List<SpellAttackResolution> attacks = new();

@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
@@ -73,7 +72,7 @@ public sealed class RulesStrikeUnityTests
     }
 
     [Test]
-    public void PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage()
+    public void PreparedRageAndThiefSneakAttackContributeToRulesDamage()
     {
         CreatureComponent torgrim = Load("DataFiles/playerCharacters/Torgrim");
         torgrim.Prepared.OwnedItems.RemoveAll(item =>
@@ -89,8 +88,6 @@ public sealed class RulesStrikeUnityTests
         torgrim.gameObject.AddComponent<Conditions>();
         lena.gameObject.AddComponent<Conditions>();
         target.gameObject.AddComponent<Conditions>().Add("Off-Guard", new ConditionSource());
-        SpellEffectController effects = lena.gameObject.AddComponent<SpellEffectController>();
-        effects.AddOrRefresh(new InfuseVitalitySpellEffect(torgrim.gameObject));
         TestActionController torgrimController =
             torgrim.gameObject.AddComponent<TestActionController>();
         TestActionController lenaController = lena.gameObject.AddComponent<TestActionController>();
@@ -139,7 +136,6 @@ public sealed class RulesStrikeUnityTests
             Is.GreaterThan(torgrimStrike.Item.DamageDice[0].Dice.Count + torgrim.strMod)
         );
         Assert.That(rogueStrike.Value.Damage.Any(part => part.DamageType == "precision"), Is.True);
-        Assert.That(rogueStrike.Value.Damage.Any(part => part.DamageType == "vitality"), Is.True);
         Assert.That(
             rogueStrike.Value.Damage.Single(part => part.DamageType == "slashing").Amount,
             Is.EqualTo(4 + lena.dexMod)

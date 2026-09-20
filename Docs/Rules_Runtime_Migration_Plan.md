@@ -193,7 +193,7 @@ proof.
 
 | Subsystem | Count | Enumerated files or closed directory inventory | Disposition |
 | --- | ---: | --- | --- |
-| Rules runtime | 95 | Every non-meta file in `Assets/Scripts/Rules/Runtime`: `ActionCostFacts.cs`, `ActionCosts.cs`, `ActionDefinitions.cs`, `ActionLifecycle.cs`, `ActionLifecycleHandlers.cs`, `ActionLifecycleOperations.cs`, `ActionLifecycleRuntime.cs`, `ActionValidation.cs`, `ActiveEffectFacts.cs`, `ActiveEffectOperations.cs`, `ActiveEffectReducers.cs`, `ActiveEffectRuleRuntime.cs`, `CallbackWork.cs`, `CheckHandlers.cs`, `Checks.cs`, `CombatMath.cs`, `CreatureStatistics.cs`, `Dispatch.cs`, `DispatcherRegistrations.cs`, `DistanceValues.cs`, `EncounterCombatantState.cs`, `EncounterFacts.cs`, `EncounterOperations.cs`, `EncounterReducers.cs`, `EncounterRuleRuntime.cs`, `EncounterValues.cs`, `FactContexts.cs`, `FactListenerDispatch.cs`, `FactObservers.cs`, `HealthFacts.cs`, `HealthOperations.cs`, `HealthReducers.cs`, `HealthRuleRuntime.cs`, `Identifiers.cs`, `MiddlewareDispatch.cs`, `ModifierCollectionOperations.cs`, `Modifiers.cs`, `MovementFacts.cs`, `MovementOperations.cs`, `MovementReducers.cs`, `MovementRuleRuntime.cs`, `MovementTopology.cs`, `MovementValidation.cs`, `MovementValues.cs`, `MultiAttackPenaltyRules.cs`, `ObserverFailureState.cs`, `OperationContexts.cs`, `OperationContracts.cs`, `OperationFrames.cs`, `OperationResults.cs`, `Pf2eSlug.cs`, `PromptAdapters.cs`, `PromptContracts.cs`, `PromptDispatch.cs`, `RageRules.cs`, `Reduction.cs`, `ReferenceEqualityComparer.cs`, `ResolutionDiagnostics.cs`, `ResolutionRolls.cs`, `ResolutionTrace.cs`, `ResolvedOperationObservers.cs`, `ResourceStateValues.cs`, `RollServices.cs`, `RuleBindingStateValues.cs`, `RuleDefinitions.cs`, `RuleDispatcherBuilder.cs`, `RuleDispatcherFacts.cs`, `RuleDispatcherLifecycle.cs`, `RuleDispatcherResolution.cs`, `RuleExtensions.cs`, `RuleRegistrations.cs`, `RuleRegistry.cs`, `RulesRuntime.asmdef`, `RulesSelectors.cs`, `RulesSnapshot.cs`, `RulesState.cs`, `RulesStateData.cs`, `RulesStateDraft.cs`, `RulesStateSeed.cs`, `RuleValues.cs`, `SelectionChoiceValues.cs`, `SelectionOutcomes.cs`, `SelectionResolution.cs`, `SelectionWorkflow.cs`, `SelectionWorkflowFactories.cs`, `Skills.cs`, `SpellAttackContracts.cs`, `SpellAttackRules.cs`, `SpellcastingContracts.cs`, `SpellcastingRules.cs`, `StateSlices.cs`, `StateValues.cs`, `StrideRules.cs`, `StrikeRules.cs`, and `TypedDamage.cs` | Foundation plus migrated vertical features; details below |
+| Rules runtime | 98 | Every non-meta file in `Assets/Scripts/Rules/Runtime`: `ActionCostFacts.cs`, `ActionCosts.cs`, `ActionDefinitions.cs`, `ActionLifecycle.cs`, `ActionLifecycleHandlers.cs`, `ActionLifecycleOperations.cs`, `ActionLifecycleRuntime.cs`, `ActionValidation.cs`, `ActiveEffectFacts.cs`, `ActiveEffectIdentityScope.cs`, `ActiveEffectOperations.cs`, `ActiveEffectReducers.cs`, `ActiveEffectRuleRuntime.cs`, `CallbackWork.cs`, `CheckHandlers.cs`, `Checks.cs`, `CombatMath.cs`, `ConditionRules.cs`, `CreatureStatistics.cs`, `Dispatch.cs`, `DispatcherRegistrations.cs`, `DistanceValues.cs`, `EncounterCombatantState.cs`, `EncounterFacts.cs`, `EncounterOperations.cs`, `EncounterReducers.cs`, `EncounterRuleRuntime.cs`, `EncounterValues.cs`, `FactContexts.cs`, `FactListenerDispatch.cs`, `FactObservers.cs`, `HealthFacts.cs`, `HealthOperations.cs`, `HealthReducers.cs`, `HealthRuleRuntime.cs`, `Identifiers.cs`, `MiddlewareDispatch.cs`, `ModifierCollectionOperations.cs`, `Modifiers.cs`, `MovementFacts.cs`, `MovementOperations.cs`, `MovementReducers.cs`, `MovementRuleRuntime.cs`, `MovementTopology.cs`, `MovementValidation.cs`, `MovementValues.cs`, `MultiAttackPenaltyRules.cs`, `OperationContexts.cs`, `OperationContracts.cs`, `OperationFrames.cs`, `OperationResults.cs`, `Pf2eSlug.cs`, `PromptAdapters.cs`, `PromptContracts.cs`, `PromptDispatch.cs`, `RageRules.cs`, `Reduction.cs`, `ReferenceEqualityComparer.cs`, `ResolutionDiagnostics.cs`, `ResolutionRolls.cs`, `ResolutionTrace.cs`, `ResourceStateValues.cs`, `RollServices.cs`, `RottingAuraRules.cs`, `RuleBindingStateValues.cs`, `RuleDefinitions.cs`, `RuleDispatcherBuilder.cs`, `RuleDispatcherFacts.cs`, `RuleDispatcherLifecycle.cs`, `RuleDispatcherResolution.cs`, `RuleExtensions.cs`, `RuleRegistrations.cs`, `RuleRegistry.cs`, `RulesRuntime.asmdef`, `RulesSelectors.cs`, `RulesSnapshot.cs`, `RulesState.cs`, `RulesStateData.cs`, `RulesStateDraft.cs`, `RulesStateSeed.cs`, `RuleValues.cs`, `SelectionChoiceValues.cs`, `SelectionOutcomes.cs`, `SelectionResolution.cs`, `SelectionWorkflow.cs`, `SelectionWorkflowFactories.cs`, `Skills.cs`, `SlowedRules.cs`, `SpellAttackContracts.cs`, `SpellAttackRules.cs`, `SpellcastingContracts.cs`, `SpellcastingRules.cs`, `SpellFeatureRules.cs`, `StateSlices.cs`, `StateValues.cs`, `StrideRules.cs`, `StrikeRules.cs`, and `TypedDamage.cs` | Foundation plus migrated vertical features; details below |
 | Unity rules integration | 20 | Every non-meta file in `Assets/Scripts/Rules/Unity`, including `Attack/*`, `Composition/*`, `Light/*`, `Spells/*`, `Strike/*`, `FactObserverBehaviour.cs`, `StrideSelectionResolvers.cs`, `UnityCombatRulesBridge.cs`, `UnityCoroutineTask.cs`, `UnityRageActorStateProvider.cs`, and `UnityStrideProjectionObserver.cs` | Feature adapters, composition, projection, and ownership |
 | Legacy/shared rule facade | 3 | `Assets/Scripts/Rules/IPf2eModifierProvider.cs`, `Assets/Scripts/Rules/Pf2eModifierCollection.cs`, `Assets/Scripts/Rules/Pf2eModifiers.cs` | Transitional Unity modifier authority |
 | Combat and actions | 48 | Every non-meta file in `Assets/Scripts/Combat`, including `Actions/Attacks/{AttackResultPipeline.cs,Strike.cs,Unarmed.cs.orig}`, `Actions/Strike/RulesStrikeAction.cs`, `Actions/{RulesRageAction.cs,RulesStrideAction.cs,Stride.cs.orig}`, all 10 `Spells/*.cs` files, controllers, manager/interfaces, team/line-of-sight, combat events/logging, dungeon encounter lifecycle/director/materialization/runtime/state, exploration policy/runtime/state/planner, and `FlankingRule.cs` | General callers plus transitional or dead legacy behavior |
@@ -508,9 +508,10 @@ Each row names the present behavior, not wider PF2e completeness.
   Flanking supplies off-guard for qualifying melee attacks. `UnityPreparedStrikeDataAdapter`
   captures prepared `strike-damage` modifiers/adjustments and damage dice, the Thief melee ability
   substitution, Rage roll options, target-condition predicate options used by Sneak Attack, and
-  weapon `other-tags` alterations. Infuse Vitality is not prepared data: `UnityStrikeContext`
-  separately adds its vitality die when a legacy `SpellEffectController` already holds that effect.
-  No installed production cast creates it. Raging Intimidation's action/feat `traits` alteration is
+  weapon `other-tags` alterations. Infuse Vitality contributes its heightened vitality dice through
+  `CollectStrikeDamageDiceOp` middleware on its rules-native active binding, and only against an
+  undead target. `UnityStrikeContext` no longer reads legacy spell effects. Raging Intimidation's
+  action/feat `traits` alteration is
   evaluated only by `Pf2eRulesEngine.GetAlteredTraits`; no production caller invokes that helper, so
   it does not alter a reachable Strike or action today.
 - **Authority/persistent state:** actions, MAP, `EquipmentState`, `AmmunitionState`, and health are
@@ -532,34 +533,32 @@ Each row names the present behavior, not wider PF2e completeness.
   `Rules/Unity/Attack/*` is shared attack presentation/data adaptation; `FlankingRule.cs` remains a
   separately migratable named rule. General action-bar callers own no Strike semantics.
 
-### Rules-native spell action shell, Divine Lance, and Light
+### Rules-native spell action shell, Divine Lance, Light, and persistence
 
 - **Current behavior and entry points:** `UnitySpellDefinitionCatalog` parses all spell JSON.
   `PreparedSpellBook` authorizes exact `SpellReference`/slot pools. `RulesCastSpellAction` dispatches
   `CastSpellActionOp`. The action validates definition, rank, variant, preparation, targets, and
-  resources before costs. `UnitySpellcastingEncounterModule` enrolls slots, reconstructs supported
-  legacy `SpellEffectController` timed effects as rules registrations, and contributes a
+  resources before costs. `UnitySpellcastingEncounterModule` enrolls slots, composes explicit
+  feature-owned spell rules, and contributes a
   `UnitySpellActionInstaller` plan for both initial participants and reinforcements. After the rules
   registration commits, that plan removes every legacy `CastSpellAction` and reconciles only the
-  generically supported `RulesCastSpellAction` entries. `UnityResolvedSpellCastPresentationObserver`
-  and attack/light observers project outcomes.
+  supported `RulesCastSpellAction` entries. `UnityResolvedSpellCastPresentationObserver` and
+  attack/light observers project outcomes.
 - **Actual rules behavior:** cantrips cost actions but no slot; ranked spells atomically spend the
   exact authorized slot and actions; interruption after costs retains those committed costs;
   self-target effect directives ignore player-supplied target IDs. `ResolveSpellAttackOp` uses the
-  shared attack check, typed damage/defenses, and shared MAP. Current cleric preparation exposes
-  rules-native Light and Divine Lance: Light creates the `spell-effect-light` self effect and a
-  Unity light while active; Divine Lance is a two-action, 60-foot, one-creature spell attack for
-  `2d4` spirit damage.
+  shared attack check, typed damage/defenses, and shared MAP. Cleric preparation exposes Light,
+  Divine Lance, and the six feature-owned spells detailed below. Light creates the
+  `spell-effect-light` self effect and a Unity light while active; Divine Lance is a two-action,
+  60-foot, one-creature spell attack for `2d4` spirit damage.
 - **Authority/persistent state:** `SpellSlotState`, action economy, active effects/bindings/timing,
-  MAP, and health. `PreparedSpellBook` is immutable authorization input. Restored legacy timed
-  effects are converted to paired rules effect/binding registrations and later projected back. The
-  dungeon actor adapter does not capture general `RulesState.ActiveEffects`, bindings, or timing.
-  Consequently, a reachable rules-native Light cast can trigger its normal action-boundary
-  autosave, but the Light effect and its rules-owned duration state are omitted and do not survive
-  reload.
-- **Migration:** shell, the legacy-timed-effect restoration adapter, Divine Lance, and Light are
-  migrated for implemented encounter behavior; this does not claim durable persistence for
-  rules-native effects. The 82 other catalog definitions are not thereby implemented. Divine Lance
+  MAP, and health. `PreparedSpellBook` is immutable authorization input. The dungeon actor adapter
+  captures registered rules-native effects, their paired bindings, typed state, actor references,
+  creation order, and remaining timing through the generic effect codec catalog; enrollment restores
+  them without re-spending cast resources or resetting duration.
+- **Migration:** the shell, generic effect persistence, Divine Lance, Light, and the six feature
+  rules below are migrated for implemented encounter behavior. The remaining catalog definitions
+  are not thereby implemented. Divine Lance
   is the only current definition that matches the generic attack parser. Other attack-tagged spell
   shapes are rejected by current target, range, overlay, or damage constraints; in particular,
   nonempty overlays reject Ignition and Telekinetic Projectile. No action should be installed until
@@ -568,9 +567,9 @@ Each row names the present behavior, not wider PF2e completeness.
   `SpellAttackUnityTests`, and `SpellcastingPresentationPlayModeTests`. Expected assertions include
   exact slot ownership, no partial costs on invalid choices, costs retained after interruption,
   stale target rejection, attack MAP sharing, idempotent effect presentation/removal, and initial
-  plus reinforcement installation. Missing: a catalog fixture that explicitly proves rejection of
-  the current overlaid attack spell variants, and save/restore coverage plus a persistence contract
-  for rules-native Light's effect, binding, and timing.
+  plus reinforcement installation. Generic persistence coverage includes attached/detached capture,
+  remaining timing, retry, reinforcements, and missing or late sources. Missing: a catalog fixture
+  that explicitly proves rejection of the current overlaid attack spell variants.
 - **Exact owner:** generic shell in `SpellcastingContracts.cs`, `SpellcastingRules.cs`, and
   `SpellAttack*.cs`; spell-specific rules/adapters own their definitions and presentation.
   `UnitySpellcastingEncounterModule.cs` remains an integration hotspot modified only by the caller
@@ -678,32 +677,29 @@ Each row names the present behavior, not wider PF2e completeness.
   `UnityStrikeContext` reads target conditions for Off-Guard targeting and prepared predicate
   options. `UnityRageActorStateProvider` reads Fatigued and Encumbered, case-insensitively, for Rage
   and Quick-Tempered restrictions. `Pf2eRulesEngine` also reads target conditions for the dead
-  legacy `AttackResultPipeline`, but that reader has no production resolution entry. Haunting
-  Hymn's direct legacy branch adds Deafened on critical failure. Most methods in
+  legacy `AttackResultPipeline`, but that reader has no production resolution entry. Rules-native
+  Haunting Hymn applies sourced Deafened on a critical failure. Most methods in
   `DefinedConditions` are documentation-only no-ops.
 - **Actual behavior:** sourced Slowed changes turn-start actions, Off-Guard/Flat-Footed contributes
   the legacy AC modifier and Strike/Sneak Attack targeting option, and Fatigued/Encumbered can block
-  reachable Rage behavior. Deafened membership is executable only through Haunting Hymn's dormant
-  direct-call branch and has no further mechanical consumer. Other declared conditions are
+  reachable Rage behavior. Deafened membership is executable through rules-native Haunting Hymn
+  and has no further mechanical consumer. Other declared conditions are
   unimplemented content and must not be migrated as if they worked.
-- **Authority/state:** Unity `Conditions` plus dungeon save DTOs. Generic `ConditionState` exists in
-  `RulesState` but is neither enrolled nor mutated by production operations.
-- **Necessary integration:** the demonstrated consumers justify generic sourced add/remove
-  condition Ops, reducers and Facts over the existing `ConditionState`, plus complete
-  enrollment/persistence. Slowed, Off-Guard, Rage/Quick-Tempered restrictions, and any approved
-  Deafened behavior remain feature semantics. Replace each Unity reader/writer with its owning
-  vertical change; do not synchronize both stores.
+- **Authority/state:** rules-native Slowed and Deafened use `ConditionState`, generic condition
+  operations, active bindings/timing, and the generic dungeon effect persistence boundary. Unity
+  `Conditions` remains the transitional input for the unmigrated Off-Guard and Rage readers.
+- **Necessary integration:** generic sourced add/remove condition operations, reducers, Facts,
+  enrollment, and persistence are implemented. Each remaining Unity reader/writer must move with
+  its owning vertical change; do not synchronize both stores.
 - **Verification/fixtures:** `Pf2eModifierTests` covers stacking with cover and armor;
   `Pf2eRulesTests` covers Sneak Attack aliases; `RulesRageUnityTests` proves lowercase imported
   Fatigued blocks Rage and Encumbered blocks Quick-Tempered; dungeon actor/save tests cover sourced
-  condition round trips. Missing: generic condition reducer tests, multiple-source removal,
-  Deafened mechanics, and live persistence from rules state.
-- **Exact future owner:** the foundation owns new `ConditionOperations`, `ConditionReducers`,
-  `ConditionFacts`, and `ConditionRuleRuntime` types under `Assets/Scripts/Rules/Runtime`; the
-  Off-Guard feature owns a new `OffGuardRules` module in that directory, and the owning spell
-  feature owns Deafened application. The caller migration owns `DungeonActorStateAdapter.cs` and
-  enrollment wiring. This proposal reuses `ConditionId` and `ConditionState`; it must not introduce
-  another condition DTO without resolving source identity.
+  condition round trips. `ConditionRulesTests` covers generic source/value behavior, while
+  `SpellFeatureRulesTests` covers Haunting Hymn's critical-failure Deafened application. Missing:
+  migration of the remaining Unity condition consumers.
+- **Exact future owner:** `ConditionRules.cs` owns the generic condition operations and state;
+  `SpellFeatureRules.cs` owns Deafened application for Haunting Hymn. The Off-Guard and Rage
+  features own their remaining Unity-reader migrations. Do not introduce another condition DTO.
 
 ### Legacy UI character builder
 
@@ -768,42 +764,39 @@ Each row names the present behavior, not wider PF2e completeness.
   and `Pf2eItemCatalog.cs` remain data adapters. Each vertical feature owns its converter into
   runtime values. The general caller/composition worker owns only shared statistics enrollment.
 
-### Dormant legacy Unity spell implementations
+### Rules-native pre-built cleric spells
 
-`SpellRegistry` contains six non-rules-native spell implementations, but no installed production
-action can reach them. `CreatureComponent.InitializeRuntimeActions` invokes
-`CastSpellAction.AddSpellActions`, which initially adds legacy `CastSpellAction` entries only for
-prepared spells recognized by `SpellRegistry`. During common combatant enrollment,
-`UnitySpellcastingEncounterModule` contributes the installation plan that removes all of those
-legacy entries after commit and reconciles only generically supported `RulesCastSpellAction`
-instances, while `SpellcastingRuntime.Cast` rejects legacy resolution during an attached encounter.
-Outside an attached encounter, `ActionController.ActionPoints` returns zero, so the normal legacy
-action call with `spendActions: true` fails its affordability check. A direct programmatic call with
-`spendActions: false` can reach some definitions, but that is an API-level capability rather than an
-installed production action. Heal and Haunting Hymn ultimately use health APIs that require an
-attached rules bridge, so even their direct unattached paths cannot complete. `SpellcastingState`
-is mutable legacy slot state; production encounters instead enroll `SpellSlotState` from
-`PreparedSpellBook`.
+The supported pre-built cleric now receives Shield, Guidance, Haunting Hymn, Bless, Infuse
+Vitality, and Heal through its immutable `PreparedSpellBook`. Encounter composition maps those
+entries to explicit feature rules in `SpellFeatureRules`; `RulesCastSpellAction` owns selection and
+dispatch, action lifecycle owns action and slot costs, and active bindings own lasting effects.
+`CreatureComponent.InitializeRuntimeActions` no longer installs legacy spell actions, the spell
+installer removes any stale `CastSpellAction` entries during both initial and reinforcement
+enrollment, and attached legacy resolution remains rejected. The Unity Strike adapter no longer
+captures legacy Infuse Vitality effects, so the active binding is the sole encounter authority.
 
-The table records dormant/direct implementation semantics as migration evidence, not shipped
-behavior that must automatically be preserved. A product decision must explicitly select each
-spell and its desired semantics before a vertical migration may install it.
+The feature rules use the imported ORC spell data as their rules reference. Guidance ends at the
+start of the caster's next turn and creates one-hour immunity whether used or unused. Infuse
+Vitality's exact target count equals its 1-, 2-, or 3-action cost. Bless deliberately preserves the
+project's snapshot-at-cast target behavior instead of implementing a moving aura.
 
-| Spell | Dormant/direct implementation semantics | Required vertical migration and exact owner | Verification and missing coverage |
+| Spell | Rules-native implementation | Production integration | Deterministic evidence |
 | --- | --- | --- | --- |
-| Shield | Self; `ShieldSpellEffect` supplies +1 circumstance AC and expires at source turn start | New `ShieldRules` module under `Assets/Scripts/Rules/Runtime` plus feature-owned Unity selection/presentation adapter in `Combat/Spells`; use active effect/binding and modifier collection | Legacy behavior has indirect spell/effect coverage only; add pure AC stacking, duration, refresh, and enrollment tests |
-| Guidance | Friendly target within 30 feet; +1 status to the first attack/save/skill/initiative query, mutates `Consumed`, creates indefinite Guidance Immunity, and expires Guidance at source turn start | `GuidanceRules.cs` plus feature adapter; consumption must occur through an Op/reducer or listener, never during a selector; immunity needs an explicit implemented duration decision | No representative end-to-end current test. Add target, one-consumption, stacking, expiry, and immunity fixtures before migration |
-| Haunting Hymn | 15-foot cone; each affected creature makes basic Fortitude against caster spell DC for `1d8` sonic; critical failure also adds mechanically inert Deafened | `HauntingHymnRules.cs` plus area-selection adapter; dispatch save, typed damage, and condition Ops | `Pf2eAreaTargetingTests` covers cone geometry, but no direct spell fixture. Add all degrees, deterministic roll/damage, multiple targets, line of effect, and Deafened assertions |
-| Bless | Captures friendly creatures in a 15-foot emanation at cast time; each receives +1 status attack for ten target turn starts | `BlessRules.cs` plus feature adapter. Preserve current snapshot-target behavior unless product explicitly chooses a live aura | No direct spell fixture. Add target set, stacking, refresh, ten-boundary expiry, and source/target defeat tests |
-| Infuse Vitality | Its unreachable legacy selector prompts for exactly one friendly target within 30 feet for every 1-, 2-, or 3-action variant. Direct `Cast` accepts from one through `ActionCost` unique friendly targets. Each accepted target gains `1d4` vitality weapon/unarmed Strike damage for ten target turn starts through a legacy Strike adjustment | Do not assume either target contract is intended and do not add a missing multi-target selector. A product decision must choose target count/selection behavior first; only then may an `InfuseVitalityRules` feature use Strike damage middleware and active-effect timing | `RulesStrikeUnityTests.PreparedRageThiefSneakAttackAndInfuseContributeToRulesDamage` covers captured contribution, not a reachable cast. An approved feature needs selection/action-variant, duration, duplicate-target, and typed-damage tests |
-| Heal | 1 action: target within 5; 2 actions: target within 30 and +8 healing for living target; 3 actions: 30-foot emanation. Rolls `1d8`; heals friendly living creatures, deals basic Fortitude vitality damage to undead | `HealRules.cs` plus feature area/target adapter; reuse health, save, typed damage, and action/slot operations | No direct current spell fixture. Add every variant, friend/undead/nonfriend, range, degrees, slot/cost atomicity, and deterministic roll tests |
+| Shield | Self effect for one round; +1 circumstance AC through typed modifier stacking | Explicit catalog rule, active binding, production pre-built cantrip, no target interaction | `SpellFeatureRulesTests.ShieldCreatesRoundEffectAndRaisesArmorClass`; `SpellcastingPresentationPlayModeTests.ProductionShieldActionCastsThroughRulesAndCompletesPresentation` |
+| Guidance | Friendly creature within 30 feet; +1 status on the first attack/save/skill query; one-hour immunity on use or caster-turn expiry | Explicit catalog rule and persistent Guidance/immunity definitions | `SpellFeatureRulesTests.GuidanceConsumesOnEligibleCheckAndCreatesPersistentImmunity` and `UnusedGuidanceExpiresAtCasterTurnStartAndCreatesImmunity` |
+| Haunting Hymn | 15-foot cone; basic Fortitude sonic damage; Deafened for 1 minute on critical failure | Generic area selector, save/health/condition operations, production pre-built cantrip | `SpellFeatureRulesTests.HauntingHymnAppliesEveryBasicFortitudeDegree` and `HeightenedHauntingHymnAndHealScaleTheirDiceAndFlatHealing`; cone geometry remains covered by `Pf2eAreaTargetingTests` |
+| Bless | Friendly snapshot in a 15-foot emanation; +1 status attack bonus for 1 minute | Explicit catalog rule, persistent effect per selected ally, rank-1 prepared slot | `SpellFeatureRulesTests.BlessSnapshotsAlliesAndInfuseContributesHeightenedStrikeDice` plus generic active-effect timing and persistence suites |
+| Infuse Vitality | Exactly one willing creature per action within 30 feet; 1 minute of vitality Strike dice, heightened at ranks 3 and 5 | Explicit multi-selection profile, Strike-damage middleware, persistent effects, rank-1 prepared slot | `SpellFeatureRulesTests.InfuseVitalityTargetsExactlyOneCreaturePerAction`, atomic rejection, and heightened typed-dice assertions |
+| Heal | 1-action touch; 2-action 30 feet with +8 healing per rank; 3-action 30-foot emanation; willing living healing or basic Fortitude vitality damage to undead | Explicit variant profiles, health/save/damage operations, four-use healing-font pool | `SpellFeatureRulesTests.HealTwoActionRestoresLivingAndOneActionDamagesUndead`, `HealThreeActionEmanationHealsAlliesDamagesUndeadAndSkipsLivingEnemies`, `HeightenedHauntingHymnAndHealScaleTheirDiceAndFlatHealing`, and atomic legality coverage |
 
-For each explicitly approved spell, install its rules-native action and then delete its legacy
-class/effect path and update `CastSpellAction`/`SpellRegistry` in the same change. No compatibility
-dispatch by spell slug is allowed. Feature workers create their own rules and Unity adapter files;
-the caller composition
-worker alone updates `UnitySpellcastingEncounterModule.cs`, the action installer/catalog wiring,
-and shared test fixtures after a batch is ready.
+All lasting definitions use `SpellEffectState` and the production generic effect codec. The shared
+persistence suites cover attached/detached capture, remaining boundaries, retry, reinforcements,
+and missing or late sources; `SpellEffectPersistenceTests` proves that every spell-specific
+definition participates in that codec and remaps its target actor reference.
+
+Current-head Unity `6000.2.1f1` verification passed without `-quit`: `HostEditMode4.xml` reports
+1,005/1,005 passed, and `HostPlayMode2.xml` reports 209/209 passed. The retained XML and logs live
+under `.agent-temp/delivery/wt/t_77646617/` and are not branch artifacts.
 
 ### Combat door opening
 
@@ -955,20 +948,18 @@ Persistence is still an integration dependency, but it is not one adapter-owned 
 it writes current HP and defeat directly to the outer `DungeonPartyMemberSaveState`; for enemies,
 `DungeonEncounterRuntimeController` and `DungeonEncounterDirector` write current HP only for living
 enemy records and preserve defeated enemies as lifecycle identities. The nested
-`DungeonActorStateAdapter` captures temporary HP amount/source/immunities, Unity conditions, legacy
-`SpellEffectController` timed effects, prepared-character effects, equipment, ammunition, and the
-rules-derived `RageWasActive` marker. On restore, its callers supply outer current HP and defeat,
-creature content supplies maximum HP, and the adapter reconstructs one `HealthState` before
+`DungeonActorStateAdapter` captures temporary HP amount/source/immunities, Unity conditions,
+prepared-character effects, equipment, ammunition, the rules-derived `RageWasActive` marker, and
+every active rules effect registered in the generic codec catalog. Rules-effect capture includes
+paired binding identity, source and owner actor references, typed state, creation order, duration,
+and remaining timing. On restore, its callers supply outer current HP and defeat, creature content
+supplies maximum HP, and the adapter reconstructs health and rules-effect seeds before common
 encounter enrollment.
 
-Those legacy timed and prepared-effect fields are not a general serialization of rules-native
-`ActiveEffects`, paired `RuleBindings`, or `ActiveEffectTimings`. Rage has a narrow marker used to
-normalize its temporary health to an ended effect, while rules-native Light currently has no save
-representation and is lost on reload. Whenever one of these slices crosses the rules authority
-boundary, the general caller worker must switch every owning capture/restore caller and its fixtures
-in the same coordinated change, preserve any intentional normalization such as Rage unless a
-product change is approved, and remove the old writer. No schema compatibility layer is required
-for unshipped formats; update schema, fixtures, and code together.
+Rage retains its intentional narrow normalization marker rather than resuming as an active effect.
+New lasting rules features must register their typed state in the generic codec catalog and use this
+same capture/enrollment boundary; they must not add a feature-specific save fallback. No schema
+compatibility layer is required for unshipped formats; update schema, fixtures, and code together.
 
 ## Work ownership and integration order
 
@@ -1019,34 +1010,28 @@ These are decisions to make before the named migration, not implicit authorizati
    Define the minimal stable source contract before condition enrollment.
 2. **Slowed reaction behavior:** current `Slow` clears reactions in addition to reducing actions.
    Confirm whether this is intended shipped behavior before encoding it in rules.
-3. **Guidance immunity duration:** the legacy immunity is indefinite. Define the intended current
-   behavior before migration; do not silently "correct" it from external rules text.
-4. **Bless semantics:** current code snapshots friendly targets at cast time rather than maintaining
+3. **Bless semantics:** current code snapshots friendly targets at cast time rather than maintaining
    a moving aura. Preserve this behavior unless a separate product/rules change is approved.
-5. **Statistics registration:** the generic slice exists but complete combatant registration omits
+4. **Statistics registration:** the generic slice exists but complete combatant registration omits
    it. Decide the smallest immutable capture and coordinate it with Strike/spell readers.
-6. **Defenses and traits:** weaknesses/resistances and traits are immutable Unity captures today.
+5. **Defenses and traits:** weaknesses/resistances and traits are immutable Unity captures today.
    No demonstrated writer requires a new shared persistent slice yet.
-7. **Flanking topology boundary:** prefer a feature-local immutable query over a new shared
+6. **Flanking topology boundary:** prefer a feature-local immutable query over a new shared
    topology API unless another implemented feature proves the same need.
-8. **Dungeon save boundary:** health persistence is split among the autosave coordinator/director,
-   outer party or enemy/lifecycle records, and the nested actor adapter; condition and legacy effect
-   persistence remains Unity-shaped. General rules-native effects/bindings/timing have no save
-   representation, so Light currently does not survive reload, while Rage intentionally normalizes
-   to an ended effect. Each approved durability or authority change requires a coordinated breaking
-   schema/caller/fixture update; do not silently change Rage semantics, add compatibility versions,
-   or create dual restore paths.
-9. **Data-only catalog scope:** 84 loaded spell definitions and unsupported item rule keys are not an
+7. **Dungeon save boundary:** the actor adapter now persists registered rules-native effects,
+   bindings, typed state, source/owner actor references, creation order, and remaining timing through
+   one generic codec catalog. Restore transport supports detached capture, common enrollment,
+   retry, and missing or late sources. Health remains split across its existing outer and nested
+   records, and Rage intentionally normalizes rather than resuming. Future features must register
+   their state codec without adding a parallel restore path or compatibility-version dispatch.
+8. **Data-only catalog scope:** 84 loaded spell definitions and unsupported item rule keys are not an
    implementation backlog by themselves. A human must select any additional vertical feature.
-10. **Three tracked `.orig` files and commented `LineOfSight`:** these are cleanup gaps, not
+9. **Three tracked `.orig` files and commented `LineOfSight`:** these are cleanup gaps, not
     migration foundations or executable fallbacks.
-11. **Legacy character-creation authority:** decide whether the disconnected UI builder is intended
+10. **Legacy character-creation authority:** decide whether the disconnected UI builder is intended
     to create playable characters and which build rules it owns before connecting or migrating it.
     Its partial `PlayerCharacter` must not silently become a second preparation format.
-12. **Dormant spell semantics:** select each legacy spell explicitly before enabling or migrating
-    it. In particular, choose Infuse Vitality's target-count/selection behavior instead of treating
-    either its one-target selector or its direct-call multi-target acceptance as authoritative.
-13. **Combat door operation boundary:** the current criteria and one-action cost are known behavior,
+11. **Combat door operation boundary:** the current criteria and one-action cost are known behavior,
     but moving them into the action lifecycle requires an approved Open Door vertical, a pure
     handler outcome, a feature-owned external-mutation observer, and coordinated
     projection/persistence tests; this plan does not perform that gameplay correction.

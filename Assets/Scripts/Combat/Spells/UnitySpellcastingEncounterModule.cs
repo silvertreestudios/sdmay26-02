@@ -40,6 +40,7 @@ namespace Game.Combat.Spells
         public void ConfigureDispatcher(RuleDispatcherBuilder builder)
         {
             builder.UseSpellcastingRules(catalog, attackContext);
+            SpellFeatureRules.ConfigureDispatcher(builder);
         }
 
         /// <inheritdoc/>

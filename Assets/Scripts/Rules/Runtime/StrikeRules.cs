@@ -943,7 +943,12 @@ namespace Game.Rules.Runtime
                 ),
             };
             attackCandidates.AddRange(data.AttackModifiers);
-            int armorClass = data.ArmorClass;
+            OpResult<ModifierCollection> armorClassResult = await context.Dispatch(
+                new AdjustArmorClassOp(frame.Op.Target, data.ArmorClass)
+            );
+            if (armorClassResult is not ResolvedOpResult<ModifierCollection> resolvedArmorClass)
+                throw new InvalidOperationException("Armor Class adjustment did not resolve.");
+            int armorClass = resolvedArmorClass.Value.Total;
             OpResult<CheckOutcome> attackResult = await context.Dispatch(
                 new AttackCheckOp(
                     frame.Op.Actor,
@@ -963,7 +968,17 @@ namespace Game.Rules.Runtime
             int finalDamage = 0;
             if (hit)
             {
-                damage = ResolveDamage(item, data, degree, context.Rolls);
+                OpResult<IReadOnlyList<TypedDamageDice>> bonusDiceResult = await context.Dispatch(
+                    new CollectStrikeDamageDiceOp(frame.Op.Actor, frame.Op.Target)
+                );
+                if (
+                    bonusDiceResult
+                    is not ResolvedOpResult<IReadOnlyList<TypedDamageDice>> bonusDice
+                )
+                    throw new InvalidOperationException(
+                        "Strike damage dice collection did not resolve."
+                    );
+                damage = ResolveDamage(item, data, bonusDice.Value, degree, context.Rolls);
                 finalDamage = damage.Sum(part => part.Amount);
             }
             return new StrikeResolution(
@@ -983,11 +998,15 @@ namespace Game.Rules.Runtime
         private static IReadOnlyList<TypedDamagePart> ResolveDamage(
             StrikeItemDefinition item,
             StrikeResolutionData data,
+            IReadOnlyList<TypedDamageDice> activeEffectDice,
             DegreeOfSuccess degree,
             IRollService rolls
         )
         {
-            List<TypedDamageDice> dice = item.DamageDice.Concat(data.DamageDice).ToList();
+            List<TypedDamageDice> dice = item
+                .DamageDice.Concat(data.DamageDice)
+                .Concat(activeEffectDice)
+                .ToList();
             int deadlySides = FindTraitDie(item.Traits, "deadly-d");
             int fatalSides = FindTraitDie(item.Traits, "fatal-d");
             if (

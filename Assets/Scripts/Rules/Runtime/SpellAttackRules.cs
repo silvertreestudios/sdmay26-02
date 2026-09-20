@@ -96,12 +96,18 @@ namespace Game.Rules.Runtime
                 ),
             };
             initialModifiers.AddRange(data.AttackModifiers);
+            OpResult<ModifierCollection> armorClassResult = await context.Dispatch(
+                new AdjustArmorClassOp(operation.Target, data.ArmorClass)
+            );
+            if (armorClassResult is not ResolvedOpResult<ModifierCollection> resolvedArmorClass)
+                throw new InvalidOperationException("Armor Class adjustment did not resolve.");
+            int armorClass = resolvedArmorClass.Value.Total;
             OpResult<CheckOutcome> attackResult = await context.Dispatch(
                 new AttackCheckOp(
                     operation.Actor,
                     operation.Target,
                     initialModifiers,
-                    data.ArmorClass,
+                    armorClass,
                     CheckSource.From(frame.Id)
                 )
             );
@@ -128,7 +134,7 @@ namespace Game.Rules.Runtime
                 operation.Target,
                 attackOutcome.Roll,
                 attackOutcome.Modifiers.Total,
-                data.ArmorClass,
+                armorClass,
                 degree,
                 mapPenalty,
                 damage

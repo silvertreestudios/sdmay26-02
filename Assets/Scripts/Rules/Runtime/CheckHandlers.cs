@@ -1,9 +1,39 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
+    internal sealed class AdjustArmorClassHandler
+        : IOpHandler<AdjustArmorClassOp, ModifierCollection>
+    {
+        private static readonly RuleSource BaseSource = RuleSource.FromSlug("captured-armor-class");
+
+        public ValueTask<ModifierCollection> Handle(
+            OpFrame<AdjustArmorClassOp> frame,
+            OpHandlerContext context
+        ) =>
+            new ValueTask<ModifierCollection>(
+                new ModifierCollection(
+                    Statistic.ArmorClass,
+                    new[]
+                    {
+                        Modifier.Untyped(frame.Op.BaseArmorClass, BaseSource, Statistic.ArmorClass),
+                    }.Concat(frame.Op.InitialModifiers)
+                )
+            );
+    }
+
+    internal sealed class CollectStrikeDamageDiceHandler
+        : IOpHandler<CollectStrikeDamageDiceOp, IReadOnlyList<TypedDamageDice>>
+    {
+        public ValueTask<IReadOnlyList<TypedDamageDice>> Handle(
+            OpFrame<CollectStrikeDamageDiceOp> frame,
+            OpHandlerContext context
+        ) => new ValueTask<IReadOnlyList<TypedDamageDice>>(Array.Empty<TypedDamageDice>());
+    }
+
     // Check handlers deliberately contain no state mutation. They combine a pure selector result
     // with the callback-scoped roll source so middleware and trace provenance remain engine-owned.
     internal sealed class AttackCheckHandler : IOpHandler<AttackCheckOp, CheckOutcome>

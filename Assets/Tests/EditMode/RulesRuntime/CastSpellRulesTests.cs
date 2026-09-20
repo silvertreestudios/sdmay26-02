@@ -315,6 +315,12 @@ namespace Game.Rules.Runtime.Tests
             }
 
             public ISpellBook GetSpellBook(CreatureId creature) => book;
+
+            public bool TryGetCastRule(SpellId spell, out ISpellCastRule rule)
+            {
+                rule = null;
+                return false;
+            }
         }
 
         private sealed class TestBook : ISpellBook

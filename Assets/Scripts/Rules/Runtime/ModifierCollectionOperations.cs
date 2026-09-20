@@ -1,7 +1,68 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Game.Rules.Runtime
 {
+    /// <summary>Resolves rules-owned adjustments to an already captured Armor Class.</summary>
+    public sealed class AdjustArmorClassOp : IRuleOp<ModifierCollection>
+    {
+        /// <summary>Creates a nested Armor Class adjustment request.</summary>
+        /// <param name="target">The creature whose Armor Class is being resolved.</param>
+        /// <param name="baseArmorClass">The positive captured base Armor Class.</param>
+        public AdjustArmorClassOp(CreatureId target, int baseArmorClass)
+            : this(target, baseArmorClass, Array.Empty<Modifier>()) { }
+
+        /// <summary>Creates a request with captured Armor Class modifier candidates.</summary>
+        /// <param name="target">The creature whose Armor Class is being resolved.</param>
+        /// <param name="baseArmorClass">The positive captured base Armor Class.</param>
+        /// <param name="initialModifiers">Typed candidates already applying to the defense.</param>
+        public AdjustArmorClassOp(
+            CreatureId target,
+            int baseArmorClass,
+            IEnumerable<Modifier> initialModifiers
+        )
+        {
+            if (target.IsEmpty)
+                throw new ArgumentException("An Armor Class target is required.", nameof(target));
+            if (baseArmorClass <= 0)
+                throw new ArgumentOutOfRangeException(nameof(baseArmorClass));
+            if (initialModifiers == null)
+                throw new ArgumentNullException(nameof(initialModifiers));
+            Target = target;
+            BaseArmorClass = baseArmorClass;
+            InitialModifiers = Array.AsReadOnly(initialModifiers.ToArray());
+        }
+
+        /// <summary>Gets the defended creature.</summary>
+        public CreatureId Target { get; }
+
+        /// <summary>Gets the captured Armor Class before rules-owned active effects.</summary>
+        public int BaseArmorClass { get; }
+
+        /// <summary>Gets typed Armor Class candidates captured before active-effect middleware.</summary>
+        public IReadOnlyList<Modifier> InitialModifiers { get; }
+    }
+
+    /// <summary>Collects active-effect damage dice for a weapon or unarmed Strike.</summary>
+    public sealed class CollectStrikeDamageDiceOp : IRuleOp<IReadOnlyList<TypedDamageDice>>
+    {
+        /// <summary>Creates a nested Strike damage contribution request.</summary>
+        public CollectStrikeDamageDiceOp(CreatureId attacker, CreatureId target)
+        {
+            if (attacker.IsEmpty || target.IsEmpty)
+                throw new ArgumentException("Strike damage collection requires both creatures.");
+            Attacker = attacker;
+            Target = target;
+        }
+
+        /// <summary>Gets the striking creature.</summary>
+        public CreatureId Attacker { get; }
+
+        /// <summary>Gets the struck creature.</summary>
+        public CreatureId Target { get; }
+    }
+
     /// <summary>
     /// Collects attack-roll modifiers through active middleware before an attack roll is made.
     /// </summary>

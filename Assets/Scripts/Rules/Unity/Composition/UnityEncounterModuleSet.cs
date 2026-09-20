@@ -49,12 +49,14 @@ namespace Game.Rules.Unity.Composition
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
             UnityRottingAuraModule rottingAura = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
+            UnitySpellCreatureDataProvider spellCreatureData = new(creatures);
             RageActionDefinition rageDefinition = new(new UnityRageActorStateProvider(creatures));
             CombatActionCatalog actionCatalog = new(
                 strideDefinition,
                 strikeContext,
                 spellCatalog,
                 new UnitySpellBookProvider(creatures),
+                SpellFeatureRules.CreateCatalog(spellCreatureData),
                 rageDefinition
             );
 
@@ -63,6 +65,7 @@ namespace Game.Rules.Unity.Composition
             RottingAuraRules.DefineRuleBinding(registryBuilder, rottingAura);
             SlowedRules.DefineRuleBinding(registryBuilder);
             RageRules.DefineRuleBindings(registryBuilder);
+            SpellFeatureRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
             foreach (
                 RuleDefinitionId definitionId in spellCatalog
@@ -120,6 +123,7 @@ namespace Game.Rules.Unity.Composition
         private readonly IStrikeActionCatalog strike;
         private readonly ISpellDefinitionCatalog spell;
         private readonly ISpellBookProvider spellBooks;
+        private readonly IReadOnlyDictionary<SpellId, ISpellCastRule> spellRules;
         private readonly IReadOnlyList<IActionCatalog> featureCatalogs;
 
         internal CombatActionCatalog(
@@ -127,6 +131,7 @@ namespace Game.Rules.Unity.Composition
             IStrikeActionCatalog strike,
             ISpellDefinitionCatalog spell,
             ISpellBookProvider spellBooks,
+            IReadOnlyDictionary<SpellId, ISpellCastRule> spellRules,
             params IActionCatalog[] featureCatalogs
         )
         {
@@ -134,6 +139,7 @@ namespace Game.Rules.Unity.Composition
             this.strike = strike ?? throw new ArgumentNullException(nameof(strike));
             this.spell = spell ?? throw new ArgumentNullException(nameof(spell));
             this.spellBooks = spellBooks ?? throw new ArgumentNullException(nameof(spellBooks));
+            this.spellRules = spellRules ?? throw new ArgumentNullException(nameof(spellRules));
             if (featureCatalogs == null || featureCatalogs.Any(catalog => catalog == null))
                 throw new ArgumentException(
                     "Feature action catalogs cannot be null.",
@@ -180,5 +186,9 @@ namespace Game.Rules.Unity.Composition
 
         /// <inheritdoc/>
         public ISpellBook GetSpellBook(CreatureId creature) => spellBooks.GetSpellBook(creature);
+
+        /// <inheritdoc/>
+        public bool TryGetCastRule(SpellId spellId, out ISpellCastRule rule) =>
+            spellRules.TryGetValue(spellId, out rule);
     }
 }

@@ -237,16 +237,6 @@ namespace Game.Rules.Unity.Strike
                 snapshot,
                 actor
             );
-            if (
-                attacker.TryGetComponent(out SpellEffectController spellEffects)
-                && spellEffects.HasEffect<InfuseVitalitySpellEffect>()
-            )
-            {
-                prepared.DamageDice.Add(
-                    new TypedDamageDice(new DiceExpression(1, 4), "vitality", "Infuse Vitality")
-                );
-            }
-
             return new StrikeResolutionData(
                 // Validation rejects an invalid AC before costs. If Unity-side presentation state
                 // changes after the action begins, keep resolution non-failing instead of turning
