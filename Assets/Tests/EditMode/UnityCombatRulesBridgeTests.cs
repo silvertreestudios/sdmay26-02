@@ -1537,6 +1537,7 @@ public sealed class UnityCombatRulesBridgeTests
         creature.allSaves = 1;
         creature.strMod = 2 + offset;
         creature.dexMod = 3 + offset;
+        creature.intMod = 5 + offset;
         creature.wisMod = 4 + offset;
         creature.skills = new List<SkillValue>
         {
@@ -1559,6 +1560,9 @@ public sealed class UnityCombatRulesBridgeTests
         );
         Assert.That(statistics.GetSkillModifier(Skill.Athletics), Is.EqualTo(2 + offset));
         Assert.That(statistics.GetSkillModifier(Skill.Acrobatics), Is.EqualTo(3 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Crafting), Is.EqualTo(5 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Occultism), Is.EqualTo(5 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Religion), Is.EqualTo(4 + offset));
         Assert.That(statistics.Modifiers, Is.Empty);
     }
 
