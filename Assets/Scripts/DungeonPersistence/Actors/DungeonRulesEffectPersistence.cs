@@ -289,12 +289,10 @@ namespace Game.DungeonPersistence.Actors
         )
         {
             GameObject actorObject = resolveActor(actor);
-            if (
-                actorObject != null
-                && actorObject.TryGetComponent(out CreatureComponent creature)
-                && owner.TryGetCreatureId(creature, out CreatureId id)
-            )
-                return id;
+            if (actorObject != null && actorObject.TryGetComponent(out CreatureComponent creature))
+                return owner.TryGetCreatureId(creature, out CreatureId id)
+                    ? id
+                    : owner.ReserveCreatureId(creature);
             return resolveExternal(actor);
         }
 
@@ -308,9 +306,10 @@ namespace Game.DungeonPersistence.Actors
                 projectedActors.TryGetValue(projectedCreature, out GameObject actorObject)
                 && actorObject != null
                 && actorObject.TryGetComponent(out CreatureComponent creature)
-                && owner.TryGetCreatureId(creature, out CreatureId id)
             )
-                return id;
+                return owner.TryGetCreatureId(creature, out CreatureId id)
+                    ? id
+                    : owner.ReserveCreatureId(creature);
             if (
                 projectedActorReferences.TryGetValue(
                     projectedCreature,
@@ -442,12 +441,14 @@ namespace Game.DungeonPersistence.Actors
             if (seed == null)
                 return;
 
+            ReserveAssociations(builder);
+
             HashSet<CreatureId> references = new();
             CreatureId Resolve(DungeonRulesActorReference actor)
             {
                 CreatureId id = seed.ResolveCreature(actor, owner, ResolveExternal);
                 RememberActorReference(id, actor);
-                if (externalActors.ContainsKey(id))
+                if (!owner.HasRegistrationMap(id))
                     references.Add(id);
                 return id;
             }
@@ -465,7 +466,7 @@ namespace Game.DungeonPersistence.Actors
                 );
                 if (hasActorReference)
                     RememberActorReference(id, actor);
-                if (externalActors.ContainsKey(id))
+                if (!owner.HasRegistrationMap(id))
                     references.Add(id);
                 return id;
             }
@@ -612,6 +613,35 @@ namespace Game.DungeonPersistence.Actors
                     $"Rules creature '{creature.Value}' cannot represent both '{existing}' and '{actor}'."
                 );
             actorReferences[creature] = actor;
+        }
+
+        private void ReserveAssociations(UnityCombatantEnrollmentBuilder builder)
+        {
+            Dictionary<DungeonRulesActorReference, CreatureId> savedExternalCreatures = new(
+                externalCreatures
+            );
+            Dictionary<CreatureId, DungeonRulesActorReference> savedExternalActors = new(
+                externalActors
+            );
+            Dictionary<CreatureId, DungeonRulesActorReference> savedActorReferences = new(
+                actorReferences
+            );
+            builder.Reserve(() =>
+            {
+                Restore(externalCreatures, savedExternalCreatures);
+                Restore(externalActors, savedExternalActors);
+                Restore(actorReferences, savedActorReferences);
+            });
+        }
+
+        private static void Restore<TKey, TValue>(
+            IDictionary<TKey, TValue> destination,
+            IReadOnlyDictionary<TKey, TValue> snapshot
+        )
+        {
+            destination.Clear();
+            foreach (KeyValuePair<TKey, TValue> pair in snapshot)
+                destination.Add(pair.Key, pair.Value);
         }
 
         private void ProjectDetachedEffects()

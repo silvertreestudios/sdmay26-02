@@ -67,6 +67,7 @@ namespace Game.Rules.Unity.Composition
         private readonly List<ActiveEffectInstance> activeEffects = new();
         private readonly List<ActiveEffectTimingRestore> activeEffectTimings = new();
         private readonly HashSet<CreatureId> externalEffectReferences = new();
+        private readonly List<RegistrationToken> durableReservations = new();
         private readonly CompositeLifetime preparationLifetime;
         private readonly CreatureState creatureState;
         private readonly HealthState health;
@@ -112,6 +113,22 @@ namespace Game.Rules.Unity.Composition
         /// <summary>Retains reversible feature preparation until success or rollback.</summary>
         internal TResource Own<TResource>(TResource resource)
             where TResource : IDisposable => preparationLifetime.Add(resource);
+
+        /// <summary>
+        /// Registers a provisional association that becomes durable with the combatant addition.
+        /// </summary>
+        /// <remarks>
+        /// The rollback runs when any later preparation or addition step fails. The enrollment
+        /// plan retains the token only after the rules snapshot proves that the atomic batch
+        /// committed, including when a post-commit notification subsequently throws.
+        /// </remarks>
+        internal void Reserve(Action rollback)
+        {
+            RegistrationToken reservation = preparationLifetime.Add(
+                new RegistrationToken(rollback)
+            );
+            durableReservations.Add(reservation);
+        }
 
         /// <summary>Adds feature-owned spell-slot state to the atomic combatant registration.</summary>
         internal void AddSpellSlots(IEnumerable<SpellSlotState> states)
@@ -180,6 +197,8 @@ namespace Game.Rules.Unity.Composition
 
         internal IReadOnlyList<IUnityCombatantInstallationContribution> Installations =>
             installations;
+
+        internal IReadOnlyList<RegistrationToken> DurableReservations => durableReservations;
 
         /// <summary>Freezes the prepared base and feature contributions into one immutable state.</summary>
         internal CombatantRulesState BuildState(int initiativeModifier) =>

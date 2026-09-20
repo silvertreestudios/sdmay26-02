@@ -161,6 +161,8 @@ cross-combatant sources while preparation is still reversible.
 `UnityCombatantEnrollmentBuilder` exposes the supported contribution APIs:
 
 - `Own<TResource>` for reversible preparation resources;
+- `Reserve` for provisional identity associations that roll back with preparation and become
+  durable only when the common combatant addition commits;
 - `AddSpellSlots`, `AddRuleBindings`, `AddEquipment`, `AddAmmunition`, `AddActiveEffects`, and
   `AddActiveEffectTimings` for rules state committed atomically with the combatant; and
 - `AddInstallation(IUnityCombatantInstallationContribution)` for precomputed Unity changes.
@@ -260,7 +262,11 @@ termination continue through the existing Rage and active-effect operations.
 An effect may retain a stable source or payload actor identity after that dungeon actor has been
 defeated or left on another floor and is no longer materialized. Restoration represents that
 reference explicitly as an external effect actor rather than discarding the effect or inventing a
-live `GameObject`. A counted
+live `GameObject`. A materialized actor omitted from the current roster instead reserves one
+encounter `CreatureId`; every restored reference uses that identity, and the same actor claims it
+if later enrolled. Both the future-ID reservation and its stable dungeon-reference association are
+preparation-owned until the effect registration commits, so failure cannot leak provenance into a
+later candidate that reuses the rolled-back ID. A counted
 duration whose source remains external advances once at each new-round boundary. Counted restores
 require a positive remaining boundary count. Dispatcher operation IDs start above every restored
 binding creation order, including restored effects supplied by later combatant additions. New

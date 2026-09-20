@@ -588,7 +588,7 @@ public sealed class DungeonActorStateAdapterTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void SaveLoadedIndefiniteEffectExternalizesSourceOmittedFromRoster(
+    public void SaveLoadedIndefiniteEffectPreservesSourceOmittedFromRoster(
         bool destroySourceBeforeEnrollment
     )
     {
@@ -639,7 +639,11 @@ public sealed class DungeonActorStateAdapterTests
         ];
         Assert.That(
             restored.SourceCreature.Value,
-            Is.EqualTo($"dungeon-external:{FloorActor(0, "omitted-source").StableKey}")
+            Is.EqualTo(
+                destroySourceBeforeEnrollment
+                    ? $"dungeon-external:{FloorActor(0, "omitted-source").StableKey}"
+                    : "combat-creature-3"
+            )
         );
         DungeonActorSaveState recaptured = DungeonActorStateAdapter.Capture(
             hero.Controller,
@@ -656,7 +660,7 @@ public sealed class DungeonActorStateAdapterTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void DetachedProjectionExternalizesSourceOmittedFromNextRoster(
+    public void DetachedProjectionPreservesSourceOmittedFromNextRoster(
         bool destroySourceBeforeEnrollment
     )
     {
@@ -712,7 +716,11 @@ public sealed class DungeonActorStateAdapterTests
         ActiveEffectInstance restored = activeBridge.Snapshot.ActiveEffects[created.EffectId];
         Assert.That(
             restored.SourceCreature.Value,
-            Is.EqualTo($"dungeon-external:{FloorActor(0, "projected-source").StableKey}")
+            Is.EqualTo(
+                destroySourceBeforeEnrollment
+                    ? $"dungeon-external:{FloorActor(0, "projected-source").StableKey}"
+                    : "combat-creature-3"
+            )
         );
         DungeonActorSaveState recaptured = DungeonActorStateAdapter.Capture(
             hero.Controller,

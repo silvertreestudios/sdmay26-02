@@ -86,6 +86,7 @@ namespace Game.Rules.Unity.Composition
                 foreach (UnityCombatantEnrollmentBuilder builder in builders)
                 {
                     composition.PrepareCombatant(builder);
+                    durableReservations.AddRange(builder.DurableReservations);
                     int initiativeModifier = builder.Creature.GetInitiative();
                     combatants.Add(
                         new PreparedCombatantEnrollment(
