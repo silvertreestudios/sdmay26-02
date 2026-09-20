@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
+using Game.DungeonPersistence.Actors;
+using Game.Rules.Runtime;
 using UnityEngine;
 
 namespace Game.DungeonPersistence.Repository
@@ -50,7 +52,7 @@ namespace Game.DungeonPersistence.Repository
 
     internal static class DungeonSaveSchema
     {
-        internal const int ManifestVersion = 2;
+        internal const int ManifestVersion = 3;
         internal const int FloorDocumentVersion = 1;
 
         internal static string FloorPath(int depth) =>
@@ -80,18 +82,24 @@ namespace Game.DungeonPersistence.Repository
     }
 
     [Serializable]
-    internal sealed class DungeonConditionSaveState
+    internal sealed class DungeonRulesEffectSaveState
     {
-        public string ConditionId;
-        public string SourceKey;
-    }
-
-    [Serializable]
-    internal sealed class DungeonTimedEffectSaveState
-    {
-        public string Kind;
+        public string EffectId;
+        public string BindingId;
+        public string DefinitionId;
         public string SourceActorId;
-        public int RemainingTurnStarts;
+        public string BindingOwnerActorId;
+        public string RuleSource;
+        public EffectDurationKind DurationKind;
+        public int DurationAmount;
+        public long EffectStateVersion;
+        public long CreationOrder;
+        public bool BindingEnabled;
+        public bool HasTiming;
+        public int RemainingBoundaries;
+        public bool ExpiresWithEncounter;
+        public string StateKind;
+        public string StatePayload;
     }
 
     [Serializable]
@@ -118,9 +126,7 @@ namespace Game.DungeonPersistence.Repository
         public int TemporaryHitPoints;
         public string TemporaryHitPointSource;
         public string[] TemporaryHitPointImmunities;
-        public bool RageWasActive;
-        public DungeonConditionSaveState[] Conditions;
-        public DungeonTimedEffectSaveState[] TimedEffects;
+        public DungeonRulesEffectSaveState[] RulesEffects;
         public DungeonPreparedEffectSaveState[] PreparedEffects;
         public DungeonEquipmentSaveState Equipment;
     }
@@ -428,19 +434,42 @@ namespace Game.DungeonPersistence.Repository
                     );
             }
 
-            IEnumerable<DungeonActorSaveState> allStates = party
-                .Select(member => member.State)
-                .Concat(enemyStates);
-            foreach (
-                DungeonTimedEffectSaveState effect in allStates.SelectMany(state =>
-                    state.TimedEffects
-                )
-            )
+            Dictionary<string, DungeonActorSaveState> allStates = party.ToDictionary(
+                member => member.RosterSlotId,
+                member => member.State,
+                StringComparer.Ordinal
+            );
+            using (IEnumerator<DungeonActorSaveState> enemyState = enemyStates.GetEnumerator())
             {
-                if (!actorIds.Contains(effect.SourceActorId))
+                foreach (DungeonCreatureRuntimeState creature in floor.RuntimeState.Creatures)
+                {
+                    if (!enemyState.MoveNext())
+                        throw new ArgumentException(
+                            "Saved enemy actor state count is inconsistent."
+                        );
+                    allStates.Add(creature.InstanceId, enemyState.Current);
+                }
+            }
+            HashSet<string> effectIds = new(StringComparer.Ordinal);
+            HashSet<string> bindingIds = new(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, DungeonActorSaveState> actor in allStates)
+            foreach (DungeonRulesEffectSaveState effect in actor.Value.RulesEffects)
+            {
+                if (!string.Equals(effect.BindingOwnerActorId, actor.Key, StringComparison.Ordinal))
                     throw new ArgumentException(
-                        $"Timed effect source actor '{effect.SourceActorId}' is unavailable on '{floorPath}'."
+                        $"Rules effect '{effect.EffectId}' is stored under the wrong binding owner on '{floorPath}'."
                     );
+                if (!effectIds.Add(effect.EffectId) || !bindingIds.Add(effect.BindingId))
+                    throw new ArgumentException(
+                        $"Rules effect or binding identity is duplicated on '{floorPath}'."
+                    );
+                foreach (string referencedActor in DungeonRulesEffectPersistence.ActorIds(effect))
+                {
+                    if (!actorIds.Contains(referencedActor))
+                        throw new ArgumentException(
+                            $"Rules effect actor '{referencedActor}' is unavailable on '{floorPath}'."
+                        );
+                }
             }
         }
 
@@ -662,8 +691,7 @@ namespace Game.DungeonPersistence.Repository
                 state == null
                 || state.TemporaryHitPoints < 0
                 || state.TemporaryHitPointImmunities == null
-                || state.Conditions == null
-                || state.TimedEffects == null
+                || state.RulesEffects == null
                 || state.PreparedEffects == null
                 || state.Equipment == null
                 || state.Equipment.LeftHandId == null
@@ -680,17 +708,7 @@ namespace Game.DungeonPersistence.Repository
                 );
             if (
                 state.TemporaryHitPointImmunities.Any(string.IsNullOrWhiteSpace)
-                || state.Conditions.Any(item =>
-                    item == null
-                    || string.IsNullOrWhiteSpace(item.ConditionId)
-                    || string.IsNullOrWhiteSpace(item.SourceKey)
-                )
-                || state.TimedEffects.Any(item =>
-                    item == null
-                    || !IsSupportedTimedEffect(item.Kind)
-                    || string.IsNullOrWhiteSpace(item.SourceActorId)
-                    || item.RemainingTurnStarts < 0
-                )
+                || state.RulesEffects.Any(IsInvalidRulesEffect)
                 || state.PreparedEffects.Any(item =>
                     item == null
                     || string.IsNullOrWhiteSpace(item.Name)
@@ -705,11 +723,53 @@ namespace Game.DungeonPersistence.Repository
                 throw new ArgumentException("Saved actor state contains an invalid entry.");
         }
 
-        private static bool IsSupportedTimedEffect(string kind) =>
-            kind == "shield"
-            || kind == "guidance"
-            || kind == "guidance-immunity"
-            || kind == "bless"
-            || kind == "infuse-vitality";
+        private static bool IsInvalidRulesEffect(DungeonRulesEffectSaveState effect)
+        {
+            if (
+                effect == null
+                || string.IsNullOrWhiteSpace(effect.EffectId)
+                || string.IsNullOrWhiteSpace(effect.BindingId)
+                || string.IsNullOrWhiteSpace(effect.DefinitionId)
+                || string.IsNullOrWhiteSpace(effect.SourceActorId)
+                || string.IsNullOrWhiteSpace(effect.BindingOwnerActorId)
+                || string.IsNullOrWhiteSpace(effect.RuleSource)
+                || string.IsNullOrWhiteSpace(effect.StateKind)
+                || string.IsNullOrWhiteSpace(effect.StatePayload)
+                || effect.EffectStateVersion < 0
+                || effect.CreationOrder < 0
+                || effect.DurationAmount < 0
+                || effect.RemainingBoundaries < 0
+            )
+                return true;
+            try
+            {
+                EffectDuration duration = DungeonRulesEffectPersistence.RestoreDuration(
+                    effect.DurationKind,
+                    effect.DurationAmount
+                );
+                if (
+                    effect.HasTiming == (duration.Kind == EffectDurationKind.Indefinite)
+                    || (
+                        effect.HasTiming
+                        && effect.ExpiresWithEncounter
+                            != (duration.Kind == EffectDurationKind.Encounter)
+                    )
+                )
+                    return true;
+                DungeonRulesEffectPersistence.Codecs.GetReferencedActors(
+                    effect.StateKind,
+                    effect.StatePayload
+                );
+                return false;
+            }
+            catch (Exception exception)
+                when (exception is ArgumentException
+                    || exception is InvalidOperationException
+                    || exception is NullReferenceException
+                )
+            {
+                return true;
+            }
+        }
     }
 }

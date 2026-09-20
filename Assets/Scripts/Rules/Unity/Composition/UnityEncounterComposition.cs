@@ -65,6 +65,7 @@ namespace Game.Rules.Unity.Composition
         private readonly List<EquipmentState> equipment = new();
         private readonly List<AmmunitionState> ammunition = new();
         private readonly List<ActiveEffectInstance> activeEffects = new();
+        private readonly List<ActiveEffectTimingRestore> activeEffectTimings = new();
         private readonly CompositeLifetime preparationLifetime;
         private readonly CreatureState creatureState;
         private readonly HealthState health;
@@ -140,6 +141,14 @@ namespace Game.Rules.Unity.Composition
             activeEffects.AddRange(effects);
         }
 
+        /// <summary>Adds exact remaining schedules for restored active effects.</summary>
+        internal void AddActiveEffectTimings(IEnumerable<ActiveEffectTimingRestore> timings)
+        {
+            if (timings == null)
+                throw new ArgumentNullException(nameof(timings));
+            activeEffectTimings.AddRange(timings);
+        }
+
         /// <summary>Adds one fully prepared Unity installation.</summary>
         internal void AddInstallation(IUnityCombatantInstallationContribution contribution) =>
             installations.Add(
@@ -161,7 +170,8 @@ namespace Game.Rules.Unity.Composition
                 ruleBindings,
                 equipment,
                 ammunition,
-                activeEffects
+                activeEffects,
+                activeEffectTimings
             );
     }
 

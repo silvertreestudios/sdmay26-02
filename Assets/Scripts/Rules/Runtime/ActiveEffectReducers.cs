@@ -15,14 +15,27 @@ namespace Game.Rules.Runtime
             out string rejection
         )
         {
-            if (!registry.TryGetDefinition(effect.DefinitionId, out _))
-            {
-                rejection = $"Rule definition {effect.DefinitionId.Value} is unknown.";
+            if (!TryValidateStoredState(registry, effect, out rejection))
                 return false;
-            }
             if (effect.EffectStateVersion != EffectStateVersion.Initial)
             {
                 rejection = "A new active effect must use the initial state version.";
+                return false;
+            }
+            rejection = string.Empty;
+            return true;
+        }
+
+        /// <summary>Validates definition availability for an existing effect entering a store.</summary>
+        internal static bool TryValidateStoredState(
+            RuleRegistry registry,
+            ActiveEffectInstance effect,
+            out string rejection
+        )
+        {
+            if (!registry.TryGetDefinition(effect.DefinitionId, out _))
+            {
+                rejection = $"Rule definition {effect.DefinitionId.Value} is unknown.";
                 return false;
             }
             rejection = string.Empty;
@@ -33,6 +46,25 @@ namespace Game.Rules.Runtime
         /// Validates the enabled one-to-one binding supplied by every active-effect creation path.
         /// </summary>
         internal static bool TryValidateCreationBinding(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            out string rejection
+        )
+        {
+            if (!TryValidateStoredBinding(effect, binding, out rejection))
+                return false;
+            if (!binding.IsEnabled)
+            {
+                rejection = "A new active effect requires an enabled binding.";
+                return false;
+            }
+
+            rejection = string.Empty;
+            return true;
+        }
+
+        /// <summary>Validates the exact one-to-one relationship of a stored effect and binding.</summary>
+        internal static bool TryValidateStoredBinding(
             ActiveEffectInstance effect,
             ActiveRuleBinding binding,
             out string rejection
@@ -49,12 +81,6 @@ namespace Game.Rules.Runtime
                     $"Active binding {binding.Id.Value} does not match effect {effect.Id.Value}.";
                 return false;
             }
-            if (!binding.IsEnabled)
-            {
-                rejection = "A new active effect requires an enabled binding.";
-                return false;
-            }
-
             rejection = string.Empty;
             return true;
         }

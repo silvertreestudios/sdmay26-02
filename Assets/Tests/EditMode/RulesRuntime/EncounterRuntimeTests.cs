@@ -1005,7 +1005,7 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task AdditionRejectsNonInitialEffectVersionWithoutMutation()
+        public async Task AdditionRestoresNonInitialEffectVersionAndDisabledBindingExactly()
         {
             RuleDefinitionId definition = new RuleDefinitionId("versioned-added-effect");
             ActiveEffectId effectId = new ActiveEffectId("versioned-added-effect-instance");
@@ -1024,7 +1024,8 @@ namespace Game.Rules.Runtime.Tests
                 Reinforcement,
                 effectId,
                 Source,
-                0
+                0,
+                false
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
             registryBuilder.Define(definition);
@@ -1035,15 +1036,28 @@ namespace Game.Rules.Runtime.Tests
             await dispatcher.Dispatch(
                 Start(Registration(Hero, Players), Registration(Enemy, Enemies))
             );
-            RulesSnapshot before = dispatcher.Snapshot;
-
-            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
-                dispatcher,
-                before,
-                Registration(Reinforcement, Enemies, new[] { binding }, new[] { effect })
+            Resolved(
+                await dispatcher.Dispatch(
+                    new AddCombatantsOp(
+                        Encounter,
+                        new[]
+                        {
+                            Registration(
+                                Reinforcement,
+                                Enemies,
+                                new[] { binding },
+                                new[] { effect }
+                            ),
+                        }
+                    )
+                )
             );
 
-            Assert.That(rejected.Message, Does.Contain("initial state version"));
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[effectId].EffectStateVersion,
+                Is.EqualTo(new EffectStateVersion(1))
+            );
+            Assert.That(dispatcher.Snapshot.RuleBindings[binding.Id].IsEnabled, Is.False);
         }
 
         [TestCase(false)]
@@ -1367,7 +1381,8 @@ namespace Game.Rules.Runtime.Tests
                 new[] { binding },
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                Array.Empty<ActiveEffectInstance>()
+                Array.Empty<ActiveEffectInstance>(),
+                Array.Empty<ActiveEffectTimingRestore>()
             );
             RulesStateSeed seed = new RulesStateSeed();
             switch (collision)
@@ -1998,7 +2013,8 @@ namespace Game.Rules.Runtime.Tests
                             new[] { binding },
                             Array.Empty<EquipmentState>(),
                             Array.Empty<AmmunitionState>(),
-                            new[] { effect }
+                            new[] { effect },
+                            Array.Empty<ActiveEffectTimingRestore>()
                         ),
                     }
                 )
@@ -2366,7 +2382,8 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<ActiveRuleBinding>(),
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                Array.Empty<ActiveEffectInstance>()
+                Array.Empty<ActiveEffectInstance>(),
+                Array.Empty<ActiveEffectTimingRestore>()
             );
 
         private static CombatantRulesState Registration(
@@ -2385,7 +2402,8 @@ namespace Game.Rules.Runtime.Tests
                 bindings,
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                effects
+                effects,
+                Array.Empty<ActiveEffectTimingRestore>()
             );
 
         private static EncounterState ActiveTurnEncounter() =>
@@ -2440,7 +2458,8 @@ namespace Game.Rules.Runtime.Tests
                 },
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                Array.Empty<ActiveEffectInstance>()
+                Array.Empty<ActiveEffectInstance>(),
+                Array.Empty<ActiveEffectTimingRestore>()
             );
 
         private static RuleDispatcher CreateDispatcher(

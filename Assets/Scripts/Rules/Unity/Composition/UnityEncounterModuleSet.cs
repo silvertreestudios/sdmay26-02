@@ -4,6 +4,7 @@ using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Light;
 using Game.Rules.Unity.Spells;
@@ -63,9 +64,6 @@ namespace Game.Rules.Unity.Composition
             SlowedRules.DefineRuleBinding(registryBuilder);
             RageRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
-            registryBuilder.Define(
-                UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
-            );
             foreach (
                 RuleDefinitionId definitionId in spellCatalog
                     .Definitions.SelectMany(definition => definition.Effects)
@@ -78,6 +76,10 @@ namespace Game.Rules.Unity.Composition
             IUnityEncounterModule[] modules =
             {
                 rottingAura,
+                new DungeonRulesEffectPersistenceModule(
+                    owner,
+                    DungeonRulesEffectPersistence.Codecs
+                ),
                 new ConditionEncounterModule(owner),
                 new UnitySlowedModule(),
                 new UnityRageModule(rageDefinition),
@@ -88,7 +90,6 @@ namespace Game.Rules.Unity.Composition
                     installUnityAuthority
                 ),
                 new UnitySpellcastingEncounterModule(
-                    owner,
                     actionCatalog,
                     spellAttackContext,
                     creatures,

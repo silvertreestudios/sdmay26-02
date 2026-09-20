@@ -4,6 +4,7 @@ using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence.Repository;
+using Game.Rules.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -229,17 +230,27 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
-    public void LoadRejectsInactiveFloorWithUnresolvedTimedEffectSource()
+    public void LoadRejectsInactiveFloorWithUnresolvedRulesEffectSource()
     {
         DungeonRunSave valid = CreateRun(0, 2);
         DungeonActorSaveState actor = ActorState(1, "floor-0");
-        actor.TimedEffects = new[]
+        actor.RulesEffects = new[]
         {
-            new DungeonTimedEffectSaveState
+            new DungeonRulesEffectSaveState
             {
-                Kind = "shield",
+                EffectId = "effect-1",
+                BindingId = "binding-1",
+                DefinitionId = "rage-effect",
                 SourceActorId = "missing-actor",
-                RemainingTurnStarts = 1,
+                BindingOwnerActorId = InstanceId("encounter-1", 1),
+                RuleSource = "rage",
+                DurationKind = EffectDurationKind.Minutes,
+                DurationAmount = 1,
+                BindingEnabled = true,
+                HasTiming = true,
+                RemainingBoundaries = 1,
+                StateKind = "rage",
+                StatePayload = "{\"StartedByQuickTempered\":false}",
             },
         };
         DungeonFloorSavePayload[] payloads = valid.FloorPayloads.ToArray();
@@ -262,8 +273,8 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         Assert.That(repository.Save(CreateRun(0, 2)).IsSuccess, Is.True);
         string json = File.ReadAllText(repository.AutosavePath);
         string outdated = json.Replace(
+            "\"DocumentVersion\":3",
             "\"DocumentVersion\":2",
-            "\"DocumentVersion\":1",
             StringComparison.Ordinal
         );
         File.WriteAllText(repository.AutosavePath, outdated);
@@ -469,8 +480,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             TemporaryHitPointSource =
                 temporaryHitPoints == 0 ? string.Empty : temporaryHitPointSource,
             TemporaryHitPointImmunities = Array.Empty<string>(),
-            Conditions = Array.Empty<DungeonConditionSaveState>(),
-            TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            RulesEffects = Array.Empty<DungeonRulesEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {

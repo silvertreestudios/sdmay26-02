@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -14,32 +13,22 @@ namespace Game.Combat.Spells
     /// <summary>Owns generic spellcasting rules, presentation, and action installation composition.</summary>
     internal sealed class UnitySpellcastingEncounterModule
         : IUnityEncounterDispatcherModule,
-            IUnityEncounterRuntimeModule,
             IUnityEncounterActionPresentationModule,
             IUnityEncounterTopologyModule,
             IUnityCombatantEnrollmentModule
     {
-        internal static readonly RuleDefinitionId RestoredTimedEffectDefinitionId = new(
-            "restored-spell-effect-timing"
-        );
-
-        private readonly UnityCombatRulesBridge owner;
         private readonly ISpellActionCatalog catalog;
         private readonly UnitySpellAttackContext attackContext;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly bool installUnityAuthority;
-        private readonly Dictionary<ActiveEffectId, RestoredSpellEffectProjection> restoredEffects =
-            new();
 
         internal UnitySpellcastingEncounterModule(
-            UnityCombatRulesBridge owner,
             ISpellActionCatalog catalog,
             UnitySpellAttackContext attackContext,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             bool installUnityAuthority
         )
         {
-            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             this.attackContext =
                 attackContext ?? throw new ArgumentNullException(nameof(attackContext));
@@ -51,14 +40,6 @@ namespace Game.Combat.Spells
         public void ConfigureDispatcher(RuleDispatcherBuilder builder)
         {
             builder.UseSpellcastingRules(catalog, attackContext);
-        }
-
-        /// <inheritdoc/>
-        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
-        {
-            RestoredSpellEffectTimingObserver restored = new(restoredEffects);
-            lifetime.Add(dispatcher.RegisterFactObserver<InitiativeBoundaryReachedFact>(restored));
-            lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(restored));
         }
 
         /// <inheritdoc/>
@@ -78,33 +59,6 @@ namespace Game.Combat.Spells
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
-            SpellEffectController controller =
-                builder.Controller.GetComponent<SpellEffectController>();
-            if (installUnityAuthority && controller != null)
-            {
-                RestoredSpellEffectProjection[] projections = controller
-                    .Effects.Select(
-                        (effect, index) =>
-                            RestoredSpellEffectProjection.TryCreate(
-                                controller,
-                                builder.CreatureId,
-                                effect,
-                                index
-                            )
-                    )
-                    .Where(projection => projection != null)
-                    .ToArray();
-                if (projections.Length > 0)
-                {
-                    (ActiveEffectInstance Effect, ActiveRuleBinding Binding)[] registrations =
-                        projections
-                            .Select(projection => projection.CreateRegistration(owner))
-                            .ToArray();
-                    builder.AddActiveEffects(registrations.Select(value => value.Effect));
-                    builder.AddRuleBindings(registrations.Select(value => value.Binding));
-                    builder.Own(new RestoredSpellEffectPreparation(restoredEffects, projections));
-                }
-            }
             builder.AddSpellSlots(
                 catalog.GetSpellBook(builder.CreatureId).CreateInitialSlotStates(builder.CreatureId)
             );
@@ -113,215 +67,6 @@ namespace Game.Combat.Spells
             builder.AddInstallation(
                 UnitySpellActionInstaller.Prepare(builder.Controller, builder.CreatureId, catalog)
             );
-        }
-    }
-
-    /// <summary>
-    /// Owns pre-encounter restored spell-effect state until the encounter releases its complete
-    /// composition.
-    /// </summary>
-    internal sealed class RestoredSpellEffectPreparation : IDisposable
-    {
-        private readonly IDictionary<ActiveEffectId, RestoredSpellEffectProjection> projections;
-        private readonly IReadOnlyList<RestoredSpellEffectProjection> owned;
-        private bool isDisposed;
-
-        internal RestoredSpellEffectPreparation(
-            IDictionary<ActiveEffectId, RestoredSpellEffectProjection> projections,
-            IEnumerable<RestoredSpellEffectProjection> owned
-        )
-        {
-            this.projections = projections ?? throw new ArgumentNullException(nameof(projections));
-            RestoredSpellEffectProjection[] copied =
-                owned?.ToArray() ?? throw new ArgumentNullException(nameof(owned));
-            if (
-                copied.Any(projection => projection == null)
-                || copied.Select(projection => projection.EffectId).Distinct().Count()
-                    != copied.Length
-                || copied.Any(projection => projections.ContainsKey(projection.EffectId))
-            )
-                throw new InvalidOperationException(
-                    "Restored spell effects require unique encounter identities."
-                );
-            this.owned = copied;
-            foreach (RestoredSpellEffectProjection projection in copied)
-                projections.Add(projection.EffectId, projection);
-        }
-
-        /// <inheritdoc/>
-        public void Dispose()
-        {
-            if (isDisposed)
-                return;
-            isDisposed = true;
-            foreach (RestoredSpellEffectProjection projection in owned)
-            {
-                if (
-                    projections.TryGetValue(
-                        projection.EffectId,
-                        out RestoredSpellEffectProjection current
-                    ) && ReferenceEquals(current, projection)
-                )
-                    projections.Remove(projection.EffectId);
-            }
-        }
-    }
-
-    internal sealed class RestoredSpellEffectProjection
-    {
-        private RestoredSpellEffectProjection(
-            SpellEffectController controller,
-            CreatureId target,
-            ActiveSpellEffect effect,
-            int index,
-            string spellSlug,
-            EffectDuration duration
-        )
-        {
-            Controller = controller;
-            Target = target;
-            Effect = effect;
-            SpellSlug = spellSlug;
-            Duration = duration;
-            EffectId = new ActiveEffectId(
-                $"restored-spell-effect-{target.Value}-{spellSlug}-{index}"
-            );
-            BindingId = new BindingId($"restored-spell-binding-{target.Value}-{spellSlug}-{index}");
-            CreationOrder = index;
-        }
-
-        internal ActiveEffectId EffectId { get; }
-        internal BindingId BindingId { get; }
-        internal ActiveSpellEffect Effect { get; }
-        private SpellEffectController Controller { get; }
-        private CreatureId Target { get; }
-        private string SpellSlug { get; }
-        private EffectDuration Duration { get; }
-        private long CreationOrder { get; }
-
-        internal static RestoredSpellEffectProjection TryCreate(
-            SpellEffectController controller,
-            CreatureId target,
-            ActiveSpellEffect effect,
-            int index
-        )
-        {
-            if (effect is ShieldSpellEffect)
-                return new RestoredSpellEffectProjection(
-                    controller,
-                    target,
-                    effect,
-                    index,
-                    "shield",
-                    EffectDuration.Rounds(1)
-                );
-            if (effect is BlessSpellEffect)
-                return CreateCounted(controller, target, effect, index, "bless");
-            if (effect is InfuseVitalitySpellEffect)
-                return CreateCounted(controller, target, effect, index, "infuse-vitality");
-            return null;
-        }
-
-        internal (ActiveEffectInstance Effect, ActiveRuleBinding Binding) CreateRegistration(
-            UnityCombatRulesBridge owner
-        )
-        {
-            if (Effect.Source == null)
-                throw new InvalidOperationException(
-                    $"Restored {Effect.SourceLabel} has no live source creature."
-                );
-            CreatureComponent source = Effect.Source.GetComponent<CreatureComponent>();
-            if (source == null || !owner.TryGetCreatureId(source, out CreatureId sourceId))
-                throw new InvalidOperationException(
-                    $"Restored {Effect.SourceLabel} source is not enrolled in this encounter."
-                );
-            RuleSource ruleSource = RuleSource.FromSlug(SpellSlug);
-            ActiveEffectInstance active = new(
-                EffectId,
-                UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId,
-                sourceId,
-                ruleSource,
-                Duration,
-                new SpellEffectState(new SpellReference(new SpellId(SpellSlug), 1), Target)
-            );
-            ActiveRuleBinding binding = new(
-                BindingId,
-                UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId,
-                sourceId,
-                EffectId,
-                ruleSource,
-                CreationOrder
-            );
-            return (active, binding);
-        }
-
-        internal void ProjectRemaining(RulesSnapshot snapshot)
-        {
-            if (snapshot.ActiveEffectTimings.TryGet(EffectId, out ActiveEffectTimingState timing))
-                Effect.RemainingTargetTurnStarts = timing.RemainingBoundaries;
-        }
-
-        internal void Remove() => Controller?.Remove(Effect);
-
-        private static RestoredSpellEffectProjection CreateCounted(
-            SpellEffectController controller,
-            CreatureId target,
-            ActiveSpellEffect effect,
-            int index,
-            string spellSlug
-        )
-        {
-            if (effect.RemainingTargetTurnStarts <= 0)
-                throw new InvalidOperationException(
-                    $"Restored {effect.SourceLabel} requires a positive remaining duration."
-                );
-            return new RestoredSpellEffectProjection(
-                controller,
-                target,
-                effect,
-                index,
-                spellSlug,
-                EffectDuration.Rounds(effect.RemainingTargetTurnStarts)
-            );
-        }
-    }
-
-    internal sealed class RestoredSpellEffectTimingObserver
-        : IFactObserver<InitiativeBoundaryReachedFact>,
-            IFactObserver<ActiveEffectRemovedFact>
-    {
-        private readonly IReadOnlyDictionary<
-            ActiveEffectId,
-            RestoredSpellEffectProjection
-        > projections;
-
-        internal RestoredSpellEffectTimingObserver(
-            IReadOnlyDictionary<ActiveEffectId, RestoredSpellEffectProjection> projections
-        ) => this.projections = projections ?? throw new ArgumentNullException(nameof(projections));
-
-        public void OnFactCommitted(
-            InitiativeBoundaryReachedFact fact,
-            OpId rootId,
-            RulesSnapshot currentSnapshot
-        )
-        {
-            foreach (RestoredSpellEffectProjection projection in projections.Values)
-                projection.ProjectRemaining(currentSnapshot);
-        }
-
-        public void OnFactCommitted(
-            ActiveEffectRemovedFact fact,
-            OpId rootId,
-            RulesSnapshot currentSnapshot
-        )
-        {
-            Remove(fact.EffectId);
-        }
-
-        private void Remove(ActiveEffectId effect)
-        {
-            if (projections.TryGetValue(effect, out RestoredSpellEffectProjection projection))
-                projection.Remove();
         }
     }
 }

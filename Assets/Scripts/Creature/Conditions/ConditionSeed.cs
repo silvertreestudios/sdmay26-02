@@ -5,10 +5,10 @@ using UnityEngine;
 
 namespace Game.Creature.Rules
 {
-    /// <summary>Seeds independent indefinite applications and projects them for later enrollment.</summary>
+    /// <summary>Seeds independent indefinite applications and projects them between encounters.</summary>
     /// <remarks>
-    /// Rules never read this component while attached. Finite effects belong to encounter timing,
-    /// not this between-encounter seed; restoring timed conditions from saves is not supported.
+    /// Rules never read this component while attached. Dungeon reload replaces this projection with
+    /// generic authoritative effect envelopes, including finite condition applications.
     /// </remarks>
     internal sealed class ConditionSeed : MonoBehaviour
     {
@@ -29,5 +29,8 @@ namespace Game.Creature.Rules
                     .Select(effect => (effect.GetState<ConditionState>(), effect.Source))
             );
         }
+
+        /// <summary>Clears this projection when an explicit authoritative restore supersedes it.</summary>
+        internal void Clear() => applications.Clear();
     }
 }

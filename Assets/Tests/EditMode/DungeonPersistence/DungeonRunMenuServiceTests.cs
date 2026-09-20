@@ -134,7 +134,7 @@ public sealed class DungeonRunMenuServiceTests
 
         File.WriteAllText(repository.AutosavePath, currentJson);
         string incompatibleJson = currentJson.Replace(
-            "\"DocumentVersion\":2",
+            "\"DocumentVersion\":3",
             "\"DocumentVersion\":99",
             StringComparison.Ordinal
         );
@@ -221,8 +221,7 @@ public sealed class DungeonRunMenuServiceTests
             TemporaryHitPoints = 0,
             TemporaryHitPointSource = string.Empty,
             TemporaryHitPointImmunities = Array.Empty<string>(),
-            Conditions = Array.Empty<DungeonConditionSaveState>(),
-            TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            RulesEffects = Array.Empty<DungeonRulesEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {

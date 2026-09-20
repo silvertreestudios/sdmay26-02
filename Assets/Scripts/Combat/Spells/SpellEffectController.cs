@@ -246,21 +246,6 @@ namespace Game.Combat.Spells
                 existing.RefreshFrom(effect);
         }
 
-        internal void RestoreEffects(IEnumerable<ActiveSpellEffect> restoredEffects)
-        {
-            if (restoredEffects == null)
-                throw new ArgumentNullException(nameof(restoredEffects));
-            ActiveSpellEffect[] copied = new List<ActiveSpellEffect>(restoredEffects).ToArray();
-            if (Array.Exists(copied, effect => effect == null || effect.Consumed))
-                throw new ArgumentException(
-                    "Restored spell effects must be active.",
-                    nameof(restoredEffects)
-                );
-
-            effects.Clear();
-            effects.AddRange(copied);
-        }
-
         /// <summary>Removes one exact Unity projection after authoritative effect expiry.</summary>
         internal bool Remove(ActiveSpellEffect effect) => effects.Remove(effect);
 
