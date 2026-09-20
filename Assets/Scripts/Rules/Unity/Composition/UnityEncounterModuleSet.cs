@@ -37,13 +37,19 @@ namespace Game.Rules.Unity.Composition
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             Tile[,] tiles,
             StrideActionDefinition strideDefinition,
-            bool installUnityAuthority
+            bool installUnityAuthority,
+            IReadOnlyList<UnityEncounterExtension> extensions
         )
         {
             if (owner == null)
                 throw new ArgumentNullException(nameof(owner));
             if (actionPresentationCoordinator == null)
                 throw new ArgumentNullException(nameof(actionPresentationCoordinator));
+            if (extensions == null || extensions.Any(extension => extension == null))
+                throw new ArgumentException(
+                    "Encounter extensions cannot contain null.",
+                    nameof(extensions)
+                );
             UnityStrikeContext strikeContext = new(creatures, tiles);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
             UnityRottingAuraModule rottingAura = new(creatures, tiles);
@@ -54,7 +60,9 @@ namespace Game.Rules.Unity.Composition
                 strikeContext,
                 spellCatalog,
                 new UnitySpellBookProvider(creatures),
-                rageDefinition
+                new[] { rageDefinition }.Concat(
+                    extensions.Select(extension => extension.ActionCatalog)
+                )
             );
 
             RuleRegistryBuilder registryBuilder = new();
@@ -75,7 +83,7 @@ namespace Game.Rules.Unity.Composition
                 registryBuilder.Define(definitionId);
 
             UnityActionPresentationRegistry actionPresentation = new(actionPresentationCoordinator);
-            IUnityEncounterModule[] modules =
+            List<IUnityEncounterModule> modules = new()
             {
                 rottingAura,
                 new ConditionEncounterModule(owner),
@@ -94,15 +102,18 @@ namespace Game.Rules.Unity.Composition
                     creatures,
                     installUnityAuthority
                 ),
-                new UnityActionPresentationModule(actionPresentation),
-                new UnityLightModule(spellCatalog, creatures),
+            };
+            modules.AddRange(extensions.Select(extension => extension.Module));
+            modules.Add(new UnityActionPresentationModule(actionPresentation));
+            modules.Add(new UnityLightModule(spellCatalog, creatures));
+            modules.Add(
                 new UnityHealthProjectionModule(
                     creatures,
                     actionPresentationCoordinator,
                     installUnityAuthority
-                ),
-                new UnityEncounterProjectionModule(owner),
-            };
+                )
+            );
+            modules.Add(new UnityEncounterProjectionModule(owner));
             UnityEncounterComposition composition = new(modules);
             composition.ConfigureActionPresentation(actionPresentation);
             return new UnityEncounterModuleSet(composition, actionCatalog, registryBuilder.Build());
@@ -126,7 +137,7 @@ namespace Game.Rules.Unity.Composition
             IStrikeActionCatalog strike,
             ISpellDefinitionCatalog spell,
             ISpellBookProvider spellBooks,
-            params IActionCatalog[] featureCatalogs
+            IEnumerable<IActionCatalog> featureCatalogs
         )
         {
             this.stride = stride ?? throw new ArgumentNullException(nameof(stride));

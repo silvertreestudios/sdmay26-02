@@ -6,7 +6,10 @@ using Game.Combat.Exploration;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
+using Game.Rules.Unity.Door;
 using GridPrivate;
 using GridPublic;
 using UnityEngine;
@@ -80,7 +83,9 @@ namespace Game.Combat.Encounters
         private readonly List<Vector3> livingPartyPositions = new();
         private readonly Dictionary<DungeonCell, DungeonDoorController> doorsByCell = new();
         private readonly HashSet<DungeonCell> documentedStairEndpointCells = new();
-        private readonly SortedSet<string> openDoorIds = new(StringComparer.Ordinal);
+        private DoorWorldRuntime doorWorld;
+        private IDisposable doorProjectionRegistration;
+        private IDisposable encounterExtensionRegistration;
         private DungeonEncounterDirector director;
         private CombatManagerInterface combatManager;
         private IDungeonExplorationPresentation explorationPresentation;
@@ -269,13 +274,7 @@ namespace Game.Combat.Encounters
                     "The dungeon encounter runtime is not initialized."
                 );
 
-            SortedSet<string> captured = new(openDoorIds, StringComparer.Ordinal);
-            foreach (DungeonDoorController door in doorsByCell.Values)
-            {
-                if (door.IsOpen)
-                    captured.Add(door.StableId);
-            }
-            return Array.AsReadOnly(captured.ToArray());
+            return doorWorld.CaptureOpenDoorIds();
         }
 
         /// <summary>Attempts to open the generated door occupying one grid cell.</summary>
@@ -294,7 +293,29 @@ namespace Game.Combat.Encounters
             if (!TryPrepareDoorInteraction(doorCell, out PreparedDoorInteraction interaction))
                 return false;
 
-            return ApplyDoorInteraction(interaction);
+            OpResult<DoorOpenedOutcome> result;
+            if (combatManager.IsCombatActive)
+            {
+                if (
+                    !interaction.Actor.TryGetCombatRules(
+                        out UnityCombatRulesBridge bridge,
+                        out CreatureId actor
+                    )
+                )
+                    return false;
+                result = bridge.Dispatch(
+                    new DoorInteractActionOp(actor, new DoorId(interaction.Door.StableId))
+                );
+            }
+            else
+            {
+                result = doorWorld.Open(CreateDoorRequest(interaction.Actor, interaction.Door));
+            }
+
+            if (result is not ResolvedOpResult<DoorOpenedOutcome> resolved)
+                return false;
+            CompleteDoorProjection(resolved.Value.Door);
+            return true;
         }
 
         /// <summary>
@@ -343,60 +364,61 @@ namespace Game.Combat.Encounters
             )
                 return false;
 
-            DungeonDoorInteractionMode mode = combatManager.IsCombatActive
-                ? DungeonDoorInteractionMode.Combat
-                : DungeonDoorInteractionMode.Exploration;
+            bool inCombat = combatManager.IsCombatActive;
             bool partyActionInProgress = party.Any(member =>
                 member != null && member.IsTakingAction
             );
-            ActionController actor =
-                mode == DungeonDoorInteractionMode.Exploration
-                    ? partyActionInProgress
-                        ? null
-                        : party.FirstOrDefault(member =>
-                            CanObserve(member) && IsCardinallyAdjacent(member, door.Cell)
-                        )
-                    : combatManager.WhosTurn()?.GetComponent<ActionController>();
+            ActionController actor = !inCombat
+                ? partyActionInProgress
+                    ? null
+                    : party.FirstOrDefault(member =>
+                        CanObserve(member) && IsCardinallyAdjacent(member, door.Cell)
+                    )
+                : combatManager.WhosTurn()?.GetComponent<ActionController>();
             bool actorIsPartyMember = actor != null && party.Contains(actor);
             bool actorIsAlive = actorIsPartyMember && CanObserve(actor);
-            if (
-                actor == null
-                || actor.IsTakingAction
-                || mode == DungeonDoorInteractionMode.Combat && !actor.HasTurnAuthority
-            )
+            if (actor == null || actor.IsTakingAction || inCombat && !actor.HasTurnAuthority)
                 return false;
 
-            Vector3Int actorPosition = Vector3Int.RoundToInt(actor.transform.position);
-            DungeonDoorInteractionDecision decision = DungeonDoorInteractionPolicy.Evaluate(
-                new DungeonDoorInteractionRequest(
-                    mode,
-                    actorIsPartyMember,
-                    actorIsAlive,
-                    new DungeonCell(actorPosition.x, actorPosition.z),
-                    door.Cell,
-                    door.IsOpen,
-                    actor.ActionPoints
-                )
+            DoorOpenValidation validation = doorWorld.Validate(
+                CreateDoorRequest(actor, door, actorIsPartyMember, actorIsAlive)
             );
-            if (!decision.IsAllowed)
+            if (!validation.IsValid)
                 return false;
 
-            interaction = new PreparedDoorInteraction(actor, door, decision);
+            interaction = new PreparedDoorInteraction(actor, door);
             return true;
         }
 
-        private bool ApplyDoorInteraction(PreparedDoorInteraction interaction)
+        private static DoorOpenRequest CreateDoorRequest(
+            ActionController actor,
+            DungeonDoorController door,
+            bool actorIsPlayerCharacter = true,
+            bool actorIsAlive = true
+        )
         {
-            if (!interaction.Door.TryOpen())
-                return false;
+            Vector3Int actorPosition = Vector3Int.RoundToInt(actor.transform.position);
+            return new DoorOpenRequest(
+                new DoorId(door.StableId),
+                new GridPosition(actorPosition.x, actorPosition.y, actorPosition.z),
+                actorIsPlayerCharacter,
+                actorIsAlive
+            );
+        }
 
-            interaction.Actor.SpendActions(interaction.Decision.ActionCost);
+        private void CompleteDoorProjection(DoorId doorId)
+        {
+            DungeonDoorController door = doorsByCell.Values.Single(candidate =>
+                string.Equals(candidate.StableId, doorId.Value, StringComparison.Ordinal)
+            );
+            if (!door.IsOpen)
+                throw new InvalidOperationException(
+                    $"Committed door '{doorId.Value}' was not projected into the generated map."
+                );
             combatManager.RefreshRulesTopology();
-            openDoorIds.Add(interaction.Door.StableId);
             EnterReachableEncounterRooms();
-            DoorOpened(interaction.Door.StableId);
+            DoorOpened(doorId.Value);
             PersistentStateChanged();
-            return true;
         }
 
         /// <summary>Attempts to select one living party member as the exploration leader.</summary>
@@ -693,7 +715,11 @@ namespace Game.Combat.Encounters
             livingPartyPositions.Clear();
             doorsByCell.Clear();
             documentedStairEndpointCells.Clear();
-            openDoorIds.Clear();
+            doorProjectionRegistration?.Dispose();
+            doorProjectionRegistration = null;
+            encounterExtensionRegistration?.Dispose();
+            encounterExtensionRegistration = null;
+            doorWorld = null;
             presentedExplorationParty = Array.Empty<ActionController>();
             selectedLeader = null;
             director = null;
@@ -724,11 +750,14 @@ namespace Game.Combat.Encounters
                 door => door.Id,
                 StringComparer.Ordinal
             );
-            foreach (DungeonDoor door in document.Doors)
-            {
-                if (door.IsOpen)
-                    openDoorIds.Add(door.Id);
-            }
+            doorWorld = new DoorWorldRuntime(
+                document.Doors.Select(door => new DoorState(
+                    new DoorId(door.Id),
+                    new GridPosition(door.Cell.X, 0, door.Cell.Z),
+                    door.IsOpen
+                )),
+                new RandomRollService()
+            );
 
             Map map = GetComponentInParent<Map>();
             if (map == null)
@@ -761,8 +790,23 @@ namespace Game.Combat.Encounters
                         "Generated dungeon doors must occupy unique cells."
                     );
                 }
-                if (controller.IsOpen)
-                    openDoorIds.Add(controller.StableId);
+            }
+
+            doorProjectionRegistration = doorWorld.RegisterObserver(
+                new DoorProjectionObserver(doorsByCell)
+            );
+            if (combatManager is not IUnityEncounterExtensionHost extensionHost)
+            {
+                if (documentedDoors.Count > 0)
+                    throw new InvalidOperationException(
+                        "Generated doors require an encounter extension host."
+                    );
+            }
+            else
+            {
+                encounterExtensionRegistration = extensionHost.RegisterEncounterExtension(
+                    new UnityDoorEncounterModule(doorWorld).CreateExtension()
+                );
             }
 
             gridInput = map.GetComponent<GridInput>();
@@ -806,7 +850,7 @@ namespace Game.Combat.Encounters
             }
             if (
                 doorsByCell.TryGetValue(clickedCell, out DungeonDoorController clickedDoor)
-                && !clickedDoor.IsOpen
+                && !IsDoorOpen(clickedDoor)
             )
             {
                 _ = TryTravelToInteraction(clickedCell, () => TryOpenDoor(clickedCell));
@@ -1064,22 +1108,46 @@ namespace Game.Combat.Encounters
 
         private readonly struct PreparedDoorInteraction
         {
-            internal PreparedDoorInteraction(
-                ActionController actor,
-                DungeonDoorController door,
-                DungeonDoorInteractionDecision decision
-            )
+            internal PreparedDoorInteraction(ActionController actor, DungeonDoorController door)
             {
                 Actor = actor;
                 Door = door;
-                Decision = decision;
             }
 
             internal ActionController Actor { get; }
 
             internal DungeonDoorController Door { get; }
+        }
 
-            internal DungeonDoorInteractionDecision Decision { get; }
+        private bool IsDoorOpen(DungeonDoorController door) =>
+            doorWorld.Snapshot.Doors[new DoorId(door.StableId)].IsOpen;
+
+        private sealed class DoorProjectionObserver : IFactObserver<DoorOpenedFact>
+        {
+            private readonly IReadOnlyDictionary<DungeonCell, DungeonDoorController> doorsByCell;
+
+            internal DoorProjectionObserver(
+                IReadOnlyDictionary<DungeonCell, DungeonDoorController> doorsByCell
+            ) => this.doorsByCell = doorsByCell;
+
+            public void OnFactCommitted(
+                DoorOpenedFact fact,
+                OpId observationRootId,
+                RulesSnapshot currentSnapshot
+            )
+            {
+                DungeonCell cell = new(fact.Cell.X, fact.Cell.Z);
+                if (
+                    !doorsByCell.TryGetValue(cell, out DungeonDoorController door)
+                    || !string.Equals(door.StableId, fact.Door.Value, StringComparison.Ordinal)
+                    || !door.ProjectOpen()
+                )
+                {
+                    throw new InvalidOperationException(
+                        $"Door '{fact.Door.Value}' could not project its committed open state."
+                    );
+                }
+            }
         }
 
         bool IExplorationStrideCoordinator.Handles(GameObject character) =>

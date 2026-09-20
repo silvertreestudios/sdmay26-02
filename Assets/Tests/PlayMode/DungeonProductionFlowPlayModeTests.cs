@@ -604,6 +604,35 @@ public sealed class DungeonProductionFlowPlayModeTests
         );
         DungeonDoorController restoredDoor = restoredDoors[0];
         Assert.That(restoredDoor.IsOpen, Is.True);
+        Map restoredMap = RequireMap();
+        GridBase restoredGrid = restoredMap.GetComponent<GridBase>();
+        Assert.That(
+            restoredMap.GetMapData()[restoredDoor.Cell.X, restoredDoor.Cell.Z],
+            Is.EqualTo(TileType.Door)
+        );
+        Assert.That(restoredGrid.GetTiles()[restoredDoor.Cell.X, restoredDoor.Cell.Z], Is.Not.Null);
+        Assert.That(
+            restoredGrid.GetLineOfSightBlocks()[restoredDoor.Cell.X, restoredDoor.Cell.Z],
+            Is.False
+        );
+        Assert.That(
+            GridLineOfSightData.IsBlocking(
+                restoredGrid.GetTiles(),
+                new Vector3Int(restoredDoor.Cell.X, 0, restoredDoor.Cell.Z)
+            ),
+            Is.False,
+            "Reload must rebuild the shared line-of-effect view from authoritative door state."
+        );
+        Transform restoredClosedVisual = restoredDoor.transform.Find("ClosedVisual");
+        Assert.That(restoredClosedVisual, Is.Not.Null);
+        Assert.That(restoredClosedVisual.gameObject.activeSelf, Is.False);
+        Assert.That(
+            restoredClosedVisual
+                .GetComponentsInChildren<Collider>(includeInactive: true)
+                .All(collider => !collider.gameObject.activeInHierarchy),
+            Is.True,
+            "Reload must not retain closed-door collision under the open visual state."
+        );
 
         DungeonEncounterRuntimeController restoredRuntime =
             Object.FindFirstObjectByType<DungeonEncounterRuntimeController>();

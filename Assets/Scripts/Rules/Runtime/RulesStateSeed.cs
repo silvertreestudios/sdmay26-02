@@ -39,6 +39,7 @@ namespace Game.Rules.Runtime
             new Dictionary<EncounterId, EncounterState>();
         internal Dictionary<ActiveEffectId, ActiveEffectTimingState> ActiveEffectTimings { get; } =
             new Dictionary<ActiveEffectId, ActiveEffectTimingState>();
+        internal Dictionary<DoorId, DoorState> Doors { get; } = new Dictionary<DoorId, DoorState>();
 
         /// <summary>Seeds an authoritative encounter state for deterministic fixtures.</summary>
         /// <param name="value">The complete immutable encounter state.</param>
@@ -59,6 +60,17 @@ namespace Game.Rules.Runtime
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
             ActiveEffectTimings[value.Effect] = value;
+            return this;
+        }
+
+        /// <summary>Seeds one persistent door before the floor rules store begins resolving.</summary>
+        /// <param name="value">The complete door identity, cell, and restored open state.</param>
+        /// <returns>This seed so initial state can continue to be composed fluently.</returns>
+        public RulesStateSeed SeedDoor(DoorState value)
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            Doors[value.Id] = value;
             return this;
         }
 

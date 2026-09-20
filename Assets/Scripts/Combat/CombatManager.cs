@@ -5,11 +5,12 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Composition;
 using GridPrivate;
 using UnityEngine;
 
 /// <summary>Hosts and projects the single rules-owned encounter lifecycle.</summary>
-public class CombatManager : CombatManagerInterface
+public class CombatManager : CombatManagerInterface, IUnityEncounterExtensionHost
 {
     private const string DungeonProtagonistTeamName = "Players";
     protected List<ActionController> Combatants = new();
@@ -18,6 +19,7 @@ public class CombatManager : CombatManagerInterface
     private int pendingCombatStops;
     private EncounterOutcome? pendingOutcomePresentation;
     private UnityCombatRulesBridge combatRules;
+    private readonly List<UnityEncounterExtension> encounterExtensions = new();
 
     /// <summary>Raised with the surviving team display name when dungeon combat ends.</summary>
     public event Action<string> DungeonCombatEnded = delegate { };
@@ -253,6 +255,20 @@ public class CombatManager : CombatManagerInterface
         combatRules.RefreshTopology(GetCurrentTiles());
     }
 
+    IDisposable IUnityEncounterExtensionHost.RegisterEncounterExtension(
+        UnityEncounterExtension extension
+    )
+    {
+        if (extension == null)
+            throw new ArgumentNullException(nameof(extension));
+        if (combatRules != null)
+            throw new InvalidOperationException(
+                "Encounter extensions must be installed between encounter roots."
+            );
+        encounterExtensions.Add(extension);
+        return new EncounterExtensionRegistration(this, extension);
+    }
+
     private void BeginCombat(
         IReadOnlyList<ActionController> participants,
         bool dungeonDirected,
@@ -296,8 +312,10 @@ public class CombatManager : CombatManagerInterface
             combatRules = UnityCombatRulesBridge.Create(
                 activeCombatants,
                 tiles,
+                new RandomRollService(),
                 protagonistTeamName,
-                conclusionPolicy
+                conclusionPolicy,
+                encounterExtensions.ToArray()
             );
             combatRules.EncounterStarted += PresentEncounterStarted;
             combatRules.TurnBegan += PresentTurnBegan;
@@ -315,6 +333,30 @@ public class CombatManager : CombatManagerInterface
                 }
             });
             throw;
+        }
+    }
+
+    private sealed class EncounterExtensionRegistration : IDisposable
+    {
+        private CombatManager owner;
+        private readonly UnityEncounterExtension extension;
+
+        internal EncounterExtensionRegistration(
+            CombatManager owner,
+            UnityEncounterExtension extension
+        )
+        {
+            this.owner = owner;
+            this.extension = extension;
+        }
+
+        public void Dispose()
+        {
+            CombatManager current = owner;
+            if (current == null)
+                return;
+            owner = null;
+            current.encounterExtensions.Remove(extension);
         }
     }
 

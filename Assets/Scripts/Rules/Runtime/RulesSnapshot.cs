@@ -61,6 +61,9 @@ namespace Game.Rules.Runtime
             ActiveEffectTimingState
         > ActiveEffectTimings { get; }
 
+        /// <summary>Gets durable authoritative doors keyed by stable map identity.</summary>
+        public StateSliceSnapshot<DoorId, DoorState> Doors { get; }
+
         internal RulesSnapshot(RulesStateData data)
         {
             Version = data.Version;
@@ -93,6 +96,7 @@ namespace Game.Rules.Runtime
             ActiveEffectTimings = new StateSliceSnapshot<ActiveEffectId, ActiveEffectTimingState>(
                 data.ActiveEffectTimings
             );
+            Doors = new StateSliceSnapshot<DoorId, DoorState>(data.Doors);
         }
     }
 }
