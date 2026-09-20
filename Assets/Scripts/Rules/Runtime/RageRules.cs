@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -802,8 +803,12 @@ namespace Game.Rules.Runtime
         )
         {
             RageActorState actorState = definition.GetActorState(actor);
-            ActiveEffectId effectId = new ActiveEffectId($"rage-effect-{rootId.Value}");
-            BindingId bindingId = new BindingId($"rage-binding-{rootId.Value}");
+            var identity = context.CreateActiveEffectIdentity(
+                "rage",
+                rootId.Value.ToString(CultureInfo.InvariantCulture)
+            );
+            ActiveEffectId effectId = identity.EffectId;
+            BindingId bindingId = identity.BindingId;
             ActiveEffectInstance effect = new ActiveEffectInstance(
                 effectId,
                 RageActionDefinition.EffectDefinitionId,

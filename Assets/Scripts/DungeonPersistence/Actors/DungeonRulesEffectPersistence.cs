@@ -703,13 +703,20 @@ namespace Game.DungeonPersistence.Actors
                     );
                 creationOrder++;
 
-                string identity;
+                string effectIdentity;
+                string bindingIdentity;
                 do
                 {
-                    identity = $"condition-seed-save:{actor.StableKey}:{identityOrdinal++}";
-                } while (effectIds.Contains(identity) || bindingIds.Contains(identity));
-                effectIds.Add(identity);
-                bindingIds.Add(identity);
+                    string applicationIdentity = $"{actor.StableKey}:{identityOrdinal++}";
+                    // Detached applications do not have a live dispatcher. Their persisted actor
+                    // identity provides the run-global namespace instead.
+                    effectIdentity = $"active-effect:detached-condition:{applicationIdentity}";
+                    bindingIdentity = $"effect-binding:detached-condition:{applicationIdentity}";
+                } while (
+                    effectIds.Contains(effectIdentity) || bindingIds.Contains(bindingIdentity)
+                );
+                effectIds.Add(effectIdentity);
+                bindingIds.Add(bindingIdentity);
 
                 (string kind, string payload) = Codecs.Capture(
                     application.State,
@@ -721,8 +728,8 @@ namespace Game.DungeonPersistence.Actors
                 captured.Add(
                     new DungeonRulesEffectSaveState
                     {
-                        EffectId = identity,
-                        BindingId = identity,
+                        EffectId = effectIdentity,
+                        BindingId = bindingIdentity,
                         DefinitionId = ConditionRules.DefinitionId.Value,
                         SourceActor = actor,
                         BindingOwnerActor = actor,

@@ -756,6 +756,54 @@ public sealed class DungeonActorStateAdapterTests
     }
 
     [Test]
+    public void SaveLoadedMatchingSelfSourceDoesNotSuppressDistinctConditionSource()
+    {
+        SourceFixture hero = CreateFixture("Restored Self-Sourced Hero", out restoredObject);
+        restoredObject.AddComponent<Team>().Name = "players";
+        SourceFixture opponent = CreateFixture("Restored Opponent", out restoredOpponentObject);
+        restoredOpponentObject.AddComponent<Team>().Name = "enemies";
+        restoredOpponentObject.transform.position = Vector3.right;
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            _ => PartyActor("unused")
+        );
+        saved.RulesEffects = new[]
+        {
+            CreateSavedSlowedEffect(
+                "restored-self-sourced-condition",
+                PartyActor("hero"),
+                PartyActor("hero"),
+                expiresAtNextSourceBoundary: true
+            ),
+        };
+        Func<DungeonRulesActorReference, GameObject> resolve = actor =>
+            actor.Equals(PartyActor("hero")) ? restoredObject : null;
+        DungeonActorStateAdapter.PrepareRestore(
+            hero.Controller,
+            saved,
+            hero.Creature.Health.Current,
+            false,
+            resolve
+        )();
+
+        new Slowed(1).Apply(new ConditionSource(), restoredObject);
+
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { hero.Controller, opponent.Controller },
+            CreateTiles(),
+            new ScriptedRollService(20, 10),
+            "players"
+        );
+
+        AssertIndependentConditionRemainsAfterRestoredRemoval(
+            hero.Creature,
+            hero.Creature,
+            new ActiveEffectId("restored-self-sourced-condition"),
+            expectedActionsAfterRemoval: 2
+        );
+    }
+
+    [Test]
     public void DetachedProjectionDifferentSourceDoesNotSuppressIndependentConditionSeed()
     {
         SourceFixture hero = CreateFixture("Continuing Hero", out restoredObject);
@@ -799,6 +847,54 @@ public sealed class DungeonActorStateAdapterTests
             hero.Creature,
             enemy.Creature,
             restored.EffectId
+        );
+    }
+
+    [Test]
+    public void DetachedProjectionMatchingSelfSourceDoesNotSuppressDistinctConditionSource()
+    {
+        SourceFixture hero = CreateFixture("Continuing Self-Sourced Hero", out restoredObject);
+        restoredObject.AddComponent<Team>().Name = "players";
+        SourceFixture opponent = CreateFixture("Continuing Opponent", out restoredOpponentObject);
+        restoredOpponentObject.AddComponent<Team>().Name = "enemies";
+        restoredOpponentObject.transform.position = Vector3.right;
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { hero.Controller, opponent.Controller },
+            CreateTiles(),
+            new ScriptedRollService(20, 10),
+            "players"
+        );
+        CreatureId heroId = activeBridge.GetCreatureId(hero.Creature);
+        ActiveEffectCreationOutcome restored = (
+            (ResolvedOpResult<ActiveEffectCreationOutcome>)
+                activeBridge.Dispatch(
+                    new ApplyConditionOp(
+                        heroId,
+                        SlowedRules.ConditionId,
+                        1,
+                        heroId,
+                        SlowedRules.Source,
+                        EffectDuration.Rounds(1)
+                    )
+                )
+        ).Value;
+        activeBridge.ReleaseOwnership();
+        activeBridge = null;
+
+        new Slowed(1).Apply(new ConditionSource(), restoredObject);
+
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { hero.Controller, opponent.Controller },
+            CreateTiles(),
+            new ScriptedRollService(20, 10),
+            "players"
+        );
+
+        AssertIndependentConditionRemainsAfterRestoredRemoval(
+            hero.Creature,
+            hero.Creature,
+            restored.EffectId,
+            expectedActionsAfterRemoval: 2
         );
     }
 
@@ -1004,7 +1100,8 @@ public sealed class DungeonActorStateAdapterTests
     private void AssertIndependentConditionRemainsAfterRestoredRemoval(
         CreatureComponent hero,
         CreatureComponent restoredSource,
-        ActiveEffectId restoredEffectId
+        ActiveEffectId restoredEffectId,
+        int expectedActionsAfterRemoval = 3
     )
     {
         CreatureId heroId = activeBridge.GetCreatureId(hero);
@@ -1012,7 +1109,10 @@ public sealed class DungeonActorStateAdapterTests
             ConditionRules.GetApplications(activeBridge.Snapshot, heroId).Count(),
             Is.EqualTo(2)
         );
-        activeBridge.BeginTurn(activeBridge.GetCreatureId(restoredSource), 3);
+        activeBridge.BeginTurn(
+            activeBridge.GetCreatureId(restoredSource),
+            expectedActionsAfterRemoval
+        );
         Assert.That(activeBridge.Snapshot.ActiveEffects.Contains(restoredEffectId), Is.False);
         Assert.That(
             ConditionRules.GetValue(activeBridge.Snapshot, heroId, SlowedRules.ConditionId),

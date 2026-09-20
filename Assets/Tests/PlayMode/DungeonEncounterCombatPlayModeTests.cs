@@ -88,7 +88,12 @@ public sealed class DungeonEncounterCombatPlayModeTests
         CombatantFixture player = CreateCombatant("Player", "Players", 200);
         CombatantFixture restoredZombie = CreateCombatant("Restored Zombie", "Enemies", 100);
         restoredZombie.Creature.passives.Add("Slow");
-        InstallRestoredSlowed(restoredZombie, 40, "restored-zombie");
+        InstallRestoredSlowed(
+            restoredZombie,
+            40,
+            "restored-zombie",
+            RuleSource.FromSlug("passive:slow").Slug
+        );
 
         Assert.DoesNotThrow(() =>
             manager.StartDungeonCombat(new[] { player.Controller, restoredZombie.Controller })
@@ -1051,7 +1056,8 @@ public sealed class DungeonEncounterCombatPlayModeTests
     private static void InstallRestoredSlowed(
         CombatantFixture fixture,
         long creationOrder,
-        string actorId
+        string actorId,
+        string ruleSource = ""
     )
     {
         DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
@@ -1067,7 +1073,9 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 DefinitionId = ConditionRules.DefinitionId.Value,
                 SourceActor = DungeonRulesActorReference.Party(actorId),
                 BindingOwnerActor = DungeonRulesActorReference.Party(actorId),
-                RuleSource = SlowedRules.Source.Slug,
+                RuleSource = string.IsNullOrWhiteSpace(ruleSource)
+                    ? SlowedRules.Source.Slug
+                    : ruleSource,
                 DurationKind = EffectDurationKind.Indefinite,
                 EffectStateVersion = 0,
                 CreationOrder = creationOrder,

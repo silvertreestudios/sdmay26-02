@@ -200,7 +200,9 @@ provenance, duration, and remaining schedule, plus an explicitly registered code
 new encounter state and publishes the ordinary creation Facts only after commit. It must not recast
 an action, replay causal damage, refresh a duration, synthesize replacement identities, or make a
 Unity component a parallel authority. New effect-state types extend the codec catalog rather than a
-central feature-name switch.
+central feature-name switch. Newly created effect and effect-binding identities use one unique
+namespace shared by a rules host's enrollment and dispatcher callbacks, so independent hosts can
+persist their active state in the same graph without relying on encounter-local operation numbers.
 
 The restore transport is consumed only after successful enrollment and is refreshed from the final
 rules snapshot when encounter ownership ends. Stable actor references may outlive a materialized

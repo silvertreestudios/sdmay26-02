@@ -50,6 +50,7 @@ public sealed class UnityCombatRulesBridgeTests
                     new HealthState(1, 1),
                     new GridPosition(0, 0, 0),
                     new GridDistance(0),
+                    new ActiveEffectIdentityScope("module-order-first"),
                     firstLifetime
                 )
             );
@@ -64,6 +65,7 @@ public sealed class UnityCombatRulesBridgeTests
                     new HealthState(1, 1),
                     new GridPosition(1, 0, 0),
                     new GridDistance(0),
+                    new ActiveEffectIdentityScope("module-order-second"),
                     secondLifetime
                 )
             );

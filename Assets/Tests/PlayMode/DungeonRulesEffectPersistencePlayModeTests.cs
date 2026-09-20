@@ -20,6 +20,119 @@ public sealed class DungeonRulesPersistencePlayModeController : ActionController
 public sealed class DungeonRulesEffectPersistencePlayModeTests
 {
     [UnityTest]
+    public IEnumerator IndependentFloorBridgesKeepGeneratedEffectIdentitiesRunGlobal()
+    {
+        const string reusedLocalId = "encounter-shared/creature-0000";
+        DungeonRulesActorReference heroReference = DungeonRulesActorReference.Party("hero");
+        GameObject firstHero = CreateActor("First Floor Hero", "players", Vector3.zero);
+        GameObject firstEnemy = CreateActor("First Floor Enemy", "enemies", Vector3.right);
+        GameObject secondHero = CreateActor("Second Floor Hero", "players", Vector3.zero);
+        GameObject secondEnemy = CreateActor("Second Floor Enemy", "enemies", Vector3.right);
+        UnityCombatRulesBridge firstBridge = null;
+        UnityCombatRulesBridge secondBridge = null;
+        try
+        {
+            firstBridge = CreateBridge(firstHero, firstEnemy);
+            CreatureId firstEnemyId = firstBridge.GetCreatureId(
+                firstEnemy.GetComponent<CreatureComponent>()
+            );
+            Assert.That(
+                firstBridge.Dispatch(
+                    new ApplyConditionOp(
+                        firstEnemyId,
+                        SlowedRules.ConditionId,
+                        1,
+                        firstEnemyId,
+                        SlowedRules.Source,
+                        EffectDuration.Indefinite
+                    )
+                ),
+                Is.TypeOf<ResolvedOpResult<ActiveEffectCreationOutcome>>()
+            );
+            firstBridge.ReleaseOwnership();
+            firstBridge = null;
+            DungeonActorSaveState firstEnemyState = DungeonActorStateAdapter.Capture(
+                firstEnemy.GetComponent<ActionController>(),
+                actor =>
+                    actor == firstEnemy
+                        ? DungeonRulesActorReference.Floor(0, reusedLocalId)
+                        : heroReference
+            );
+
+            secondBridge = CreateBridge(secondHero, secondEnemy);
+            CreatureId secondEnemyId = secondBridge.GetCreatureId(
+                secondEnemy.GetComponent<CreatureComponent>()
+            );
+            Assert.That(
+                secondBridge.Dispatch(
+                    new ApplyConditionOp(
+                        secondEnemyId,
+                        SlowedRules.ConditionId,
+                        1,
+                        secondEnemyId,
+                        SlowedRules.Source,
+                        EffectDuration.Indefinite
+                    )
+                ),
+                Is.TypeOf<ResolvedOpResult<ActiveEffectCreationOutcome>>()
+            );
+            secondBridge.ReleaseOwnership();
+            secondBridge = null;
+            DungeonActorSaveState secondEnemyState = DungeonActorStateAdapter.Capture(
+                secondEnemy.GetComponent<ActionController>(),
+                actor =>
+                    actor == secondEnemy
+                        ? DungeonRulesActorReference.Floor(1, reusedLocalId)
+                        : heroReference
+            );
+
+            DungeonRulesEffectSaveState firstEffect = firstEnemyState.RulesEffects.Single();
+            DungeonRulesEffectSaveState secondEffect = secondEnemyState.RulesEffects.Single();
+            Assert.That(secondEffect.EffectId, Is.Not.EqualTo(firstEffect.EffectId));
+            Assert.That(secondEffect.BindingId, Is.Not.EqualTo(firstEffect.BindingId));
+
+            DungeonPartyMemberSaveState[] party =
+            {
+                new()
+                {
+                    RosterSlotId = heroReference.ActorId,
+                    CreatureContentId = "hero-content",
+                    CellX = 1,
+                    CellZ = 1,
+                    CurrentHitPoints = 10,
+                    IsDefeated = false,
+                    State = EmptyActorState(),
+                },
+            };
+            DungeonRunSave run = DungeonRunSave
+                .CreateNew(
+                    party,
+                    Floor(0, reusedLocalId, sourceDefeated: false, livingState: firstEnemyState)
+                )
+                .WithAddedAndSelectedFloor(
+                    party,
+                    Floor(1, reusedLocalId, sourceDefeated: false, livingState: secondEnemyState)
+                );
+
+            DungeonSaveResult<DungeonRunSave> parsed = DungeonSaveJson.Parse(
+                DungeonSaveJson.Serialize(run),
+                "memory"
+            );
+            Assert.That(parsed.IsSuccess, Is.True, parsed.Diagnostics.FirstOrDefault()?.Message);
+        }
+        finally
+        {
+            firstBridge?.ReleaseOwnership();
+            secondBridge?.ReleaseOwnership();
+            UnityEngine.Object.Destroy(firstHero);
+            UnityEngine.Object.Destroy(firstEnemy);
+            UnityEngine.Object.Destroy(secondHero);
+            UnityEngine.Object.Destroy(secondEnemy);
+        }
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator CrossFloorArrivalSaveLoadKeepsAbsentSourceDistinctFromReusedLocalId()
     {
         const string reusedLocalId = "encounter-shared/creature-0000";
@@ -275,6 +388,21 @@ public sealed class DungeonRulesEffectPersistencePlayModeTests
         return actor;
     }
 
+    private static UnityCombatRulesBridge CreateBridge(GameObject hero, GameObject enemy)
+    {
+        Tile[,] tiles = new Tile[2, 1];
+        tiles[0, 0] = new Tile();
+        tiles[1, 0] = new Tile();
+        tiles[0, 0].Occupants.Add(hero);
+        tiles[1, 0].Occupants.Add(enemy);
+        return UnityCombatRulesBridge.Create(
+            new[] { hero.GetComponent<ActionController>(), enemy.GetComponent<ActionController>() },
+            tiles,
+            new ScriptedRollService(20, 10),
+            "players"
+        );
+    }
+
     private static DungeonActorSaveState EmptyActorState() =>
         new()
         {
@@ -292,7 +420,18 @@ public sealed class DungeonRulesEffectPersistencePlayModeTests
             },
         };
 
-    private static DungeonLevelDocument Floor(int depth, string reusedLocalId, bool sourceDefeated)
+    private static DungeonLevelDocument Floor(
+        int depth,
+        string reusedLocalId,
+        bool sourceDefeated
+    ) => Floor(depth, reusedLocalId, sourceDefeated, EmptyActorState());
+
+    private static DungeonLevelDocument Floor(
+        int depth,
+        string reusedLocalId,
+        bool sourceDefeated,
+        DungeonActorSaveState livingState
+    )
     {
         const string encounterId = "encounter-shared";
         DungeonEncounterPlan plan = new(
@@ -318,7 +457,7 @@ public sealed class DungeonRulesEffectPersistencePlayModeTests
                         encounterId,
                         new DungeonCell(2, 1),
                         10,
-                        DungeonSaveJson.SerializeActor(EmptyActorState())
+                        DungeonSaveJson.SerializeActor(livingState)
                     ),
                 }
         );

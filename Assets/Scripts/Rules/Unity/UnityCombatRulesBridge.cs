@@ -33,6 +33,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
+        private readonly ActiveEffectIdentityScope activeEffectIdentities;
         private readonly SequentialOpIdProvider operationIds;
         private readonly RuleDispatcher dispatcher;
         private readonly UnityEncounterComposition composition;
@@ -77,6 +78,7 @@ namespace Game.Rules.Unity
                 topologyProvider,
                 strideFriendshipProvider
             );
+            activeEffectIdentities = ActiveEffectIdentityScope.CreateUnique();
             UnityEncounterModuleSet modules = UnityEncounterModuleSet.Create(
                 this,
                 actionPresentationCoordinator,
@@ -107,6 +109,7 @@ namespace Game.Rules.Unity
                     rollService ?? throw new ArgumentNullException(nameof(rollService)),
                     operationIds
                 )
+                    .UseActiveEffectIdentityScope(activeEffectIdentities)
                     .UseHealthRules()
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
@@ -740,6 +743,7 @@ namespace Game.Rules.Unity
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet),
+                activeEffectIdentities,
                 preparationLifetime
             );
         }

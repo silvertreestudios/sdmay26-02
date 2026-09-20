@@ -260,8 +260,13 @@ reference explicitly as an external effect actor rather than discarding the effe
 live `GameObject`. A counted
 duration whose source remains external advances once at each new-round boundary. Counted restores
 require a positive remaining boundary count. Dispatcher operation IDs start above every restored
-binding creation order, including restored effects supplied by later combatant additions, so new
-feature-generated effect and binding IDs cannot collide with active restored identities.
+binding creation order, including restored effects supplied by later combatant additions. New
+effect and effect-binding identities come from one unique namespace shared by the bridge's
+pre-dispatch enrollment and dispatcher callbacks; local operation numbers and combatant IDs are
+only suffixes inside that namespace. Independent floor bridges therefore cannot generate the same
+persisted identity. Restored identities bypass generation and remain exact. Detached condition
+applications have no bridge, so their identities use the persisted dungeon actor reference—which
+includes floor depth for non-party actors—as their run-global namespace.
 
 Finite effects created for a source in a populated initialized encounter are scheduled immediately,
 before the first explicit advance, just as they are during an active encounter. This lets
@@ -466,7 +471,10 @@ owns shared Unity application, enrollment, and effect-Fact projection.
 applications for later enrollment. It is never read for attached rules calculations. Finite
 applications belong to the existing encounter lifetime, not the between-encounter seed.
 Projection re-queries surviving applications after removal instead of unconditionally clearing the
-condition's display entry.
+condition's display entry. Imported passives carry an explicit stable replay source. Only a replay
+from that identified passive may consume a matching pending restore; an ordinary distinct
+`ConditionSource` always creates its own application even when value, rules source, and source actor
+match an existing restore.
 
 Dungeon restoration preserves arbitrary positive condition values, independent overlapping sources,
 exact identities, and remaining timing through the generic rules-effect envelope. Slowed is the

@@ -26,6 +26,11 @@ namespace Game.Creature.Rules
             ConditionSource displaySource
         )
         {
+            RuleSource applicationSource =
+                displaySource != null
+                && displaySource.TryGetReplaySource(out RuleSource replaySource)
+                    ? replaySource
+                    : source;
             Conditions display =
                 target.GetComponent<Conditions>() ?? target.AddComponent<Conditions>();
             ActionController controller = target.GetComponent<ActionController>();
@@ -43,7 +48,7 @@ namespace Game.Creature.Rules
                         state.Condition,
                         state.Value,
                         actor,
-                        source,
+                        applicationSource,
                         EffectDuration.Indefinite
                     )
                 );
@@ -56,23 +61,30 @@ namespace Game.Creature.Rules
             }
             ConditionSeed seed =
                 target.GetComponent<ConditionSeed>() ?? target.AddComponent<ConditionSeed>();
-            if (!HasPendingRestoredApplication(target, state, source))
-                seed.ApplyBeforeAttachment(state, source);
+            if (!HasPendingPassiveReplay(target, state, applicationSource, displaySource))
+                seed.ApplyBeforeAttachment(state, applicationSource);
             display.Add(state.Condition.Value, displaySource);
         }
 
-        private static bool HasPendingRestoredApplication(
+        private static bool HasPendingPassiveReplay(
             GameObject target,
             ConditionState state,
-            RuleSource source
+            RuleSource source,
+            ConditionSource displaySource
         )
         {
+            if (
+                displaySource == null
+                || !displaySource.TryGetReplaySource(out RuleSource replaySource)
+                || replaySource != source
+            )
+                return false;
             DungeonRulesEffectSeed restored = target.GetComponent<DungeonRulesEffectSeed>();
             if (restored == null)
                 return false;
 
-            // Apply creates a self-sourced application. Suppress it only when the pending restore
-            // represents that same source/owner provenance, not merely the same visible value.
+            // Only an explicitly identified passive replay may consume its matching restored
+            // application. Ordinary ConditionSource instances always create independent effects.
             bool Matches(
                 IEffectState candidate,
                 RuleSource effectSource,
@@ -143,12 +155,15 @@ namespace Game.Creature.Rules
             for (int i = 0; i < applications.Length; i++)
             {
                 var application = applications[i];
-                ActiveEffectId id = new($"condition-seed:{builder.CreatureId.Value}:{i}");
+                var identity = builder.CreateActiveEffectIdentity(
+                    "condition-seed",
+                    $"{builder.CreatureId.Value}:{i}"
+                );
                 builder.AddActiveEffects(
                     new[]
                     {
                         new ActiveEffectInstance(
-                            id,
+                            identity.EffectId,
                             ConditionRules.DefinitionId,
                             builder.CreatureId,
                             application.Source,
@@ -161,10 +176,10 @@ namespace Game.Creature.Rules
                     new[]
                     {
                         new ActiveRuleBinding(
-                            new BindingId(id.Value),
+                            identity.BindingId,
                             ConditionRules.DefinitionId,
                             builder.CreatureId,
-                            id,
+                            identity.EffectId,
                             application.Source,
                             i
                         ),

@@ -7,6 +7,27 @@ namespace Game.Rules.Runtime.Tests
 {
     public sealed class ActiveEffectLifecycleTests
     {
+        [Test]
+        public void ActiveEffectIdentityScopeIsDeterministicWithinScopeAndDistinctAcrossScopes()
+        {
+            var first = new ActiveEffectIdentityScope("first-scope").Create(
+                "condition",
+                "operation-1"
+            );
+            var repeated = new ActiveEffectIdentityScope("first-scope").Create(
+                "condition",
+                "operation-1"
+            );
+            var independent = new ActiveEffectIdentityScope("second-scope").Create(
+                "condition",
+                "operation-1"
+            );
+
+            Assert.That(repeated, Is.EqualTo(first));
+            Assert.That(independent.EffectId, Is.Not.EqualTo(first.EffectId));
+            Assert.That(independent.BindingId, Is.Not.EqualTo(first.BindingId));
+        }
+
         private static readonly ActiveEffectId EffectId = new ActiveEffectId("effect-1");
         private static readonly BindingId BindingId = new BindingId("binding-1");
         private static readonly RuleDefinitionId DefinitionId = new RuleDefinitionId("test-aura");
