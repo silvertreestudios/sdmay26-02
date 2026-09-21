@@ -260,7 +260,7 @@ public sealed class ProceduralDungeonScenePlayModeTests
         Assert.That(door.transform.Find("OpenVisual").gameObject.activeSelf, Is.False);
         Assert.That(door.GetComponentInChildren<MapLineOfSightBlocker>(true), Is.Not.Null);
 
-        Assert.That(door.TryOpen(), Is.True);
+        Assert.That(door.ProjectOpen(), Is.True);
         yield return null;
 
         Assert.That(door.IsOpen, Is.True);
@@ -275,7 +275,7 @@ public sealed class ProceduralDungeonScenePlayModeTests
             Is.SameAs(floor),
             "Opening a door must not rebuild its floor geometry."
         );
-        Assert.That(door.TryOpen(), Is.True, "Opening an open V1 door remains idempotent.");
+        Assert.That(door.ProjectOpen(), Is.True, "Projecting an open V1 door remains idempotent.");
     }
 
     [UnityTest]

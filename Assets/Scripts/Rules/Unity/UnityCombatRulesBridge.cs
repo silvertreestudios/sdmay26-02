@@ -70,7 +70,8 @@ namespace Game.Rules.Unity
             bool attachControllers,
             IRollService rollService,
             string protagonistTeamName,
-            EncounterConclusionPolicy conclusionPolicy
+            EncounterConclusionPolicy conclusionPolicy,
+            IReadOnlyList<UnityEncounterExtension> extensions
         )
         {
             currentTiles = tiles;
@@ -87,7 +88,8 @@ namespace Game.Rules.Unity
                 controllers,
                 tiles,
                 strideDefinition,
-                attachControllers
+                attachControllers,
+                extensions
             );
             composition = modules.Composition;
             enrollmentPipeline = new UnityCombatantEnrollmentPipeline(
@@ -201,7 +203,38 @@ namespace Game.Rules.Unity
                 true,
                 rollService,
                 protagonistTeamName,
-                conclusionPolicy
+                conclusionPolicy,
+                Array.Empty<UnityEncounterExtension>()
+            );
+        }
+
+        /// <summary>Creates combat rules with explicitly installed feature extensions.</summary>
+        internal static UnityCombatRulesBridge Create(
+            IEnumerable<ActionController> encounterControllers,
+            Tile[,] tiles,
+            IRollService rollService,
+            string protagonistTeamName,
+            EncounterConclusionPolicy conclusionPolicy,
+            IReadOnlyList<UnityEncounterExtension> extensions
+        )
+        {
+            if (encounterControllers == null)
+                throw new ArgumentNullException(nameof(encounterControllers));
+            ActionController[] copied = encounterControllers.ToArray();
+            ValidateTiles(tiles);
+            if (string.IsNullOrWhiteSpace(protagonistTeamName))
+                throw new ArgumentException(
+                    "A protagonist team name is required.",
+                    nameof(protagonistTeamName)
+                );
+            return new UnityCombatRulesBridge(
+                copied,
+                tiles,
+                true,
+                rollService,
+                protagonistTeamName,
+                conclusionPolicy,
+                extensions ?? throw new ArgumentNullException(nameof(extensions))
             );
         }
 
@@ -236,7 +269,8 @@ namespace Game.Rules.Unity
                 false,
                 new RandomRollService(),
                 string.Empty,
-                EncounterConclusionPolicy.VictoryOrDefeat
+                EncounterConclusionPolicy.VictoryOrDefeat,
+                Array.Empty<UnityEncounterExtension>()
             );
         }
 

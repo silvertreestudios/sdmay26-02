@@ -83,16 +83,23 @@ composition contract:
 5. `UnityRageModule`
 6. `UnityStrikeEncounterModule`
 7. `UnitySpellcastingEncounterModule`
-8. `UnityActionPresentationModule`
-9. `UnityLightModule`
-10. `UnityHealthProjectionModule`
-11. `UnityEncounterProjectionModule`
+8. Explicit floor-installed feature extensions, in registration order
+9. `UnityActionPresentationModule`
+10. `UnityLightModule`
+11. `UnityHealthProjectionModule`
+12. `UnityEncounterProjectionModule`
 
 Before constructing that list, the module set creates shared typed contexts and catalogs, defines
 every `RuleDefinitionId` required by this composition, and builds the `RuleRegistry`. Modules are
 supplied explicitly; they do not discover or register themselves. The bridge supplies that exact
 registry to active-effect and encounter runtime composition and supplies the composed action catalog
 to the action lifecycle before any module configures the dispatcher.
+
+The dungeon floor registers Open Door's `UnityDoorEncounterModule` and action catalog through the
+generic exact-identity encounter-extension host before an encounter is constructed. The module set
+copies those explicit contributions into the ordered module and action-catalog sequences before it
+builds the dispatcher. This is instance-owned composition, not scene discovery or
+self-registration; disposing the floor's registration prevents it from leaking into a later floor.
 
 `UnityEncounterComposition` preserves the supplied order and invokes only the capability interfaces
 each module implements:
@@ -123,6 +130,7 @@ dispatcher or enrollment hooks merely for symmetry.
 | Light | Runtime effect presentation; spell effect creation and duration remain data-driven |
 | Health projection | Runtime Fact projection |
 | Encounter projection | Runtime Fact projection into the Unity-owned presentation FIFO |
+| Open Door | Floor-owned authoritative door store plus an explicitly installed encounter action validator and handler. Its immutable `DoorWorldState` uses the store's generic typed-state slot, so shared state APIs do not name or interpret doors. |
 
 ## Construction order
 
@@ -457,6 +465,7 @@ that root ends. Do not transfer short-lived observation into the encounter lifet
 | Health, temporary Hit Points, defeat, and Unity health projection | Production authority |
 | Base attack, Armor Class, saves, and skills | Production immutable enrollment state for initial participants and reinforcements |
 | Stride and movement topology/budget | Production; bridge still has first-slice Stride helpers |
+| Open Door and persistent door topology | Production authority in a floor-lived door rules store; encounter use is one-action Interact with Manipulate |
 | Strike, checks, modifier collection, damage, ammunition/reload, and MAP | Production |
 | Spellcasting, spell attacks, resources, effects, generic dungeon restoration, and presentation | Production for implemented spells |
 | Rage bindings, action, effect state, and Unity enrollment | Production |
