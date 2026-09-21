@@ -2421,7 +2421,10 @@ namespace Game.Rules.Runtime.Tests
         [TestCase(true, false)]
         [TestCase(false, true)]
         [TestCase(true, true)]
-        public async Task CountedEffectsRetireWhenOwningEncounterCloses(bool minutes, bool suspend)
+        public async Task CountedEffectsRemainAvailableWhenOwningEncounterCloses(
+            bool minutes,
+            bool suspend
+        )
         {
             RuleDefinitionId definition = new RuleDefinitionId("counted-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
@@ -2474,33 +2477,42 @@ namespace Game.Rules.Runtime.Tests
                 Source,
                 3
             );
+            ActiveEffectId encounterId = new ActiveEffectId("encounter-effect-instance");
+            BindingId encounterBindingId = new BindingId("encounter-effect-binding");
+            ActiveEffectInstance encounterEffect = new ActiveEffectInstance(
+                encounterId,
+                definition,
+                Hero,
+                Source,
+                EffectDuration.Encounter,
+                new TestEffectState()
+            );
+            ActiveRuleBinding encounterBinding = new ActiveRuleBinding(
+                encounterBindingId,
+                definition,
+                Hero,
+                encounterId,
+                Source,
+                4
+            );
             Resolved(
                 await dispatcher.Dispatch(new CreateEffectWorkflowOp(counted, countedBinding))
             );
             Resolved(
                 await dispatcher.Dispatch(new CreateEffectWorkflowOp(permanent, permanentBinding))
             );
+            Resolved(
+                await dispatcher.Dispatch(
+                    new CreateEffectWorkflowOp(encounterEffect, encounterBinding)
+                )
+            );
 
             if (suspend)
             {
                 Resolved(await dispatcher.Dispatch(new SuspendEncounterOp(Encounter)));
-                EncounterId resumed = new EncounterId("resumed-encounter");
-                Resolved(
-                    await dispatcher.Dispatch(
-                        new StartTestEncounterOp(
-                            resumed,
-                            new[]
-                            {
-                                Registration(new CreatureId("resumed-hero"), Players),
-                                Registration(new CreatureId("resumed-enemy"), Enemies),
-                            },
-                            EncounterConclusionPolicy.VictoryOrDefeat
-                        )
-                    )
-                );
                 Assert.That(
-                    dispatcher.Snapshot.Encounters[resumed].Phase,
-                    Is.EqualTo(EncounterPhase.Active)
+                    dispatcher.Snapshot.Encounters[Encounter].Phase,
+                    Is.EqualTo(EncounterPhase.Suspended)
                 );
             }
             else
@@ -2517,11 +2529,20 @@ namespace Game.Rules.Runtime.Tests
                 );
             }
 
-            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(countedId), Is.False);
-            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(countedId), Is.False);
-            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(countedBindingId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffects[countedId], Is.EqualTo(counted));
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[countedId].RemainingBoundaries,
+                Is.EqualTo(minutes ? 10 : 1)
+            );
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings[countedBindingId],
+                Is.EqualTo(countedBinding)
+            );
             Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(permanentId), Is.True);
             Assert.That(dispatcher.Snapshot.RuleBindings[permanentBindingId].IsEnabled, Is.True);
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(encounterId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(encounterId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(encounterBindingId), Is.False);
         }
 
         private static StartTestEncounterOp Start(params CombatantRulesState[] combatants) =>

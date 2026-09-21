@@ -464,6 +464,7 @@ namespace Game.Rules.Runtime
             builder
                 .Define(LifecycleRuleDefinitionId)
                 .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnExpirationListener())
+                .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnEncounterSuspendListener())
                 .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnEncounterEndListener());
             builder
                 .Define(QuickTemperedRuleDefinitionId)
@@ -551,6 +552,22 @@ namespace Game.Rules.Runtime
             EncounterOutcomeCommittedFact fact,
             FactContext context
         )
+        {
+            if (
+                !context.Snapshot.Encounters.TryGet(fact.Encounter, out EncounterState encounter)
+                || !encounter.Roster.Any(entry => entry.Creature == context.Binding.Owner)
+            )
+                return;
+            await RageHandlerSupport.RequireResolved(
+                context.Dispatch(new EndRageOp(context.Binding.Owner, true))
+            );
+        }
+    }
+
+    internal sealed class EndRageOnEncounterSuspendListener
+        : IRuleFactListener<EncounterSuspendedFact>
+    {
+        public async ValueTask OnFactCommitted(EncounterSuspendedFact fact, FactContext context)
         {
             if (
                 !context.Snapshot.Encounters.TryGet(fact.Encounter, out EncounterState encounter)

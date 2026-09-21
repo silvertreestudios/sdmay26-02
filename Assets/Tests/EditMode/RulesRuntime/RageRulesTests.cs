@@ -379,6 +379,11 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new TestRageActorStateProvider(CreateActorState())
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
+            ActiveEffectTimingState timing = dispatcher
+                .Snapshot.ActiveEffectTimings.Select(pair => pair.Value)
+                .Single();
+            Assert.That(timing.ExpiresWithEncounter, Is.False);
+            Assert.That(timing.RemainingBoundaries, Is.EqualTo(10));
 
             ResolvedOpResult<EncounterSuspensionOutcome> suspended = RequireResolved(
                 await dispatcher.Dispatch(new SuspendEncounterOp(Encounter))

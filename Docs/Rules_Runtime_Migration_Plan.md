@@ -771,6 +771,9 @@ The supported pre-built cleric now receives Shield, Guidance, Haunting Hymn, Ble
 Vitality, and Heal through its immutable `PreparedSpellBook`. Encounter composition maps those
 entries to explicit feature rules in `SpellFeatureRules`; `RulesCastSpellAction` owns selection and
 dispatch, action lifecycle owns action and slot costs, and active bindings own lasting effects.
+The checked-in Maren player definition is selectable by name from the Resources-backed pre-built
+directory, delegates to `CreatureJsonConverter.CreateFromFile`, and reaches the same common initial
+or reinforcement enrollment path without the disconnected character builder.
 `CreatureComponent.InitializeRuntimeActions` no longer installs legacy spell actions, the spell
 installer removes any stale `CastSpellAction` entries during both initial and reinforcement
 enrollment, and attached legacy resolution remains rejected. The Unity Strike adapter no longer

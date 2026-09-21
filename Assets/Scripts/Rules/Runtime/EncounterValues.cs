@@ -457,8 +457,8 @@ namespace Game.Rules.Runtime
 
         /// <summary>
         /// Gets whether the source duration was encounter-scoped instead of boundary-counted.
-        /// All finite timings retire when their owning encounter closes because no later encounter
-        /// can advance that timing identity.
+        /// Encounter-scoped timings expire before the encounter closes. Boundary-counted timings
+        /// remain available for host persistence and are rebound to a fresh encounter on restore.
         /// </summary>
         public bool ExpiresWithEncounter { get; }
 

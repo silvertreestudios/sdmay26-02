@@ -89,6 +89,40 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator CheckedInClericLoadsAndSelectsAllMigratedSpellActions()
+    {
+        GameObject maren = CreatureJsonConverter.CreateByName("Maren");
+        Assert.That(maren, Is.Not.Null);
+        created.Add(maren);
+        maren.transform.position = Vector3.zero;
+        CreatureComponent cleric = maren.GetComponent<CreatureComponent>();
+        maren.AddComponent<Team>().Name = "players";
+        TestActionController controller = maren.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Maren Spell Opponent", 1, prepared: false);
+        opponent.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, maren);
+        Occupy(tiles, opponent.gameObject);
+
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            "players"
+        );
+        bridge.AdvanceEncounter();
+
+        Assert.That(cleric.Build.ClassName, Is.EqualTo("Cleric"));
+        Assert.That(cleric.Prepared.HasOwnedItem("cleric"), Is.True);
+        AssertMigratedClericSpellActions(controller);
+        AssertNoDuplicateSpellActions(controller.GetActions().OfType<RulesCastSpellAction>());
+        Assert.That(controller.GetActions().OfType<CastSpellAction>(), Is.Empty);
+        bridge.ReleaseOwnership();
+    }
+
+    [UnityTest]
     public IEnumerator InitialReinforcementAndUnpreparedInstallationReconcileExactlyOnce()
     {
         CreatureComponent initial = CreateCreature("Initial Cleric", 0, prepared: true);

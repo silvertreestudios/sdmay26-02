@@ -320,8 +320,10 @@ encounter handlers and engine reducers. Its current division of responsibility i
   clear turn resources through reducers, and advance.
 - `EncounterOutcomeListener`: after reaction-phase zero-HP listeners settle, finalize defeat and
   evaluate encounter outcome.
-- `SuspendEncounterHandler` and `EndEncounterHandler`: remove encounter-owned timed effects as
-  expired before committing suspension or outcome.
+- `SuspendEncounterHandler` and `EndEncounterHandler`: remove encounter-duration effects as expired
+  before committing suspension or outcome. Boundary-counted effects retain their remaining
+  schedule in the final snapshot so ownership release can project them into the detached dungeon
+  transport and restoration can bind them to the next encounter's clock.
 - Encounter reducers and the shared reducers they invoke atomically mutate roster, initiative
   boundary, current turn, actions, reactions, MAP, movement reset state, phase, and outcome while
   emitting committed Facts.

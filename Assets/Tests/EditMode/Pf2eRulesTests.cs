@@ -19,6 +19,8 @@ public class Pf2eRulesTests
             { new GridPrivate.Tile() },
         };
 
+    private static SpellReference Spell(string slug) => new(new SpellId(slug), 1);
+
     [TearDown]
     public void TearDown()
     {
@@ -84,6 +86,32 @@ public class Pf2eRulesTests
         Assert.That(
             creature.Prepared.Build.RuleSelections["furyInstinct"],
             Does.Contain("Raging Intimidation")
+        );
+    }
+
+    [Test]
+    public void MarenPreparesMigratedClericSpellbookFromCheckedInData()
+    {
+        GameObject maren = CreatureJsonConverter.CreateByName("Maren");
+        Assert.That(maren, Is.Not.Null);
+        created.Add(maren);
+        CreatureComponent creature = maren.GetComponent<CreatureComponent>();
+        SpellReference[] migrated =
+        {
+            Spell("shield"),
+            Spell("guidance"),
+            Spell("haunting-hymn"),
+            Spell("bless"),
+            Spell("infuse-vitality"),
+            Spell("heal"),
+        };
+
+        Assert.That(creature.Build.ClassName, Is.EqualTo("Cleric"));
+        Assert.That(creature.Build.SubclassName, Is.EqualTo("Cloistered Cleric"));
+        Assert.That(creature.Prepared.HasOwnedItem("cleric"), Is.True);
+        Assert.That(
+            migrated.All(spell => creature.Prepared.SpellBook.CastableSpells.Contains(spell)),
+            Is.True
         );
     }
 
