@@ -17,13 +17,32 @@ namespace Game.Rules.Runtime
     public sealed class SpellCastSelection : IEquatable<SpellCastSelection>
     {
         private readonly IReadOnlyList<CreatureId> creatures;
+        private readonly SpellAreaDirection areaDirection;
 
         /// <summary>Creates an immutable selection from stable creature identities.</summary>
         /// <param name="creatures">Selected creature IDs in player-declared order.</param>
         public SpellCastSelection(IEnumerable<CreatureId> creatures)
+            : this(creatures, false, default) { }
+
+        /// <summary>Creates an immutable directed-area selection from stable creature identities.</summary>
+        /// <param name="creatures">Selected creature IDs in player-declared order.</param>
+        /// <param name="areaDirection">The direction used to place the selected area.</param>
+        public SpellCastSelection(
+            IEnumerable<CreatureId> creatures,
+            SpellAreaDirection areaDirection
+        )
+            : this(creatures, true, areaDirection) { }
+
+        private SpellCastSelection(
+            IEnumerable<CreatureId> creatures,
+            bool hasAreaDirection,
+            SpellAreaDirection areaDirection
+        )
         {
             if (creatures == null)
                 throw new ArgumentNullException(nameof(creatures));
+            if (!Enum.IsDefined(typeof(SpellAreaDirection), areaDirection))
+                throw new ArgumentOutOfRangeException(nameof(areaDirection));
             CreatureId[] copied = creatures.ToArray();
             if (copied.Any(creature => creature.IsEmpty))
                 throw new ArgumentException(
@@ -31,6 +50,8 @@ namespace Game.Rules.Runtime
                     nameof(creatures)
                 );
             this.creatures = Array.AsReadOnly(copied);
+            HasAreaDirection = hasAreaDirection;
+            this.areaDirection = areaDirection;
         }
 
         /// <summary>Gets the shared selection for spells requiring no player-selected creatures.</summary>
@@ -40,9 +61,24 @@ namespace Game.Rules.Runtime
         /// <summary>Gets player-selected creature IDs in their declared order.</summary>
         public IReadOnlyList<CreatureId> Creatures => creatures;
 
+        /// <summary>Gets whether the selection retains a directed-area placement.</summary>
+        public bool HasAreaDirection { get; }
+
+        /// <summary>Gets the directed-area placement.</summary>
+        /// <exception cref="InvalidOperationException">This is not a directed-area selection.</exception>
+        public SpellAreaDirection AreaDirection =>
+            HasAreaDirection
+                ? areaDirection
+                : throw new InvalidOperationException(
+                    "The spell selection has no directed-area placement."
+                );
+
         /// <inheritdoc/>
         public bool Equals(SpellCastSelection other) =>
-            other != null && creatures.SequenceEqual(other.creatures);
+            other != null
+            && HasAreaDirection == other.HasAreaDirection
+            && (!HasAreaDirection || areaDirection == other.areaDirection)
+            && creatures.SequenceEqual(other.creatures);
 
         /// <inheritdoc/>
         public override bool Equals(object obj) => obj is SpellCastSelection other && Equals(other);
@@ -53,7 +89,7 @@ namespace Game.Rules.Runtime
             int hash = 17;
             foreach (CreatureId creature in creatures)
                 hash = HashCode.Combine(hash, creature);
-            return hash;
+            return HashCode.Combine(hash, HasAreaDirection, areaDirection);
         }
     }
 
@@ -307,7 +343,8 @@ namespace Game.Rules.Runtime
             UseSpellcastingRules(
                 builder,
                 catalog,
-                UnsupportedSpellAttackResolutionDataProvider.Instance
+                UnsupportedSpellAttackResolutionDataProvider.Instance,
+                UnsupportedSpellTargetingDataProvider.Instance
             );
 
         /// <summary>Adds Cast a Spell with an explicit spell-attack Unity or test adapter.</summary>
@@ -319,6 +356,26 @@ namespace Game.Rules.Runtime
             this RuleDispatcherBuilder builder,
             ISpellActionCatalog catalog,
             ISpellAttackResolutionDataProvider resolutionData
+        ) =>
+            UseSpellcastingRules(
+                builder,
+                catalog,
+                resolutionData,
+                resolutionData as ISpellTargetingDataProvider
+                    ?? UnsupportedSpellTargetingDataProvider.Instance
+            );
+
+        /// <summary>Adds Cast a Spell with explicit attack and feature-targeting adapters.</summary>
+        /// <param name="builder">The dispatcher composition being configured.</param>
+        /// <param name="catalog">Encounter spell definitions and prepared spellbooks.</param>
+        /// <param name="resolutionData">Current spell-attack resolution data.</param>
+        /// <param name="targetingData">Current feature-spell geometry and membership data.</param>
+        /// <returns>The same builder for fluent composition.</returns>
+        public static RuleDispatcherBuilder UseSpellcastingRules(
+            this RuleDispatcherBuilder builder,
+            ISpellActionCatalog catalog,
+            ISpellAttackResolutionDataProvider resolutionData,
+            ISpellTargetingDataProvider targetingData
         )
         {
             if (builder == null)
@@ -327,10 +384,12 @@ namespace Game.Rules.Runtime
                 throw new ArgumentNullException(nameof(catalog));
             if (resolutionData == null)
                 throw new ArgumentNullException(nameof(resolutionData));
+            if (targetingData == null)
+                throw new ArgumentNullException(nameof(targetingData));
             CastSpellActionDefinition definition = new CastSpellActionDefinition(catalog);
             return builder
                 .RegisterActionValidator(
-                    new CastSpellActionValidator(definition, catalog, resolutionData)
+                    new CastSpellActionValidator(definition, catalog, resolutionData, targetingData)
                 )
                 .RegisterHandler<CastSpellActionOp, CastSpellOutcome>(
                     new CastSpellActionHandler(catalog)
@@ -347,17 +406,21 @@ namespace Game.Rules.Runtime
         private readonly CastSpellActionDefinition definition;
         private readonly ISpellDefinitionCatalog catalog;
         private readonly ISpellAttackResolutionDataProvider resolutionData;
+        private readonly ISpellTargetingDataProvider targetingData;
 
         public CastSpellActionValidator(
             CastSpellActionDefinition definition,
             ISpellDefinitionCatalog catalog,
-            ISpellAttackResolutionDataProvider resolutionData
+            ISpellAttackResolutionDataProvider resolutionData,
+            ISpellTargetingDataProvider targetingData
         )
         {
             this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             this.resolutionData =
                 resolutionData ?? throw new ArgumentNullException(nameof(resolutionData));
+            this.targetingData =
+                targetingData ?? throw new ArgumentNullException(nameof(targetingData));
         }
 
         public ActionValidationResult Validate(
@@ -372,7 +435,17 @@ namespace Game.Rules.Runtime
                 catalog is ISpellActionCatalog actions
                 && actions.TryGetCastRule(frame.Op.Spell.Spell, out ISpellCastRule rule)
             )
-                return rule.Validate(snapshot, frame.Op);
+            {
+                ActionValidationResult feature = rule.Validate(snapshot, frame.Op);
+                return feature is ActionValidationResult.ValidActionValidationResult
+                    ? targetingData.ValidateSelection(
+                        snapshot,
+                        frame.Op.Actor,
+                        rule.GetSelection(frame.Op.Variant),
+                        frame.Op.Selection
+                    )
+                    : feature;
+            }
             if (!catalog.TryGetSpell(frame.Op.Spell, out SpellDefinition spell))
                 return ActionValidationResult.Invalid("The spell reference is unknown.");
             if (spell.Attacks.Count == 0)
@@ -399,6 +472,20 @@ namespace Game.Rules.Runtime
                 return ActionValidationResult.Invalid("The selected creature is not alive.");
             return resolutionData.Validate(snapshot, frame.Op.Actor, spell.Attacks[0], target);
         }
+    }
+
+    internal sealed class UnsupportedSpellTargetingDataProvider : ISpellTargetingDataProvider
+    {
+        public static UnsupportedSpellTargetingDataProvider Instance { get; } = new();
+
+        private UnsupportedSpellTargetingDataProvider() { }
+
+        public ActionValidationResult ValidateSelection(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            SpellSelectionProfile profile,
+            SpellCastSelection selection
+        ) => ActionValidationResult.Invalid("Feature spell targeting is not configured.");
     }
 
     internal sealed class CastSpellActionHandler : IOpHandler<CastSpellActionOp, CastSpellOutcome>

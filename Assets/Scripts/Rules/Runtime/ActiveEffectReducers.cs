@@ -231,16 +231,25 @@ namespace Game.Rules.Runtime
                     );
                 // Exploration-owned effects retain their existing host-managed lifetime until an
                 // encounter roster exists. Once it does, every finite effect is scheduled before
-                // any initiative boundary can occur and its source must belong to that roster.
+                // any initiative boundary can occur and its timing source must belong to that roster.
                 if (encounter != null)
                 {
-                    if (!encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature))
+                    if (
+                        !encounter.Roster.Any(entry =>
+                            entry.Creature == context.Op.TimingSourceCreature
+                        )
+                    )
                         return ReductionResult<ActiveEffectCreationOutcome>.Reject(
-                            "The effect source is not in the encounter roster."
+                            "The effect timing source is not in the encounter roster."
                         );
                     state.ActiveEffectTimings.Set(
                         effect.Id,
-                        ActiveEffectTimingState.ForEncounter(effect, binding, encounter)
+                        ActiveEffectTimingState.ForEncounter(
+                            effect,
+                            binding,
+                            encounter,
+                            context.Op.TimingSourceCreature
+                        )
                     );
                 }
             }

@@ -44,6 +44,16 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the binding activated in the same transaction.</summary>
         public ActiveRuleBinding Binding { get; }
 
+        /// <summary>
+        /// Gets the enrolled creature whose initiative boundaries advance a finite duration.
+        /// </summary>
+        /// <remarks>
+        /// This normally equals <see cref="ActiveEffectInstance.SourceCreature"/>. It can differ
+        /// when an effect must retain external-source provenance while using the encounter owner's
+        /// clock, such as a derived immunity created after restoring an effect from an absent caster.
+        /// </remarks>
+        public CreatureId TimingSourceCreature { get; }
+
         /// <inheritdoc/>
         public RuleSource Source => Effect.Source;
 
@@ -52,9 +62,34 @@ namespace Game.Rules.Runtime
         /// <param name="binding">The enabled binding associated with the effect.</param>
         /// <exception cref="ArgumentNullException">Either value is <see langword="null"/>.</exception>
         public CreateActiveEffectOp(ActiveEffectInstance effect, ActiveRuleBinding binding)
+            : this(effect, binding, effect?.SourceCreature ?? default) { }
+
+        /// <summary>
+        /// Initializes one nested typed-effect creation request with an explicit encounter clock.
+        /// </summary>
+        /// <param name="effect">The complete effect at its initial active version.</param>
+        /// <param name="binding">The enabled binding associated with the effect.</param>
+        /// <param name="timingSourceCreature">
+        /// The enrolled creature whose boundaries advance a finite duration.
+        /// </param>
+        /// <exception cref="ArgumentNullException">Either value is <see langword="null"/>.</exception>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="timingSourceCreature"/> is empty.
+        /// </exception>
+        public CreateActiveEffectOp(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            CreatureId timingSourceCreature
+        )
         {
             Effect = effect ?? throw new ArgumentNullException(nameof(effect));
             Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+            if (timingSourceCreature.IsEmpty)
+                throw new ArgumentException(
+                    "An active-effect timing source is required.",
+                    nameof(timingSourceCreature)
+                );
+            TimingSourceCreature = timingSourceCreature;
         }
     }
 

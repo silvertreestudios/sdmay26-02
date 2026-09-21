@@ -478,6 +478,53 @@ namespace Game.Rules.Runtime
         public static SpellSelectionProfile None { get; } = new(SpellSelectionKind.None);
     }
 
+    /// <summary>Identifies one of the eight grid directions used to place a directed spell area.</summary>
+    public enum SpellAreaDirection
+    {
+        /// <summary>Positive horizontal grid direction.</summary>
+        East,
+
+        /// <summary>Positive horizontal and depth grid direction.</summary>
+        NorthEast,
+
+        /// <summary>Positive depth grid direction.</summary>
+        North,
+
+        /// <summary>Negative horizontal and positive depth grid direction.</summary>
+        NorthWest,
+
+        /// <summary>Negative horizontal grid direction.</summary>
+        West,
+
+        /// <summary>Negative horizontal and depth grid direction.</summary>
+        SouthWest,
+
+        /// <summary>Negative depth grid direction.</summary>
+        South,
+
+        /// <summary>Positive horizontal and negative depth grid direction.</summary>
+        SouthEast,
+    }
+
+    /// <summary>
+    /// Revalidates feature-owned spell selections against current encounter geometry before costs.
+    /// </summary>
+    public interface ISpellTargetingDataProvider
+    {
+        /// <summary>Checks current line of effect and exact area membership for a spell selection.</summary>
+        /// <param name="snapshot">The authoritative rules snapshot immediately before costs.</param>
+        /// <param name="actor">The creature attempting the cast.</param>
+        /// <param name="profile">The feature-owned selection shape.</param>
+        /// <param name="selection">The immutable player selection and directed-area intent.</param>
+        /// <returns>A valid result or the current targeting rejection.</returns>
+        ActionValidationResult ValidateSelection(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            SpellSelectionProfile profile,
+            SpellCastSelection selection
+        );
+    }
+
     /// <summary>Supplies immutable creature facts not yet represented by encounter state.</summary>
     public interface ISpellCreatureDataProvider
     {

@@ -57,6 +57,19 @@ public sealed class SpellAttackUnityTests
             Is.TypeOf<ActionValidationResult.ValidActionValidationResult>()
         );
         Assert.That(
+            context.ValidateSelection(
+                snapshot,
+                actorId,
+                new SpellSelectionProfile(
+                    SpellSelectionKind.SingleCreature,
+                    rangeFeet: 60,
+                    exactCreatureCount: 1
+                ),
+                new SpellCastSelection(new[] { targetId })
+            ),
+            Is.TypeOf<ActionValidationResult.ValidActionValidationResult>()
+        );
+        Assert.That(
             context.Capture(snapshot, actorId, attack, targetId).BaseArmorClass,
             Is.EqualTo(18)
         );
@@ -86,11 +99,90 @@ public sealed class SpellAttackUnityTests
                 context.Validate(snapshot, actorId, attack, targetId),
                 Is.TypeOf<ActionValidationResult.InvalidActionValidationResult>()
             );
+            Assert.That(
+                context.ValidateSelection(
+                    snapshot,
+                    actorId,
+                    new SpellSelectionProfile(
+                        SpellSelectionKind.SingleCreature,
+                        rangeFeet: 60,
+                        exactCreatureCount: 1
+                    ),
+                    new SpellCastSelection(new[] { targetId })
+                ),
+                Is.TypeOf<ActionValidationResult.InvalidActionValidationResult>()
+            );
         }
         finally
         {
             GridLineOfSightData.Unregister(corner);
         }
+    }
+
+    [Test]
+    public void ContextRecomputesExactDirectedAreaMembership()
+    {
+        CreatureId actorId = new("spell-area-actor");
+        CreatureId eastId = new("spell-area-east");
+        CreatureId northId = new("spell-area-north");
+        CreatureComponent actor = CreateCreature("Spell Area Actor", 1);
+        actor.transform.position = new Vector3(1, 0, 1);
+        CreatureComponent east = CreateCreature("Spell Area East", 2);
+        east.transform.position = new Vector3(2, 0, 1);
+        CreatureComponent north = CreateCreature("Spell Area North", 1);
+        north.transform.position = new Vector3(1, 0, 2);
+        Tile[,] tiles = CreateTiles(4, 4);
+        tiles[1, 1].Occupants.Add(actor.gameObject);
+        tiles[2, 1].Occupants.Add(east.gameObject);
+        tiles[1, 2].Occupants.Add(north.gameObject);
+        UnitySpellAttackContext context = new(
+            new Dictionary<CreatureId, CreatureComponent>
+            {
+                [actorId] = actor,
+                [eastId] = east,
+                [northId] = north,
+            },
+            tiles
+        );
+        PlayerId team = new("spell-area-team");
+        RulesSnapshot snapshot = new InMemoryRulesStore(
+            new RulesStateSeed()
+                .SeedCreature(new CreatureState(actorId, team))
+                .SeedCreature(new CreatureState(eastId, team))
+                .SeedCreature(new CreatureState(northId, team))
+                .SeedHealth(actorId, new HealthState(10, 10))
+                .SeedHealth(eastId, new HealthState(10, 10))
+                .SeedHealth(northId, new HealthState(10, 10))
+        ).Snapshot;
+        SpellSelectionProfile cone = new(SpellSelectionKind.Cone, areaFeet: 15);
+
+        Assert.That(
+            context.ValidateSelection(
+                snapshot,
+                actorId,
+                cone,
+                new SpellCastSelection(new[] { eastId }, SpellAreaDirection.East)
+            ),
+            Is.TypeOf<ActionValidationResult.ValidActionValidationResult>()
+        );
+        Assert.That(
+            context.ValidateSelection(
+                snapshot,
+                actorId,
+                cone,
+                new SpellCastSelection(new[] { northId }, SpellAreaDirection.East)
+            ),
+            Is.TypeOf<ActionValidationResult.InvalidActionValidationResult>()
+        );
+        Assert.That(
+            context.ValidateSelection(
+                snapshot,
+                actorId,
+                cone,
+                new SpellCastSelection(new[] { eastId })
+            ),
+            Is.TypeOf<ActionValidationResult.InvalidActionValidationResult>()
+        );
     }
 
     private CreatureComponent CreateCreature(string name, int x)
@@ -106,9 +198,15 @@ public sealed class SpellAttackUnityTests
 
     private static Tile[,] CreateTiles(int width)
     {
-        Tile[,] tiles = new Tile[width, 1];
+        return CreateTiles(width, 1);
+    }
+
+    private static Tile[,] CreateTiles(int width, int depth)
+    {
+        Tile[,] tiles = new Tile[width, depth];
         for (int x = 0; x < width; x++)
-            tiles[x, 0] = new Tile();
+        for (int z = 0; z < depth; z++)
+            tiles[x, z] = new Tile();
         return tiles;
     }
 }

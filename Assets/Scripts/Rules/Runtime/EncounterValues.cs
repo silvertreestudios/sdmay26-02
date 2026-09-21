@@ -502,6 +502,13 @@ namespace Game.Rules.Runtime
             ActiveEffectInstance effect,
             ActiveRuleBinding binding,
             EncounterState encounter
+        ) => ForEncounter(effect, binding, encounter, effect.SourceCreature);
+
+        internal static ActiveEffectTimingState ForEncounter(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            EncounterState encounter,
+            CreatureId timingSourceCreature
         )
         {
             int boundaries =
@@ -513,7 +520,7 @@ namespace Game.Rules.Runtime
                 effect.Id,
                 encounter.Id,
                 binding.Id,
-                effect.SourceCreature,
+                timingSourceCreature,
                 boundaries,
                 effect.Duration.Kind == EffectDurationKind.Encounter,
                 binding.CreationOrder

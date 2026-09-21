@@ -16,6 +16,7 @@ namespace Game.Rules.Runtime.Tests
         private static readonly PlayerId Heroes = new("spell-feature-heroes");
         private static readonly PlayerId Enemies = new("spell-feature-enemies");
         private static readonly SpellSlotPoolId Pool = new("spell-feature-rank-1");
+        private static readonly EncounterId Encounter = new("spell-feature-encounter");
         private static readonly RuleSource TestSource = RuleSource.FromSlug("spell-feature-test");
 
         [Test]
@@ -189,21 +190,23 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task UnusedGuidanceExpiresAtCasterTurnStartAndCreatesImmunity()
+        public async Task UnusedGuidanceExpiresAtZeroHpCasterInitiativeBoundaryAndCreatesImmunity()
         {
             TestRuntime runtime = CreateRuntime(new ScriptedRollService());
             RequireResolved(await runtime.Dispatcher.Dispatch(Cast("guidance", 1, Ally)));
-
-            await runtime.Dispatcher.Dispatch(
-                new EmitTurnBeganOp(
-                    new TurnIdentity(
-                        new EncounterId("spell-feature-encounter"),
-                        new TurnId(1),
+            RequireResolved(
+                await runtime.Dispatcher.Dispatch(
+                    new ApplyDamageOp(
                         Caster,
-                        RoundNumber.First,
-                        1
+                        20,
+                        new HealthChangeOriginId("guidance-zero-hp-caster"),
+                        TestSource
                     )
                 )
+            );
+
+            await runtime.Dispatcher.Dispatch(
+                new EmitInitiativeBoundaryOp(Encounter, RoundNumber.First, Caster)
             );
 
             Assert.That(
@@ -217,6 +220,42 @@ namespace Game.Rules.Runtime.Tests
                 .Single(effect => effect.DefinitionId == SpellFeatureRules.GuidanceImmunity);
             Assert.That(immunity.Duration, Is.EqualTo(EffectDuration.Minutes(60)));
             Assert.That(immunity.GetState<SpellEffectState>().Target, Is.EqualTo(Ally));
+        }
+
+        [Test]
+        public async Task RestoredGuidanceWithExternalSourceExpiresAtNextRoundBoundary()
+        {
+            TestRuntime runtime = CreateRuntime(
+                new ScriptedRollService(),
+                new TestCreatureData(),
+                2,
+                new TestTargetingDataProvider(ActionValidationResult.Valid),
+                false
+            );
+            RequireResolved(await runtime.Dispatcher.Dispatch(Cast("guidance", 1, Ally)));
+
+            RequireResolved(
+                await runtime.Dispatcher.Dispatch(
+                    new EmitInitiativeBoundaryOp(Encounter, RoundNumber.First, Ally)
+                )
+            );
+
+            Assert.That(
+                runtime
+                    .Store.Snapshot.ActiveEffects.Select(pair => pair.Value)
+                    .Any(effect => effect.DefinitionId == SpellFeatureRules.GuidanceEffect),
+                Is.False
+            );
+            ActiveEffectInstance immunity = runtime
+                .Store.Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single(effect => effect.DefinitionId == SpellFeatureRules.GuidanceImmunity);
+            Assert.That(immunity.SourceCreature, Is.EqualTo(Caster));
+            Assert.That(immunity.Duration, Is.EqualTo(EffectDuration.Minutes(60)));
+            Assert.That(immunity.GetState<SpellEffectState>().Target, Is.EqualTo(Ally));
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffectTimings[immunity.Id].SourceCreature,
+                Is.EqualTo(Ally)
+            );
         }
 
         [Test]
@@ -260,6 +299,21 @@ namespace Game.Rules.Runtime.Tests
                 infuse.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
                 Is.EqualTo(1)
             );
+        }
+
+        [Test]
+        public async Task InfuseVitalityFixedHeighteningCapsAtThreeDiceAboveRankFive()
+        {
+            TestRuntime runtime = CreateRuntime(new ScriptedRollService());
+            RequireResolved(
+                await runtime.Dispatcher.Dispatch(CastAtRank("infuse-vitality", 9, 1, Ally))
+            );
+
+            IReadOnlyList<TypedDamageDice> dice = RequireResolved(
+                await runtime.Dispatcher.Dispatch(new ProbeStrikeDamageOp(Ally, Undead))
+            ).Value;
+
+            Assert.That(dice.Single().Dice, Is.EqualTo(new DiceExpression(3, 4)));
         }
 
         [TestCase(20, 4, DegreeOfSuccess.CriticalSuccess, 0, false)]
@@ -394,10 +448,20 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task HealThreeActionEmanationHealsAlliesDamagesUndeadAndSkipsLivingEnemies()
+        public async Task HealThreeActionEmanationHealsAllLivingAndDamagesUndead()
         {
             ScriptedRollService rolls = new(10, 5);
             TestRuntime runtime = CreateRuntime(rolls);
+            RequireResolved(
+                await runtime.Dispatcher.Dispatch(
+                    new ApplyDamageOp(
+                        Enemy,
+                        5,
+                        new HealthChangeOriginId("heal-area-living-enemy"),
+                        TestSource
+                    )
+                )
+            );
 
             CastSpellOutcome cast = RequireResolved(
                 await runtime.Dispatcher.Dispatch(Cast("heal", 3, Caster, Ally, Enemy, Undead))
@@ -415,7 +479,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(runtime.Store.Snapshot.Health[Ally].Current, Is.EqualTo(10));
             Assert.That(
                 cast.TargetResolutions.Single(value => value.Target == Enemy).Healing,
-                Is.Zero
+                Is.EqualTo(5)
             );
             Assert.That(runtime.Store.Snapshot.Health[Enemy].Current, Is.EqualTo(20));
             Assert.That(
@@ -451,6 +515,34 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(runtime.Store.Snapshot.SpellSlots[Pool].Remaining, Is.EqualTo(1));
         }
 
+        [Test]
+        public async Task AuthoritativeTargetingRejectsBeforeActionsOrSlotSpend()
+        {
+            TestRuntime runtime = CreateRuntime(
+                new ScriptedRollService(),
+                new TestCreatureData(),
+                2,
+                new TestTargetingDataProvider(
+                    ActionValidationResult.Invalid(
+                        "The live area no longer contains the submitted targets."
+                    )
+                ),
+                true
+            );
+
+            OpResult<CastSpellOutcome> result = await runtime.Dispatcher.Dispatch(
+                Cast("bless", 2, Caster, Ally)
+            );
+
+            Assert.That(result, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
+            Assert.That(
+                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                Is.EqualTo(3)
+            );
+            Assert.That(runtime.Store.Snapshot.SpellSlots[Pool].Remaining, Is.EqualTo(1));
+            Assert.That(runtime.Store.Snapshot.ActiveEffects, Is.Empty);
+        }
+
         private static CastSpellActionOp Cast(
             string slug,
             int actions,
@@ -472,15 +564,37 @@ namespace Game.Rules.Runtime.Tests
 
         private static TestRuntime CreateRuntime(IRollService rolls, int enemyX = 2)
         {
-            return CreateRuntime(rolls, new TestCreatureData(), enemyX);
+            return CreateRuntime(
+                rolls,
+                new TestCreatureData(),
+                enemyX,
+                new TestTargetingDataProvider(ActionValidationResult.Valid),
+                true
+            );
         }
 
         private static TestRuntime CreateRuntime(
             IRollService rolls,
             TestCreatureData creatureData,
             int enemyX = 2
+        ) =>
+            CreateRuntime(
+                rolls,
+                creatureData,
+                enemyX,
+                new TestTargetingDataProvider(ActionValidationResult.Valid),
+                true
+            );
+
+        private static TestRuntime CreateRuntime(
+            IRollService rolls,
+            TestCreatureData creatureData,
+            int enemyX,
+            ISpellTargetingDataProvider targetingData,
+            bool includeCasterInEncounter
         )
         {
+            CreatureId initiativeCreature = includeCasterInEncounter ? Caster : Ally;
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Caster, Heroes))
                 .SeedCreature(new CreatureState(Ally, Heroes))
@@ -500,7 +614,30 @@ namespace Game.Rules.Runtime.Tests
                 .SeedPosition(Enemy, new GridPosition(enemyX, 0, 0))
                 .SeedPosition(Undead, new GridPosition(1, 0, 1))
                 .SeedActionEconomy(Caster, new ActionEconomyState(3, true))
-                .SeedSpellSlot(new SpellSlotState(Pool, Caster, 1, 1));
+                .SeedSpellSlot(new SpellSlotState(Pool, Caster, 1, 1))
+                .SeedEncounter(
+                    new EncounterState(
+                        Encounter,
+                        EncounterPhase.Active,
+                        Heroes,
+                        RoundNumber.First,
+                        new[]
+                        {
+                            new InitiativeEntry(
+                                initiativeCreature,
+                                Heroes,
+                                10,
+                                0,
+                                0,
+                                RoundNumber.First
+                            ),
+                        },
+                        0,
+                        null,
+                        1,
+                        null
+                    )
+                );
             foreach (CreatureId creature in new[] { Caster, Ally, AllyTwo, Enemy, Undead })
             {
                 seed.SeedStatistics(
@@ -526,7 +663,11 @@ namespace Game.Rules.Runtime.Tests
                 .UseCheckResolution()
                 .UseActiveEffectRules(registry.Build())
                 .UseActionLifecycle(catalog)
-                .UseSpellcastingRules(catalog)
+                .UseSpellcastingRules(
+                    catalog,
+                    UnsupportedSpellAttackResolutionDataProvider.Instance,
+                    targetingData
+                )
                 .RegisterHandler<ProbeArmorClassOp, int>(new ProbeArmorClassHandler())
                 .RegisterHandler<ProbeAttackModifiersOp, ModifierCollection>(
                     new ProbeAttackModifiersHandler()
@@ -540,8 +681,13 @@ namespace Game.Rules.Runtime.Tests
                 .RegisterHandler<ProbeStrikeDamageOp, IReadOnlyList<TypedDamageDice>>(
                     new ProbeStrikeDamageHandler()
                 )
-                .RegisterHandler<EmitTurnBeganOp, bool>(new EmitTurnBeganHandler())
-                .RegisterReducer<CommitTurnBeganOp, bool>(new CommitTurnBeganReducer(), TestSource);
+                .RegisterHandler<EmitInitiativeBoundaryOp, bool>(
+                    new EmitInitiativeBoundaryHandler()
+                )
+                .RegisterReducer<CommitInitiativeBoundaryFactOp, bool>(
+                    new CommitInitiativeBoundaryFactReducer(),
+                    TestSource
+                );
             SpellFeatureRules.ConfigureDispatcher(builder);
             ConditionRules.ConfigureDispatcher(builder);
             return new TestRuntime(store, builder.Build());
@@ -695,6 +841,20 @@ namespace Game.Rules.Runtime.Tests
                 creature == Enemy ? resistances : Array.Empty<TypedDefenseAdjustment>();
         }
 
+        private sealed class TestTargetingDataProvider : ISpellTargetingDataProvider
+        {
+            private readonly ActionValidationResult result;
+
+            public TestTargetingDataProvider(ActionValidationResult result) => this.result = result;
+
+            public ActionValidationResult ValidateSelection(
+                RulesSnapshot snapshot,
+                CreatureId actor,
+                SpellSelectionProfile profile,
+                SpellCastSelection selection
+            ) => result;
+        }
+
         private sealed class ProbeArmorClassOp : IRuleOp<int>
         {
             public ProbeArmorClassOp(CreatureId target, int armorClass, params Modifier[] modifiers)
@@ -832,39 +992,77 @@ namespace Game.Rules.Runtime.Tests
                 ).Value;
         }
 
-        private sealed class EmitTurnBeganOp : IRuleOp<bool>
+        private sealed class EmitInitiativeBoundaryOp : IRuleOp<bool>
         {
-            public EmitTurnBeganOp(TurnIdentity turn) => Turn = turn;
+            public EmitInitiativeBoundaryOp(
+                EncounterId encounter,
+                RoundNumber round,
+                CreatureId creature
+            )
+            {
+                Encounter = encounter;
+                Round = round;
+                Creature = creature;
+            }
 
-            public TurnIdentity Turn { get; }
+            public EncounterId Encounter { get; }
+            public RoundNumber Round { get; }
+            public CreatureId Creature { get; }
         }
 
-        private sealed class CommitTurnBeganOp : IRuleOp<bool>, IRuleSourcedOp
+        private sealed class CommitInitiativeBoundaryFactOp : IRuleOp<bool>, IRuleSourcedOp
         {
-            public CommitTurnBeganOp(TurnIdentity turn) => Turn = turn;
+            public CommitInitiativeBoundaryFactOp(
+                EncounterId encounter,
+                RoundNumber round,
+                CreatureId creature
+            )
+            {
+                Encounter = encounter;
+                Round = round;
+                Creature = creature;
+            }
 
-            public TurnIdentity Turn { get; }
+            public EncounterId Encounter { get; }
+            public RoundNumber Round { get; }
+            public CreatureId Creature { get; }
             public RuleSource Source => TestSource;
         }
 
-        private sealed class EmitTurnBeganHandler : IOpHandler<EmitTurnBeganOp, bool>
+        private sealed class EmitInitiativeBoundaryHandler
+            : IOpHandler<EmitInitiativeBoundaryOp, bool>
         {
             public async ValueTask<bool> Handle(
-                OpFrame<EmitTurnBeganOp> frame,
+                OpFrame<EmitInitiativeBoundaryOp> frame,
                 OpHandlerContext context
             ) =>
-                RequireResolved(await context.Dispatch(new CommitTurnBeganOp(frame.Op.Turn))).Value;
+                RequireResolved(
+                    await context.Dispatch(
+                        new CommitInitiativeBoundaryFactOp(
+                            frame.Op.Encounter,
+                            frame.Op.Round,
+                            frame.Op.Creature
+                        )
+                    )
+                ).Value;
         }
 
-        private sealed class CommitTurnBeganReducer : IOpReducer<CommitTurnBeganOp, bool>
+        private sealed class CommitInitiativeBoundaryFactReducer
+            : IOpReducer<CommitInitiativeBoundaryFactOp, bool>
         {
             public ReductionResult<bool> Reduce(
-                ReductionContext<CommitTurnBeganOp> context,
+                ReductionContext<CommitInitiativeBoundaryFactOp> context,
                 RulesStateDraft state,
                 FactSink facts
             )
             {
-                facts.Stage(new TurnBeganFact(context.Op.Turn));
+                facts.Stage(
+                    new InitiativeBoundaryReachedFact(
+                        context.Op.Encounter,
+                        context.Op.Round,
+                        context.Op.Creature
+                    )
+                );
                 return ReductionResult<bool>.Accept(true);
             }
         }

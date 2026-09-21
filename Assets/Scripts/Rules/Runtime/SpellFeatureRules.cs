@@ -84,9 +84,9 @@ namespace Game.Rules.Runtime
                     RuleLifecyclePhase.Transformation,
                     new GuidanceSaveMiddleware()
                 )
-                .FactListener<TurnBeganFact>(
+                .FactListener<InitiativeBoundaryReachedFact>(
                     RuleLifecyclePhase.Observation,
-                    new GuidanceTurnBeganListener()
+                    new GuidanceInitiativeBoundaryListener()
                 );
             builder.Define(GuidanceImmunity).EffectState<SpellEffectState>();
             builder
@@ -178,9 +178,31 @@ namespace Game.Rules.Runtime
                     string.Concat(
                         "unused-immunity:",
                         frame.Id.Value.ToString(CultureInfo.InvariantCulture)
+                    ),
+                    ResolveImmunityTimingSource(
+                        context.Snapshot,
+                        effect.SourceCreature,
+                        binding.Owner
                     )
                 );
                 return true;
+            }
+
+            private static CreatureId ResolveImmunityTimingSource(
+                RulesSnapshot snapshot,
+                CreatureId source,
+                CreatureId owner
+            )
+            {
+                EncounterState encounter = snapshot
+                    .Encounters.Select(pair => pair.Value)
+                    .FirstOrDefault(value =>
+                        value.Phase == EncounterPhase.Initialized
+                        || value.Phase == EncounterPhase.Active
+                    );
+                return encounter == null || encounter.Roster.Any(entry => entry.Creature == source)
+                    ? source
+                    : owner;
             }
         }
 
@@ -254,7 +276,11 @@ namespace Game.Rules.Runtime
                 ActiveEffectInstance effect = context.Snapshot.ActiveEffects[
                     context.Binding.EffectId.Value
                 ];
-                int dice = 1 + ((effect.GetState<SpellEffectState>().Spell.Rank - 1) / 2);
+                int rank = effect.GetState<SpellEffectState>().Spell.Rank;
+                int dice =
+                    rank >= 5 ? 3
+                    : rank >= 3 ? 2
+                    : 1;
                 return OpResult<IReadOnlyList<TypedDamageDice>>.Resolved(
                     resolved
                         .Value.Concat(
@@ -370,16 +396,26 @@ namespace Game.Rules.Runtime
                 };
         }
 
-        private sealed class GuidanceTurnBeganListener : IRuleFactListener<TurnBeganFact>
+        private sealed class GuidanceInitiativeBoundaryListener
+            : IRuleFactListener<InitiativeBoundaryReachedFact>
         {
-            public async ValueTask OnFactCommitted(TurnBeganFact fact, FactContext context)
+            public async ValueTask OnFactCommitted(
+                InitiativeBoundaryReachedFact fact,
+                FactContext context
+            )
             {
                 if (!context.Binding.EffectId.HasValue)
                     return;
                 ActiveEffectInstance effect = context.Snapshot.ActiveEffects[
                     context.Binding.EffectId.Value
                 ];
-                if (fact.Turn.Actor != effect.SourceCreature)
+                bool reachedSource = fact.Creature == effect.SourceCreature;
+                bool reachedNewRoundWithoutSource =
+                    context.Snapshot.Encounters.TryGet(fact.Encounter, out EncounterState encounter)
+                    && encounter.Round == fact.Round
+                    && encounter.Cursor == 0
+                    && !encounter.Roster.Any(entry => entry.Creature == effect.SourceCreature);
+                if (!reachedSource && !reachedNewRoundWithoutSource)
                     return;
                 await SpellRuleSupport.RequireResolved(
                     context.Dispatch(
@@ -883,19 +919,6 @@ namespace Game.Rules.Runtime
                 }
                 else
                 {
-                    if (Selectors.IsEnemy(context.Snapshot, frame.Op.Actor, target))
-                    {
-                        outcomes.Add(
-                            new SpellTargetResolution(
-                                target,
-                                null,
-                                Array.Empty<TypedDamagePart>(),
-                                0,
-                                false
-                            )
-                        );
-                        continue;
-                    }
                     int amount = sharedRoll;
                     if (frame.Op.Variant.Actions == 2)
                         amount = checked(amount + (8 * frame.Op.Spell.Rank));
@@ -982,7 +1005,7 @@ namespace Game.Rules.Runtime
             );
         }
 
-        public static async ValueTask<ActiveEffectId> CreateEffect(
+        public static ValueTask<ActiveEffectId> CreateEffect(
             OpCallbackContext context,
             SpellReference spell,
             CreatureId caster,
@@ -992,6 +1015,31 @@ namespace Game.Rules.Runtime
             RuleSource source,
             long creationOrder,
             string localIdentity
+        ) =>
+            CreateEffect(
+                context,
+                spell,
+                caster,
+                target,
+                definition,
+                duration,
+                source,
+                creationOrder,
+                localIdentity,
+                caster
+            );
+
+        public static async ValueTask<ActiveEffectId> CreateEffect(
+            OpCallbackContext context,
+            SpellReference spell,
+            CreatureId caster,
+            CreatureId target,
+            RuleDefinitionId definition,
+            EffectDuration duration,
+            RuleSource source,
+            long creationOrder,
+            string localIdentity,
+            CreatureId timingSourceCreature
         )
         {
             var identity = context.CreateActiveEffectIdentity("spell", localIdentity);
@@ -1011,7 +1059,9 @@ namespace Game.Rules.Runtime
                 source,
                 creationOrder
             );
-            await RequireResolved(context.Dispatch(new CreateActiveEffectOp(effect, binding)));
+            await RequireResolved(
+                context.Dispatch(new CreateActiveEffectOp(effect, binding, timingSourceCreature))
+            );
             return identity.EffectId;
         }
 

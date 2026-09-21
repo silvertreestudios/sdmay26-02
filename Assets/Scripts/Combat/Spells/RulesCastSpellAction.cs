@@ -142,6 +142,7 @@ namespace Game.Combat.Spells
                                 yield break;
                             selected.Add(targetId);
                         }
+                        spellSelection = new SpellCastSelection(selected.Distinct());
                     }
                     else if (
                         profile.Kind == SpellSelectionKind.Cone
@@ -186,11 +187,15 @@ namespace Game.Combat.Spells
                                 .Where(target => !selectors.IsEnemy(bridge.Snapshot, actor, target))
                                 .ToList();
                         }
-                    }
-                    spellSelection =
-                        selected.Count == 0
-                            ? SpellCastSelection.Empty
+                        spellSelection =
+                            profile.Kind == SpellSelectionKind.Cone
+                                ? new SpellCastSelection(
+                                    selected.Distinct(),
+                                    ToRulesDirection(area.Value.Placement.Direction)
+                                )
+                            : selected.Count == 0 ? SpellCastSelection.Empty
                             : new SpellCastSelection(selected.Distinct());
+                    }
                 }
                 else if (definition.Attacks.Count > 0)
                 {
@@ -271,5 +276,19 @@ namespace Game.Combat.Spells
             }
             yield break;
         }
+
+        private static SpellAreaDirection ToRulesDirection(AreaDirection direction) =>
+            direction switch
+            {
+                AreaDirection.East => SpellAreaDirection.East,
+                AreaDirection.NorthEast => SpellAreaDirection.NorthEast,
+                AreaDirection.North => SpellAreaDirection.North,
+                AreaDirection.NorthWest => SpellAreaDirection.NorthWest,
+                AreaDirection.West => SpellAreaDirection.West,
+                AreaDirection.SouthWest => SpellAreaDirection.SouthWest,
+                AreaDirection.South => SpellAreaDirection.South,
+                AreaDirection.SouthEast => SpellAreaDirection.SouthEast,
+                _ => throw new ArgumentOutOfRangeException(nameof(direction)),
+            };
     }
 }
