@@ -131,6 +131,168 @@ public sealed class DungeonRulesEffectPersistencePlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator RestoredBlessSourcesKeepIndependentTimingAndExpiry()
+    {
+        DungeonRulesActorReference firstCasterReference = DungeonRulesActorReference.Party(
+            "first-caster"
+        );
+        DungeonRulesActorReference secondCasterReference = DungeonRulesActorReference.Party(
+            "second-caster"
+        );
+        DungeonRulesActorReference targetReference = DungeonRulesActorReference.Party("target");
+        DungeonRulesActorReference enemyReference = DungeonRulesActorReference.Floor(0, "enemy");
+        GameObject firstCaster = CreateActor("First Bless Caster", "players", Vector3.zero);
+        GameObject secondCaster = CreateActor("Second Bless Caster", "players", Vector3.right);
+        GameObject target = CreateActor("Bless Target", "players", Vector3.right * 2);
+        GameObject enemy = CreateActor("Bless Enemy", "enemies", Vector3.right * 3);
+        UnityCombatRulesBridge bridge = null;
+        try
+        {
+            DungeonActorSaveState savedTarget = EmptyActorState();
+            savedTarget.RulesEffects = new[]
+            {
+                BlessState(
+                    firstCasterReference,
+                    targetReference,
+                    "first-bless-effect",
+                    "first-bless-binding",
+                    creationOrder: 10,
+                    remainingBoundaries: 2
+                ),
+                BlessState(
+                    secondCasterReference,
+                    targetReference,
+                    "second-bless-effect",
+                    "second-bless-binding",
+                    creationOrder: 11,
+                    remainingBoundaries: 1
+                ),
+            };
+            Func<DungeonRulesActorReference, GameObject> resolve = actor =>
+                actor.Equals(firstCasterReference) ? firstCaster
+                : actor.Equals(secondCasterReference) ? secondCaster
+                : actor.Equals(targetReference) ? target
+                : actor.Equals(enemyReference) ? enemy
+                : null;
+            DungeonActorStateAdapter.PrepareRestore(
+                firstCaster.GetComponent<ActionController>(),
+                EmptyActorState(),
+                10,
+                false,
+                resolve
+            )();
+            DungeonActorStateAdapter.PrepareRestore(
+                secondCaster.GetComponent<ActionController>(),
+                EmptyActorState(),
+                10,
+                false,
+                resolve
+            )();
+            DungeonActorStateAdapter.PrepareRestore(
+                target.GetComponent<ActionController>(),
+                savedTarget,
+                10,
+                false,
+                resolve
+            )();
+            DungeonActorStateAdapter.PrepareRestore(
+                enemy.GetComponent<ActionController>(),
+                EmptyActorState(),
+                10,
+                false,
+                resolve
+            )();
+            Tile[,] tiles = new Tile[4, 1];
+            for (int x = 0; x < tiles.GetLength(0); x++)
+                tiles[x, 0] = new Tile();
+
+            bridge = UnityCombatRulesBridge.Create(
+                new[]
+                {
+                    firstCaster.GetComponent<ActionController>(),
+                    secondCaster.GetComponent<ActionController>(),
+                    target.GetComponent<ActionController>(),
+                    enemy.GetComponent<ActionController>(),
+                },
+                tiles,
+                new ScriptedRollService(20, 19, 18, 10),
+                "players"
+            );
+            yield return null;
+
+            ActiveEffectId firstEffect = new("first-bless-effect");
+            ActiveEffectId secondEffect = new("second-bless-effect");
+            CreatureId firstCasterId = bridge.GetCreatureId(
+                firstCaster.GetComponent<CreatureComponent>()
+            );
+            CreatureId secondCasterId = bridge.GetCreatureId(
+                secondCaster.GetComponent<CreatureComponent>()
+            );
+            Assert.That(bridge.Snapshot.ActiveEffects.Count(), Is.EqualTo(2));
+            Assert.That(
+                bridge.Snapshot.ActiveEffects[firstEffect].SourceCreature,
+                Is.EqualTo(firstCasterId)
+            );
+            Assert.That(
+                bridge.Snapshot.ActiveEffects[secondEffect].SourceCreature,
+                Is.EqualTo(secondCasterId)
+            );
+            Assert.That(
+                bridge.Snapshot.ActiveEffectTimings[firstEffect].SourceCreature,
+                Is.EqualTo(firstCasterId)
+            );
+            Assert.That(
+                bridge.Snapshot.ActiveEffectTimings[secondEffect].SourceCreature,
+                Is.EqualTo(secondCasterId)
+            );
+
+            DungeonActorSaveState attached = DungeonActorStateAdapter.Capture(
+                target.GetComponent<ActionController>(),
+                actor =>
+                    actor == firstCaster ? firstCasterReference
+                    : actor == secondCaster ? secondCasterReference
+                    : actor == target ? targetReference
+                    : enemyReference
+            );
+            DungeonSaveResult<DungeonActorSaveState> parsed = DungeonSaveJson.ParseActor(
+                DungeonSaveJson.SerializeActor(attached)
+            );
+            Assert.That(parsed.IsSuccess, Is.True, parsed.Diagnostics.FirstOrDefault()?.Message);
+            Assert.That(
+                parsed.Value.RulesEffects.Select(effect => effect.SourceActor),
+                Is.EquivalentTo(new[] { firstCasterReference, secondCasterReference })
+            );
+            Assert.That(
+                parsed.Value.RulesEffects.Select(effect => effect.RemainingBoundaries),
+                Is.EquivalentTo(new[] { 2, 1 })
+            );
+
+            bridge.AdvanceEncounter();
+            Assert.That(bridge.GetEncounter().CurrentTurn.Value.Actor, Is.EqualTo(firstCasterId));
+            Assert.That(bridge.Snapshot.ActiveEffects.Contains(firstEffect), Is.True);
+            Assert.That(bridge.Snapshot.ActiveEffects.Contains(secondEffect), Is.True);
+            bridge.EndTurn(firstCasterId);
+
+            Assert.That(bridge.GetEncounter().CurrentTurn.Value.Actor, Is.EqualTo(secondCasterId));
+            Assert.That(bridge.Snapshot.ActiveEffects.Contains(secondEffect), Is.False);
+            Assert.That(bridge.Snapshot.ActiveEffects.Contains(firstEffect), Is.True);
+            Assert.That(
+                bridge.Snapshot.ActiveEffectTimings[firstEffect].RemainingBoundaries,
+                Is.EqualTo(1)
+            );
+        }
+        finally
+        {
+            bridge?.ReleaseOwnership();
+            UnityEngine.Object.Destroy(firstCaster);
+            UnityEngine.Object.Destroy(secondCaster);
+            UnityEngine.Object.Destroy(target);
+            UnityEngine.Object.Destroy(enemy);
+        }
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator IndependentFloorBridgesKeepGeneratedEffectIdentitiesRunGlobal()
     {
         const string reusedLocalId = "encounter-shared/creature-0000";
@@ -559,6 +721,35 @@ public sealed class DungeonRulesEffectPersistencePlayModeTests
         };
         return state;
     }
+
+    private static DungeonRulesEffectSaveState BlessState(
+        DungeonRulesActorReference source,
+        DungeonRulesActorReference target,
+        string effectId,
+        string bindingId,
+        long creationOrder,
+        int remainingBoundaries
+    ) =>
+        new()
+        {
+            EffectId = effectId,
+            BindingId = bindingId,
+            DefinitionId = SpellFeatureRules.BlessEffect.Value,
+            SourceActor = source,
+            BindingOwnerActor = target,
+            TimingSourceActor = source,
+            RuleSource = "bless",
+            DurationKind = EffectDurationKind.Minutes,
+            DurationAmount = 1,
+            EffectStateVersion = 1,
+            CreationOrder = creationOrder,
+            BindingEnabled = true,
+            HasTiming = true,
+            RemainingBoundaries = remainingBoundaries,
+            StateKind = "spell",
+            StatePayload =
+                $"{{\"Spell\":\"bless\",\"Rank\":1,\"TargetActor\":{{\"Scope\":{(int)target.Scope},\"FloorDepth\":{target.FloorDepth},\"ActorId\":\"{target.ActorId}\"}}}}",
+        };
 
     private static DungeonLevelDocument Floor(
         int depth,

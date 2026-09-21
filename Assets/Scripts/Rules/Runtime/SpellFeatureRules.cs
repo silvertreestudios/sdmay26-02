@@ -1107,6 +1107,10 @@ namespace Game.Rules.Runtime
         public static SpellFeatureOutcome EffectsOnly(ActiveEffectId effect) =>
             new(new[] { effect }, Array.Empty<SpellTargetResolution>());
 
+        // A replacement is a refresh of one caster's contribution, not a uniqueness rule for the
+        // whole definition. Features that prohibit all overlapping sources (such as Guidance) do
+        // so in validation; features with winner selection (such as Infuse Vitality) retain every
+        // instance through CreateEffect instead.
         public static async ValueTask<ActiveEffectId> ReplaceEffect(
             OpHandlerContext context,
             SpellReference spell,
@@ -1125,6 +1129,8 @@ namespace Game.Rules.Runtime
                     && binding.DefinitionId == definition
                     && binding.Owner == target
                     && binding.EffectId.HasValue
+                    && context.Snapshot.ActiveEffects[binding.EffectId.Value].SourceCreature
+                        == caster
                 );
             if (existing != null)
             {

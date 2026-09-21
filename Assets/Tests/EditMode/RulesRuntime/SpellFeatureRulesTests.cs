@@ -404,6 +404,86 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task BlessRecastReplacesOnlyTheSameCastersEffect()
+        {
+            TestRuntime runtime = CreateMultiCastRuntime(
+                new ScriptedRollService(),
+                initialActions: 4
+            );
+            CastSpellOutcome first = RequireResolved(
+                await runtime.Dispatcher.Dispatch(Cast("bless", 2, Ally))
+            ).Value;
+            CastSpellOutcome refreshed = RequireResolved(
+                await runtime.Dispatcher.Dispatch(Cast("bless", 2, Ally))
+            ).Value;
+
+            ActiveEffectId firstEffect = first.CreatedEffects.Single();
+            ActiveEffectId refreshedEffect = refreshed.CreatedEffects.Single();
+            Assert.That(runtime.Store.Snapshot.ActiveEffects.Contains(firstEffect), Is.False);
+            Assert.That(runtime.Store.Snapshot.ActiveEffects.Contains(refreshedEffect), Is.True);
+            Assert.That(runtime.Store.Snapshot.ActiveEffects.Count(), Is.EqualTo(1));
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffectTimings[refreshedEffect].SourceCreature,
+                Is.EqualTo(Caster)
+            );
+        }
+
+        [Test]
+        public async Task IndependentBlessSourcesKeepTheirOwnTimingWithoutStacking()
+        {
+            TestRuntime runtime = CreateMultiCastRuntime(
+                new ScriptedRollService(),
+                includeSecondaryCaster: true
+            );
+            CastSpellOutcome older = RequireResolved(
+                await runtime.Dispatcher.Dispatch(Cast("bless", 2, Ally))
+            ).Value;
+            CastSpellOutcome newer = RequireResolved(
+                await runtime.Dispatcher.Dispatch(CastAtRank(AllyTwo, "bless", 1, 2, Ally))
+            ).Value;
+            ActiveEffectId olderEffect = older.CreatedEffects.Single();
+            ActiveEffectId newerEffect = newer.CreatedEffects.Single();
+
+            ModifierCollection overlapping = RequireResolved(
+                await runtime.Dispatcher.Dispatch(new ProbeAttackModifiersOp(Ally, Enemy))
+            ).Value;
+
+            Assert.That(runtime.Store.Snapshot.ActiveEffects.Count(), Is.EqualTo(2));
+            Assert.That(overlapping.Total, Is.EqualTo(1));
+            Assert.That(overlapping.Applied, Has.Count.EqualTo(1));
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffects[olderEffect].SourceCreature,
+                Is.EqualTo(Caster)
+            );
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffects[newerEffect].SourceCreature,
+                Is.EqualTo(AllyTwo)
+            );
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffectTimings[olderEffect].SourceCreature,
+                Is.EqualTo(Caster)
+            );
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffectTimings[newerEffect].SourceCreature,
+                Is.EqualTo(AllyTwo)
+            );
+
+            await ExpireEffect(
+                runtime,
+                newerEffect,
+                BindingFor(runtime.Store.Snapshot, newerEffect)
+            );
+            ModifierCollection afterNewerExpires = RequireResolved(
+                await runtime.Dispatcher.Dispatch(new ProbeAttackModifiersOp(Ally, Enemy))
+            ).Value;
+
+            Assert.That(runtime.Store.Snapshot.ActiveEffects.Contains(newerEffect), Is.False);
+            Assert.That(runtime.Store.Snapshot.ActiveEffects.Contains(olderEffect), Is.True);
+            Assert.That(afterNewerExpires.Total, Is.EqualTo(1));
+            Assert.That(afterNewerExpires.Applied, Has.Count.EqualTo(1));
+        }
+
+        [Test]
         public async Task InfuseVitalityFixedHeighteningCapsAtThreeDiceAboveRankFive()
         {
             TestRuntime runtime = CreateRuntime(new ScriptedRollService());
@@ -830,7 +910,8 @@ namespace Game.Rules.Runtime.Tests
 
         private static TestRuntime CreateMultiCastRuntime(
             IRollService rolls,
-            bool includeSecondaryCaster = false
+            bool includeSecondaryCaster = false,
+            int initialActions = 3
         ) =>
             CreateRuntime(
                 rolls,
@@ -839,7 +920,8 @@ namespace Game.Rules.Runtime.Tests
                 new TestTargetingDataProvider(ActionValidationResult.Valid),
                 true,
                 2,
-                includeSecondaryCaster
+                includeSecondaryCaster,
+                initialActions
             );
 
         private static TestRuntime CreateRuntime(IRollService rolls, int enemyX = 2)
@@ -873,7 +955,8 @@ namespace Game.Rules.Runtime.Tests
             ISpellTargetingDataProvider targetingData,
             bool includeCasterInEncounter,
             int rankedSlotUses = 1,
-            bool includeSecondaryCaster = false
+            bool includeSecondaryCaster = false,
+            int initialActions = 3
         )
         {
             CreatureId initiativeCreature = includeCasterInEncounter ? Caster : Ally;
@@ -903,7 +986,7 @@ namespace Game.Rules.Runtime.Tests
                 .SeedPosition(AllyTwo, new GridPosition(0, 0, 1))
                 .SeedPosition(Enemy, new GridPosition(enemyX, 0, 0))
                 .SeedPosition(Undead, new GridPosition(1, 0, 1))
-                .SeedActionEconomy(Caster, new ActionEconomyState(3, true))
+                .SeedActionEconomy(Caster, new ActionEconomyState(initialActions, true))
                 .SeedSpellSlot(new SpellSlotState(Pool, Caster, rankedSlotUses, rankedSlotUses))
                 .SeedEncounter(
                     new EncounterState(
