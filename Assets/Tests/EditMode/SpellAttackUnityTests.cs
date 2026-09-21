@@ -32,7 +32,11 @@ public sealed class SpellAttackUnityTests
             [actorId] = actor,
             [targetId] = target,
         };
-        UnitySpellAttackContext context = new(creatures, tiles);
+        UnitySpellAttackContext context = new(
+            creatures,
+            tiles,
+            SamePlayerCombatantFriendshipProvider.Instance
+        );
         SpellAttackDefinition attack = new(
             new OneCreatureSpellAttackTarget(60),
             new[] { new TypedDamageDice(new DiceExpression(2, 4), "spirit", "test-spell") }
@@ -142,7 +146,8 @@ public sealed class SpellAttackUnityTests
                 [eastId] = east,
                 [northId] = north,
             },
-            tiles
+            tiles,
+            SamePlayerCombatantFriendshipProvider.Instance
         );
         PlayerId team = new("spell-area-team");
         RulesSnapshot snapshot = new InMemoryRulesStore(

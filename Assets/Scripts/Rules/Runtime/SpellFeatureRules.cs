@@ -82,20 +82,28 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>Creates the explicit spell-to-rule catalog used by encounter composition.</summary>
+        /// <param name="creatureData">Supplies creature facts not yet held by rules state.</param>
+        /// <param name="friendshipProvider">
+        /// Supplies the encounter's ordered friendship relationships for willing targets.
+        /// </param>
+        /// <returns>The complete supported spell-rule catalog keyed by spell identity.</returns>
         public static IReadOnlyDictionary<SpellId, ISpellCastRule> CreateCatalog(
-            ISpellCreatureDataProvider creatureData
+            ISpellCreatureDataProvider creatureData,
+            ICombatantFriendshipProvider friendshipProvider
         )
         {
             if (creatureData == null)
                 throw new ArgumentNullException(nameof(creatureData));
+            if (friendshipProvider == null)
+                throw new ArgumentNullException(nameof(friendshipProvider));
             ISpellCastRule[] rules =
             {
-                new ShieldSpellRule(),
-                new GuidanceSpellRule(),
-                new HauntingHymnSpellRule(creatureData),
-                new BlessSpellRule(),
-                new InfuseVitalitySpellRule(),
-                new HealSpellRule(creatureData),
+                new ShieldSpellRule(friendshipProvider),
+                new GuidanceSpellRule(friendshipProvider),
+                new HauntingHymnSpellRule(creatureData, friendshipProvider),
+                new BlessSpellRule(friendshipProvider),
+                new InfuseVitalitySpellRule(friendshipProvider),
+                new HealSpellRule(creatureData, friendshipProvider),
             };
             return rules.ToDictionary(rule => rule.Spell);
         }
@@ -573,6 +581,11 @@ namespace Game.Rules.Runtime
     internal abstract class SpellCastRuleBase : ISpellCastRule
     {
         protected static readonly IRulesSelectors Selectors = new RulesSelectors();
+        private readonly ICombatantFriendshipProvider friendshipProvider;
+
+        protected SpellCastRuleBase(ICombatantFriendshipProvider friendshipProvider) =>
+            this.friendshipProvider =
+                friendshipProvider ?? throw new ArgumentNullException(nameof(friendshipProvider));
 
         public abstract SpellId Spell { get; }
         public abstract SpellSelectionProfile GetSelection(SpellActionVariant variant);
@@ -586,7 +599,7 @@ namespace Game.Rules.Runtime
             ISpellActionCatalog catalog
         );
 
-        protected static ActionValidationResult ValidateTargets(
+        protected ActionValidationResult ValidateTargets(
             RulesSnapshot snapshot,
             CastSpellActionOp operation,
             int minimum,
@@ -612,7 +625,7 @@ namespace Game.Rules.Runtime
                     return ActionValidationResult.Invalid(
                         "A selected spell target is unavailable."
                     );
-                if (requireFriendly && Selectors.IsEnemy(snapshot, operation.Actor, target))
+                if (requireFriendly && !AreFriendly(snapshot, operation.Actor, target))
                     return ActionValidationResult.Invalid("The spell requires a willing ally.");
                 if (Selectors.Distance(snapshot, operation.Actor, target).Feet > rangeFeet)
                     return ActionValidationResult.Invalid(
@@ -621,10 +634,18 @@ namespace Game.Rules.Runtime
             }
             return ActionValidationResult.Valid;
         }
+
+        protected bool AreFriendly(RulesSnapshot snapshot, CreatureId source, CreatureId target) =>
+            snapshot.Creatures.TryGet(source, out CreatureState sourceState)
+            && snapshot.Creatures.TryGet(target, out CreatureState targetState)
+            && friendshipProvider.IsFriendly(sourceState.Player, targetState.Player);
     }
 
     internal sealed class ShieldSpellRule : SpellCastRuleBase
     {
+        public ShieldSpellRule(ICombatantFriendshipProvider friendshipProvider)
+            : base(friendshipProvider) { }
+
         public override SpellId Spell { get; } = new("shield");
 
         public override SpellSelectionProfile GetSelection(SpellActionVariant variant) =>
@@ -660,10 +681,18 @@ namespace Game.Rules.Runtime
 
     internal sealed class GuidanceSpellRule : SpellCastRuleBase
     {
+        public GuidanceSpellRule(ICombatantFriendshipProvider friendshipProvider)
+            : base(friendshipProvider) { }
+
         public override SpellId Spell { get; } = new("guidance");
 
         public override SpellSelectionProfile GetSelection(SpellActionVariant variant) =>
-            new(SpellSelectionKind.SingleCreature, rangeFeet: 30, exactCreatureCount: 1);
+            new(
+                SpellSelectionKind.SingleCreature,
+                rangeFeet: 30,
+                exactCreatureCount: 1,
+                friendlyOnly: true
+            );
 
         public override ActionValidationResult Validate(
             RulesSnapshot snapshot,
@@ -714,6 +743,9 @@ namespace Game.Rules.Runtime
 
     internal sealed class BlessSpellRule : SpellCastRuleBase
     {
+        public BlessSpellRule(ICombatantFriendshipProvider friendshipProvider)
+            : base(friendshipProvider) { }
+
         public override SpellId Spell { get; } = new("bless");
 
         public override SpellSelectionProfile GetSelection(SpellActionVariant variant) =>
@@ -757,13 +789,17 @@ namespace Game.Rules.Runtime
 
     internal sealed class InfuseVitalitySpellRule : SpellCastRuleBase
     {
+        public InfuseVitalitySpellRule(ICombatantFriendshipProvider friendshipProvider)
+            : base(friendshipProvider) { }
+
         public override SpellId Spell { get; } = new("infuse-vitality");
 
         public override SpellSelectionProfile GetSelection(SpellActionVariant variant) =>
             new(
                 SpellSelectionKind.ExactCreatureCount,
                 rangeFeet: 30,
-                exactCreatureCount: variant.Actions
+                exactCreatureCount: variant.Actions,
+                friendlyOnly: true
             );
 
         public override ActionValidationResult Validate(
@@ -815,7 +851,11 @@ namespace Game.Rules.Runtime
     {
         private readonly ISpellCreatureDataProvider creatureData;
 
-        protected BasicFortitudeSpellRule(ISpellCreatureDataProvider creatureData) =>
+        protected BasicFortitudeSpellRule(
+            ISpellCreatureDataProvider creatureData,
+            ICombatantFriendshipProvider friendshipProvider
+        )
+            : base(friendshipProvider) =>
             this.creatureData =
                 creatureData ?? throw new ArgumentNullException(nameof(creatureData));
 
@@ -872,8 +912,11 @@ namespace Game.Rules.Runtime
     {
         private static readonly RuleSource Source = RuleSource.FromSlug("haunting-hymn");
 
-        public HauntingHymnSpellRule(ISpellCreatureDataProvider creatureData)
-            : base(creatureData) { }
+        public HauntingHymnSpellRule(
+            ISpellCreatureDataProvider creatureData,
+            ICombatantFriendshipProvider friendshipProvider
+        )
+            : base(creatureData, friendshipProvider) { }
 
         public override SpellId Spell { get; } = new("haunting-hymn");
 
@@ -910,6 +953,23 @@ namespace Game.Rules.Runtime
                     )
                 )
                 .ToList();
+            foreach (
+                var value in rolled.Where(value => value.Degree == DegreeOfSuccess.CriticalFailure)
+            )
+            {
+                await SpellRuleSupport.RequireResolved(
+                    context.Dispatch(
+                        new ApplyConditionOp(
+                            value.Target,
+                            new ConditionId("Deafened"),
+                            1,
+                            frame.Op.Actor,
+                            Source,
+                            EffectDuration.OneMinute
+                        )
+                    )
+                );
+            }
             if (rolled.Count > 0)
             {
                 await SpellRuleSupport.RequireResolved(
@@ -935,21 +995,6 @@ namespace Game.Rules.Runtime
             foreach (var value in rolled)
             {
                 bool deafened = value.Degree == DegreeOfSuccess.CriticalFailure;
-                if (deafened)
-                {
-                    await SpellRuleSupport.RequireResolved(
-                        context.Dispatch(
-                            new ApplyConditionOp(
-                                value.Target,
-                                new ConditionId("Deafened"),
-                                1,
-                                frame.Op.Actor,
-                                Source,
-                                EffectDuration.OneMinute
-                            )
-                        )
-                    );
-                }
                 outcomes.Add(
                     new SpellTargetResolution(
                         value.Target,
@@ -969,8 +1014,11 @@ namespace Game.Rules.Runtime
         private static readonly RuleSource Source = RuleSource.FromSlug("heal");
         private readonly ISpellCreatureDataProvider creatureData;
 
-        public HealSpellRule(ISpellCreatureDataProvider creatureData)
-            : base(creatureData) => this.creatureData = creatureData;
+        public HealSpellRule(
+            ISpellCreatureDataProvider creatureData,
+            ICombatantFriendshipProvider friendshipProvider
+        )
+            : base(creatureData, friendshipProvider) => this.creatureData = creatureData;
 
         public override SpellId Spell { get; } = new("heal");
 
@@ -1018,7 +1066,7 @@ namespace Game.Rules.Runtime
                 if (
                     operation.Variant.Actions != 3
                     && !creatureData.IsUndead(target)
-                    && Selectors.IsEnemy(snapshot, operation.Actor, target)
+                    && !AreFriendly(snapshot, operation.Actor, target)
                 )
                     return ActionValidationResult.Invalid(
                         "Heal requires a willing living target or an undead target."

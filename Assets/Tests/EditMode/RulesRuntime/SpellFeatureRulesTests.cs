@@ -1130,7 +1130,10 @@ namespace Game.Rules.Runtime.Tests
 
             public TestCatalog(ISpellCreatureDataProvider creatureData)
             {
-                rules = SpellFeatureRules.CreateCatalog(creatureData);
+                rules = SpellFeatureRules.CreateCatalog(
+                    creatureData,
+                    SamePlayerCombatantFriendshipProvider.Instance
+                );
                 definitions = new[]
                 {
                     Definition("shield", 1),

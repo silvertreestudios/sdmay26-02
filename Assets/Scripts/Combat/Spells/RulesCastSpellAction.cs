@@ -191,9 +191,8 @@ namespace Game.Combat.Spells
                             selected.Insert(0, actor);
                         if (profile.FriendlyOnly)
                         {
-                            RulesSelectors selectors = new();
                             selected = selected
-                                .Where(target => !selectors.IsEnemy(bridge.Snapshot, actor, target))
+                                .Where(target => bridge.IsFriendly(actor, target))
                                 .ToList();
                         }
                         spellSelection =

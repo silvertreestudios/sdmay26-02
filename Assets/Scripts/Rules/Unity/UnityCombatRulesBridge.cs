@@ -30,7 +30,7 @@ namespace Game.Rules.Unity
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
-        private readonly UnityTeamStrideFriendshipProvider strideFriendshipProvider = new();
+        private readonly UnityTeamCombatantFriendshipProvider combatantFriendshipProvider = new();
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
@@ -78,7 +78,7 @@ namespace Game.Rules.Unity
             topologyProvider = new MutableGridTopologyProvider(CreateTopology(tiles));
             strideDefinition = new StrideActionDefinition(
                 topologyProvider,
-                strideFriendshipProvider
+                combatantFriendshipProvider
             );
             activeEffectIdentities = ActiveEffectIdentityScope.CreateUnique();
             UnityEncounterModuleSet modules = UnityEncounterModuleSet.Create(
@@ -88,6 +88,7 @@ namespace Game.Rules.Unity
                 controllers,
                 tiles,
                 strideDefinition,
+                combatantFriendshipProvider,
                 attachControllers,
                 extensions
             );
@@ -308,7 +309,7 @@ namespace Game.Rules.Unity
                 playerIds.Clear();
                 foreach (KeyValuePair<string, PlayerId> pair in savedPlayers)
                     playerIds.Add(pair.Key, pair.Value);
-                strideFriendshipProvider.Reset(savedPlayers);
+                combatantFriendshipProvider.Reset(savedPlayers);
                 reservedCreatureIds.Clear();
                 foreach (
                     KeyValuePair<CreatureComponent, CreatureId> pair in savedCreatureReservations
@@ -490,6 +491,18 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException("The encounter has not been initialized.");
             return encounter;
         }
+
+        /// <summary>Checks one ordered friendship relationship in this encounter.</summary>
+        /// <param name="source">The acting registered creature.</param>
+        /// <param name="target">The other registered creature.</param>
+        /// <returns>
+        /// <see langword="true"/> when the source participant treats the target participant as
+        /// friendly; otherwise, <see langword="false"/>.
+        /// </returns>
+        public bool IsFriendly(CreatureId source, CreatureId target) =>
+            Snapshot.Creatures.TryGet(source, out CreatureState sourceState)
+            && Snapshot.Creatures.TryGet(target, out CreatureState targetState)
+            && combatantFriendshipProvider.IsFriendly(sourceState.Player, targetState.Player);
 
         /// <summary>Dispatches one synchronous typed rules operation.</summary>
         /// <typeparam name="TResult">The operation's structural result type.</typeparam>
@@ -837,7 +850,7 @@ namespace Game.Rules.Unity
                     return existing;
                 PlayerId playerId = new PlayerId($"combat-side-{playerIds.Count + 1}");
                 playerIds.Add(teamName, playerId);
-                strideFriendshipProvider.Register(playerId, teamName);
+                combatantFriendshipProvider.Register(playerId, teamName);
                 return playerId;
             }
             return new PlayerId($"combat-side-unassigned-{nextCreatureId}");
@@ -1130,7 +1143,7 @@ namespace Game.Rules.Unity
             );
         }
 
-        private sealed class UnityTeamStrideFriendshipProvider : IStrideFriendshipProvider
+        private sealed class UnityTeamCombatantFriendshipProvider : ICombatantFriendshipProvider
         {
             private readonly Dictionary<PlayerId, string> teamNames = new();
 

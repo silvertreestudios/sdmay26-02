@@ -944,11 +944,12 @@ under `.agent-temp/delivery/wt/t_77646617/` and are not branch artifacts.
 
 - **Current implementation/entry points:** `TeamRules` is a Unity singleton with directed
   friendly/neutral/hostile dictionaries. Encounter enrollment converts team names to stable
-  `PlayerId`; `RulesSelectors.IsEnemy` compares those identities. Stride friendship maps registered
-  team relations. `FlankingRule` discovers Unity combatants and evaluates opposite threatened
-  sides. `StrikeTargeting`, `GridTargeting`, `GridLineOfSightData`, and `AreaTargeting` compute grid
-  range, rays, cover/line of effect, and burst/cone/line/emanation cells. `LineOfSight.cs` itself is
-  fully commented out and implements nothing.
+  `PlayerId`; the shared ordered `ICombatantFriendshipProvider` maps registered team relations for
+  Stride and willing spell targets instead of inferring friendship from identity. `FlankingRule`
+  discovers Unity combatants and evaluates opposite threatened sides. `StrikeTargeting`,
+  `GridTargeting`, `GridLineOfSightData`, and `AreaTargeting` compute grid range, rays, cover/line of
+  effect, and burst/cone/line/emanation cells. `LineOfSight.cs` itself is fully commented out and
+  implements nothing.
 - **Actual behavior:** Strike/spell adapters revalidate numeric range and line of effect at dispatch;
   cover contributes AC; melee flanking can make a target Off-Guard. Area results carry occupants,
   ally flags, line of effect, and cover. Selection previews are not authority.

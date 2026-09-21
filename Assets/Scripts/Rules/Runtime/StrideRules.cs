@@ -4,23 +4,6 @@ using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
-    /// <summary>
-    /// Determines whether one player's creature may Stride through another player's creature.
-    /// </summary>
-    /// <remarks>
-    /// The relationship is ordered: implementations may consider <paramref name="mover"/>
-    /// friendly toward <paramref name="occupant"/> without considering the reverse relationship
-    /// friendly.
-    /// </remarks>
-    public interface IStrideFriendshipProvider
-    {
-        /// <summary>Checks the mover-to-occupant friendship relationship.</summary>
-        /// <param name="mover">The player controlling the creature attempting to Stride.</param>
-        /// <param name="occupant">The player controlling an occupied intermediate square.</param>
-        /// <returns>Whether the mover may cross that occupant's square.</returns>
-        bool IsFriendly(PlayerId mover, PlayerId occupant);
-    }
-
     /// <summary>Defines the one-action Stride workflow and its immutable base profile.</summary>
     public sealed class StrideActionDefinition
         : IActionDefinition<MovementPath, StrideActionOp, MovePathOutcome>,
@@ -31,7 +14,7 @@ namespace Game.Rules.Runtime
             new[] { MoveTrait }
         );
         private readonly IGridTopologyProvider topologyProvider;
-        private readonly IStrideFriendshipProvider friendshipProvider;
+        private readonly ICombatantFriendshipProvider friendshipProvider;
         private readonly MovementPathValidator pathValidator;
 
         /// <summary>Gets Stride's stable action-definition identity.</summary>
@@ -47,7 +30,7 @@ namespace Game.Rules.Runtime
         /// <see cref="PlayerId"/> as friendly.
         /// </remarks>
         public StrideActionDefinition(IGridTopologyProvider topologyProvider)
-            : this(topologyProvider, SamePlayerStrideFriendshipProvider.Instance) { }
+            : this(topologyProvider, SamePlayerCombatantFriendshipProvider.Instance) { }
 
         /// <summary>
         /// Creates a Stride definition with an explicit ordered friendship relationship.
@@ -62,7 +45,7 @@ namespace Game.Rules.Runtime
         /// </param>
         public StrideActionDefinition(
             IGridTopologyProvider topologyProvider,
-            IStrideFriendshipProvider friendshipProvider
+            ICombatantFriendshipProvider friendshipProvider
         )
         {
             this.topologyProvider =
@@ -149,16 +132,6 @@ namespace Game.Rules.Runtime
             CreatureId actor,
             IReadOnlyList<CreatureId> occupants
         ) => StridePathRules.AreAllFriendly(snapshot, actor, occupants, friendshipProvider);
-
-        private sealed class SamePlayerStrideFriendshipProvider : IStrideFriendshipProvider
-        {
-            public static SamePlayerStrideFriendshipProvider Instance { get; } = new();
-
-            private SamePlayerStrideFriendshipProvider() { }
-
-            /// <inheritdoc/>
-            public bool IsFriendly(PlayerId mover, PlayerId occupant) => mover == occupant;
-        }
     }
 
     /// <summary>Requests one complete path for a Stride preview.</summary>
@@ -166,7 +139,7 @@ namespace Game.Rules.Runtime
     {
         private readonly RulesSnapshot snapshot;
         private readonly DiagonalMovementPhase diagonalPhase;
-        private readonly IStrideFriendshipProvider friendshipProvider;
+        private readonly ICombatantFriendshipProvider friendshipProvider;
         private readonly MovementPathValidator pathValidator;
 
         internal StridePathSelectionRequest(
@@ -175,7 +148,7 @@ namespace Game.Rules.Runtime
             GridPosition origin,
             GridDistance maximumDistance,
             DiagonalMovementPhase diagonalPhase,
-            IStrideFriendshipProvider friendshipProvider,
+            ICombatantFriendshipProvider friendshipProvider,
             MovementPathValidator pathValidator
         )
         {
@@ -395,7 +368,7 @@ namespace Game.Rules.Runtime
             RulesSnapshot snapshot,
             CreatureId actor,
             MovementPath path,
-            IStrideFriendshipProvider friendshipProvider
+            ICombatantFriendshipProvider friendshipProvider
         )
         {
             if (!snapshot.LandSpeeds.TryGet(actor, out GridDistance speed))
@@ -422,7 +395,7 @@ namespace Game.Rules.Runtime
             MovementPath path,
             GridDistance speed,
             DiagonalMovementPhase phase,
-            IStrideFriendshipProvider friendshipProvider
+            ICombatantFriendshipProvider friendshipProvider
         )
         {
             IReadOnlyList<CreatureId> occupants = FindIntermediateOccupants(snapshot, actor, path);
@@ -468,7 +441,7 @@ namespace Game.Rules.Runtime
             RulesSnapshot snapshot,
             CreatureId actor,
             IReadOnlyList<CreatureId> occupants,
-            IStrideFriendshipProvider friendshipProvider
+            ICombatantFriendshipProvider friendshipProvider
         )
         {
             if (!snapshot.Creatures.TryGet(actor, out CreatureState actorState))

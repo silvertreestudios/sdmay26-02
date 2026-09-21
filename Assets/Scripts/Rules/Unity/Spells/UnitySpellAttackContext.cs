@@ -17,18 +17,23 @@ namespace Game.Rules.Unity.Spells
             ISpellTargetingDataProvider
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
+        private readonly ICombatantFriendshipProvider friendshipProvider;
         private Tile[,] tiles;
 
         /// <summary>Creates one encounter-owned generic spell-attack adapter.</summary>
         /// <param name="creatures">Stable rules-to-Unity creature mappings.</param>
         /// <param name="tiles">The current initialized combat grid.</param>
+        /// <param name="friendshipProvider">The encounter's ordered friendship relationships.</param>
         public UnitySpellAttackContext(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            Tile[,] tiles
+            Tile[,] tiles,
+            ICombatantFriendshipProvider friendshipProvider
         )
         {
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.tiles = tiles ?? throw new ArgumentNullException(nameof(tiles));
+            this.friendshipProvider =
+                friendshipProvider ?? throw new ArgumentNullException(nameof(friendshipProvider));
         }
 
         /// <summary>Replaces the live grid boundary after topology changes.</summary>
@@ -106,7 +111,7 @@ namespace Game.Rules.Unity.Spells
                 profile.Kind == SpellSelectionKind.SingleCreature
                 || profile.Kind == SpellSelectionKind.ExactCreatureCount
             )
-                return ValidateCreatureTargets(caster, profile, selection);
+                return ValidateCreatureTargets(snapshot, actor, caster, profile, selection);
             if (
                 profile.Kind != SpellSelectionKind.Cone
                 && profile.Kind != SpellSelectionKind.Emanation
@@ -146,7 +151,6 @@ namespace Game.Rules.Unity.Spells
             if (current == null)
                 return ActionValidationResult.Invalid("The selected spell area is unavailable.");
 
-            RulesSelectors selectors = new();
             HashSet<CreatureId> expected = new();
             foreach (
                 CreatureComponent target in current
@@ -162,7 +166,7 @@ namespace Game.Rules.Unity.Spells
                     registered.Key.IsEmpty
                     || !snapshot.Health.TryGet(registered.Key, out HealthState health)
                     || !health.IsLiving
-                    || (profile.FriendlyOnly && selectors.IsEnemy(snapshot, actor, registered.Key))
+                    || (profile.FriendlyOnly && !AreFriendly(snapshot, actor, registered.Key))
                 )
                     continue;
                 expected.Add(registered.Key);
@@ -239,6 +243,8 @@ namespace Game.Rules.Unity.Spells
         }
 
         private ActionValidationResult ValidateCreatureTargets(
+            RulesSnapshot snapshot,
+            CreatureId actor,
             CreatureComponent caster,
             SpellSelectionProfile profile,
             SpellCastSelection selection
@@ -252,6 +258,10 @@ namespace Game.Rules.Unity.Spells
                 )
                     return ActionValidationResult.Invalid(
                         "A selected spell target is unavailable."
+                    );
+                if (profile.FriendlyOnly && !AreFriendly(snapshot, actor, targetId))
+                    return ActionValidationResult.Invalid(
+                        "The selected spell target is not friendly."
                     );
                 StrikeTargetResult targeting = StrikeTargeting.Evaluate(
                     caster.gameObject,
@@ -272,6 +282,11 @@ namespace Game.Rules.Unity.Spells
             }
             return ActionValidationResult.Valid;
         }
+
+        private bool AreFriendly(RulesSnapshot snapshot, CreatureId source, CreatureId target) =>
+            snapshot.Creatures.TryGet(source, out CreatureState sourceState)
+            && snapshot.Creatures.TryGet(target, out CreatureState targetState)
+            && friendshipProvider.IsFriendly(sourceState.Player, targetState.Player);
 
         private static AreaDirection ToUnityDirection(SpellAreaDirection direction) =>
             direction switch

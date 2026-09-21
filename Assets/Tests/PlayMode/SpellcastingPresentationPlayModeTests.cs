@@ -6,6 +6,8 @@ using System.Reflection;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.DungeonPersistence.Actors;
+using Game.DungeonPersistence.Repository;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
@@ -277,6 +279,185 @@ public sealed class SpellcastingPresentationPlayModeTests
             Is.Zero
         );
         Assert.That(FontUses(bridge, actor), Is.EqualTo(3));
+        bridge.ReleaseOwnership();
+    }
+
+    [TestCase("guidance", 1, "friendly", true)]
+    [TestCase("guidance", 1, "hostile", false)]
+    [TestCase("guidance", 1, "neutral", false)]
+    [TestCase("bless", 2, "friendly", true)]
+    [TestCase("bless", 2, "hostile", false)]
+    [TestCase("bless", 2, "neutral", false)]
+    [TestCase("infuse-vitality", 1, "friendly", true)]
+    [TestCase("infuse-vitality", 1, "hostile", false)]
+    [TestCase("infuse-vitality", 1, "neutral", false)]
+    [TestCase("heal", 2, "friendly", true)]
+    [TestCase("heal", 2, "hostile", false)]
+    [TestCase("heal", 2, "neutral", false)]
+    public void ProductionBridgeUsesDirectionalFriendshipForSpellTargets(
+        string slug,
+        int actions,
+        string relationship,
+        bool expectedSuccess
+    )
+    {
+        const string casterTeam = "players";
+        string targetTeam = string.Concat("spell-target-", relationship);
+        if (TeamRules.TryGetInstance(out TeamRules existingTeamRules))
+            Object.DestroyImmediate(existingTeamRules.gameObject);
+        GameObject teamRulesObject = new("Directional Spell Team Rules");
+        created.Add(teamRulesObject);
+        TeamRules teamRules = teamRulesObject.AddComponent<TeamRules>();
+        teamRules.AddHostileTeam(casterTeam);
+        teamRules.OneWayFriendly(casterTeam, casterTeam);
+        if (relationship == "neutral")
+            teamRules.AddNeutralTeam(targetTeam);
+        else
+            teamRules.AddHostileTeam(targetTeam);
+        if (relationship == "friendly")
+            teamRules.OneWayFriendly(casterTeam, targetTeam);
+
+        CreatureComponent caster = CreateCreature("Directional Spell Caster", 0, prepared: true);
+        CreatureComponent target = CreateCreature("Directional Spell Target", 1, prepared: false);
+        target.gameObject.AddComponent<Team>().Name = targetTeam;
+        TestActionController casterController =
+            caster.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, caster.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { casterController, targetController },
+            tiles,
+            casterTeam
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        SpellCastSelection selection =
+            slug == "bless"
+                ? new SpellCastSelection(new[] { casterId, targetId })
+                : new SpellCastSelection(new[] { targetId });
+        bridge.BeginTurn(casterId, 3);
+
+        OpResult<CastSpellOutcome> result = bridge.Dispatch(
+            new CastSpellActionOp(
+                casterId,
+                Reference(slug),
+                new SpellActionVariant(actions),
+                selection
+            )
+        );
+        string failure = result is InvalidOpResult<CastSpellOutcome> invalid
+            ? invalid.Reason
+            : string.Empty;
+
+        Assert.That(
+            result,
+            expectedSuccess
+                ? Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>()
+                : Is.TypeOf<InvalidOpResult<CastSpellOutcome>>(),
+            failure
+        );
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining,
+            Is.EqualTo(expectedSuccess ? 3 - actions : 3)
+        );
+        Assert.That(bridge.IsFriendly(casterId, targetId), Is.EqualTo(expectedSuccess));
+        Assert.That(teamRules.IsFriendly(casterTeam, targetTeam), Is.EqualTo(expectedSuccess));
+        if (relationship == "friendly")
+        {
+            Assert.That(bridge.IsFriendly(targetId, casterId), Is.False);
+            Assert.That(
+                teamRules.IsFriendly(targetTeam, casterTeam),
+                Is.False,
+                "Spell targeting must use the caster-to-target relationship direction."
+            );
+        }
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void HauntingHymnSchedulesDeafenedBeforeFinalEnemyDamageEndsEncounter()
+    {
+        CreatureComponent caster = CreateCreature("Finalizing Hymn Caster", 0, prepared: true);
+        CreatureComponent finalEnemy = CreateCreature(
+            "Finalizing Hymn Enemy",
+            1,
+            prepared: false,
+            hitPoints: 1
+        );
+        finalEnemy.gameObject.AddComponent<Team>().Name = "enemies";
+        CreatureComponent survivor = CreateCreature(
+            "Finalizing Hymn Survivor",
+            2,
+            prepared: false,
+            hitPoints: 30
+        );
+        survivor.gameObject.AddComponent<Team>().Name = "players";
+        TestActionController casterController =
+            caster.gameObject.AddComponent<TestActionController>();
+        TestActionController enemyController =
+            finalEnemy.gameObject.AddComponent<TestActionController>();
+        TestActionController survivorController =
+            survivor.gameObject.AddComponent<TestActionController>();
+        Tile[,] tiles = CreateTiles(3);
+        Occupy(tiles, caster.gameObject);
+        Occupy(tiles, finalEnemy.gameObject);
+        Occupy(tiles, survivor.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { casterController, enemyController, survivorController },
+            tiles,
+            new ScriptedRollService(1, 1, 1, 1, 1, 1, 1, 1),
+            "players"
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster);
+        CreatureId enemyId = bridge.GetCreatureId(finalEnemy);
+        CreatureId survivorId = bridge.GetCreatureId(survivor);
+        bridge.BeginTurn(casterId, 3);
+
+        OpResult<CastSpellOutcome> result = bridge.Dispatch(
+            new CastSpellActionOp(
+                casterId,
+                Reference("haunting-hymn"),
+                new SpellActionVariant(2),
+                new SpellCastSelection(new[] { enemyId, survivorId }, SpellAreaDirection.East)
+            )
+        );
+
+        Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
+        Assert.That(bridge.GetEncounter().Phase, Is.EqualTo(EncounterPhase.Ended));
+        Assert.That(finalEnemy.Health.Current, Is.Zero);
+        ActiveRuleBinding survivorBinding = bridge
+            .Snapshot.RuleBindings.Select(pair => pair.Value)
+            .Single(binding =>
+                binding.Owner == survivorId
+                && binding.DefinitionId == ConditionRules.DefinitionId
+                && binding.EffectId.HasValue
+                && bridge
+                    .Snapshot.ActiveEffects[binding.EffectId.Value]
+                    .GetState<ConditionState>()
+                    .Condition == new ConditionId("Deafened")
+            );
+        ActiveEffectTimingState timing = bridge.Snapshot.ActiveEffectTimings[
+            survivorBinding.EffectId.Value
+        ];
+        Assert.That(timing.RemainingBoundaries, Is.EqualTo(10));
+        Assert.That(timing.SourceCreature, Is.EqualTo(casterId));
+
+        DungeonRulesActorReference casterReference = DungeonRulesActorReference.Party("caster");
+        DungeonRulesActorReference survivorReference = DungeonRulesActorReference.Party("survivor");
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            survivorController,
+            actor => actor == caster.gameObject ? casterReference : survivorReference
+        );
+        DungeonRulesEffectSaveState persisted = saved.RulesEffects.Single();
+        Assert.That(persisted.HasTiming, Is.True);
+        Assert.That(persisted.RemainingBoundaries, Is.EqualTo(10));
+        Assert.That(
+            DungeonSaveJson.ParseActor(DungeonSaveJson.SerializeActor(saved)).IsSuccess,
+            Is.True
+        );
         bridge.ReleaseOwnership();
     }
 
@@ -1344,7 +1525,10 @@ public sealed class SpellcastingPresentationPlayModeTests
             this.definitions = definitions;
             this.owner = owner;
             this.book = book;
-            rules = SpellFeatureRules.CreateCatalog(new PresentationSpellCreatureData());
+            rules = SpellFeatureRules.CreateCatalog(
+                new PresentationSpellCreatureData(),
+                SamePlayerCombatantFriendshipProvider.Instance
+            );
         }
 
         public ActionProfile GetBaseProfile(ActionDefinitionId definitionId) =>

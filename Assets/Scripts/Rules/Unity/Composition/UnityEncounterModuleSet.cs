@@ -38,6 +38,7 @@ namespace Game.Rules.Unity.Composition
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             Tile[,] tiles,
             StrideActionDefinition strideDefinition,
+            ICombatantFriendshipProvider friendshipProvider,
             bool installUnityAuthority,
             IReadOnlyList<UnityEncounterExtension> extensions
         )
@@ -46,13 +47,15 @@ namespace Game.Rules.Unity.Composition
                 throw new ArgumentNullException(nameof(owner));
             if (actionPresentationCoordinator == null)
                 throw new ArgumentNullException(nameof(actionPresentationCoordinator));
+            if (friendshipProvider == null)
+                throw new ArgumentNullException(nameof(friendshipProvider));
             if (extensions == null || extensions.Any(extension => extension == null))
                 throw new ArgumentException(
                     "Encounter extensions cannot contain null.",
                     nameof(extensions)
                 );
             UnityStrikeContext strikeContext = new(creatures, tiles);
-            UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
+            UnitySpellAttackContext spellAttackContext = new(creatures, tiles, friendshipProvider);
             UnityRottingAuraModule rottingAura = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
             UnitySpellCreatureDataProvider spellCreatureData = new(creatures);
@@ -62,7 +65,7 @@ namespace Game.Rules.Unity.Composition
                 strikeContext,
                 spellCatalog,
                 new UnitySpellBookProvider(creatures),
-                SpellFeatureRules.CreateCatalog(spellCreatureData),
+                SpellFeatureRules.CreateCatalog(spellCreatureData, friendshipProvider),
                 new IActionCatalog[] { rageDefinition }.Concat(
                     extensions.Select(extension => extension.ActionCatalog)
                 )
