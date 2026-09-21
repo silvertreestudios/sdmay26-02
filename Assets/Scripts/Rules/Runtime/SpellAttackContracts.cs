@@ -59,27 +59,39 @@ namespace Game.Rules.Runtime
     /// <summary>Contains frozen Unity-bound inputs needed to resolve one legal spell attack.</summary>
     public sealed class SpellAttackResolutionData
     {
+        private readonly IReadOnlyList<Modifier> armorClassModifiers;
         private readonly IReadOnlyList<Modifier> attackModifiers;
         private readonly IReadOnlyList<TypedDefenseAdjustment> weaknesses;
         private readonly IReadOnlyList<TypedDefenseAdjustment> resistances;
 
         /// <summary>Creates immutable resolution data captured after validation.</summary>
-        /// <param name="armorClass">The positive current target Armor Class.</param>
+        /// <param name="baseArmorClass">The positive captured target Armor Class.</param>
+        /// <param name="armorClassModifiers">Typed situational defensive candidates.</param>
         /// <param name="attackModifiers">
         /// Current attack candidates excluding the spell modifier and MAP.
         /// </param>
         /// <param name="weaknesses">Current typed target weaknesses.</param>
         /// <param name="resistances">Current typed target resistances.</param>
         public SpellAttackResolutionData(
-            int armorClass,
+            int baseArmorClass,
+            IEnumerable<Modifier> armorClassModifiers,
             IEnumerable<Modifier> attackModifiers,
             IEnumerable<TypedDefenseAdjustment> weaknesses,
             IEnumerable<TypedDefenseAdjustment> resistances
         )
         {
-            if (armorClass <= 0)
-                throw new ArgumentOutOfRangeException(nameof(armorClass));
-            ArmorClass = armorClass;
+            if (baseArmorClass <= 0)
+                throw new ArgumentOutOfRangeException(nameof(baseArmorClass));
+            BaseArmorClass = baseArmorClass;
+            if (armorClassModifiers == null)
+                throw new ArgumentNullException(nameof(armorClassModifiers));
+            Modifier[] copiedArmorClassModifiers = armorClassModifiers.ToArray();
+            if (copiedArmorClassModifiers.Any(modifier => modifier.IsEmpty))
+                throw new ArgumentException(
+                    "Armor Class modifiers cannot contain empty values.",
+                    nameof(armorClassModifiers)
+                );
+            this.armorClassModifiers = Array.AsReadOnly(copiedArmorClassModifiers);
             if (attackModifiers == null)
                 throw new ArgumentNullException(nameof(attackModifiers));
             Modifier[] copiedModifiers = attackModifiers.ToArray();
@@ -93,8 +105,11 @@ namespace Game.Rules.Runtime
             this.resistances = Copy(resistances, nameof(resistances));
         }
 
-        /// <summary>Gets the target's current Armor Class.</summary>
-        public int ArmorClass { get; }
+        /// <summary>Gets the target's captured Armor Class before situational modifiers.</summary>
+        public int BaseArmorClass { get; }
+
+        /// <summary>Gets typed situational Armor Class candidates.</summary>
+        public IReadOnlyList<Modifier> ArmorClassModifiers => armorClassModifiers;
 
         /// <summary>Gets current attack modifiers excluding spell proficiency and MAP.</summary>
         public IReadOnlyList<Modifier> AttackModifiers => attackModifiers;

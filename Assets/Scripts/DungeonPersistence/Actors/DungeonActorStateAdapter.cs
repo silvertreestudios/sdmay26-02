@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.DungeonPersistence.Repository;
@@ -41,6 +42,12 @@ namespace Game.DungeonPersistence.Actors
                             SourceSlug = effect.SourceSlug,
                         })
                         .ToArray();
+            SpellSlotResourceSeed spellSlotSeed = controller.GetComponent<SpellSlotResourceSeed>();
+            IReadOnlyList<PreparedSpellSlotResource> spellSlots =
+                spellSlotSeed != null ? spellSlotSeed.Capture(controller)
+                : creature.Prepared?.SpellBook is PreparedSpellBook preparedBook
+                    ? preparedBook.CreateInitialSlotResources()
+                : Array.Empty<PreparedSpellSlotResource>();
 
             return new DungeonActorSaveState
             {
@@ -51,6 +58,14 @@ namespace Game.DungeonPersistence.Actors
                     .ToArray(),
                 RulesEffects = rulesEffects.ToArray(),
                 PreparedEffects = preparedEffects.ToArray(),
+                SpellSlots = spellSlots
+                    .Select(slot => new DungeonSpellSlotSaveState
+                    {
+                        PoolId = slot.Pool.Value,
+                        Remaining = slot.Remaining,
+                        Maximum = slot.Maximum,
+                    })
+                    .ToArray(),
                 Equipment = CaptureEquipment(creature),
             };
         }
@@ -141,6 +156,16 @@ namespace Game.DungeonPersistence.Actors
                     controller.GetComponent<DungeonRulesEffectSeed>()
                     ?? controller.gameObject.AddComponent<DungeonRulesEffectSeed>();
                 effectSeed.Initialize(saved.RulesEffects, resolveActor);
+                SpellSlotResourceSeed spellSlotSeed =
+                    controller.GetComponent<SpellSlotResourceSeed>()
+                    ?? controller.gameObject.AddComponent<SpellSlotResourceSeed>();
+                spellSlotSeed.Initialize(
+                    saved.SpellSlots.Select(slot => new PreparedSpellSlotResource(
+                        new SpellSlotPoolId(slot.PoolId),
+                        slot.Remaining,
+                        slot.Maximum
+                    ))
+                );
 
                 creature.Prepared?.RestoreActiveEffects(preparedEffects);
                 creature.equippedLeftHand = leftHand;

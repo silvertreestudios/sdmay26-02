@@ -69,7 +69,9 @@ namespace Game.Rules.Unity.Spells
                 return ActionValidationResult.Invalid(
                     "The spell target is out of range or has no line of effect."
                 );
-            return defender.ResolveArmorClass().Total > 0
+            return
+                snapshot.Statistics.TryGet(target, out CreatureStatisticsState statistics)
+                && statistics.ArmorClass > 0
                 ? ActionValidationResult.Valid
                 : ActionValidationResult.Invalid(
                     "The spell target's Armor Class must be positive."
@@ -86,8 +88,45 @@ namespace Game.Rules.Unity.Spells
         {
             CreatureComponent attacker = RequireCreature(actor);
             CreatureComponent defender = RequireCreature(target);
+            OneCreatureSpellAttackTarget oneCreature =
+                attack.Target as OneCreatureSpellAttackTarget
+                ?? throw new InvalidOperationException(
+                    "The spell attack target structure is unsupported."
+                );
+            StrikeTargetResult targeting = StrikeTargeting.Evaluate(
+                attacker.gameObject,
+                defender.gameObject,
+                tiles,
+                new StrikeTargetRequest
+                {
+                    IsRanged = true,
+                    FixedRangeFeet = oneCreature.RangeFeet,
+                    RequiresLineOfEffect = true,
+                }
+            );
+            if (targeting == null)
+                throw new InvalidOperationException(
+                    "The spell target became invalid after validation."
+                );
+            if (!snapshot.Statistics.TryGet(target, out CreatureStatisticsState statistics))
+                throw new InvalidOperationException(
+                    $"Creature '{target.Value}' has no enrolled statistics."
+                );
             return new SpellAttackResolutionData(
-                Math.Max(1, defender.ResolveArmorClass().Total),
+                // The rules slice owns the untyped base AC. Cover remains a typed candidate so it
+                // participates correctly in circumstance-modifier stacking during resolution.
+                Math.Max(1, statistics.ArmorClass),
+                targeting.CoverAcBonus == 0
+                    ? Array.Empty<Modifier>()
+                    : new[]
+                    {
+                        new Modifier(
+                            targeting.CoverAcBonus,
+                            ModifierType.Circumstance,
+                            RuleSource.FromSlug("cover"),
+                            Statistic.ArmorClass
+                        ),
+                    },
                 UnityAttackDataAdapter.CaptureModifiers(attacker),
                 UnityAttackDataAdapter.CaptureWeaknesses(defender),
                 UnityAttackDataAdapter.CaptureResistances(defender)

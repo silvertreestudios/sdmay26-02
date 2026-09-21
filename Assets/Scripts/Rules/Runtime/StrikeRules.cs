@@ -264,6 +264,7 @@ namespace Game.Rules.Runtime
     /// <summary>Contains immutable Unity-extracted values needed by pure Strike calculation.</summary>
     public sealed class StrikeResolutionData
     {
+        private readonly IReadOnlyList<Modifier> armorClassModifiers;
         private readonly IReadOnlyList<Modifier> attackModifiers;
         private readonly IReadOnlyList<TypedDamageDice> damageDice;
         private readonly IReadOnlyList<TypedFlatDamage> flatDamage;
@@ -272,7 +273,8 @@ namespace Game.Rules.Runtime
 
         /// <summary>Creates one frozen resolution-data snapshot.</summary>
         public StrikeResolutionData(
-            int armorClass,
+            int baseArmorClass,
+            IEnumerable<Modifier> armorClassModifiers,
             IEnumerable<Modifier> attackModifiers,
             IEnumerable<TypedDamageDice> damageDice,
             IEnumerable<TypedFlatDamage> flatDamage,
@@ -280,9 +282,18 @@ namespace Game.Rules.Runtime
             IEnumerable<TypedDefenseAdjustment> resistances
         )
         {
-            if (armorClass <= 0)
-                throw new ArgumentOutOfRangeException(nameof(armorClass));
-            ArmorClass = armorClass;
+            if (baseArmorClass <= 0)
+                throw new ArgumentOutOfRangeException(nameof(baseArmorClass));
+            BaseArmorClass = baseArmorClass;
+            if (armorClassModifiers == null)
+                throw new ArgumentNullException(nameof(armorClassModifiers));
+            Modifier[] copiedArmorClassModifiers = armorClassModifiers.ToArray();
+            if (copiedArmorClassModifiers.Any(modifier => modifier.IsEmpty))
+                throw new ArgumentException(
+                    "Armor Class modifiers cannot contain empty values.",
+                    nameof(armorClassModifiers)
+                );
+            this.armorClassModifiers = Array.AsReadOnly(copiedArmorClassModifiers);
             if (attackModifiers == null)
                 throw new ArgumentNullException(nameof(attackModifiers));
             Modifier[] copiedModifiers = attackModifiers.ToArray();
@@ -299,10 +310,12 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
-        /// Gets target AC after the resolution provider applies Strike-specific cover and
-        /// off-guard modifiers.
+        /// Gets the target's captured Armor Class before situational typed modifiers.
         /// </summary>
-        public int ArmorClass { get; }
+        public int BaseArmorClass { get; }
+
+        /// <summary>Gets current typed cover, off-guard, and other defensive candidates.</summary>
+        public IReadOnlyList<Modifier> ArmorClassModifiers => armorClassModifiers;
 
         /// <summary>Gets current actor modifiers excluding the item base, MAP, and range.</summary>
         public IReadOnlyList<Modifier> AttackModifiers => attackModifiers;
@@ -944,7 +957,11 @@ namespace Game.Rules.Runtime
             };
             attackCandidates.AddRange(data.AttackModifiers);
             OpResult<ModifierCollection> armorClassResult = await context.Dispatch(
-                new AdjustArmorClassOp(frame.Op.Target, data.ArmorClass)
+                new AdjustArmorClassOp(
+                    frame.Op.Target,
+                    data.BaseArmorClass,
+                    data.ArmorClassModifiers
+                )
             );
             if (armorClassResult is not ResolvedOpResult<ModifierCollection> resolvedArmorClass)
                 throw new InvalidOperationException("Armor Class adjustment did not resolve.");

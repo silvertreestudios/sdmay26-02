@@ -315,6 +315,31 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task HauntingHymnRollsDamageOnceAndAppliesItThroughEachBasicSave()
+        {
+            ScriptedRollService rolls = new(14, 15, 6);
+            TestRuntime runtime = CreateRuntime(rolls);
+
+            CastSpellOutcome cast = RequireResolved(
+                await runtime.Dispatcher.Dispatch(Cast("haunting-hymn", 2, Enemy, Undead))
+            ).Value;
+
+            Assert.That(
+                cast.TargetResolutions.Single(result => result.Target == Enemy)
+                    .Damage.Single()
+                    .Amount,
+                Is.EqualTo(6)
+            );
+            Assert.That(
+                cast.TargetResolutions.Single(result => result.Target == Undead)
+                    .Damage.Single()
+                    .Amount,
+                Is.EqualTo(3)
+            );
+            Assert.That(rolls.Remaining, Is.Zero);
+        }
+
+        [Test]
         public async Task HeightenedHauntingHymnAndHealScaleTheirDiceAndFlatHealing()
         {
             TestRuntime hymn = CreateRuntime(new ScriptedRollService(14, 3, 4));
@@ -371,7 +396,8 @@ namespace Game.Rules.Runtime.Tests
         [Test]
         public async Task HealThreeActionEmanationHealsAlliesDamagesUndeadAndSkipsLivingEnemies()
         {
-            TestRuntime runtime = CreateRuntime(new ScriptedRollService(3, 4, 10, 5));
+            ScriptedRollService rolls = new(10, 5);
+            TestRuntime runtime = CreateRuntime(rolls);
 
             CastSpellOutcome cast = RequireResolved(
                 await runtime.Dispatcher.Dispatch(Cast("heal", 3, Caster, Ally, Enemy, Undead))
@@ -384,9 +410,9 @@ namespace Game.Rules.Runtime.Tests
             );
             Assert.That(
                 cast.TargetResolutions.Single(value => value.Target == Ally).Healing,
-                Is.EqualTo(4)
+                Is.EqualTo(5)
             );
-            Assert.That(runtime.Store.Snapshot.Health[Ally].Current, Is.EqualTo(9));
+            Assert.That(runtime.Store.Snapshot.Health[Ally].Current, Is.EqualTo(10));
             Assert.That(
                 cast.TargetResolutions.Single(value => value.Target == Enemy).Healing,
                 Is.Zero
@@ -401,6 +427,7 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(runtime.Store.Snapshot.Health[Undead].Current, Is.EqualTo(15));
             Assert.That(runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining, Is.Zero);
             Assert.That(runtime.Store.Snapshot.SpellSlots[Pool].Remaining, Is.Zero);
+            Assert.That(rolls.Remaining, Is.Zero);
         }
 
         [Test]

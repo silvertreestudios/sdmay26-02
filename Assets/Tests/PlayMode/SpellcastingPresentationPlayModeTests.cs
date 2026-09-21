@@ -187,6 +187,44 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(controller.GetActions().OfType<CastSpellAction>(), Is.Empty);
     }
 
+    [UnityTest]
+    public IEnumerator SingleCreatureSpellSelectionCanTargetTheCaster()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Self Guidance Cleric", 0, prepared: true);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Self Guidance Opponent", 1, prepared: false);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            "players"
+        );
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        RulesCastSpellAction guidance = RulesActions(controller, "guidance").Single();
+        grid.Target = cleric.gameObject;
+        bridge.BeginTurn(actor, 3);
+        controller.IsTakingAction = true;
+
+        guidance.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(grid.LastStrikeRequest, Is.Not.Null);
+        Assert.That(grid.LastStrikeRequest.IncludeSelf, Is.True);
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        ActiveEffectInstance effect = bridge
+            .Snapshot.ActiveEffects.Select(pair => pair.Value)
+            .Single(value => value.DefinitionId == SpellFeatureRules.GuidanceEffect);
+        Assert.That(effect.GetState<SpellEffectState>().Target, Is.EqualTo(actor));
+    }
+
     [Test]
     public void PreparedSpellMissingCatalogDefinitionFailsInstallation()
     {
@@ -832,6 +870,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     {
         public GameObject Target { get; set; }
         public System.Action AfterSelection { get; set; }
+        public StrikeTargetRequest LastStrikeRequest { get; private set; }
 
         public override IEnumerator SelectStridePath(
             GameObject character,
@@ -848,6 +887,7 @@ public sealed class SpellcastingPresentationPlayModeTests
             CoroutineResult<StrikeTargetResult> target
         )
         {
+            LastStrikeRequest = request;
             target.Value = Target == null ? null : new StrikeTargetResult { Target = Target };
             AfterSelection?.Invoke();
             yield break;

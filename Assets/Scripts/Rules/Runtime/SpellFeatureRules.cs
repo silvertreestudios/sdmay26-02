@@ -630,13 +630,9 @@ namespace Game.Rules.Runtime
             this.creatureData =
                 creatureData ?? throw new ArgumentNullException(nameof(creatureData));
 
-        protected async ValueTask<(DegreeOfSuccess Degree, TypedDamagePart Damage)> ResolveDamage(
-            CreatureId caster,
+        protected async ValueTask<DegreeOfSuccess> ResolveSave(
             CreatureId target,
             int dc,
-            DiceExpression dice,
-            string damageType,
-            RuleSource source,
             OpId frameId,
             OpHandlerContext context
         )
@@ -646,8 +642,18 @@ namespace Game.Rules.Runtime
                     new SavingThrowOp(target, SaveKind.Fortitude, dc, CheckSource.From(frameId))
                 )
             );
-            int rolled = context.Rolls.Roll(dice).Total;
-            int amount = save.Degree switch
+            return save.Degree;
+        }
+
+        protected TypedDamagePart ResolveDamage(
+            CreatureId target,
+            DegreeOfSuccess degree,
+            int rolled,
+            string damageType,
+            RuleSource source
+        )
+        {
+            int amount = degree switch
             {
                 DegreeOfSuccess.CriticalSuccess => 0,
                 DegreeOfSuccess.Success => rolled / 2,
@@ -669,7 +675,7 @@ namespace Game.Rules.Runtime
                 amount = checked(amount + weakness.Amount);
             if (resistance != null)
                 amount = Math.Max(0, amount - resistance.Amount);
-            return (save.Degree, new TypedDamagePart(damageType, amount, new[] { source.Slug }));
+            return new TypedDamagePart(damageType, amount, new[] { source.Slug });
         }
     }
 
@@ -698,22 +704,23 @@ namespace Game.Rules.Runtime
         {
             int dc = catalog.GetSpellBook(frame.Op.Actor).SpellDc;
             int dice = 1 + ((frame.Op.Spell.Rank - 1) / 2);
-            List<(CreatureId Target, DegreeOfSuccess Degree, TypedDamagePart Damage)> rolled =
-                new();
+            List<(CreatureId Target, DegreeOfSuccess Degree)> saves = new();
             foreach (CreatureId target in frame.Op.Selection.Creatures)
             {
-                var result = await ResolveDamage(
-                    frame.Op.Actor,
-                    target,
-                    dc,
-                    new DiceExpression(dice, 8),
-                    "sonic",
-                    Source,
-                    frame.Id,
-                    context
-                );
-                rolled.Add((target, result.Degree, result.Damage));
+                DegreeOfSuccess degree = await ResolveSave(target, dc, frame.Id, context);
+                saves.Add((target, degree));
             }
+            int sharedRoll =
+                saves.Count == 0 ? 0 : context.Rolls.Roll(new DiceExpression(dice, 8)).Total;
+            List<(CreatureId Target, DegreeOfSuccess Degree, TypedDamagePart Damage)> rolled = saves
+                .Select(value =>
+                    (
+                        value.Target,
+                        value.Degree,
+                        ResolveDamage(value.Target, value.Degree, sharedRoll, "sonic", Source)
+                    )
+                )
+                .ToList();
             if (rolled.Count > 0)
             {
                 await SpellRuleSupport.RequireResolved(
@@ -838,26 +845,31 @@ namespace Game.Rules.Runtime
         )
         {
             int dc = catalog.GetSpellBook(frame.Op.Actor).SpellDc;
+            Dictionary<CreatureId, DegreeOfSuccess> undeadSaves = new();
+            foreach (CreatureId target in frame.Op.Selection.Creatures.Where(creatureData.IsUndead))
+                undeadSaves.Add(target, await ResolveSave(target, dc, frame.Id, context));
+            int sharedRoll =
+                frame.Op.Selection.Creatures.Count == 0
+                    ? 0
+                    : context.Rolls.Roll(new DiceExpression(frame.Op.Spell.Rank, 8)).Total;
             List<SpellTargetResolution> outcomes = new();
             foreach (CreatureId target in frame.Op.Selection.Creatures)
             {
                 if (creatureData.IsUndead(target))
                 {
-                    var damage = await ResolveDamage(
-                        frame.Op.Actor,
+                    DegreeOfSuccess degree = undeadSaves[target];
+                    TypedDamagePart damage = ResolveDamage(
                         target,
-                        dc,
-                        new DiceExpression(frame.Op.Spell.Rank, 8),
+                        degree,
+                        sharedRoll,
                         "vitality",
-                        Source,
-                        frame.Id,
-                        context
+                        Source
                     );
                     await SpellRuleSupport.RequireResolved(
                         context.Dispatch(
                             new ApplyDamageOp(
                                 target,
-                                damage.Damage.Amount,
+                                damage.Amount,
                                 new HealthChangeOriginId(
                                     $"heal-{frame.RootId.Value}-{target.Value}"
                                 ),
@@ -866,13 +878,7 @@ namespace Game.Rules.Runtime
                         )
                     );
                     outcomes.Add(
-                        new SpellTargetResolution(
-                            target,
-                            damage.Degree,
-                            new[] { damage.Damage },
-                            0,
-                            false
-                        )
+                        new SpellTargetResolution(target, degree, new[] { damage }, 0, false)
                     );
                 }
                 else
@@ -890,9 +896,7 @@ namespace Game.Rules.Runtime
                         );
                         continue;
                     }
-                    int amount = context
-                        .Rolls.Roll(new DiceExpression(frame.Op.Spell.Rank, 8))
-                        .Total;
+                    int amount = sharedRoll;
                     if (frame.Op.Variant.Actions == 2)
                         amount = checked(amount + (8 * frame.Op.Spell.Rank));
                     HealingOutcome healing = await SpellRuleSupport.RequireResolved(

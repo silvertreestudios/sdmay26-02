@@ -223,6 +223,7 @@ public sealed class DungeonRunMenuServiceTests
             TemporaryHitPointImmunities = Array.Empty<string>(),
             RulesEffects = Array.Empty<DungeonRulesEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
+            SpellSlots = Array.Empty<DungeonSpellSlotSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {
                 LeftHandId = string.Empty,

@@ -7,8 +7,10 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Strike;
 using Game.Strikes;
 using GridPrivate;
+using GridPublic;
 using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -69,6 +71,75 @@ public sealed class RulesStrikeUnityTests
         Assert.That(shortbow.IsRanged, Is.True);
         Assert.That(shortbow.Item.RangeIncrementFeet, Is.EqualTo(60));
         Assert.That(lena.GetAmmoQuantity("arrows"), Is.EqualTo(20));
+    }
+
+    [Test]
+    public void StrikeCaptureKeepsCoverAsTypedArmorClassCandidate()
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature("Target", "enemies", 20, 18);
+        TestActionController attackerController =
+            attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Tile[,] tiles = CreateTiles(2);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController },
+            tiles,
+            new ScriptedRollService(10, 10),
+            "heroes"
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        UnityStrikeContext context = new(
+            new Dictionary<CreatureId, CreatureComponent>
+            {
+                [actor] = attacker,
+                [targetId] = target,
+            },
+            tiles
+        );
+        using IDisposable preparation = context.PrepareCombatant(actor, attacker, out _, out _);
+        StrikeItemDefinition item = context
+            .GetItems(actor)
+            .Single(value => value.Item.Value.EndsWith("unarmed"));
+
+        StrikeResolutionData data = context.Capture(
+            bridge.Snapshot,
+            actor,
+            item,
+            targetId,
+            StrikeTargetingOutcome.Legal(5, 0, 2, false)
+        );
+
+        Assert.That(data.BaseArmorClass, Is.EqualTo(18));
+        Assert.That(data.ArmorClassModifiers, Has.Count.EqualTo(1));
+        Assert.That(data.ArmorClassModifiers[0].Value, Is.EqualTo(2));
+        Assert.That(data.ArmorClassModifiers[0].Type, Is.EqualTo(ModifierType.Circumstance));
+        Assert.That(data.ArmorClassModifiers[0].Source.Slug, Is.EqualTo("cover"));
+    }
+
+    [Test]
+    public void CreatureTargetingIncludesTheCasterOnlyWhenExplicitlyRequested()
+    {
+        CreatureComponent caster = CreateCreature("Caster", "heroes", 20, 10);
+        Tile[,] tiles = CreateTiles(1);
+        StrikeTargetRequest ordinary = new() { ReachFeet = 5 };
+        StrikeTargetRequest selfCapable = new() { ReachFeet = 5, IncludeSelf = true };
+
+        Assert.That(StrikeTargeting.CellsInRange(tiles, Vector3Int.zero, ordinary), Is.Empty);
+        Assert.That(
+            StrikeTargeting.CellsInRange(tiles, Vector3Int.zero, selfCapable),
+            Is.EqualTo(new[] { Vector3Int.zero })
+        );
+        Assert.That(
+            StrikeTargeting.Evaluate(caster.gameObject, caster.gameObject, tiles, ordinary),
+            Is.Null
+        );
+        Assert.That(
+            StrikeTargeting.Evaluate(caster.gameObject, caster.gameObject, tiles, selfCapable),
+            Is.Not.Null
+        );
     }
 
     [Test]

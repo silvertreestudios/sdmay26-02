@@ -410,6 +410,7 @@ public sealed class DungeonRulesEffectPersistencePlayModeTests
             TemporaryHitPointImmunities = Array.Empty<string>(),
             RulesEffects = Array.Empty<DungeonRulesEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
+            SpellSlots = Array.Empty<DungeonSpellSlotSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {
                 LeftHandId = string.Empty,

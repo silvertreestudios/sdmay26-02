@@ -285,6 +285,7 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             new(
                 armorClass,
+                Array.Empty<Modifier>(),
                 modifiers ?? Array.Empty<Modifier>(),
                 weaknesses ?? Array.Empty<TypedDefenseAdjustment>(),
                 resistances ?? Array.Empty<TypedDefenseAdjustment>()

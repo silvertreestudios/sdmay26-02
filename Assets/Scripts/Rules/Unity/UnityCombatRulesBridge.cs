@@ -777,7 +777,13 @@ namespace Game.Rules.Unity
             return new UnityCombatantEnrollmentBuilder(
                 controller,
                 creature,
-                new CreatureState(creatureId, playerId),
+                new CreatureState(
+                    creatureId,
+                    playerId,
+                    (creature.traits ?? new List<string>())
+                        .Where(trait => !string.IsNullOrWhiteSpace(trait))
+                        .Select(Trait.FromSlug)
+                ),
                 UnityCreatureStatisticsAdapter.Capture(creature, creatureId),
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),

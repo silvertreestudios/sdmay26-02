@@ -129,6 +129,7 @@ namespace Game.Combat.Spells
                                         IsRanged = profile.RangeFeet > 5,
                                         FixedRangeFeet = profile.RangeFeet,
                                         RequiresLineOfEffect = true,
+                                        IncludeSelf = true,
                                     },
                                     targetSelection
                                 );

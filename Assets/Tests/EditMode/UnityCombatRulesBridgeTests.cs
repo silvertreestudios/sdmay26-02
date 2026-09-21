@@ -170,6 +170,15 @@ public sealed class UnityCombatRulesBridgeTests
             );
             ConfigureStatistics(initialObject.GetComponent<CreatureComponent>(), 0);
             ConfigureStatistics(reinforcementObject.GetComponent<CreatureComponent>(), 10);
+            initialObject.GetComponent<CreatureComponent>().traits = new List<string>
+            {
+                "undead",
+                "mindless",
+            };
+            reinforcementObject.GetComponent<CreatureComponent>().traits = new List<string>
+            {
+                "undead",
+            };
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
                 new ActionController[] { initial, anchor },
                 CreateTiles(3),
@@ -184,6 +193,14 @@ public sealed class UnityCombatRulesBridgeTests
 
             AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(initial), 0);
             AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(reinforcement), 10);
+            Assert.That(
+                bridge.Snapshot.Creatures[bridge.GetCreatureId(initial)].Traits,
+                Is.EquivalentTo(new[] { Trait.FromSlug("undead"), Trait.FromSlug("mindless") })
+            );
+            Assert.That(
+                bridge.Snapshot.Creatures[bridge.GetCreatureId(reinforcement)].Traits,
+                Is.EqualTo(new[] { Trait.FromSlug("undead") })
+            );
             bridge.ReleaseOwnership();
         }
         finally

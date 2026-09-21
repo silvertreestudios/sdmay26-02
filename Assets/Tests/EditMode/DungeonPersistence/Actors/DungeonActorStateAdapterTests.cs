@@ -96,6 +96,131 @@ public sealed class DungeonActorStateAdapterTests
     }
 
     [Test]
+    public void SpentPreparedSlotSurvivesEncounterReleaseSerializationAndRestore()
+    {
+        SpellReference bless = new(new SpellId("bless"), 1);
+        SpellSlotPoolId localPool = new("rank-1-bless");
+        DungeonRulesActorReference heroActor = PartyActor("hero");
+        SourceFixture source = CreateFixture("Slot Source", out sourceObject);
+        sourceObject.AddComponent<Team>().Name = "players";
+        source.Creature.Prepared.SpellBook = new PreparedSpellBook(
+            new[] { PreparedSpellEntry.FromPool(bless, localPool) },
+            new[] { new PreparedSpellSlotPool(localPool, 1) },
+            7
+        );
+        DungeonActorSaveState beforeEncounter = DungeonActorStateAdapter.Capture(
+            source.Controller,
+            _ => heroActor
+        );
+        Assert.That(beforeEncounter.SpellSlots.Single().Remaining, Is.EqualTo(1));
+        SourceFixture opponent = CreateFixture("Slot Opponent", out effectSourceObject);
+        effectSourceObject.AddComponent<Team>().Name = "enemies";
+        effectSourceObject.transform.position = Vector3.right;
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { source.Controller, opponent.Controller },
+            CreateTiles(),
+            new ScriptedRollService(10, 10),
+            "players"
+        );
+        CreatureId sourceId = activeBridge.GetCreatureId(source.Creature);
+        activeBridge.BeginTurn(sourceId, 3);
+
+        Assert.That(
+            activeBridge.Dispatch(
+                new CastSpellActionOp(
+                    sourceId,
+                    bless,
+                    new SpellActionVariant(2),
+                    new SpellCastSelection(new[] { sourceId })
+                )
+            ),
+            Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>()
+        );
+        DungeonActorSaveState attached = DungeonActorStateAdapter.Capture(
+            source.Controller,
+            actor => actor == sourceObject ? heroActor : throw new InvalidOperationException()
+        );
+        Assert.That(attached.SpellSlots.Single().Remaining, Is.Zero);
+
+        activeBridge.ReleaseOwnership();
+        activeBridge = null;
+        DungeonActorSaveState detached = DungeonActorStateAdapter.Capture(
+            source.Controller,
+            actor => actor == sourceObject ? heroActor : throw new InvalidOperationException()
+        );
+        DungeonActorSaveState parsed = DungeonSaveJson
+            .ParseActor(DungeonSaveJson.SerializeActor(detached))
+            .Value;
+        Assert.That(parsed.SpellSlots.Single().PoolId, Is.EqualTo(localPool.Value));
+        Assert.That(parsed.SpellSlots.Single().Remaining, Is.Zero);
+        Assert.That(parsed.SpellSlots.Single().Maximum, Is.EqualTo(1));
+        DungeonRulesEffectSaveState savedBless = parsed.RulesEffects.Single();
+        Assert.That(savedBless.DefinitionId, Is.EqualTo(SpellFeatureRules.BlessEffect.Value));
+        Assert.That(savedBless.SourceActor.Equals(heroActor), Is.True);
+        Assert.That(savedBless.BindingOwnerActor.Equals(heroActor), Is.True);
+
+        SourceFixture restored = CreateFixture("Slot Restored", out restoredObject);
+        restoredObject.AddComponent<Team>().Name = "players";
+        restored.Creature.Prepared.SpellBook = new PreparedSpellBook(
+            new[] { PreparedSpellEntry.FromPool(bless, localPool) },
+            new[] { new PreparedSpellSlotPool(localPool, 1) },
+            7
+        );
+        SourceFixture restoredOpponent = CreateFixture(
+            "Slot Restored Opponent",
+            out restoredOpponentObject
+        );
+        restoredOpponentObject.AddComponent<Team>().Name = "enemies";
+        restoredOpponentObject.transform.position = Vector3.right;
+        DungeonActorStateAdapter.PrepareRestore(
+            restored.Controller,
+            parsed,
+            restored.Creature.Health.Current,
+            isDefeated: false,
+            actor => actor.Equals(heroActor) ? restoredObject : null
+        )();
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { restored.Controller, restoredOpponent.Controller },
+            CreateTiles(),
+            new ScriptedRollService(10, 10),
+            "players"
+        );
+        CreatureId restoredId = activeBridge.GetCreatureId(restored.Creature);
+        Assert.That(
+            activeBridge.Snapshot.ActiveEffects.TryGet(
+                new ActiveEffectId(savedBless.EffectId),
+                out _
+            ),
+            Is.True
+        );
+        Assert.That(
+            activeBridge.Snapshot.RuleBindings.TryGet(
+                new BindingId(savedBless.BindingId),
+                out ActiveRuleBinding restoredBlessBinding
+            ),
+            Is.True
+        );
+        Assert.That(restoredBlessBinding.Owner, Is.EqualTo(restoredId));
+        SpellSlotState restoredSlot = activeBridge
+            .Snapshot.SpellSlots.Select(pair => pair.Value)
+            .Single(slot => slot.Owner == restoredId);
+
+        Assert.That(restoredSlot.Remaining, Is.Zero);
+        Assert.That(restoredSlot.Maximum, Is.EqualTo(1));
+        Assert.That(
+            activeBridge.Dispatch(
+                new CastSpellActionOp(
+                    restoredId,
+                    bless,
+                    new SpellActionVariant(2),
+                    new SpellCastSelection(new[] { restoredId })
+                )
+            ),
+            Is.TypeOf<InvalidOpResult<CastSpellOutcome>>()
+        );
+    }
+
+    [Test]
     public void DetachedConditionSeedRoundTripsThroughActorPersistenceEntryPoints()
     {
         SourceFixture source = CreateFixture("Detached Condition Source", out sourceObject);
@@ -1089,6 +1214,7 @@ public sealed class DungeonActorStateAdapterTests
                     TemporaryHitPointImmunities = captured.TemporaryHitPointImmunities,
                     RulesEffects = captured.RulesEffects,
                     PreparedEffects = captured.PreparedEffects,
+                    SpellSlots = captured.SpellSlots,
                     Equipment = new DungeonEquipmentSaveState
                     {
                         LeftHandId = string.Empty,

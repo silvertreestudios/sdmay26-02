@@ -384,7 +384,11 @@ public sealed class FileSystemDungeonSaveRepositoryTests
 
         DungeonSaveResult<bool> restoredExisting = repository.RestoreCheckpoint(existing.Value);
 
-        Assert.That(restoredExisting.IsSuccess, Is.True);
+        Assert.That(
+            restoredExisting.IsSuccess,
+            Is.True,
+            FormatDiagnostics(restoredExisting.Diagnostics)
+        );
         Assert.That(File.ReadAllText(repository.AutosavePath), Is.EqualTo(priorContents));
 
         File.Delete(repository.AutosavePath);
@@ -395,7 +399,11 @@ public sealed class FileSystemDungeonSaveRepositoryTests
 
         DungeonSaveResult<bool> restoredMissing = repository.RestoreCheckpoint(missing.Value);
 
-        Assert.That(restoredMissing.IsSuccess, Is.True);
+        Assert.That(
+            restoredMissing.IsSuccess,
+            Is.True,
+            FormatDiagnostics(restoredMissing.Diagnostics)
+        );
         Assert.That(File.Exists(repository.AutosavePath), Is.False);
     }
 
@@ -521,6 +529,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             TemporaryHitPointImmunities = Array.Empty<string>(),
             RulesEffects = Array.Empty<DungeonRulesEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
+            SpellSlots = Array.Empty<DungeonSpellSlotSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {
                 LeftHandId = string.Empty,
@@ -535,4 +544,14 @@ public sealed class FileSystemDungeonSaveRepositoryTests
 
     private static string InstanceId(string encounterId, int index) =>
         $"{encounterId}/creature-{index:0000}";
+
+    private static string FormatDiagnostics(
+        System.Collections.Generic.IEnumerable<DungeonSaveDiagnostic> diagnostics
+    ) =>
+        string.Join(
+            "; ",
+            diagnostics.Select(diagnostic =>
+                $"{diagnostic.Code} at {diagnostic.Path}: {diagnostic.Message}"
+            )
+        );
 }

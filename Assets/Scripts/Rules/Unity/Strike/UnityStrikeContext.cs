@@ -209,7 +209,9 @@ namespace Game.Rules.Unity.Strike
         {
             if (!creatures.TryGetValue(target, out CreatureComponent defender) || defender == null)
                 return ActionValidationResult.Invalid("The selected creature is unavailable.");
-            return ResolveArmorClass(defender, targeting) > 0
+            return
+                snapshot.Statistics.TryGet(target, out CreatureStatisticsState statistics)
+                && statistics.ArmorClass > 0
                 ? ActionValidationResult.Valid
                 : ActionValidationResult.Invalid("The target's Armor Class must be positive.");
         }
@@ -237,11 +239,15 @@ namespace Game.Rules.Unity.Strike
                 snapshot,
                 actor
             );
+            if (!snapshot.Statistics.TryGet(target, out CreatureStatisticsState statistics))
+                throw new InvalidOperationException(
+                    $"Creature '{target.Value}' has no enrolled statistics."
+                );
             return new StrikeResolutionData(
-                // Validation rejects an invalid AC before costs. If Unity-side presentation state
-                // changes after the action begins, keep resolution non-failing instead of turning
-                // that late adapter change into a partially committed Strike.
-                Math.Max(1, ResolveArmorClass(defender, targeting)),
+                // The rules slice owns the untyped base AC. Live targeting contributes cover and
+                // off-guard as typed candidates below so same-type stacking is resolved once.
+                Math.Max(1, statistics.ArmorClass),
+                CaptureArmorClassModifiers(targeting),
                 attackModifiers,
                 prepared.DamageDice,
                 prepared.FlatDamage,
@@ -467,35 +473,34 @@ namespace Game.Rules.Unity.Strike
             return creature;
         }
 
-        private static int ResolveArmorClass(
-            CreatureComponent defender,
+        private static IReadOnlyList<Modifier> CaptureArmorClassModifiers(
             LegalStrikeTargetingOutcome targeting
         )
         {
-            List<Pf2eModifier> modifiers = new();
+            List<Modifier> modifiers = new();
             if (targeting.CoverBonus != 0)
             {
                 modifiers.Add(
-                    new Pf2eModifier(
+                    new Modifier(
                         targeting.CoverBonus,
-                        Pf2eModifierType.Circumstance,
-                        "Cover",
-                        Pf2eStatistic.ArmorClass
+                        ModifierType.Circumstance,
+                        RuleSource.FromSlug("cover"),
+                        Statistic.ArmorClass
                     )
                 );
             }
             if (targeting.OffGuard)
             {
                 modifiers.Add(
-                    new Pf2eModifier(
+                    new Modifier(
                         -2,
-                        Pf2eModifierType.Circumstance,
-                        "Off-guard",
-                        Pf2eStatistic.ArmorClass
+                        ModifierType.Circumstance,
+                        RuleSource.FromSlug("off-guard"),
+                        Statistic.ArmorClass
                     )
                 );
             }
-            return defender.ResolveArmorClass(modifiers).Total;
+            return modifiers;
         }
 
         private static IEnumerable<EquipmentWeapon> EnumerateWeapons(CreatureComponent creature)

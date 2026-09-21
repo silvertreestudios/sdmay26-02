@@ -37,11 +37,28 @@ public sealed class SpellAttackUnityTests
             new OneCreatureSpellAttackTarget(60),
             new[] { new TypedDamageDice(new DiceExpression(2, 4), "spirit", "test-spell") }
         );
-        RulesSnapshot snapshot = new InMemoryRulesStore(new RulesStateSeed()).Snapshot;
+        RulesSnapshot snapshot = new InMemoryRulesStore(
+            new RulesStateSeed().SeedStatistics(
+                new CreatureStatisticsState(
+                    targetId,
+                    0,
+                    18,
+                    0,
+                    0,
+                    0,
+                    new Dictionary<Skill, int>(),
+                    System.Array.Empty<Modifier>()
+                )
+            )
+        ).Snapshot;
 
         Assert.That(
             context.Validate(snapshot, actorId, attack, targetId),
             Is.TypeOf<ActionValidationResult.ValidActionValidationResult>()
+        );
+        Assert.That(
+            context.Capture(snapshot, actorId, attack, targetId).BaseArmorClass,
+            Is.EqualTo(18)
         );
 
         target.transform.position = new Vector3(13, 0, 0);

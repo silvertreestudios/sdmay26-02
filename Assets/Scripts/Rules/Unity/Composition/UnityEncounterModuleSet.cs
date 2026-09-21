@@ -93,6 +93,7 @@ namespace Game.Rules.Unity.Composition
                     installUnityAuthority
                 ),
                 new UnitySpellcastingEncounterModule(
+                    owner,
                     actionCatalog,
                     spellAttackContext,
                     creatures,

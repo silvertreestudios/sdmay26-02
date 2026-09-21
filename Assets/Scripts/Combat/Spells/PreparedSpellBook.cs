@@ -86,6 +86,38 @@ namespace Game.Combat.Spells
         public override int GetHashCode() => HashCode.Combine(Id, Maximum);
     }
 
+    /// <summary>Preserves one prepared pool's stable local identity and remaining uses.</summary>
+    internal readonly struct PreparedSpellSlotResource : IEquatable<PreparedSpellSlotResource>
+    {
+        internal PreparedSpellSlotResource(SpellSlotPoolId pool, int remaining, int maximum)
+        {
+            if (pool.IsEmpty)
+                throw new ArgumentException(
+                    "A local spell-slot pool ID is required.",
+                    nameof(pool)
+                );
+            if (maximum < 0)
+                throw new ArgumentOutOfRangeException(nameof(maximum));
+            if (remaining < 0 || remaining > maximum)
+                throw new ArgumentOutOfRangeException(nameof(remaining));
+            Pool = pool;
+            Remaining = remaining;
+            Maximum = maximum;
+        }
+
+        internal SpellSlotPoolId Pool { get; }
+        internal int Remaining { get; }
+        internal int Maximum { get; }
+
+        public bool Equals(PreparedSpellSlotResource other) =>
+            Pool == other.Pool && Remaining == other.Remaining && Maximum == other.Maximum;
+
+        public override bool Equals(object obj) =>
+            obj is PreparedSpellSlotResource other && Equals(other);
+
+        public override int GetHashCode() => HashCode.Combine(Pool, Remaining, Maximum);
+    }
+
     /// <summary>
     /// Implements exact-rank preparation and binds resources owned by encounter rules state.
     /// </summary>
@@ -156,6 +188,77 @@ namespace Game.Combat.Spells
                     pair.Value
                 ))
                 .ToArray();
+
+        /// <summary>Captures fully refreshed resources before the first encounter enrollment.</summary>
+        internal IReadOnlyList<PreparedSpellSlotResource> CreateInitialSlotResources() =>
+            maximums
+                .OrderBy(pair => pair.Key.Value, StringComparer.Ordinal)
+                .Select(pair => new PreparedSpellSlotResource(pair.Key, pair.Value, pair.Value))
+                .ToArray();
+
+        /// <summary>Restores exact remaining uses into newly encounter-scoped slot identities.</summary>
+        internal IReadOnlyList<SpellSlotState> RestoreSlotStates(
+            CreatureId owner,
+            IEnumerable<PreparedSpellSlotResource> resources
+        )
+        {
+            PreparedSpellSlotResource[] copied =
+                resources?.ToArray() ?? throw new ArgumentNullException(nameof(resources));
+            if (copied.Select(resource => resource.Pool).Distinct().Count() != copied.Length)
+                throw new InvalidOperationException("Saved spell-slot pool IDs must be unique.");
+            if (copied.Length != maximums.Count)
+                throw new InvalidOperationException(
+                    "Saved spell-slot resources do not match the prepared spellbook."
+                );
+            Dictionary<SpellSlotPoolId, PreparedSpellSlotResource> byPool = copied.ToDictionary(
+                resource => resource.Pool
+            );
+            return maximums
+                .OrderBy(pair => pair.Key.Value, StringComparer.Ordinal)
+                .Select(pair =>
+                {
+                    if (
+                        !byPool.TryGetValue(pair.Key, out PreparedSpellSlotResource resource)
+                        || resource.Maximum != pair.Value
+                    )
+                        throw new InvalidOperationException(
+                            $"Saved spell-slot pool '{pair.Key.Value}' does not match the prepared spellbook."
+                        );
+                    return new SpellSlotState(
+                        EncounterPool(owner, pair.Key),
+                        owner,
+                        resource.Remaining,
+                        resource.Maximum
+                    );
+                })
+                .ToArray();
+        }
+
+        /// <summary>Captures remaining uses under stable book-local pool identities.</summary>
+        internal IReadOnlyList<PreparedSpellSlotResource> CaptureSlotResources(
+            CreatureId owner,
+            ISpellSlotStateReader slots
+        )
+        {
+            if (slots == null)
+                throw new ArgumentNullException(nameof(slots));
+            return maximums
+                .OrderBy(pair => pair.Key.Value, StringComparer.Ordinal)
+                .Select(pair =>
+                {
+                    SpellSlotPoolId encounterPool = EncounterPool(owner, pair.Key);
+                    if (!slots.TryGet(encounterPool, out SpellSlotState state))
+                        throw new InvalidOperationException(
+                            $"Authoritative spell-slot pool '{encounterPool.Value}' is missing."
+                        );
+                    if (state.Owner != owner || state.Maximum != pair.Value)
+                        throw new InvalidOperationException(
+                            $"Authoritative spell-slot pool '{encounterPool.Value}' does not match its prepared spellbook."
+                        );
+                    return new PreparedSpellSlotResource(pair.Key, state.Remaining, state.Maximum);
+                })
+                .ToArray();
+        }
 
         /// <inheritdoc/>
         public SpellCastAuthorization Authorize(

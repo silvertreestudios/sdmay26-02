@@ -111,6 +111,14 @@ namespace Game.DungeonPersistence.Repository
     }
 
     [Serializable]
+    internal sealed class DungeonSpellSlotSaveState
+    {
+        public string PoolId;
+        public int Remaining;
+        public int Maximum;
+    }
+
+    [Serializable]
     internal sealed class DungeonEquipmentSaveState
     {
         public string LeftHandId;
@@ -128,6 +136,7 @@ namespace Game.DungeonPersistence.Repository
         public string[] TemporaryHitPointImmunities;
         public DungeonRulesEffectSaveState[] RulesEffects;
         public DungeonPreparedEffectSaveState[] PreparedEffects;
+        public DungeonSpellSlotSaveState[] SpellSlots;
         public DungeonEquipmentSaveState Equipment;
     }
 
@@ -735,6 +744,7 @@ namespace Game.DungeonPersistence.Repository
                 || state.TemporaryHitPointImmunities == null
                 || state.RulesEffects == null
                 || state.PreparedEffects == null
+                || state.SpellSlots == null
                 || state.Equipment == null
                 || state.Equipment.LeftHandId == null
                 || state.Equipment.RightHandId == null
@@ -757,6 +767,17 @@ namespace Game.DungeonPersistence.Repository
                     || string.IsNullOrWhiteSpace(item.Slug)
                     || string.IsNullOrWhiteSpace(item.SourceSlug)
                 )
+                || state.SpellSlots.Any(item =>
+                    item == null
+                    || string.IsNullOrWhiteSpace(item.PoolId)
+                    || item.Maximum < 0
+                    || item.Remaining < 0
+                    || item.Remaining > item.Maximum
+                )
+                || state
+                    .SpellSlots.Select(item => item.PoolId)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count() != state.SpellSlots.Length
                 || state.Equipment.Ammunition.Any(item =>
                     string.IsNullOrWhiteSpace(item.ammoName) || item.quantity < 0
                 )

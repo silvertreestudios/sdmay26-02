@@ -97,7 +97,11 @@ namespace Game.Rules.Runtime
             };
             initialModifiers.AddRange(data.AttackModifiers);
             OpResult<ModifierCollection> armorClassResult = await context.Dispatch(
-                new AdjustArmorClassOp(operation.Target, data.ArmorClass)
+                new AdjustArmorClassOp(
+                    operation.Target,
+                    data.BaseArmorClass,
+                    data.ArmorClassModifiers
+                )
             );
             if (armorClassResult is not ResolvedOpResult<ModifierCollection> resolvedArmorClass)
                 throw new InvalidOperationException("Armor Class adjustment did not resolve.");
