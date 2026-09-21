@@ -169,10 +169,13 @@ fail afterward.
 
 `Prepare` validates the complete controller batch, reserves creature/player identity allocation,
 creates every Unity-to-rules map provisionally, validates future attachments, captures immutable
-base statistics, invokes every enrollment module, captures initiative modifiers, and freezes
-complete `CombatantRulesState` values plus installation plans. Creating all maps before module
-preparation lets restored effects resolve
-cross-combatant sources while preparation is still reversible.
+base statistics, invokes every enrollment module, collects feature-owned initiative candidates
+during that preparation, resolves typed stacking once after all modules finish, and freezes
+complete `CombatantRulesState` values plus installation plans. Restored effects therefore influence
+initiative before the atomic addition commit without becoming a parallel statistics authority;
+one-use effects consume from the later committed initiative-assignment Fact. Creating all maps
+before module preparation lets restored effects resolve cross-combatant sources while preparation
+is still reversible.
 Spell action installation reconciles the exact supported spell/variant keys but recreates each
 rules-native action for every encounter enrollment. Those action objects own encounter-scoped
 catalog and spellbook dependencies, so retaining them across ownership release would bind a later

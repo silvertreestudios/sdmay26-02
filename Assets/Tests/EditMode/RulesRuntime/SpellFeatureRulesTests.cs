@@ -265,6 +265,33 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task InitiativeAssignmentConsumesGuidanceBeforeFirstBoundary()
+        {
+            TestRuntime runtime = CreateRuntime(new ScriptedRollService());
+            RequireResolved(await runtime.Dispatcher.Dispatch(Cast("guidance", 1, Ally)));
+
+            OpResult<bool> assignment = await runtime.Dispatcher.Dispatch(
+                new EmitInitiativeAssignedOp(
+                    Encounter,
+                    new InitiativeEntry(Ally, Heroes, 10, 1, 1, RoundNumber.First)
+                )
+            );
+
+            RequireResolved(assignment);
+            Assert.That(
+                runtime
+                    .Store.Snapshot.ActiveEffects.Select(pair => pair.Value)
+                    .Any(effect => effect.DefinitionId == SpellFeatureRules.GuidanceEffect),
+                Is.False
+            );
+            ActiveEffectInstance immunity = runtime
+                .Store.Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single(effect => effect.DefinitionId == SpellFeatureRules.GuidanceImmunity);
+            Assert.That(immunity.Duration, Is.EqualTo(EffectDuration.Minutes(60)));
+            Assert.That(immunity.GetState<SpellEffectState>().Target, Is.EqualTo(Ally));
+        }
+
+        [Test]
         public async Task UnusedGuidanceExpiresAtZeroHpCasterInitiativeBoundaryAndCreatesImmunity()
         {
             TestRuntime runtime = CreateRuntime(new ScriptedRollService());
@@ -944,11 +971,18 @@ namespace Game.Rules.Runtime.Tests
                 .RegisterHandler<EmitInitiativeBoundaryOp, bool>(
                     new EmitInitiativeBoundaryHandler()
                 )
+                .RegisterHandler<EmitInitiativeAssignedOp, bool>(
+                    new EmitInitiativeAssignedHandler()
+                )
                 .RegisterHandler<RemoveEffectWorkflowOp, OpResult<ActiveEffectRemovalOutcome>>(
                     new RemoveEffectWorkflowHandler()
                 )
                 .RegisterReducer<CommitInitiativeBoundaryFactOp, bool>(
                     new CommitInitiativeBoundaryFactReducer(),
+                    TestSource
+                )
+                .RegisterReducer<CommitInitiativeAssignedFactOp, bool>(
+                    new CommitInitiativeAssignedFactReducer(),
                     TestSource
                 );
             SpellFeatureRules.ConfigureDispatcher(builder);
@@ -1309,6 +1343,18 @@ namespace Game.Rules.Runtime.Tests
             public CreatureId Creature { get; }
         }
 
+        private sealed class EmitInitiativeAssignedOp : IRuleOp<bool>
+        {
+            public EmitInitiativeAssignedOp(EncounterId encounter, InitiativeEntry entry)
+            {
+                Encounter = encounter;
+                Entry = entry;
+            }
+
+            public EncounterId Encounter { get; }
+            public InitiativeEntry Entry { get; }
+        }
+
         private sealed class RemoveEffectWorkflowOp : IRuleOp<OpResult<ActiveEffectRemovalOutcome>>
         {
             public RemoveEffectWorkflowOp(RemoveActiveEffectOp removal) => Removal = removal;
@@ -1344,6 +1390,19 @@ namespace Game.Rules.Runtime.Tests
             public RuleSource Source => TestSource;
         }
 
+        private sealed class CommitInitiativeAssignedFactOp : IRuleOp<bool>, IRuleSourcedOp
+        {
+            public CommitInitiativeAssignedFactOp(EncounterId encounter, InitiativeEntry entry)
+            {
+                Encounter = encounter;
+                Entry = entry;
+            }
+
+            public EncounterId Encounter { get; }
+            public InitiativeEntry Entry { get; }
+            public RuleSource Source => TestSource;
+        }
+
         private sealed class EmitInitiativeBoundaryHandler
             : IOpHandler<EmitInitiativeBoundaryOp, bool>
         {
@@ -1358,6 +1417,20 @@ namespace Game.Rules.Runtime.Tests
                             frame.Op.Round,
                             frame.Op.Creature
                         )
+                    )
+                ).Value;
+        }
+
+        private sealed class EmitInitiativeAssignedHandler
+            : IOpHandler<EmitInitiativeAssignedOp, bool>
+        {
+            public async ValueTask<bool> Handle(
+                OpFrame<EmitInitiativeAssignedOp> frame,
+                OpHandlerContext context
+            ) =>
+                RequireResolved(
+                    await context.Dispatch(
+                        new CommitInitiativeAssignedFactOp(frame.Op.Encounter, frame.Op.Entry)
                     )
                 ).Value;
         }
@@ -1378,6 +1451,20 @@ namespace Game.Rules.Runtime.Tests
                         context.Op.Creature
                     )
                 );
+                return ReductionResult<bool>.Accept(true);
+            }
+        }
+
+        private sealed class CommitInitiativeAssignedFactReducer
+            : IOpReducer<CommitInitiativeAssignedFactOp, bool>
+        {
+            public ReductionResult<bool> Reduce(
+                ReductionContext<CommitInitiativeAssignedFactOp> context,
+                RulesStateDraft state,
+                FactSink facts
+            )
+            {
+                facts.Stage(new InitiativeAssignedFact(context.Op.Encounter, context.Op.Entry));
                 return ReductionResult<bool>.Accept(true);
             }
         }

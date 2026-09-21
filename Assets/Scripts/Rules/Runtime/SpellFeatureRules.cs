@@ -127,6 +127,10 @@ namespace Game.Rules.Runtime
                     RuleLifecyclePhase.Transformation,
                     new GuidanceSaveMiddleware()
                 )
+                .FactListener<InitiativeAssignedFact>(
+                    RuleLifecyclePhase.Observation,
+                    new GuidanceInitiativeAssignedListener()
+                )
                 .FactListener<InitiativeBoundaryReachedFact>(
                     RuleLifecyclePhase.Observation,
                     new GuidanceInitiativeBoundaryListener()
@@ -157,22 +161,81 @@ namespace Game.Rules.Runtime
             builder.RegisterHandler<ExpireGuidanceOp, bool>(new ExpireGuidanceHandler());
         }
 
+        /// <summary>
+        /// Collects Guidance initiative candidates from a combatant's prepared restored state.
+        /// </summary>
+        /// <remarks>
+        /// Enrollment calls this before the registration commit because the restored bindings are
+        /// not yet visible through a dispatcher snapshot. The later initiative-assignment listener
+        /// consumes every Guidance candidate through the ordinary active-effect lifecycle.
+        /// </remarks>
+        /// <param name="actor">The combatant whose initiative is being prepared.</param>
+        /// <param name="bindings">The complete prepared binding collection for that combatant.</param>
+        /// <param name="effects">The complete prepared restored-effect collection.</param>
+        /// <returns>Guidance candidates to include in the actor's typed initiative resolution.</returns>
+        /// <exception cref="ArgumentException"><paramref name="actor"/> is empty.</exception>
+        /// <exception cref="ArgumentNullException">
+        /// <paramref name="bindings"/> or <paramref name="effects"/> is <see langword="null"/>.
+        /// </exception>
+        public static IReadOnlyList<Modifier> CollectInitiativeModifiers(
+            CreatureId actor,
+            IReadOnlyList<ActiveRuleBinding> bindings,
+            IReadOnlyList<ActiveEffectInstance> effects
+        )
+        {
+            if (actor.IsEmpty)
+                throw new ArgumentException("An initiative actor is required.", nameof(actor));
+            if (bindings == null)
+                throw new ArgumentNullException(nameof(bindings));
+            if (effects == null)
+                throw new ArgumentNullException(nameof(effects));
+
+            Dictionary<ActiveEffectId, ActiveEffectInstance> effectsById = effects.ToDictionary(
+                effect => effect.Id
+            );
+            List<Modifier> modifiers = new();
+            foreach (
+                ActiveRuleBinding binding in bindings.Where(binding =>
+                    binding.IsEnabled
+                    && binding.DefinitionId == GuidanceEffect
+                    && binding.Owner == actor
+                    && binding.EffectId.HasValue
+                )
+            )
+            {
+                if (
+                    !effectsById.TryGetValue(
+                        binding.EffectId.Value,
+                        out ActiveEffectInstance effect
+                    )
+                    || effect.DefinitionId != GuidanceEffect
+                )
+                    continue;
+                effect.GetState<SpellEffectState>();
+                modifiers.Add(Modifier.StatusBonus(1, binding.Source, Statistic.Initiative));
+            }
+            return modifiers.AsReadOnly();
+        }
+
         private sealed class ExpireGuidanceOp : IRuleOp<bool>
         {
             public ExpireGuidanceOp(
                 ActiveEffectId effect,
                 BindingId binding,
-                EffectStateVersion expectedVersion
+                EffectStateVersion expectedVersion,
+                ActiveEffectRemovalReason removalReason
             )
             {
                 Effect = effect;
                 Binding = binding;
                 ExpectedVersion = expectedVersion;
+                RemovalReason = removalReason;
             }
 
             public ActiveEffectId Effect { get; }
             public BindingId Binding { get; }
             public EffectStateVersion ExpectedVersion { get; }
+            public ActiveEffectRemovalReason RemovalReason { get; }
         }
 
         private sealed class ExpireGuidanceHandler : IOpHandler<ExpireGuidanceOp, bool>
@@ -204,7 +267,7 @@ namespace Game.Rules.Runtime
                             effect.Id,
                             binding.Id,
                             effect.EffectStateVersion,
-                            ActiveEffectRemovalReason.Expired,
+                            frame.Op.RemovalReason,
                             binding.Source
                         )
                     )
@@ -445,6 +508,33 @@ namespace Game.Rules.Runtime
                 };
         }
 
+        private sealed class GuidanceInitiativeAssignedListener
+            : IRuleFactListener<InitiativeAssignedFact>
+        {
+            public async ValueTask OnFactCommitted(InitiativeAssignedFact fact, FactContext context)
+            {
+                if (
+                    fact.Entry.Creature != context.Binding.Owner
+                    || !context.Binding.EffectId.HasValue
+                    || !context.Snapshot.ActiveEffects.TryGet(
+                        context.Binding.EffectId.Value,
+                        out ActiveEffectInstance effect
+                    )
+                )
+                    return;
+                await SpellRuleSupport.RequireResolved(
+                    context.Dispatch(
+                        new ExpireGuidanceOp(
+                            effect.Id,
+                            context.Binding.Id,
+                            effect.EffectStateVersion,
+                            ActiveEffectRemovalReason.Ended
+                        )
+                    )
+                );
+            }
+        }
+
         private sealed class GuidanceInitiativeBoundaryListener
             : IRuleFactListener<InitiativeBoundaryReachedFact>
         {
@@ -471,7 +561,8 @@ namespace Game.Rules.Runtime
                         new ExpireGuidanceOp(
                             effect.Id,
                             context.Binding.Id,
-                            effect.EffectStateVersion
+                            effect.EffectStateVersion,
+                            ActiveEffectRemovalReason.Expired
                         )
                     )
                 );

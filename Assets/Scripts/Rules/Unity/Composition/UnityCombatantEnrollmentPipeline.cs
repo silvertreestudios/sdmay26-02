@@ -87,7 +87,7 @@ namespace Game.Rules.Unity.Composition
                 {
                     composition.PrepareCombatant(builder);
                     durableReservations.AddRange(builder.DurableReservations);
-                    int initiativeModifier = builder.Creature.GetInitiative();
+                    int initiativeModifier = builder.ResolveInitiative();
                     combatants.Add(
                         new PreparedCombatantEnrollment(
                             builder.Controller,

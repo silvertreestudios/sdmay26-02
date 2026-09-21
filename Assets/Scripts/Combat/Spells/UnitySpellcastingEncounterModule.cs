@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Game.Creature;
 using Game.Rules.Runtime;
@@ -64,6 +65,15 @@ namespace Game.Combat.Spells
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
+            builder.AddInitiativeModifiers(
+                SpellFeatureRules
+                    .CollectInitiativeModifiers(
+                        builder.CreatureId,
+                        builder.RuleBindings,
+                        builder.ActiveEffects
+                    )
+                    .Select(UnityCreatureStatisticsAdapter.ToCreatureModifier)
+            );
             ISpellBook book = catalog.GetSpellBook(builder.CreatureId);
             SpellSlotResourceSeed restoredSeed =
                 builder.Controller.GetComponent<SpellSlotResourceSeed>();

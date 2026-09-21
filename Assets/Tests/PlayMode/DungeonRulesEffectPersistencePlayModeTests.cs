@@ -5,6 +5,7 @@ using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Repository;
+using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
@@ -19,6 +20,116 @@ public sealed class DungeonRulesPersistencePlayModeController : ActionController
 
 public sealed class DungeonRulesEffectPersistencePlayModeTests
 {
+    [UnityTest]
+    public IEnumerator RestoredGuidanceModifiesAndConsumesInitialAndReinforcementInitiative()
+    {
+        DungeonRulesActorReference heroReference = DungeonRulesActorReference.Party("hero");
+        DungeonRulesActorReference reinforcementReference = DungeonRulesActorReference.Party(
+            "reinforcement"
+        );
+        GameObject hero = CreateActor("Guided Hero", "players", Vector3.zero);
+        GameObject enemy = CreateActor("Guidance Enemy", "enemies", Vector3.right);
+        GameObject reinforcement = CreateActor(
+            "Guided Reinforcement",
+            "players",
+            Vector3.right * 2
+        );
+        UnityCombatRulesBridge bridge = null;
+        try
+        {
+            Pf2eModifierCollection heroModifiers = hero.AddComponent<Pf2eModifierCollection>();
+            heroModifiers.Add(
+                new Pf2eModifier(
+                    2,
+                    Pf2eModifierType.Status,
+                    "stronger-initiative-status",
+                    Pf2eStatistic.Initiative
+                )
+            );
+            Func<DungeonRulesActorReference, GameObject> resolve = actor =>
+                actor.Equals(heroReference) ? hero
+                : actor.Equals(reinforcementReference) ? reinforcement
+                : actor.Equals(DungeonRulesActorReference.Floor(0, "enemy")) ? enemy
+                : null;
+            DungeonActorStateAdapter.PrepareRestore(
+                hero.GetComponent<ActionController>(),
+                GuidanceState(heroReference, "hero-guidance-effect", "hero-guidance-binding"),
+                10,
+                false,
+                resolve
+            )();
+            DungeonActorStateAdapter.PrepareRestore(
+                enemy.GetComponent<ActionController>(),
+                EmptyActorState(),
+                10,
+                false,
+                resolve
+            )();
+            DungeonActorStateAdapter.PrepareRestore(
+                reinforcement.GetComponent<ActionController>(),
+                GuidanceState(
+                    reinforcementReference,
+                    "reinforcement-guidance-effect",
+                    "reinforcement-guidance-binding"
+                ),
+                10,
+                false,
+                resolve
+            )();
+            Tile[,] tiles = new Tile[3, 1];
+            for (int x = 0; x < tiles.GetLength(0); x++)
+                tiles[x, 0] = new Tile();
+
+            bridge = UnityCombatRulesBridge.Create(
+                new[]
+                {
+                    hero.GetComponent<ActionController>(),
+                    enemy.GetComponent<ActionController>(),
+                },
+                tiles,
+                new ScriptedRollService(20, 10, 5),
+                "players"
+            );
+            bridge.AddCombatants(new[] { reinforcement.GetComponent<ActionController>() });
+            yield return null;
+
+            CreatureId heroId = bridge.GetCreatureId(hero.GetComponent<CreatureComponent>());
+            CreatureId reinforcementId = bridge.GetCreatureId(
+                reinforcement.GetComponent<CreatureComponent>()
+            );
+            EncounterState encounter = bridge.Snapshot.Encounters.Single().Value;
+            Assert.That(
+                encounter.Roster.Single(entry => entry.Creature == heroId).Modifier,
+                Is.EqualTo(2),
+                "Guidance must participate in status stacking instead of adding after resolution."
+            );
+            Assert.That(
+                encounter.Roster.Single(entry => entry.Creature == reinforcementId).Modifier,
+                Is.EqualTo(1)
+            );
+            Assert.That(
+                bridge
+                    .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                    .Any(effect => effect.DefinitionId == SpellFeatureRules.GuidanceEffect),
+                Is.False
+            );
+            Assert.That(
+                bridge
+                    .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                    .Count(effect => effect.DefinitionId == SpellFeatureRules.GuidanceImmunity),
+                Is.EqualTo(2)
+            );
+        }
+        finally
+        {
+            bridge?.ReleaseOwnership();
+            UnityEngine.Object.Destroy(hero);
+            UnityEngine.Object.Destroy(enemy);
+            UnityEngine.Object.Destroy(reinforcement);
+        }
+        yield return null;
+    }
+
     [UnityTest]
     public IEnumerator IndependentFloorBridgesKeepGeneratedEffectIdentitiesRunGlobal()
     {
@@ -420,6 +531,34 @@ public sealed class DungeonRulesEffectPersistencePlayModeTests
                 UnloadedWeaponIds = Array.Empty<string>(),
             },
         };
+
+    private static DungeonActorSaveState GuidanceState(
+        DungeonRulesActorReference actor,
+        string effectId,
+        string bindingId
+    )
+    {
+        DungeonActorSaveState state = EmptyActorState();
+        state.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = effectId,
+                BindingId = bindingId,
+                DefinitionId = SpellFeatureRules.GuidanceEffect.Value,
+                SourceActor = actor,
+                BindingOwnerActor = actor,
+                RuleSource = "guidance",
+                DurationKind = EffectDurationKind.Indefinite,
+                EffectStateVersion = 1,
+                BindingEnabled = true,
+                StateKind = "spell",
+                StatePayload =
+                    $"{{\"Spell\":\"guidance\",\"Rank\":1,\"TargetActor\":{{\"Scope\":{(int)actor.Scope},\"FloorDepth\":{actor.FloorDepth},\"ActorId\":\"{actor.ActorId}\"}}}}",
+            },
+        };
+        return state;
+    }
 
     private static DungeonLevelDocument Floor(
         int depth,
