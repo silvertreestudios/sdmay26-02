@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Strike;
@@ -117,6 +118,63 @@ public sealed class RulesStrikeUnityTests
         Assert.That(data.ArmorClassModifiers[0].Value, Is.EqualTo(2));
         Assert.That(data.ArmorClassModifiers[0].Type, Is.EqualTo(ModifierType.Circumstance));
         Assert.That(data.ArmorClassModifiers[0].Source.Slug, Is.EqualTo("cover"));
+    }
+
+    [Test]
+    public void RulesStrikeUsesEnrolledGenericAttackAndArmorClassModifiersExactlyOnce()
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature("Target", "enemies", 20, 10);
+        Pf2eModifierCollection attackModifiers =
+            attacker.gameObject.AddComponent<Pf2eModifierCollection>();
+        attackModifiers.Add(
+            new Pf2eModifier(
+                1,
+                Pf2eModifierType.Untyped,
+                "Enrolled attack modifier",
+                Pf2eStatistic.AttackRoll
+            )
+        );
+        Pf2eModifierCollection armorClassModifiers =
+            target.gameObject.AddComponent<Pf2eModifierCollection>();
+        armorClassModifiers.Add(
+            new Pf2eModifier(
+                2,
+                Pf2eModifierType.Untyped,
+                "Enrolled Armor Class modifier",
+                Pf2eStatistic.ArmorClass
+            )
+        );
+        TestActionController attackerController =
+            attacker.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Place(attacker.gameObject, 0);
+        Place(target.gameObject, 1);
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, attacker.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { attackerController, targetController },
+            tiles,
+            new ScriptedRollService(20, 10, 10),
+            "heroes"
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        bridge.BeginTurn(actor, 3);
+        RulesStrikeAction action = attackerController
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(candidate => candidate.ActionName == "Unarmed Strike");
+
+        ResolvedOpResult<StrikeResolution> result = RequireResolved(
+            bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId))
+        );
+
+        Assert.That(result.Value.AttackModifier, Is.EqualTo(1));
+        Assert.That(result.Value.ArmorClass, Is.EqualTo(12));
+        Assert.That(result.Value.Hit, Is.False);
     }
 
     [Test]

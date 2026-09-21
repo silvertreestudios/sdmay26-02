@@ -280,7 +280,9 @@ depth therefore cannot replace an absent source carried through a stair transiti
 Finite and encounter effects restore their remaining schedule rather than deriving a fresh one;
 indefinite effects have no timing record. Rage is restored as an ordinary active effect, so reload
 alone neither ends Rage nor changes its temporary Hit Points. Real gameplay removal and encounter
-termination continue through the existing Rage and active-effect operations.
+termination continue through the existing Rage and active-effect operations. This contract for all
+supported active effects supersedes the historical blanket end-Rage-on-reload planning assumption;
+reload is transport, not a gameplay termination trigger.
 
 An effect may retain a stable source or payload actor identity after that dungeon actor has been
 defeated or left on another floor and is no longer materialized. Restoration represents that

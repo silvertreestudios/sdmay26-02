@@ -14,9 +14,9 @@ boundaries and data-only content. Catalog presence never creates executable scop
 | Sourced conditions and Off-Guard | `ConditionRules` owns independent valued applications; `OffGuardRules` queries Off-Guard and the retained Flat-Footed import alias. Production Strike consumes the selector and rules statistics. | Condition-specific behavior requires its own feature. |
 | Slowed | `SlowedRules` owns maximum-value turn-action reduction; `UnitySlowedModule` installs its binding. | No reaction rule or speculative condition decrement was added. |
 | Rotting Aura | `RottingAuraRules` owns eligibility, deterministic rolls, typed damage, health orchestration, and completion facts. | `UnityRottingAuraModule` captures authored level, traits, geometry, and logging. |
-| Rage and Quick-Tempered | `RageRules` owns validation, frequency, timing, temporary HP, and cleanup. | End-on-reload normalization is intentional; authored armor/build inputs remain preparation data. |
+| Rage and Quick-Tempered | `RageRules` owns validation, frequency, timing, temporary HP, and cleanup. Active Rage uses generic effect persistence. | Reload is not a termination event; authored armor/build inputs remain preparation data. |
 | Spellcasting | `SpellcastingRules` owns action, slot, target, effect, and timing lifecycles. `SpellFeatureRules` composes Divine Lance, Light, Shield, Guidance, Haunting Hymn, Bless, Infuse Vitality, and Heal. Production installs only `RulesCastSpellAction`. | Unselected catalog spells are data-only. |
-| Active-effect persistence | Schema-4 dungeon actor state persists registered generic effects, source identity, timing, spell slots, and sourced conditions, restoring them before enrollment. | Unsupported effect codecs fail explicitly. Rage normalization remains separate and intentional. |
+| Active-effect persistence | Schema-4 dungeon actor state persists registered generic effects, source identity, timing, spell slots, and sourced conditions, restoring them before enrollment. | Unsupported effect codecs fail explicitly. Active Rage follows the same registered restore path. |
 | Combat Open Door | `OpenDoorRules` owns eligibility and the one-action lifecycle; its feature observer projects the committed result to the exact stable Unity door. | Exploration doors and KayKit visual/collider work remain orchestration/presentation. |
 | Pre-built statistics and equipment | Preparation and unified enrollment seed immutable `CreatureStatisticsState`; checked-in Maren and Mace use the same Resources path as production. | General immunity and trait authorities are not invented for content without behavior. |
 | Typed presentation and targeting snapshots | Feature observers consume committed facts; immutable target/area snapshots prevent preview drift. | Presentation is not rules authority. |
@@ -42,7 +42,9 @@ effect identity are covered; there is no parallel fallback restore path.
   until an executable vertical feature proves the need. Existing feature adapters remain narrow.
 - The remaining spell catalog, Goblin Scuttle, Scamper, Grab, Void Healing, catalog feats and class
   features, and unsupported rule keys are data-only. They are not reported as migrated.
-- Slowed reaction behavior is not implemented. Rage still intentionally normalizes on reload.
+- Slowed reaction behavior is not implemented. The historical blanket end-Rage-on-reload plan is
+  superseded: all supported active effects, including Rage, survive reload until their gameplay
+  termination rule runs.
 - Retained `.orig` files and commented `LineOfSight.cs` are cleanup inventory, not executable
   fallbacks.
 

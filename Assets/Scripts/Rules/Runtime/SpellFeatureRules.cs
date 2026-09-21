@@ -38,6 +38,49 @@ namespace Game.Rules.Runtime
                 }
             );
 
+        /// <summary>
+        /// Determines whether one Infuse Vitality binding is the duplicate effect that currently
+        /// applies to its owner.
+        /// </summary>
+        /// <remarks>
+        /// PF2e duplicate effects use the highest spell rank, then the newest binding when ranks
+        /// tie. Other still-active instances retain their independent source clocks and can become
+        /// applicable after the winner expires, but they never contribute damage simultaneously.
+        /// </remarks>
+        internal static bool IsApplicableInfuseVitalityBinding(
+            RulesSnapshot snapshot,
+            ActiveRuleBinding candidate
+        )
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            if (candidate == null)
+                throw new ArgumentNullException(nameof(candidate));
+            ActiveRuleBinding applicable = snapshot
+                .RuleBindings.Select(pair => pair.Value)
+                .Where(binding =>
+                    binding.IsEnabled
+                    && binding.DefinitionId == InfuseVitalityEffect
+                    && binding.Owner == candidate.Owner
+                    && binding.EffectId.HasValue
+                    && snapshot.ActiveEffects.Contains(binding.EffectId.Value)
+                )
+                .Select(binding => new
+                {
+                    Binding = binding,
+                    Rank = snapshot
+                        .ActiveEffects[binding.EffectId.Value]
+                        .GetState<SpellEffectState>()
+                        .Spell.Rank,
+                })
+                .OrderByDescending(value => value.Rank)
+                .ThenByDescending(value => value.Binding.CreationOrder)
+                .ThenByDescending(value => value.Binding.Id.Value, StringComparer.Ordinal)
+                .Select(value => value.Binding)
+                .FirstOrDefault();
+            return applicable != null && applicable.Id == candidate.Id;
+        }
+
         /// <summary>Creates the explicit spell-to-rule catalog used by encounter composition.</summary>
         public static IReadOnlyDictionary<SpellId, ISpellCastRule> CreateCatalog(
             ISpellCreatureDataProvider creatureData
@@ -267,6 +310,7 @@ namespace Game.Rules.Runtime
                 OpResult<IReadOnlyList<TypedDamageDice>> result = await next();
                 if (
                     context.Binding.Owner != frame.Op.Attacker
+                    || !IsApplicableInfuseVitalityBinding(context.Snapshot, context.Binding)
                     || !context
                         .Snapshot.Creatures[frame.Op.Target]
                         .Traits.Contains(Trait.FromSlug("undead"))
@@ -654,15 +698,21 @@ namespace Game.Rules.Runtime
             foreach (CreatureId target in frame.Op.Selection.Creatures)
             {
                 effects.Add(
-                    await SpellRuleSupport.ReplaceEffect(
+                    await SpellRuleSupport.CreateEffect(
                         context,
                         frame.Op.Spell,
                         frame.Op.Actor,
                         target,
                         SpellFeatureRules.InfuseVitalityEffect,
                         EffectDuration.OneMinute,
-                        frame.Id,
-                        string.Concat("infuse-vitality:", target.Value)
+                        RuleSource.FromSlug(frame.Op.Spell.Spell.Value),
+                        frame.Id.Value,
+                        string.Concat(
+                            "infuse-vitality:",
+                            target.Value,
+                            ":",
+                            frame.Id.Value.ToString(CultureInfo.InvariantCulture)
+                        )
                     )
                 );
             }

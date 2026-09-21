@@ -82,9 +82,12 @@ namespace Game.Rules.Unity.Composition
 
     /// <summary>Freezes Unity-authored base statistics before rules enrollment commits.</summary>
     /// <remarks>
-    /// This adapter captures only immutable creature inputs. Conditions, active effects, cover,
-    /// multiple attack penalty, and other situational contributions remain owned by their rule
-    /// modules and are not copied into the base-statistics slice.
+    /// This adapter captures immutable creature inputs and explicitly supplied generic modifier
+    /// collections. Conditions, active effects, cover, multiple attack penalty, and other
+    /// situational contributions remain owned by their rule modules and are not copied into the
+    /// base-statistics slice. In particular, this must not enumerate every
+    /// <see cref="IPf2eModifierProvider"/> because conditions also implement that legacy live-read
+    /// boundary and would otherwise be frozen and applied a second time by rules middleware.
     /// </remarks>
     internal static class UnityCreatureStatisticsAdapter
     {
@@ -140,9 +143,50 @@ namespace Game.Rules.Unity.Composition
                 creature.reflexSave + creature.allSaves,
                 creature.willSave + creature.allSaves,
                 skills,
-                Array.Empty<Modifier>()
+                CaptureGenericModifiers(creature)
             );
         }
+
+        private static IReadOnlyList<Modifier> CaptureGenericModifiers(
+            CreatureComponent creature
+        ) =>
+            creature
+                .GetComponents<Pf2eModifierCollection>()
+                .SelectMany(collection => collection.Modifiers)
+                .Select(ConvertModifier)
+                .ToArray();
+
+        private static Modifier ConvertModifier(Pf2eModifier modifier) =>
+            new(
+                modifier.Value,
+                ConvertModifierType(modifier.Type),
+                RuleSource.FromName(modifier.Source),
+                ConvertStatistic(modifier.TargetStatistic)
+            );
+
+        private static ModifierType ConvertModifierType(Pf2eModifierType type) =>
+            type switch
+            {
+                Pf2eModifierType.Untyped => ModifierType.Untyped,
+                Pf2eModifierType.Circumstance => ModifierType.Circumstance,
+                Pf2eModifierType.Item => ModifierType.Item,
+                Pf2eModifierType.Status => ModifierType.Status,
+                _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
+            };
+
+        private static Statistic ConvertStatistic(Pf2eStatistic statistic) =>
+            statistic switch
+            {
+                Pf2eStatistic.AttackRoll => Statistic.AttackRoll,
+                Pf2eStatistic.ArmorClass => Statistic.ArmorClass,
+                Pf2eStatistic.FortitudeSave => Statistic.FortitudeSave,
+                Pf2eStatistic.ReflexSave => Statistic.ReflexSave,
+                Pf2eStatistic.WillSave => Statistic.WillSave,
+                Pf2eStatistic.SkillCheck => Statistic.SkillCheck,
+                Pf2eStatistic.Initiative => Statistic.Initiative,
+                Pf2eStatistic.DifficultyClass => Statistic.DifficultyClass,
+                _ => throw new ArgumentOutOfRangeException(nameof(statistic), statistic, null),
+            };
 
         private static void AddSkill(IDictionary<Skill, int> skills, string skillName, int modifier)
         {

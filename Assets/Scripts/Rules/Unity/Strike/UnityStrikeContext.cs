@@ -218,10 +218,6 @@ namespace Game.Rules.Unity.Strike
         {
             CreatureComponent attacker = RequireCreature(actor);
             CreatureComponent defender = RequireCreature(target);
-            IReadOnlyList<Modifier> attackModifiers = UnityAttackDataAdapter.CaptureModifiers(
-                attacker
-            );
-
             PreparedStrikeContributions prepared = UnityPreparedStrikeDataAdapter.Capture(
                 attacker,
                 defender,
@@ -239,7 +235,7 @@ namespace Game.Rules.Unity.Strike
                 // off-guard as typed candidates below so same-type stacking is resolved once.
                 Math.Max(1, statistics.ArmorClass),
                 CaptureArmorClassModifiers(targeting),
-                attackModifiers,
+                Array.Empty<Modifier>(),
                 prepared.DamageDice,
                 prepared.FlatDamage,
                 UnityAttackDataAdapter.CaptureWeaknesses(defender),

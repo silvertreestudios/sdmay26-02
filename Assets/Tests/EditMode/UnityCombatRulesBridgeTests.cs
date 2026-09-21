@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
@@ -170,6 +171,10 @@ public sealed class UnityCombatRulesBridgeTests
             );
             ConfigureStatistics(initialObject.GetComponent<CreatureComponent>(), 0);
             ConfigureStatistics(reinforcementObject.GetComponent<CreatureComponent>(), 10);
+            Pf2eModifierCollection initialModifiers = ConfigureStatisticsModifiers(initialObject);
+            Pf2eModifierCollection reinforcementModifiers = ConfigureStatisticsModifiers(
+                reinforcementObject
+            );
             initialObject.GetComponent<CreatureComponent>().traits = new List<string>
             {
                 "undead",
@@ -190,6 +195,8 @@ public sealed class UnityCombatRulesBridgeTests
             bridge.AddCombatants(new ActionController[] { reinforcement });
             ConfigureStatistics(initialObject.GetComponent<CreatureComponent>(), 20);
             ConfigureStatistics(reinforcementObject.GetComponent<CreatureComponent>(), 30);
+            initialModifiers.Clear();
+            reinforcementModifiers.Clear();
 
             AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(initial), 0);
             AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(reinforcement), 10);
@@ -208,6 +215,33 @@ public sealed class UnityCombatRulesBridgeTests
             Object.DestroyImmediate(initialObject);
             Object.DestroyImmediate(anchorObject);
             Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void StatisticsCaptureLeavesFeatureOwnedConditionModifiersDynamic()
+    {
+        GameObject combatantObject = new GameObject("statistics-dynamic-condition");
+        try
+        {
+            CreatureComponent creature = combatantObject.AddComponent<CreatureComponent>();
+            Conditions conditions = combatantObject.AddComponent<Conditions>();
+            conditions.Add("Off-Guard", null);
+
+            CreatureStatisticsState statistics = UnityCreatureStatisticsAdapter.Capture(
+                creature,
+                new CreatureId("statistics-dynamic-condition")
+            );
+
+            Assert.That(statistics.Modifiers, Is.Empty);
+            Assert.That(
+                conditions.GetModifiers(Pf2eStatistic.ArmorClass).Single().Value,
+                Is.EqualTo(-2)
+            );
+        }
+        finally
+        {
+            Object.DestroyImmediate(combatantObject);
         }
     }
 
@@ -1439,9 +1473,70 @@ public sealed class UnityCombatRulesBridgeTests
         };
     }
 
+    private static Pf2eModifierCollection ConfigureStatisticsModifiers(GameObject combatant)
+    {
+        Pf2eModifierCollection modifiers = combatant.AddComponent<Pf2eModifierCollection>();
+        modifiers.Add(
+            new Pf2eModifier(
+                1,
+                Pf2eModifierType.Status,
+                "Snapshot attack",
+                Pf2eStatistic.AttackRoll
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                2,
+                Pf2eModifierType.Circumstance,
+                "Snapshot armor class",
+                Pf2eStatistic.ArmorClass
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                3,
+                Pf2eModifierType.Item,
+                "Snapshot fortitude",
+                Pf2eStatistic.FortitudeSave
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                -1,
+                Pf2eModifierType.Status,
+                "Snapshot reflex",
+                Pf2eStatistic.ReflexSave
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(4, Pf2eModifierType.Untyped, "Snapshot will", Pf2eStatistic.WillSave)
+        );
+        modifiers.Add(
+            new Pf2eModifier(5, Pf2eModifierType.Item, "Snapshot skill", Pf2eStatistic.SkillCheck)
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                6,
+                Pf2eModifierType.Circumstance,
+                "Snapshot initiative",
+                Pf2eStatistic.Initiative
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                7,
+                Pf2eModifierType.Status,
+                "Snapshot difficulty class",
+                Pf2eStatistic.DifficultyClass
+            )
+        );
+        return modifiers;
+    }
+
     private static void AssertStatistics(RulesSnapshot snapshot, CreatureId creature, int offset)
     {
         CreatureStatisticsState statistics = snapshot.Statistics[creature];
+        RulesSelectors selectors = new RulesSelectors();
         Assert.That(statistics.Creature, Is.EqualTo(creature));
         Assert.That(statistics.AttackModifier, Is.EqualTo(7 + offset));
         Assert.That(statistics.ArmorClass, Is.EqualTo(18 + offset));
@@ -1457,7 +1552,39 @@ public sealed class UnityCombatRulesBridgeTests
         Assert.That(statistics.GetSkillModifier(Skill.Crafting), Is.EqualTo(5 + offset));
         Assert.That(statistics.GetSkillModifier(Skill.Occultism), Is.EqualTo(5 + offset));
         Assert.That(statistics.GetSkillModifier(Skill.Religion), Is.EqualTo(4 + offset));
-        Assert.That(statistics.Modifiers, Is.Empty);
+        Assert.That(statistics.Modifiers, Has.Count.EqualTo(8));
+        Assert.That(selectors.GetAttackModifiers(snapshot, creature).Total, Is.EqualTo(8 + offset));
+        Assert.That(selectors.GetArmorClass(snapshot, creature), Is.EqualTo(20 + offset));
+        Assert.That(
+            selectors.GetSavingThrowModifiers(snapshot, creature, SaveKind.Fortitude).Total,
+            Is.EqualTo(9 + offset)
+        );
+        Assert.That(
+            selectors.GetSavingThrowModifiers(snapshot, creature, SaveKind.Reflex).Total,
+            Is.EqualTo(6 + offset)
+        );
+        Assert.That(
+            selectors.GetSavingThrowModifiers(snapshot, creature, SaveKind.Will).Total,
+            Is.EqualTo(9 + offset)
+        );
+        Assert.That(
+            selectors
+                .GetSkillCheckModifiers(snapshot, creature, Skill.FromName("perception"))
+                .Total,
+            Is.EqualTo(14 + offset)
+        );
+        Assert.That(
+            selectors.GetCurrentModifiers(snapshot, creature, Statistic.Initiative).Total,
+            Is.EqualTo(6)
+        );
+        Assert.That(
+            selectors.GetCurrentModifiers(snapshot, creature, Statistic.DifficultyClass).Total,
+            Is.EqualTo(7)
+        );
+        Assert.That(
+            statistics.Modifiers.Select(modifier => modifier.Source.Slug),
+            Does.Contain("snapshot-armor-class")
+        );
     }
 
     private static CreatureStatisticsState Statistics(CreatureId creature) =>

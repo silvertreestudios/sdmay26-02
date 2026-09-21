@@ -87,7 +87,7 @@ complete merely because adjacent infrastructure exists.
 | Flanking and Off-Guard | `FlankingRules`, `OffGuardRules`, independent condition applications, Strike selector | `FlankingRulesTests`, `OffGuardRulesTests`, `RulesStrikeUnityTests` | Complete for supported melee topology; team/topology capture remains a documented adapter boundary |
 | Slowed | `SlowedRules` and `UnitySlowedModule` | Slowed unit and UI/combat integration regressions | Complete for maximum action reduction; reaction behavior is deliberately deferred |
 | Rotting Aura | `RottingAuraRules` and `UnityRottingAuraModule` | `Pf2eRottingAuraTests`, `RottingAuraPlayModeTests` | Complete for supported aura behavior |
-| Rage and Quick-Tempered | `RageRules` and `UnityRageModule` | Rage runtime and barbarian smoke suites | Complete; end-on-reload normalization remains intentional |
+| Rage and Quick-Tempered | `RageRules` and `UnityRageModule` | Rage runtime, barbarian smoke, and generic effect-persistence suites | Complete; active Rage persists across reload and ends only through gameplay termination rules |
 | Spell shell, Divine Lance, Light, Shield, Guidance, Haunting Hymn, Bless, Infuse Vitality, and Heal | `SpellcastingRules`, `SpellFeatureRules`, `UnitySpellcastingComposition`; only `RulesCastSpellAction` is installed | `SpellcastingRulesTests`, `SpellFeatureRulesTests`, `SpellcastingPresentationPlayModeTests`, including checked-in Maren casting all six selected spells | Complete for selected definitions and variants; remaining catalog entries stay data-only |
 | Generic active effects, sourced conditions, spell slots, timing, and dungeon persistence | schema-4 dungeon DTOs, effect codecs, exact source/timing identities, restore-before-enrollment path | `DungeonActorStateAdapterTests`, `DungeonRulesEffectPersistencePlayModeTests`, `DungeonEncounterCombatPlayModeTests` | Complete for registered codecs; unsupported effects are not silently restored |
 | Combat Open Door | `OpenDoorRules`, feature action, feature observer, KayKit projection | Open Door runtime/observer/bridge tests and door PlayMode suite | Complete for combat legality, one-action atomicity, stable identity, and projection; exploration doors remain orchestration |
@@ -668,21 +668,23 @@ Each row names the present behavior, not wider PF2e completeness.
   action economy. Initial binding installation uses an enrollment-time Rage input snapshot.
   Availability, validation, and Rage start instead call `UnityRageActorStateProvider`, which reads
   prepared ownership, current Unity conditions and armor, level, and Constitution on each request.
-  Dungeon capture stores only `RageWasActive` alongside the separately captured temporary-health
-  fields. Restore deliberately does not resume Rage: `NormalizeRestoredHealth` clears Rage-owned
-  temporary HP, records its source immunity, and preserves temporary HP from another source.
+  Dungeon capture persists active Rage through the same generic effect envelope as other registered
+  effects, including its exact source, binding, duration, timing, and `RageEffectState`. Restore
+  resumes that effect without changing its existing temporary Hit Points.
 - **Migration:** rules workflow is migrated. The live prepared-character, condition, armor, and
   statistic reads are transitional feature-owned Unity dependencies; replace them when their
-  authorities migrate, without adding Rage fields to bridge/shared state. Treat the current
-  end-on-reload normalization as an explicit persistence contract, not evidence that general active
-  effects are serialized; changing it requires a separately approved product decision.
+  authorities migrate, without adding Rage fields to bridge/shared state. The authoritative
+  all-active-effects scope supersedes the historical blanket end-on-reload plan: reload is transport,
+  not a Rage termination event. Explicit Rage end, expiry, defeat/encounter cleanup, and their
+  temporary-HP/immunity consequences remain gameplay-owned.
 - **Verification:** `RageRulesTests`, `RulesRageUnityTests`, and
   `TestsState/Pf2eBarbarianSmokeTests.cs`; expected assertions cover atomic cost/effect/temporary HP,
   restrictions, Quick-Tempered timing/one-shot, expiration, suspension/outcome cleanup, initial and
-  reinforcement behavior. `DungeonActorStateAdapterTests` asserts the special Rage autosave round
-  trip removes Rage-owned temporary HP without restoring the effect. Missing: a rules-authoritative
-  replacement for the live Unity inputs and coverage of condition, armor, or statistic changes
-  between enrollment and action evaluation.
+  reinforcement behavior. `DungeonActorStateAdapterTests` asserts that autosave and reload preserve
+  active Rage, its temporary Hit Points, exact effect identity, and remaining timing, and that an
+  ordinary later `EndRageOp` still performs cleanup. Missing: a rules-authoritative replacement for
+  the live Unity inputs and coverage of condition, armor, or statistic changes between enrollment
+  and action evaluation.
 - **Exact owner:** `RageRules.cs`, `UnityRageActorStateProvider.cs`, `RulesRageAction.cs`, and the
   Rage enrollment adapter in `UnityEncounterModuleSet.cs` until it can move to its own adapter file.
 
@@ -1051,14 +1053,14 @@ it writes current HP and defeat directly to the outer `DungeonPartyMemberSaveSta
 `DungeonEncounterRuntimeController` and `DungeonEncounterDirector` write current HP only for living
 enemy records and preserve defeated enemies as lifecycle identities. The nested
 `DungeonActorStateAdapter` captures temporary HP amount/source/immunities, Unity conditions,
-prepared-character effects, equipment, ammunition, the rules-derived `RageWasActive` marker, and
-every active rules effect registered in the generic codec catalog. Rules-effect capture includes
+prepared-character effects, equipment, ammunition, and every active rules effect registered in the
+generic codec catalog, including active Rage. Rules-effect capture includes
 paired binding identity, source and owner actor references, typed state, creation order, duration,
 and remaining timing. On restore, its callers supply outer current HP and defeat, creature content
 supplies maximum HP, and the adapter reconstructs health and rules-effect seeds before common
 encounter enrollment.
 
-Rage retains its intentional narrow normalization marker rather than resuming as an active effect.
+Reload restores Rage as an active effect and does not itself apply Rage termination side effects.
 New lasting rules features must register their typed state in the generic codec catalog and use this
 same capture/enrollment boundary; they must not add a feature-specific save fallback. No schema
 compatibility layer is required for unshipped formats; update schema, fixtures, and code together.
@@ -1126,9 +1128,10 @@ These are decisions to make before the named migration, not implicit authorizati
    enrollment, retry, and missing or late sources without conflating provenance with the actor whose
    initiative advances a duration. A restored external clock uses the new-round fallback while
    omitted and the same reserved identity after later enrollment. Health remains split across its
-   existing outer and nested
-   records, and Rage intentionally normalizes rather than resuming. Future features must register
-   their state codec without adding a parallel restore path or compatibility-version dispatch.
+   existing outer and nested records. Rage uses this same restore path; the earlier end-on-reload
+   planning assumption is superseded by the all-active-effects persistence contract. Future
+   features must register their state codec without adding a parallel restore path or
+   compatibility-version dispatch.
 8. **Data-only catalog scope:** 84 loaded spell definitions and unsupported item rule keys are not an
    implementation backlog by themselves. A human must select any additional vertical feature.
 9. **Three tracked `.orig` files and commented `LineOfSight`:** these are cleanup gaps, not

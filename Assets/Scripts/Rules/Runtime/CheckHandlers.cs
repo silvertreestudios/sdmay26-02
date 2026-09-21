@@ -9,20 +9,34 @@ namespace Game.Rules.Runtime
         : IOpHandler<AdjustArmorClassOp, ModifierCollection>
     {
         private static readonly RuleSource BaseSource = RuleSource.FromSlug("captured-armor-class");
+        private readonly IRulesSelectors selectors;
+
+        public AdjustArmorClassHandler(IRulesSelectors selectors) =>
+            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
 
         public ValueTask<ModifierCollection> Handle(
             OpFrame<AdjustArmorClassOp> frame,
             OpHandlerContext context
-        ) =>
-            new ValueTask<ModifierCollection>(
+        )
+        {
+            selectors.TryGetCurrentModifiers(
+                context.Snapshot,
+                frame.Op.Target,
+                Statistic.ArmorClass,
+                out ModifierCollection enrolled
+            );
+            return new ValueTask<ModifierCollection>(
                 new ModifierCollection(
                     Statistic.ArmorClass,
                     new[]
                     {
                         Modifier.Untyped(frame.Op.BaseArmorClass, BaseSource, Statistic.ArmorClass),
-                    }.Concat(frame.Op.InitialModifiers)
+                    }
+                        .Concat(enrolled.Candidates)
+                        .Concat(frame.Op.InitialModifiers)
                 )
             );
+        }
     }
 
     internal sealed class CollectStrikeDamageDiceHandler

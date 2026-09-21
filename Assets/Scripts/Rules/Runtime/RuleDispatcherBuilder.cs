@@ -337,7 +337,7 @@ namespace Game.Rules.Runtime
             );
             Add(
                 new HandlerRegistration<AdjustArmorClassOp, ModifierCollection>(
-                    new AdjustArmorClassHandler(),
+                    new AdjustArmorClassHandler(selectors),
                     InvocationPolicy.NestedOnly
                 )
             );

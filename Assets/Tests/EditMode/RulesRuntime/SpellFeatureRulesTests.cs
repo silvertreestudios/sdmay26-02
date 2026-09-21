@@ -16,6 +16,9 @@ namespace Game.Rules.Runtime.Tests
         private static readonly PlayerId Heroes = new("spell-feature-heroes");
         private static readonly PlayerId Enemies = new("spell-feature-enemies");
         private static readonly SpellSlotPoolId Pool = new("spell-feature-rank-1");
+        private static readonly SpellSlotPoolId SecondaryPool = new(
+            "spell-feature-secondary-rank-1"
+        );
         private static readonly EncounterId Encounter = new("spell-feature-encounter");
         private static readonly RuleSource TestSource = RuleSource.FromSlug("spell-feature-test");
 
@@ -388,6 +391,162 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(dice.Single().Dice, Is.EqualTo(new DiceExpression(3, 4)));
         }
 
+        [Test]
+        public async Task InfuseVitalityNewStrongerRecastWinsWithoutStacking()
+        {
+            TestRuntime runtime = CreateMultiCastRuntime(new ScriptedRollService());
+            CastSpellOutcome weaker = RequireResolved(
+                await runtime.Dispatcher.Dispatch(CastAtRank("infuse-vitality", 1, 1, Ally))
+            ).Value;
+            CastSpellOutcome stronger = RequireResolved(
+                await runtime.Dispatcher.Dispatch(CastAtRank("infuse-vitality", 5, 1, Ally))
+            ).Value;
+
+            IReadOnlyList<TypedDamageDice> dice = RequireResolved(
+                await runtime.Dispatcher.Dispatch(new ProbeStrikeDamageOp(Ally, Undead))
+            ).Value;
+            ActiveRuleBinding weakerBinding = BindingFor(
+                runtime.Store.Snapshot,
+                weaker.CreatedEffects.Single()
+            );
+            ActiveRuleBinding strongerBinding = BindingFor(
+                runtime.Store.Snapshot,
+                stronger.CreatedEffects.Single()
+            );
+
+            Assert.That(runtime.Store.Snapshot.ActiveEffects.Count(), Is.EqualTo(2));
+            Assert.That(dice.Count, Is.EqualTo(1));
+            Assert.That(dice.Single().Dice, Is.EqualTo(new DiceExpression(3, 4)));
+            Assert.That(
+                SpellFeatureRules.IsApplicableInfuseVitalityBinding(
+                    runtime.Store.Snapshot,
+                    weakerBinding
+                ),
+                Is.False
+            );
+            Assert.That(
+                SpellFeatureRules.IsApplicableInfuseVitalityBinding(
+                    runtime.Store.Snapshot,
+                    strongerBinding
+                ),
+                Is.True
+            );
+        }
+
+        [Test]
+        public async Task InfuseVitalityOlderStrongerRecastWinsUntilItsOwnExpiration()
+        {
+            TestRuntime runtime = CreateMultiCastRuntime(new ScriptedRollService());
+            CastSpellOutcome stronger = RequireResolved(
+                await runtime.Dispatcher.Dispatch(CastAtRank("infuse-vitality", 5, 1, Ally))
+            ).Value;
+            CastSpellOutcome weaker = RequireResolved(
+                await runtime.Dispatcher.Dispatch(CastAtRank("infuse-vitality", 1, 1, Ally))
+            ).Value;
+
+            IReadOnlyList<TypedDamageDice> beforeExpiration = RequireResolved(
+                await runtime.Dispatcher.Dispatch(new ProbeStrikeDamageOp(Ally, Undead))
+            ).Value;
+            ActiveEffectId strongerEffect = stronger.CreatedEffects.Single();
+            ActiveRuleBinding strongerBinding = BindingFor(runtime.Store.Snapshot, strongerEffect);
+            await ExpireEffect(runtime, strongerEffect, strongerBinding);
+            IReadOnlyList<TypedDamageDice> afterExpiration = RequireResolved(
+                await runtime.Dispatcher.Dispatch(new ProbeStrikeDamageOp(Ally, Undead))
+            ).Value;
+
+            Assert.That(beforeExpiration.Count, Is.EqualTo(1));
+            Assert.That(beforeExpiration.Single().Dice, Is.EqualTo(new DiceExpression(3, 4)));
+            Assert.That(runtime.Store.Snapshot.ActiveEffects.Contains(strongerEffect), Is.False);
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffects.Contains(weaker.CreatedEffects.Single()),
+                Is.True
+            );
+            Assert.That(afterExpiration.Count, Is.EqualTo(1));
+            Assert.That(afterExpiration.Single().Dice, Is.EqualTo(new DiceExpression(1, 4)));
+        }
+
+        [Test]
+        public async Task InfuseVitalityEqualRankUsesNewestSourceAndKeepsIndependentDuration()
+        {
+            TestRuntime runtime = CreateMultiCastRuntime(
+                new ScriptedRollService(),
+                includeSecondaryCaster: true
+            );
+            CastSpellOutcome first = RequireResolved(
+                await runtime.Dispatcher.Dispatch(CastAtRank("infuse-vitality", 3, 1, Ally))
+            ).Value;
+            CastSpellOutcome second = RequireResolved(
+                await runtime.Dispatcher.Dispatch(
+                    CastAtRank(AllyTwo, "infuse-vitality", 3, 1, Ally)
+                )
+            ).Value;
+            ActiveRuleBinding firstBinding = BindingFor(
+                runtime.Store.Snapshot,
+                first.CreatedEffects.Single()
+            );
+            ActiveRuleBinding secondBinding = BindingFor(
+                runtime.Store.Snapshot,
+                second.CreatedEffects.Single()
+            );
+
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffects[first.CreatedEffects.Single()].SourceCreature,
+                Is.EqualTo(Caster)
+            );
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffects[second.CreatedEffects.Single()].SourceCreature,
+                Is.EqualTo(AllyTwo)
+            );
+            Assert.That(
+                SpellFeatureRules.IsApplicableInfuseVitalityBinding(
+                    runtime.Store.Snapshot,
+                    firstBinding
+                ),
+                Is.False
+            );
+            Assert.That(
+                SpellFeatureRules.IsApplicableInfuseVitalityBinding(
+                    runtime.Store.Snapshot,
+                    secondBinding
+                ),
+                Is.True
+            );
+
+            Assert.That(
+                runtime
+                    .Store
+                    .Snapshot
+                    .ActiveEffectTimings[first.CreatedEffects.Single()]
+                    .SourceCreature,
+                Is.EqualTo(Caster)
+            );
+            Assert.That(
+                runtime
+                    .Store
+                    .Snapshot
+                    .ActiveEffectTimings[second.CreatedEffects.Single()]
+                    .SourceCreature,
+                Is.EqualTo(AllyTwo)
+            );
+            await ExpireEffect(runtime, second.CreatedEffects.Single(), secondBinding);
+
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffects.Contains(second.CreatedEffects.Single()),
+                Is.False
+            );
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffects.Contains(first.CreatedEffects.Single()),
+                Is.True
+            );
+            Assert.That(
+                SpellFeatureRules.IsApplicableInfuseVitalityBinding(
+                    runtime.Store.Snapshot,
+                    firstBinding
+                ),
+                Is.True
+            );
+        }
+
         [TestCase(20, 4, DegreeOfSuccess.CriticalSuccess, 0, false)]
         [TestCase(15, 4, DegreeOfSuccess.Success, 2, false)]
         [TestCase(14, 4, DegreeOfSuccess.Failure, 4, false)]
@@ -626,12 +785,34 @@ namespace Game.Rules.Runtime.Tests
             int rank,
             int actions,
             params CreatureId[] targets
+        ) => CastAtRank(Caster, slug, rank, actions, targets);
+
+        private static CastSpellActionOp CastAtRank(
+            CreatureId caster,
+            string slug,
+            int rank,
+            int actions,
+            params CreatureId[] targets
         ) =>
             new(
-                Caster,
+                caster,
                 new SpellReference(new SpellId(slug), rank),
                 new SpellActionVariant(actions),
                 targets.Length == 0 ? SpellCastSelection.Empty : new SpellCastSelection(targets)
+            );
+
+        private static TestRuntime CreateMultiCastRuntime(
+            IRollService rolls,
+            bool includeSecondaryCaster = false
+        ) =>
+            CreateRuntime(
+                rolls,
+                new TestCreatureData(),
+                2,
+                new TestTargetingDataProvider(ActionValidationResult.Valid),
+                true,
+                2,
+                includeSecondaryCaster
             );
 
         private static TestRuntime CreateRuntime(IRollService rolls, int enemyX = 2)
@@ -663,10 +844,20 @@ namespace Game.Rules.Runtime.Tests
             TestCreatureData creatureData,
             int enemyX,
             ISpellTargetingDataProvider targetingData,
-            bool includeCasterInEncounter
+            bool includeCasterInEncounter,
+            int rankedSlotUses = 1,
+            bool includeSecondaryCaster = false
         )
         {
             CreatureId initiativeCreature = includeCasterInEncounter ? Caster : Ally;
+            List<InitiativeEntry> initiative = new()
+            {
+                new InitiativeEntry(initiativeCreature, Heroes, 10, 0, 0, RoundNumber.First),
+            };
+            if (includeSecondaryCaster)
+            {
+                initiative.Add(new InitiativeEntry(AllyTwo, Heroes, 9, 1, 0, RoundNumber.First));
+            }
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Caster, Heroes))
                 .SeedCreature(new CreatureState(Ally, Heroes))
@@ -686,30 +877,27 @@ namespace Game.Rules.Runtime.Tests
                 .SeedPosition(Enemy, new GridPosition(enemyX, 0, 0))
                 .SeedPosition(Undead, new GridPosition(1, 0, 1))
                 .SeedActionEconomy(Caster, new ActionEconomyState(3, true))
-                .SeedSpellSlot(new SpellSlotState(Pool, Caster, 1, 1))
+                .SeedSpellSlot(new SpellSlotState(Pool, Caster, rankedSlotUses, rankedSlotUses))
                 .SeedEncounter(
                     new EncounterState(
                         Encounter,
                         EncounterPhase.Active,
                         Heroes,
                         RoundNumber.First,
-                        new[]
-                        {
-                            new InitiativeEntry(
-                                initiativeCreature,
-                                Heroes,
-                                10,
-                                0,
-                                0,
-                                RoundNumber.First
-                            ),
-                        },
+                        initiative,
                         0,
                         null,
                         1,
                         null
                     )
                 );
+            if (includeSecondaryCaster)
+            {
+                seed.SeedActionEconomy(AllyTwo, new ActionEconomyState(3, true))
+                    .SeedSpellSlot(
+                        new SpellSlotState(SecondaryPool, AllyTwo, rankedSlotUses, rankedSlotUses)
+                    );
+            }
             foreach (CreatureId creature in new[] { Caster, Ally, AllyTwo, Enemy, Undead })
             {
                 seed.SeedStatistics(
@@ -756,6 +944,9 @@ namespace Game.Rules.Runtime.Tests
                 .RegisterHandler<EmitInitiativeBoundaryOp, bool>(
                     new EmitInitiativeBoundaryHandler()
                 )
+                .RegisterHandler<RemoveEffectWorkflowOp, OpResult<ActiveEffectRemovalOutcome>>(
+                    new RemoveEffectWorkflowHandler()
+                )
                 .RegisterReducer<CommitInitiativeBoundaryFactOp, bool>(
                     new CommitInitiativeBoundaryFactReducer(),
                     TestSource
@@ -769,6 +960,36 @@ namespace Game.Rules.Runtime.Tests
         {
             Assert.That(result, Is.TypeOf<ResolvedOpResult<T>>());
             return (ResolvedOpResult<T>)result;
+        }
+
+        private static ActiveRuleBinding BindingFor(
+            RulesSnapshot snapshot,
+            ActiveEffectId effect
+        ) =>
+            snapshot
+                .RuleBindings.Select(pair => pair.Value)
+                .Single(binding => binding.EffectId == effect);
+
+        private static async Task ExpireEffect(
+            TestRuntime runtime,
+            ActiveEffectId effect,
+            ActiveRuleBinding binding
+        )
+        {
+            OpResult<ActiveEffectRemovalOutcome> removal = RequireResolved(
+                await runtime.Dispatcher.Dispatch(
+                    new RemoveEffectWorkflowOp(
+                        new RemoveActiveEffectOp(
+                            effect,
+                            binding.Id,
+                            runtime.Store.Snapshot.ActiveEffects[effect].EffectStateVersion,
+                            ActiveEffectRemovalReason.Expired,
+                            binding.Source
+                        )
+                    )
+                )
+            ).Value;
+            RequireResolved(removal);
         }
 
         private sealed class TestRuntime
@@ -787,7 +1008,8 @@ namespace Game.Rules.Runtime.Tests
         {
             private readonly IReadOnlyDictionary<SpellId, SpellDefinition> definitions;
             private readonly IReadOnlyDictionary<SpellId, ISpellCastRule> rules;
-            private readonly ISpellBook book = new TestBook();
+            private readonly ISpellBook primaryBook = new TestBook(Pool);
+            private readonly ISpellBook secondaryBook = new TestBook(SecondaryPool);
 
             public TestCatalog(ISpellCreatureDataProvider creatureData)
             {
@@ -814,11 +1036,13 @@ namespace Game.Rules.Runtime.Tests
 
             public ISpellBook GetSpellBook(CreatureId creature)
             {
-                if (creature != Caster)
-                    throw new KeyNotFoundException(
-                        $"No test spellbook is registered for '{creature.Value}'."
-                    );
-                return book;
+                if (creature == Caster)
+                    return primaryBook;
+                if (creature == AllyTwo)
+                    return secondaryBook;
+                throw new KeyNotFoundException(
+                    $"No test spellbook is registered for '{creature.Value}'."
+                );
             }
 
             public bool TryGetCastRule(SpellId spell, out ISpellCastRule rule) =>
@@ -841,6 +1065,9 @@ namespace Game.Rules.Runtime.Tests
             private static readonly SpellId Shield = new("shield");
             private static readonly SpellId Guidance = new("guidance");
             private static readonly SpellId Hymn = new("haunting-hymn");
+            private readonly SpellSlotPoolId pool;
+
+            public TestBook(SpellSlotPoolId pool) => this.pool = pool;
 
             public IReadOnlyList<SpellReference> CastableSpells { get; } =
                 new[]
@@ -857,7 +1084,7 @@ namespace Game.Rules.Runtime.Tests
             public int SpellDc => 15;
 
             public IReadOnlyList<SpellSlotState> CreateInitialSlotStates(CreatureId owner) =>
-                new[] { new SpellSlotState(Pool, owner, 1, 1) };
+                new[] { new SpellSlotState(pool, owner, 1, 1) };
 
             public SpellCastAuthorization Authorize(
                 CreatureId owner,
@@ -869,7 +1096,7 @@ namespace Game.Rules.Runtime.Tests
                 if (binding.Kind != SpellCastResourceKind.SpellSlot)
                     return binding;
                 return
-                    slots.TryGet(Pool, out SpellSlotState state)
+                    slots.TryGet(pool, out SpellSlotState state)
                     && state.Owner == owner
                     && state.Remaining > 0
                     ? binding
@@ -882,7 +1109,7 @@ namespace Game.Rules.Runtime.Tests
                     return SpellCastAuthorization.Unavailable("The exact spell is not prepared.");
                 return spell.Spell == Shield || spell.Spell == Guidance || spell.Spell == Hymn
                     ? SpellCastAuthorization.Cantrip
-                    : SpellCastAuthorization.FromPool(Pool);
+                    : SpellCastAuthorization.FromPool(pool);
             }
         }
 
@@ -1080,6 +1307,22 @@ namespace Game.Rules.Runtime.Tests
             public EncounterId Encounter { get; }
             public RoundNumber Round { get; }
             public CreatureId Creature { get; }
+        }
+
+        private sealed class RemoveEffectWorkflowOp : IRuleOp<OpResult<ActiveEffectRemovalOutcome>>
+        {
+            public RemoveEffectWorkflowOp(RemoveActiveEffectOp removal) => Removal = removal;
+
+            public RemoveActiveEffectOp Removal { get; }
+        }
+
+        private sealed class RemoveEffectWorkflowHandler
+            : IOpHandler<RemoveEffectWorkflowOp, OpResult<ActiveEffectRemovalOutcome>>
+        {
+            public async ValueTask<OpResult<ActiveEffectRemovalOutcome>> Handle(
+                OpFrame<RemoveEffectWorkflowOp> frame,
+                OpHandlerContext context
+            ) => await context.Dispatch(frame.Op.Removal);
         }
 
         private sealed class CommitInitiativeBoundaryFactOp : IRuleOp<bool>, IRuleSourcedOp

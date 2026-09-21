@@ -225,7 +225,7 @@ namespace Game.Rules.Unity.Spells
                             Statistic.ArmorClass
                         ),
                     },
-                UnityAttackDataAdapter.CaptureModifiers(attacker),
+                Array.Empty<Modifier>(),
                 UnityAttackDataAdapter.CaptureWeaknesses(defender),
                 UnityAttackDataAdapter.CaptureResistances(defender)
             );
