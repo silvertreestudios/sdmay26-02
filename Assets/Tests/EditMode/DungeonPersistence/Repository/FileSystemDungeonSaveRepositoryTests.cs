@@ -245,6 +245,10 @@ public sealed class FileSystemDungeonSaveRepositoryTests
                     0,
                     InstanceId("encounter-1", 1)
                 ),
+                TimingSourceActor = DungeonRulesActorReference.Floor(
+                    0,
+                    InstanceId("encounter-1", 1)
+                ),
                 RuleSource = "rage",
                 DurationKind = EffectDurationKind.Minutes,
                 DurationAmount = 1,

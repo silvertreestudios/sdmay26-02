@@ -89,6 +89,7 @@ namespace Game.DungeonPersistence.Repository
         public string DefinitionId;
         public DungeonRulesActorReference SourceActor;
         public DungeonRulesActorReference BindingOwnerActor;
+        public DungeonRulesActorReference TimingSourceActor;
         public string RuleSource;
         public EffectDurationKind DurationKind;
         public int DurationAmount;
@@ -795,6 +796,7 @@ namespace Game.DungeonPersistence.Repository
                 || string.IsNullOrWhiteSpace(effect.DefinitionId)
                 || !effect.SourceActor.IsValid
                 || !effect.BindingOwnerActor.IsValid
+                || (effect.HasTiming && !effect.TimingSourceActor.IsValid)
                 || string.IsNullOrWhiteSpace(effect.RuleSource)
                 || string.IsNullOrWhiteSpace(effect.StateKind)
                 || string.IsNullOrWhiteSpace(effect.StatePayload)

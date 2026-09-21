@@ -9,33 +9,44 @@ namespace Game.Rules.Runtime
     /// combatant enrollment.
     /// </summary>
     /// <remarks>
-    /// The containing effect and binding remain the authority for identity, source, duration,
-    /// and ordering. This value preserves only the schedule fields that cannot be reconstructed
-    /// from the original duration after time has advanced.
+    /// The containing effect and binding remain the authority for identity, provenance, duration,
+    /// and ordering. This value preserves the independent timing actor and schedule fields that
+    /// cannot be reconstructed from the effect after time has advanced.
     /// </remarks>
     public readonly struct ActiveEffectTimingRestore : IEquatable<ActiveEffectTimingRestore>
     {
         /// <summary>Creates a saved timing schedule for an effect in the enrollment batch.</summary>
         /// <param name="effect">The effect whose schedule is being restored.</param>
+        /// <param name="sourceCreature">The enrolled creature whose boundaries advance it.</param>
         /// <param name="remainingBoundaries">The non-negative future source boundaries remaining.</param>
         /// <param name="expiresWithEncounter">Whether encounter closure expires the effect.</param>
         public ActiveEffectTimingRestore(
             ActiveEffectId effect,
+            CreatureId sourceCreature,
             int remainingBoundaries,
             bool expiresWithEncounter
         )
         {
             if (effect.IsEmpty)
                 throw new ArgumentException("An active effect ID is required.", nameof(effect));
+            if (sourceCreature.IsEmpty)
+                throw new ArgumentException(
+                    "An active-effect timing source is required.",
+                    nameof(sourceCreature)
+                );
             if (remainingBoundaries < 0)
                 throw new ArgumentOutOfRangeException(nameof(remainingBoundaries));
             Effect = effect;
+            SourceCreature = sourceCreature;
             RemainingBoundaries = remainingBoundaries;
             ExpiresWithEncounter = expiresWithEncounter;
         }
 
         /// <summary>Gets the active effect whose schedule is restored.</summary>
         public ActiveEffectId Effect { get; }
+
+        /// <summary>Gets the enrolled creature whose initiative boundaries advance the effect.</summary>
+        public CreatureId SourceCreature { get; }
 
         /// <summary>Gets the remaining future source boundaries.</summary>
         public int RemainingBoundaries { get; }
@@ -46,6 +57,7 @@ namespace Game.Rules.Runtime
         /// <inheritdoc/>
         public bool Equals(ActiveEffectTimingRestore other) =>
             Effect == other.Effect
+            && SourceCreature == other.SourceCreature
             && RemainingBoundaries == other.RemainingBoundaries
             && ExpiresWithEncounter == other.ExpiresWithEncounter;
 
@@ -55,7 +67,7 @@ namespace Game.Rules.Runtime
 
         /// <inheritdoc/>
         public override int GetHashCode() =>
-            HashCode.Combine(Effect, RemainingBoundaries, ExpiresWithEncounter);
+            HashCode.Combine(Effect, SourceCreature, RemainingBoundaries, ExpiresWithEncounter);
     }
 
     /// <summary>Provides the complete immutable rules registration for one combatant.</summary>

@@ -553,9 +553,10 @@ Each row names the present behavior, not wider PF2e completeness.
   60-foot, one-creature spell attack for `2d4` spirit damage.
 - **Authority/persistent state:** `SpellSlotState`, action economy, active effects/bindings/timing,
   MAP, and health. `PreparedSpellBook` is immutable authorization input. The dungeon actor adapter
-  captures registered rules-native effects, their paired bindings, typed state, actor references,
-  creation order, and remaining timing through the generic effect codec catalog; enrollment restores
-  them without re-spending cast resources or resetting duration.
+  captures registered rules-native effects, their paired bindings, typed state, provenance, owner,
+  independent timing-actor references, creation order, and remaining timing through the generic
+  effect codec catalog; enrollment restores them without re-spending cast resources or resetting
+  duration.
 - **Migration:** the shell, generic effect persistence, Divine Lance, Light, and the six feature
   rules below are migrated for implemented encounter behavior. The remaining catalog definitions
   are not thereby implemented. Divine Lance
@@ -779,9 +780,11 @@ trait drives Infuse Vitality without a Unity-side combat fallback.
 
 The feature rules use the imported ORC spell data as their rules reference. Guidance ends at the
 caster's next initiative boundary, including a skipped zero-HP slot, and creates one-hour immunity
-whether used or unused; when a restored source is outside the roster, it ends at the next new-round
-boundary. The derived immunity retains the original caster as effect provenance while an enrolled
-owner supplies its encounter clock when that caster is external. Infuse Vitality's exact target
+whether used or unused; recasting on a target with active Guidance is rejected before costs. When a
+restored source is outside the roster, Guidance ends at the next new-round boundary. The derived
+immunity retains the original caster as effect provenance while an enrolled owner supplies its
+encounter clock when that caster is external. Generic persistence saves and remaps that clock
+separately from provenance across reload and detach. Infuse Vitality's exact target
 count equals its 1-, 2-, or 3-action cost, and its fixed rank-3/rank-5 heightening caps at 3d4. Bless
 deliberately preserves the project's snapshot-at-cast target behavior instead of implementing a
 moving aura. Single- and exact-creature spell selection explicitly includes the caster while Strike
@@ -794,15 +797,16 @@ every living and undead creature in its emanation.
 | Spell | Rules-native implementation | Production integration | Deterministic evidence |
 | --- | --- | --- | --- |
 | Shield | Self effect for one round; +1 circumstance AC through typed modifier stacking | Explicit catalog rule, active binding, production pre-built cantrip, no target interaction; Unity cover remains a typed circumstance candidate | `SpellFeatureRulesTests.ShieldCreatesRoundEffectAndRaisesArmorClass`; `RulesStrikeUnityTests.StrikeCaptureKeepsCoverAsTypedArmorClassCandidate`; `SpellcastingPresentationPlayModeTests.ProductionShieldActionCastsThroughRulesAndCompletesPresentation` |
-| Guidance | Friendly creature within 30 feet; +1 status on the first attack/save/skill query; one-hour immunity on use or source-initiative expiry | Explicit catalog rule and persistent Guidance/immunity definitions; creature selector permits the caster | `SpellFeatureRulesTests.GuidanceConsumesOnEligibleCheckAndCreatesPersistentImmunity`, `UnusedGuidanceExpiresAtZeroHpCasterInitiativeBoundaryAndCreatesImmunity`, `RestoredGuidanceWithExternalSourceExpiresAtNextRoundBoundary`, and `SpellcastingPresentationPlayModeTests.SingleCreatureSpellSelectionCanTargetTheCaster` |
+| Guidance | Friendly creature within 30 feet; +1 status on the first attack/save/skill query; one-hour immunity on use or source-initiative expiry; active Guidance cannot be replaced to bypass immunity | Explicit catalog rule and persistent Guidance/immunity definitions; creature selector permits the caster; external provenance uses the enrolled owner clock | `SpellFeatureRulesTests.GuidanceConsumesOnEligibleCheckAndCreatesPersistentImmunity`, `ExternalSourceGuidanceConsumesAndUsesItsEnrolledOwnerClock`, `GuidanceRejectsRecastWhileActiveBeforeCosts`, `UnusedGuidanceExpiresAtZeroHpCasterInitiativeBoundaryAndCreatesImmunity`, `RestoredGuidanceWithExternalSourceExpiresAtNextRoundBoundary`, and `SpellcastingPresentationPlayModeTests.SingleCreatureSpellSelectionCanTargetTheCaster` |
 | Haunting Hymn | 15-foot cone; one shared damage roll per cast; basic Fortitude sonic damage; Deafened for 1 minute on critical failure | Generic area selector, save/health/condition operations, production pre-built cantrip | `SpellFeatureRulesTests.HauntingHymnAppliesEveryBasicFortitudeDegree`, `HauntingHymnRollsDamageOnceAndAppliesItThroughEachBasicSave`, and `HeightenedHauntingHymnAndHealScaleTheirDiceAndFlatHealing`; cone geometry remains covered by `Pf2eAreaTargetingTests` |
 | Bless | Friendly snapshot in a 15-foot emanation; +1 status attack bonus for 1 minute | Explicit catalog rule, persistent effect per selected ally, rank-1 prepared slot | `SpellFeatureRulesTests.BlessSnapshotsAlliesAndInfuseContributesHeightenedStrikeDice` plus generic active-effect timing and persistence suites |
 | Infuse Vitality | Exactly one willing creature per action within 30 feet; 1 minute of vitality Strike dice with fixed 2d4 at rank 3 and 3d4 at rank 5 or higher | Explicit multi-selection profile including self, Strike-damage middleware, persisted production undead traits, persistent effects, rank-1 prepared slot | `SpellFeatureRulesTests.InfuseVitalityTargetsExactlyOneCreaturePerAction`, `InfuseVitalityFixedHeighteningCapsAtThreeDiceAboveRankFive`, atomic rejection, and `UnityCombatRulesBridgeTests.InitialAndReinforcementEnrollmentCaptureImmutableCompleteBaseStatistics` |
 | Heal | 1-action touch; 2-action 30 feet with +8 healing per rank; 3-action 30-foot emanation using one shared roll; all living creatures receive healing and undead receive basic Fortitude vitality damage | Explicit self-capable variant profiles, health/save/damage operations, four-use healing-font pool | `SpellFeatureRulesTests.HealTwoActionRestoresLivingAndOneActionDamagesUndead`, `HealThreeActionEmanationHealsAllLivingAndDamagesUndead`, `HeightenedHauntingHymnAndHealScaleTheirDiceAndFlatHealing`, and atomic legality coverage |
 
 All lasting definitions use `SpellEffectState` and the production generic effect codec. The shared
-persistence suites cover attached/detached capture, remaining boundaries, retry, reinforcements,
-and missing or late sources; `SpellEffectPersistenceTests` proves that every spell-specific
+persistence suites cover attached/detached capture, independent provenance and timing actors,
+remaining boundaries, retry, reinforcements, and missing or late sources;
+`SpellEffectPersistenceTests` proves that every spell-specific
 definition participates in that codec and remaps its target actor reference. Prepared pool
 remaining uses are separately projected under stable
 book-local pool identities through `DungeonActorSaveState`, then rebound to the next encounter's
@@ -1039,9 +1043,12 @@ These are decisions to make before the named migration, not implicit authorizati
 6. **Flanking topology boundary:** prefer a feature-local immutable query over a new shared
    topology API unless another implemented feature proves the same need.
 7. **Dungeon save boundary:** the actor adapter now persists registered rules-native effects,
-   bindings, typed state, source/owner actor references, creation order, and remaining timing through
-   one generic codec catalog. Restore transport supports detached capture, common enrollment,
-   retry, and missing or late sources. Health remains split across its existing outer and nested
+   bindings, typed state, source/owner/timing actor references, creation order, and remaining timing
+   through one generic codec catalog. Restore transport supports detached capture, common
+   enrollment, retry, and missing or late sources without conflating provenance with the actor whose
+   initiative advances a duration. A restored external clock uses the new-round fallback while
+   omitted and the same reserved identity after later enrollment. Health remains split across its
+   existing outer and nested
    records, and Rage intentionally normalizes rather than resuming. Future features must register
    their state codec without adding a parallel restore path or compatibility-version dispatch.
 8. **Data-only catalog scope:** 84 loaded spell definitions and unsupported item rule keys are not an

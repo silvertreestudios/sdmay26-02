@@ -30,7 +30,7 @@ clients or projections of the migrated state.
 | Multiple attack penalty | `MultipleAttackPenaltyState` |
 | Strike equipment, ammunition, and loaded state | Runtime equipment/ammunition slices prepared by the Strike module |
 | Spell slots, Focus Points, active effects, and bindings | Runtime resource/effect slices prepared by feature modules. Dungeon persistence captures and restores these rules values; it does not persist a writable Unity effect projection. |
-| Active-effect timing | Membership in `ActiveEffects` means an effect is active. `ActiveEffectTimingState` is an intentionally materialized schedule: it copies immutable effect and binding identifiers, source, duration behavior (encounter-scoped or boundary-counted), and creation order so boundary advancement can filter and order without loading related state on every boundary, and removal can address the binding directly rather than reverse-searching for it. Only `RemainingBoundaries` evolves. Expiration atomically removes the effect and associated state. |
+| Active-effect timing | Membership in `ActiveEffects` means an effect is active. `ActiveEffectTimingState` is an intentionally materialized schedule: it copies immutable effect and binding identifiers, the timing actor identity, duration behavior (encounter-scoped or boundary-counted), and creation order so boundary advancement can filter and order without loading related state on every boundary, and removal can address the binding directly rather than reverse-searching for it. The timing actor normally equals effect provenance but is independently preserved when those identities differ. Only `RemainingBoundaries` evolves. Expiration atomically removes the effect and associated state. |
 | Rule checks and modifier stacking for migrated actions | Runtime check handlers and `ModifierCollection` |
 
 Attachment is identity-sensitive. A read through a creature or controller is valid only for the
@@ -216,8 +216,8 @@ workflow.
 
 Dungeon saves capture active rules state from the attached bridge, never from Unity effect
 components. Each `DungeonRulesEffectSaveState` is a generic envelope containing the exact effect,
-binding, definition, stable source actor, stable binding owner, rule source, effect-state version,
-binding creation order and enabled state, duration, and materialized remaining timing. The state
+binding, definition, stable source actor, stable binding owner, stable timing actor, rule source,
+effect-state version, binding creation order and enabled state, duration, and materialized remaining timing. The state
 payload is delegated to an explicitly composed `IDungeonEffectStateCodec`, keyed by a stable save
 kind, the concrete `IEffectState` type, and every rule definition allowed to use that codec. The
 same definition declares its exact effect-state type in the `RuleRegistry`. Save validation checks
@@ -236,7 +236,10 @@ implement dormant spell content.
 The dungeon actor adapter installs a temporary `DungeonRulesEffectSeed` through the real dungeon
 reload path. During common combatant preparation, `DungeonRulesEffectPersistenceModule` resolves
 stable dungeon actor IDs to the new encounter's `CreatureId` values and contributes the exact
-effect, binding, and timing records to `AddCombatantsOp`. Restoration therefore commits rules state
+effect, binding, and timing records to `AddCombatantsOp`. The restored timing record remaps its
+actor independently from effect provenance. That clock must be enrolled, incoming, or an explicit
+external effect reference; an omitted external clock uses the new-round fallback and keeps its
+reserved identity if it enrolls later. Restoration therefore commits rules state
 before `ActiveEffectCreatedFact` reaches presentation observers. Light and other feature-owned
 presentation reconstruct from that Fact without recasting, spending action or spell costs,
 replaying damage, or creating replacement identities. Existing pre-encounter `ConditionSeed`
@@ -255,7 +258,7 @@ same generic envelope alongside the projected rules effects. Failed preparation 
 the original restore seed available for retry.
 
 The save graph validates globally unique effect and binding IDs, binding-owner association, all
-source/owner/payload actor references, codec payloads, and consistency between duration and timing.
+source/owner/timing/payload actor references, codec payloads, and consistency between duration and timing.
 Party actor references are run-global roster identities; non-party references pair their floor
 depth with the floor-local encounter identity. Validation resolves those references against the
 whole visited-run graph, while restore materializes only actors on the selected floor and represents

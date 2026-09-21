@@ -187,23 +187,23 @@ namespace Game.Rules.Runtime
                 );
                 return true;
             }
+        }
 
-            private static CreatureId ResolveImmunityTimingSource(
-                RulesSnapshot snapshot,
-                CreatureId source,
-                CreatureId owner
-            )
-            {
-                EncounterState encounter = snapshot
-                    .Encounters.Select(pair => pair.Value)
-                    .FirstOrDefault(value =>
-                        value.Phase == EncounterPhase.Initialized
-                        || value.Phase == EncounterPhase.Active
-                    );
-                return encounter == null || encounter.Roster.Any(entry => entry.Creature == source)
-                    ? source
-                    : owner;
-            }
+        private static CreatureId ResolveImmunityTimingSource(
+            RulesSnapshot snapshot,
+            CreatureId source,
+            CreatureId owner
+        )
+        {
+            EncounterState encounter = snapshot
+                .Encounters.Select(pair => pair.Value)
+                .FirstOrDefault(value =>
+                    value.Phase == EncounterPhase.Initialized
+                    || value.Phase == EncounterPhase.Active
+                );
+            return encounter == null || encounter.Roster.Any(entry => entry.Creature == source)
+                ? source
+                : owner;
         }
 
         private sealed class ShieldArmorClassMiddleware
@@ -343,6 +343,11 @@ namespace Game.Rules.Runtime
                     string.Concat(
                         "immunity:",
                         frame.Id.Value.ToString(CultureInfo.InvariantCulture)
+                    ),
+                    ResolveImmunityTimingSource(
+                        context.Snapshot,
+                        effect.SourceCreature,
+                        context.Binding.Owner
                     )
                 );
                 return OpResult<ModifierCollection>.Resolved(
@@ -534,6 +539,13 @@ namespace Game.Rules.Runtime
             if (targets is not ActionValidationResult.ValidActionValidationResult)
                 return targets;
             CreatureId target = operation.Selection.Creatures[0];
+            bool guided = snapshot.RuleBindings.Any(pair =>
+                pair.Value.IsEnabled
+                && pair.Value.DefinitionId == SpellFeatureRules.GuidanceEffect
+                && pair.Value.Owner == target
+            );
+            if (guided)
+                return ActionValidationResult.Invalid("The target already has active Guidance.");
             bool immune = snapshot.RuleBindings.Any(pair =>
                 pair.Value.IsEnabled
                 && pair.Value.DefinitionId == SpellFeatureRules.GuidanceImmunity

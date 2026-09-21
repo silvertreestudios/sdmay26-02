@@ -236,6 +236,7 @@ public sealed class DungeonEncounterCombatPlayModeTests
                 DefinitionId = "spell-effect-light",
                 SourceActor = sourceActor,
                 BindingOwnerActor = playerActor,
+                TimingSourceActor = sourceActor,
                 RuleSource = "spell:light",
                 DurationKind = EffectDurationKind.Rounds,
                 DurationAmount = 1,

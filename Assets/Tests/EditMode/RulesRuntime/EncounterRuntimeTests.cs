@@ -2090,8 +2090,11 @@ namespace Game.Rules.Runtime.Tests
             Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
         }
 
-        [Test]
-        public async Task RestoredExternalSourceEffectExpiresAtTheNextRoundBoundary()
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task RestoredExternalSourceEffectUsesItsPersistedTimingSource(
+            bool externalTimingSource
+        )
         {
             CreatureId externalSource = new CreatureId("external-defeated-source");
             RuleDefinitionId definition = new RuleDefinitionId("external-source-effect");
@@ -2099,7 +2102,7 @@ namespace Game.Rules.Runtime.Tests
             registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
-                new ScriptedRollService(20, 10),
+                new ScriptedRollService(10, 20),
                 new RulesStateSeed(),
                 registry,
                 true
@@ -2134,25 +2137,52 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
                 new[] { effect },
-                new[] { new ActiveEffectTimingRestore(effectId, 1, false) },
+                new[]
+                {
+                    new ActiveEffectTimingRestore(
+                        effectId,
+                        externalTimingSource ? externalSource : Hero,
+                        1,
+                        false
+                    ),
+                },
                 new[] { externalSource }
             );
 
+            Resolved(await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players)));
             Resolved(
                 await dispatcher.Dispatch(
-                    new StartTestEncounterOp(
-                        Encounter,
-                        new[] { hero, Registration(Enemy, Enemies) },
-                        EncounterConclusionPolicy.ProtagonistDefeatOnly
-                    )
+                    new AddCombatantsOp(Encounter, new[] { hero, Registration(Enemy, Enemies) })
                 )
             );
             Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[effectId].SourceCreature,
+                Is.EqualTo(externalTimingSource ? externalSource : Hero)
+            );
 
-            EncounterState firstTurn = dispatcher.Snapshot.Encounters[Encounter];
-            Resolved(await dispatcher.Dispatch(new EndTurnOp(firstTurn.CurrentTurn.Value)));
-            EncounterState secondTurn = dispatcher.Snapshot.Encounters[Encounter];
-            Resolved(await dispatcher.Dispatch(new EndTurnOp(secondTurn.CurrentTurn.Value)));
+            Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
+            EncounterState enemyTurn = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(enemyTurn.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[effectId].RemainingBoundaries,
+                Is.EqualTo(1)
+            );
+
+            Resolved(await dispatcher.Dispatch(new EndTurnOp(enemyTurn.CurrentTurn.Value)));
+
+            if (externalTimingSource)
+            {
+                EncounterState heroTurn = dispatcher.Snapshot.Encounters[Encounter];
+                Assert.That(heroTurn.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+                Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+                Assert.That(
+                    dispatcher.Snapshot.ActiveEffectTimings[effectId].RemainingBoundaries,
+                    Is.EqualTo(1)
+                );
+                Resolved(await dispatcher.Dispatch(new EndTurnOp(heroTurn.CurrentTurn.Value)));
+            }
 
             Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
             Assert.That(dispatcher.Snapshot.RuleBindings.Contains(bindingId), Is.False);
@@ -2202,7 +2232,7 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
                 new[] { effect },
-                new[] { new ActiveEffectTimingRestore(effectId, 0, false) },
+                new[] { new ActiveEffectTimingRestore(effectId, Hero, 0, false) },
                 Array.Empty<CreatureId>()
             );
 

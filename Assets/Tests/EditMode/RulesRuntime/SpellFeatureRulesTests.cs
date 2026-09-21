@@ -168,6 +168,78 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
+        public async Task ExternalSourceGuidanceConsumesAndUsesItsEnrolledOwnerClock()
+        {
+            TestRuntime runtime = CreateRuntime(
+                new ScriptedRollService(),
+                new TestCreatureData(),
+                2,
+                new TestTargetingDataProvider(ActionValidationResult.Valid),
+                false
+            );
+            RequireResolved(await runtime.Dispatcher.Dispatch(Cast("guidance", 1, Ally)));
+
+            ModifierCollection modifiers = RequireResolved(
+                await runtime.Dispatcher.Dispatch(new ProbeAttackModifiersOp(Ally, Enemy))
+            ).Value;
+
+            Assert.That(modifiers.Total, Is.EqualTo(1));
+            Assert.That(
+                runtime
+                    .Store.Snapshot.ActiveEffects.Select(pair => pair.Value)
+                    .Any(effect => effect.DefinitionId == SpellFeatureRules.GuidanceEffect),
+                Is.False
+            );
+            ActiveEffectInstance immunity = runtime
+                .Store.Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Single(effect => effect.DefinitionId == SpellFeatureRules.GuidanceImmunity);
+            Assert.That(immunity.SourceCreature, Is.EqualTo(Caster));
+            Assert.That(immunity.Duration, Is.EqualTo(EffectDuration.Minutes(60)));
+            Assert.That(immunity.GetState<SpellEffectState>().Target, Is.EqualTo(Ally));
+            Assert.That(
+                runtime.Store.Snapshot.ActiveEffectTimings[immunity.Id].SourceCreature,
+                Is.EqualTo(Ally)
+            );
+        }
+
+        [Test]
+        public async Task GuidanceRejectsRecastWhileActiveBeforeCosts()
+        {
+            TestRuntime runtime = CreateRuntime(new ScriptedRollService());
+            CastSpellOutcome first = RequireResolved(
+                await runtime.Dispatcher.Dispatch(Cast("guidance", 1, Ally))
+            ).Value;
+            int actionsBeforeRetry = runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining;
+
+            OpResult<CastSpellOutcome> retry = await runtime.Dispatcher.Dispatch(
+                Cast("guidance", 1, Ally)
+            );
+
+            Assert.That(retry, Is.TypeOf<InvalidOpResult<CastSpellOutcome>>());
+            Assert.That(
+                ((InvalidOpResult<CastSpellOutcome>)retry).Reason,
+                Does.Contain("already has active Guidance")
+            );
+            Assert.That(
+                runtime.Store.Snapshot.ActionEconomy[Caster].ActionsRemaining,
+                Is.EqualTo(actionsBeforeRetry)
+            );
+            Assert.That(
+                runtime
+                    .Store.Snapshot.ActiveEffects.Select(pair => pair.Value)
+                    .Single(effect => effect.DefinitionId == SpellFeatureRules.GuidanceEffect)
+                    .Id,
+                Is.EqualTo(first.CreatedEffects.Single())
+            );
+            Assert.That(
+                runtime
+                    .Store.Snapshot.ActiveEffects.Select(pair => pair.Value)
+                    .Any(effect => effect.DefinitionId == SpellFeatureRules.GuidanceImmunity),
+                Is.False
+            );
+        }
+
+        [Test]
         public async Task GuidanceContributesToSkillAndSavingThrowCollections()
         {
             TestRuntime skillRuntime = CreateRuntime(new ScriptedRollService());

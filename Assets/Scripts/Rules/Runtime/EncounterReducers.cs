@@ -393,6 +393,14 @@ namespace Game.Rules.Runtime
                     return ReductionResult<CombatantsAddedOutcome>.Reject(
                         $"Restored timing for active effect {pair.Key.Value} conflicts with its duration."
                     );
+                if (
+                    !rosterCreatures.Contains(pair.Value.SourceCreature)
+                    && !incomingCreatures.Contains(pair.Value.SourceCreature)
+                    && !externalEffectReferences.Contains(pair.Value.SourceCreature)
+                )
+                    return ReductionResult<CombatantsAddedOutcome>.Reject(
+                        $"Restored timing for active effect {pair.Key.Value} has an unavailable source."
+                    );
             }
             foreach (CombatantAddition addition in context.Op.Additions)
             {
@@ -427,7 +435,7 @@ namespace Game.Rules.Runtime
                                 effect.Id,
                                 encounter.Id,
                                 binding.Id,
-                                effect.SourceCreature,
+                                restored.SourceCreature,
                                 restored.RemainingBoundaries,
                                 restored.ExpiresWithEncounter,
                                 binding.CreationOrder

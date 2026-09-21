@@ -419,6 +419,7 @@ public sealed class DungeonActorStateAdapterTests
         string slowedTwoEffectId = slowedTwo.EffectId;
         Assert.That(slowedTwo.SourceActor, Is.EqualTo(FloorActor(0, "enemy")));
         Assert.That(slowedTwo.BindingOwnerActor, Is.EqualTo(PartyActor("hero")));
+        Assert.That(slowedTwo.TimingSourceActor, Is.EqualTo(FloorActor(0, "enemy")));
         Assert.That(slowedTwo.DurationKind, Is.EqualTo(EffectDurationKind.Rounds));
         Assert.That(slowedTwo.DurationAmount, Is.EqualTo(2));
         Assert.That(slowedTwo.EffectStateVersion, Is.EqualTo(0));
@@ -553,6 +554,10 @@ public sealed class DungeonActorStateAdapterTests
             .Single(binding => binding.EffectId == restoredSlowed.Id);
         Assert.That(restoredSlowed.SourceCreature, Is.EqualTo(restoredEnemy));
         Assert.That(restoredSlowedBinding.Owner, Is.EqualTo(restoredActor));
+        Assert.That(
+            activeBridge.Snapshot.ActiveEffectTimings[restoredSlowed.Id].SourceCreature,
+            Is.EqualTo(restoredEnemy)
+        );
         Assert.That(restoredSlowedBinding.Id.Value, Is.EqualTo(slowedTwo.BindingId));
         Assert.That(
             restoredSlowed.EffectStateVersion.Value,
@@ -632,7 +637,7 @@ public sealed class DungeonActorStateAdapterTests
     }
 
     [Test]
-    public void RestorePreservesDefeatedSourceIdentityAndAdvancesItsRemainingRoundClock()
+    public void RestoreAndDetachPreserveExternalProvenanceAndEnrolledTimingClock()
     {
         SourceFixture hero = CreateFixture("Hero", out restoredObject);
         restoredObject.AddComponent<Team>().Name = "players";
@@ -652,6 +657,7 @@ public sealed class DungeonActorStateAdapterTests
                 DefinitionId = ConditionRules.DefinitionId.Value,
                 SourceActor = FloorActor(0, "defeated-enemy"),
                 BindingOwnerActor = PartyActor("hero"),
+                TimingSourceActor = PartyActor("hero"),
                 RuleSource = "enemy-slowed",
                 DurationKind = EffectDurationKind.Rounds,
                 DurationAmount = 1,
@@ -663,6 +669,11 @@ public sealed class DungeonActorStateAdapterTests
                 StatePayload = $"{{\"Condition\":\"{SlowedRules.ConditionId.Value}\",\"Value\":2}}",
             },
         };
+        DungeonSaveResult<DungeonActorSaveState> parsed = DungeonSaveJson.ParseActor(
+            DungeonSaveJson.SerializeActor(saved)
+        );
+        Assert.That(parsed.IsSuccess, Is.True, parsed.Diagnostics.FirstOrDefault()?.Message);
+        saved = parsed.Value;
         Func<DungeonRulesActorReference, GameObject> resolve = actor =>
             actor.Equals(PartyActor("hero")) ? restoredObject
             : actor.Equals(FloorActor(0, "living-enemy")) ? restoredOpponentObject
@@ -696,6 +707,10 @@ public sealed class DungeonActorStateAdapterTests
             restored.SourceCreature.Value,
             Is.EqualTo($"dungeon-external:{FloorActor(0, "defeated-enemy").StableKey}")
         );
+        Assert.That(
+            activeBridge.Snapshot.ActiveEffectTimings[restored.Id].SourceCreature,
+            Is.EqualTo(heroId)
+        );
         DungeonActorSaveState attachedCapture = DungeonActorStateAdapter.Capture(
             hero.Controller,
             actor => actor == restoredObject ? PartyActor("hero") : FloorActor(0, "living-enemy")
@@ -704,11 +719,164 @@ public sealed class DungeonActorStateAdapterTests
             attachedCapture.RulesEffects.Single().SourceActor,
             Is.EqualTo(FloorActor(0, "defeated-enemy"))
         );
+        Assert.That(
+            attachedCapture.RulesEffects.Single().TimingSourceActor,
+            Is.EqualTo(PartyActor("hero"))
+        );
 
-        activeBridge.BeginTurn(heroId, 1);
+        activeBridge.ReleaseOwnership();
+        activeBridge = null;
+        DungeonActorSaveState detachedCapture = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            actor => actor == restoredObject ? PartyActor("hero") : FloorActor(0, "living-enemy")
+        );
+        Assert.That(
+            detachedCapture.RulesEffects.Single().SourceActor,
+            Is.EqualTo(FloorActor(0, "defeated-enemy"))
+        );
+        Assert.That(
+            detachedCapture.RulesEffects.Single().TimingSourceActor,
+            Is.EqualTo(PartyActor("hero"))
+        );
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { hero.Controller, enemy.Controller },
+            CreateTiles(),
+            new ScriptedRollService(10, 20),
+            "players"
+        );
+        heroId = activeBridge.GetCreatureId(hero.Creature);
+        CreatureId enemyId = activeBridge.GetCreatureId(enemy.Creature);
+        restored = activeBridge.Snapshot.ActiveEffects[restored.Id];
+        Assert.That(
+            activeBridge.Snapshot.ActiveEffectTimings[restored.Id].SourceCreature,
+            Is.EqualTo(heroId)
+        );
+        Assert.That(
+            ConditionRules.GetValue(activeBridge.Snapshot, heroId, SlowedRules.ConditionId),
+            Is.EqualTo(2)
+        );
+
+        activeBridge.AdvanceEncounter();
+        Assert.That(activeBridge.GetEncounter().CurrentTurn.Value.Actor, Is.EqualTo(enemyId));
         Assert.That(activeBridge.Snapshot.ActiveEffects.Contains(restored.Id), Is.True);
-        activeBridge.BeginTurn(heroId, 3);
+        Assert.That(
+            activeBridge.Snapshot.ActiveEffectTimings[restored.Id].RemainingBoundaries,
+            Is.EqualTo(1)
+        );
+
+        activeBridge.EndTurn(enemyId);
+
+        Assert.That(activeBridge.GetEncounter().CurrentTurn.Value.Actor, Is.EqualTo(heroId));
+        Assert.That(activeBridge.GetActionsRemaining(heroId), Is.EqualTo(3));
         Assert.That(activeBridge.Snapshot.ActiveEffects.Contains(restored.Id), Is.False);
+        Assert.That(
+            ConditionRules.GetValue(activeBridge.Snapshot, heroId, SlowedRules.ConditionId),
+            Is.Zero
+        );
+    }
+
+    [Test]
+    public void RestoredTimingClockRemainsDistinctWhenItsProvenanceActorEnrollsLate()
+    {
+        SourceFixture hero = CreateFixture("Late Source Hero", out restoredObject);
+        restoredObject.AddComponent<Team>().Name = "players";
+        SourceFixture lateSource = CreateFixture("Late Effect Source", out effectSourceObject);
+        effectSourceObject.AddComponent<Team>().Name = "enemies";
+        effectSourceObject.transform.position = new Vector3(2, 0, 0);
+        SourceFixture opponent = CreateFixture("Initial Enemy", out restoredOpponentObject);
+        restoredOpponentObject.AddComponent<Team>().Name = "enemies";
+        restoredOpponentObject.transform.position = Vector3.right;
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            _ => PartyActor("unused")
+        );
+        DungeonRulesEffectSaveState effect = CreateSavedSlowedEffect(
+            "late-source-effect",
+            FloorActor(0, "late-source"),
+            PartyActor("hero"),
+            expiresAtNextSourceBoundary: true
+        );
+        effect.TimingSourceActor = PartyActor("hero");
+        saved.RulesEffects = new[] { effect };
+        DungeonSaveResult<DungeonActorSaveState> parsed = DungeonSaveJson.ParseActor(
+            DungeonSaveJson.SerializeActor(saved)
+        );
+        Assert.That(parsed.IsSuccess, Is.True, parsed.Diagnostics.FirstOrDefault()?.Message);
+        Func<DungeonRulesActorReference, GameObject> resolve = actor =>
+            actor.Equals(PartyActor("hero")) ? restoredObject
+            : actor.Equals(FloorActor(0, "late-source")) ? effectSourceObject
+            : actor.Equals(FloorActor(0, "initial-enemy")) ? restoredOpponentObject
+            : null;
+        DungeonActorStateAdapter.PrepareRestore(
+            hero.Controller,
+            parsed.Value,
+            hero.Creature.Health.Current,
+            false,
+            resolve
+        )();
+
+        Tile[,] tiles = new Tile[3, 1];
+        tiles[0, 0] = new Tile();
+        tiles[1, 0] = new Tile();
+        tiles[2, 0] = new Tile();
+        activeBridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { hero.Controller, opponent.Controller },
+            tiles,
+            new ScriptedRollService(20, 10, 5),
+            "players"
+        );
+        CreatureId heroId = activeBridge.GetCreatureId(hero.Creature);
+        ActiveEffectInstance restored = activeBridge.Snapshot.ActiveEffects[
+            new ActiveEffectId(effect.EffectId)
+        ];
+        CreatureId reservedSource = restored.SourceCreature;
+        Assert.That(
+            activeBridge.Snapshot.ActiveEffectTimings[restored.Id].SourceCreature,
+            Is.EqualTo(heroId)
+        );
+
+        activeBridge.AddCombatants(new[] { lateSource.Controller });
+
+        Assert.That(activeBridge.GetCreatureId(lateSource.Creature), Is.EqualTo(reservedSource));
+        Assert.That(
+            activeBridge.Snapshot.ActiveEffectTimings[restored.Id].SourceCreature,
+            Is.EqualTo(heroId)
+        );
+        DungeonActorSaveState attached = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            actor =>
+                actor == restoredObject ? PartyActor("hero")
+                : actor == effectSourceObject ? FloorActor(0, "late-source")
+                : actor == restoredOpponentObject ? FloorActor(0, "initial-enemy")
+                : throw new InvalidOperationException()
+        );
+        Assert.That(
+            attached.RulesEffects.Single().SourceActor,
+            Is.EqualTo(FloorActor(0, "late-source"))
+        );
+        Assert.That(
+            attached.RulesEffects.Single().TimingSourceActor,
+            Is.EqualTo(PartyActor("hero"))
+        );
+
+        activeBridge.ReleaseOwnership();
+        activeBridge = null;
+        DungeonActorSaveState detached = DungeonActorStateAdapter.Capture(
+            hero.Controller,
+            actor =>
+                actor == restoredObject ? PartyActor("hero")
+                : actor == effectSourceObject ? FloorActor(0, "late-source")
+                : actor == restoredOpponentObject ? FloorActor(0, "initial-enemy")
+                : throw new InvalidOperationException()
+        );
+        Assert.That(
+            detached.RulesEffects.Single().SourceActor,
+            Is.EqualTo(FloorActor(0, "late-source"))
+        );
+        Assert.That(
+            detached.RulesEffects.Single().TimingSourceActor,
+            Is.EqualTo(PartyActor("hero"))
+        );
     }
 
     [TestCase(false)]
@@ -1068,6 +1236,7 @@ public sealed class DungeonActorStateAdapterTests
                 DefinitionId = ConditionRules.DefinitionId.Value,
                 SourceActor = PartyActor("hero"),
                 BindingOwnerActor = PartyActor("hero"),
+                TimingSourceActor = PartyActor("hero"),
                 RuleSource = "slowed",
                 DurationKind = EffectDurationKind.Rounds,
                 DurationAmount = 1,
@@ -1276,6 +1445,7 @@ public sealed class DungeonActorStateAdapterTests
             DefinitionId = ConditionRules.DefinitionId.Value,
             SourceActor = source,
             BindingOwnerActor = owner,
+            TimingSourceActor = expiresAtNextSourceBoundary ? source : default,
             RuleSource = SlowedRules.Source.Slug,
             DurationKind = expiresAtNextSourceBoundary
                 ? EffectDurationKind.Rounds

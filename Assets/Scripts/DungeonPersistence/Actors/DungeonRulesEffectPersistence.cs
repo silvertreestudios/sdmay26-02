@@ -492,6 +492,9 @@ namespace Game.DungeonPersistence.Actors
             {
                 CreatureId bindingOwner = Resolve(saved.BindingOwnerActor);
                 CreatureId source = Resolve(saved.SourceActor);
+                CreatureId timingSource = saved.HasTiming
+                    ? Resolve(saved.TimingSourceActor)
+                    : default;
                 ActiveEffectId effectId = new(saved.EffectId);
                 RuleDefinitionId definitionId = new(saved.DefinitionId);
                 RuleSource ruleSource = RuleSource.FromSlug(saved.RuleSource);
@@ -522,6 +525,7 @@ namespace Game.DungeonPersistence.Actors
                     saved.HasTiming
                         ? new ActiveEffectTimingRestore(
                             effectId,
+                            timingSource,
                             saved.RemainingBoundaries,
                             saved.ExpiresWithEncounter
                         )
@@ -565,6 +569,7 @@ namespace Game.DungeonPersistence.Actors
                         ? null
                         : new ActiveEffectTimingRestore(
                             projectedEffect.Id,
+                            ResolveProjected(projection.Timing.SourceCreature),
                             projection.Timing.RemainingBoundaries,
                             projection.Timing.ExpiresWithEncounter
                         );
@@ -812,6 +817,7 @@ namespace Game.DungeonPersistence.Actors
                         DefinitionId = ConditionRules.DefinitionId.Value,
                         SourceActor = actor,
                         BindingOwnerActor = actor,
+                        TimingSourceActor = default,
                         RuleSource = application.Source.Slug,
                         DurationKind = EffectDurationKind.Indefinite,
                         DurationAmount = 0,
@@ -880,6 +886,8 @@ namespace Game.DungeonPersistence.Actors
                 DefinitionId = effect.DefinitionId.Value,
                 SourceActor = identifyCreature(effect.SourceCreature),
                 BindingOwnerActor = identifyCreature(binding.Owner),
+                TimingSourceActor =
+                    timing == null ? default : identifyCreature(timing.SourceCreature),
                 RuleSource = effect.Source.Slug,
                 DurationKind = effect.Duration.Kind,
                 DurationAmount = effect.Duration.Amount,
@@ -900,6 +908,8 @@ namespace Game.DungeonPersistence.Actors
         {
             yield return effect.SourceActor;
             yield return effect.BindingOwnerActor;
+            if (effect.HasTiming)
+                yield return effect.TimingSourceActor;
             foreach (
                 DungeonRulesActorReference actor in Codecs.GetReferencedActors(
                     new RuleDefinitionId(effect.DefinitionId),
