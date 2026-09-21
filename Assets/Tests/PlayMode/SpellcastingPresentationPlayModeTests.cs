@@ -72,21 +72,6 @@ public sealed class SpellcastingPresentationPlayModeTests
             .ToArray();
         Assert.That(light, Is.Empty);
         Assert.That(RulesActions(controller, "divine-lance"), Is.Empty);
-        Assert.That(
-            controller
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "light"),
-            Is.False
-        );
-        Assert.That(
-            controller
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "divine-lance"),
-            Is.False
-        );
-        Assert.That(controller.GetActions().OfType<CastSpellAction>(), Is.Empty);
     }
 
     [UnityTest]
@@ -133,7 +118,165 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(mace.Item.Traits, Does.Contain(Trait.FromSlug("shove")));
         AssertMigratedClericSpellActions(controller);
         AssertNoDuplicateSpellActions(controller.GetActions().OfType<RulesCastSpellAction>());
-        Assert.That(controller.GetActions().OfType<CastSpellAction>(), Is.Empty);
+        bridge.ReleaseOwnership();
+    }
+
+    [UnityTest]
+    public IEnumerator CheckedInMarenCastsAllSixMigratedSpellsThroughProductionActions()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        GameObject maren = CreatureJsonConverter.CreateByName("Maren");
+        Assert.That(maren, Is.Not.Null);
+        created.Add(maren);
+        maren.transform.position = Vector3.zero;
+        CreatureComponent cleric = maren.GetComponent<CreatureComponent>();
+        maren.AddComponent<Team>().Name = "players";
+        TestActionController controller = maren.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Maren Spell Opponent", 1, prepared: false, 20);
+        opponent.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, maren);
+        Occupy(tiles, opponent.gameObject);
+
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10, 10, 4, 5),
+            "players"
+        );
+        CreatureId actor = bridge.GetCreatureId(cleric);
+
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "shield").Single(),
+            maren
+        );
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.ShieldEffect
+            ),
+            Is.True
+        );
+
+        grid.Target = maren;
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "guidance").Single(),
+            maren
+        );
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.GuidanceEffect
+            ),
+            Is.True
+        );
+
+        grid.AreaResult = AreaTargeting.Evaluate(
+            maren,
+            tiles,
+            new AreaTargetRequest
+            {
+                Shape = AreaShape.Cone,
+                SizeFeet = 15,
+                RequiresLineOfEffect = true,
+            },
+            new AreaPlacement
+            {
+                Shape = AreaShape.Cone,
+                OriginCell = Vector3Int.zero,
+                Direction = AreaDirection.East,
+            }
+        );
+        int opponentHealth = opponent.Health.Current;
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "haunting-hymn").Single(),
+            maren
+        );
+        Assert.That(opponent.Health.Current, Is.LessThan(opponentHealth));
+
+        grid.AreaResult = AreaTargeting.Evaluate(
+            maren,
+            tiles,
+            new AreaTargetRequest
+            {
+                Shape = AreaShape.Emanation,
+                SizeFeet = 15,
+                IncludeCenter = true,
+                RequiresLineOfEffect = true,
+            },
+            new AreaPlacement
+            {
+                Shape = AreaShape.Emanation,
+                OriginCell = Vector3Int.zero,
+                Direction = AreaDirection.East,
+            }
+        );
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "bless").Single(),
+            maren
+        );
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.BlessEffect
+            ),
+            Is.True
+        );
+
+        grid.Target = maren;
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "infuse-vitality")
+                .Single(action => action.Variant.Actions == 1),
+            maren
+        );
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.InfuseVitalityEffect
+            ),
+            Is.True
+        );
+
+        cleric.ApplyFinalDamage(2, RuleSource.FromSlug("maren-production-casting-test"));
+        int damagedHealth = cleric.Health.Current;
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "heal").Single(action => action.Variant.Actions == 1),
+            maren
+        );
+        Assert.That(cleric.Health.Current, Is.GreaterThan(damagedHealth));
+        Assert.That(
+            bridge
+                .Snapshot
+                .SpellSlots[new SpellSlotPoolId($"{actor.Value}:rank-1-bless")]
+                .Remaining,
+            Is.Zero
+        );
+        Assert.That(
+            bridge
+                .Snapshot
+                .SpellSlots[new SpellSlotPoolId($"{actor.Value}:rank-1-infuse-vitality")]
+                .Remaining,
+            Is.Zero
+        );
+        Assert.That(FontUses(bridge, actor), Is.EqualTo(3));
         bridge.ReleaseOwnership();
     }
 
@@ -164,11 +307,6 @@ public sealed class SpellcastingPresentationPlayModeTests
         AssertMigratedClericSpellActions(initialController);
         Assert.That(LightActions(noncasterController), Is.Empty);
         Assert.That(RulesActions(noncasterController, "divine-lance"), Is.Empty);
-        Assert.That(
-            initialController.GetActions().OfType<CastSpellAction>(),
-            Is.Empty,
-            "Encounter composition must remove Shield and every other legacy spell action."
-        );
 
         CreatureComponent reinforcement = CreateCreature("Reinforcement", 2, prepared: true);
         TestActionController reinforcementController =
@@ -188,11 +326,6 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(LightActions(reinforcementController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(reinforcementController, "divine-lance"), Has.Count.EqualTo(1));
         AssertMigratedClericSpellActions(reinforcementController);
-        Assert.That(
-            reinforcementController.GetActions().OfType<CastSpellAction>(),
-            Is.Empty,
-            "Reinforcement composition must remove Shield and every other legacy spell action."
-        );
     }
 
     [UnityTest]
@@ -318,7 +451,6 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(effect.SourceCreature, Is.EqualTo(actor));
         Assert.That(effect.GetState<SpellEffectState>().Target, Is.EqualTo(actor));
         Assert.That(effect.GetState<SpellEffectState>().Spell, Is.EqualTo(Reference("shield")));
-        Assert.That(controller.GetActions().OfType<CastSpellAction>(), Is.Empty);
     }
 
     [UnityTest]
@@ -894,6 +1026,22 @@ public sealed class SpellcastingPresentationPlayModeTests
         return creature;
     }
 
+    private static IEnumerator InvokeSpell(
+        UnityCombatRulesBridge bridge,
+        CreatureId actor,
+        ActionController controller,
+        RulesCastSpellAction action,
+        GameObject caster
+    )
+    {
+        bridge.BeginTurn(actor, 3);
+        controller.IsTakingAction = true;
+        action.Invoke(caster);
+        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+            yield return null;
+        Assert.That(controller.IsTakingAction, Is.False, action.ActionName);
+    }
+
     private static List<RulesCastSpellAction> LightActions(ActionController controller) =>
         RulesActions(controller, "light");
 
@@ -1014,6 +1162,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     private sealed class SelectingGridApi : GridAPI
     {
         public GameObject Target { get; set; }
+        public AreaTargetResult AreaResult { get; set; }
         public System.Action AfterSelection { get; set; }
         public StrikeTargetRequest LastStrikeRequest { get; private set; }
 
@@ -1044,6 +1193,7 @@ public sealed class SpellcastingPresentationPlayModeTests
             CoroutineResult<AreaTargetResult> target
         )
         {
+            target.Value = AreaResult;
             yield break;
         }
 

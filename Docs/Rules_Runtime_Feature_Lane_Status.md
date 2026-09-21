@@ -1,68 +1,62 @@
 # Rules Runtime Feature Lane Status
 
-This ledger reconciles the feature-owned entries in the rules-runtime migration inventory against
-production baseline `0c72371ecce0034445acd0f9eed7b3aeae01d239`. It distinguishes implemented
-rules from caller integration and product decisions. The production code remains authoritative;
-this document does not turn authored data into executable scope.
+This ledger describes the integrated rules-runtime head based on target base
+`0c72371ecce0034445acd0f9eed7b3aeae01d239`. It distinguishes implemented behavior from adapter
+boundaries and data-only content. Catalog presence never creates executable scope.
 
 ## Implemented feature-owned rules
 
-| Feature | Current feature authority | Remaining boundary |
+| Feature | Current feature authority | Retained boundary |
 | --- | --- | --- |
-| Stride | `StrideRules` owns the action and movement workflow; movement state is rules-owned. | General caller cleanup may eventually remove transitional bridge helpers. Route planning and exploration orchestration remain outside rules. |
-| Strike, reload, ammunition, and MAP | `StrikeRules` owns validation, action costs, check/damage orchestration, reload, ammunition, and MAP. | Base statistics, defenses, and some prepared Strike inputs remain Unity captures pending the caller-owned statistics integration. |
-| Flanking | `FlankingRules` now owns the pure opposite-side eligibility decision over authoritative roster, health, and positions. `FlankingRule` is the feature-owned Unity capture for current action availability, team relationships, melee threat, and topology. Production Strike supplies its exact `RulesSnapshot`; the retained legacy adapter uses only current grid occupants and the same selector rather than a second calculation. | Team-to-`PlayerId` composition is caller-owned. A future shared immutable Strike line-of-effect contract may narrow the topology capture, but this feature does not add one speculatively. |
-| Off-Guard / Flat-Footed membership | `OffGuardRules` owns the named query over independent `ConditionRules` applications, including the retained imported/save-data alias. Production Strike uses this selector. | Rules-native AC modifiers depend on caller-owned statistics registration. Generic condition persistence remains caller-owned. |
-| Rules-native spell shell | `CastSpellActionOp` and the spellcasting runtime own action/slot/effect lifecycle for supported definitions. | Shared spell installation and persistence are caller-owned integration hotspots. Catalog loading alone does not implement a spell. |
-| Divine Lance | The supported spell-attack definition uses rules checks, MAP, typed damage, and health. | Defense/statistic capture remains transitional until caller integration. |
-| Light | The rules runtime owns its active effect, binding, and duration; `UnityLightModule` owns presentation. | General rules-native effect persistence is absent, so Light does not survive dungeon reload. That schema/caller change is not feature-lane work. |
-| Rage and Quick-Tempered | `RageRules` owns validation, frequency, effect timing, temporary HP, and cleanup; `UnityRageModule` owns immutable feature extraction and installation. | Fatigued/Encumbered, armor, level, and Constitution are still captured from Unity. Replacing those reads requires coordinated condition/statistics caller contracts. Rage's current end-on-reload normalization remains intentional until a product-approved persistence change. |
-| Sourced condition applications | `ConditionRules` stores each valued application as one active effect/binding and derives the highest active value without a second aggregate state. | Generic save/restore of values and lifetimes is caller-owned. Condition-specific mechanics require their own feature. |
-| Slowed | `SlowedRules` owns the maximum-value action reduction and `UnitySlowedModule` contributes one calculation binding per combatant. | The migrated implementation does not invent condition reduction/removal or a reaction rule. Any change to reaction behavior requires an explicit product decision. |
-| Rotting Aura | `RottingAuraRules` owns eligibility, deterministic rolls, typed damage, health orchestration, and its completion Fact. `UnityRottingAuraModule` owns geometry/data capture and logging. | Traits, level, defenses, and aura geometry remain narrow read-only Unity inputs; no general aura state or speculative topology API is added. |
-| Typed action presentation | Feature presenters consume committed lifecycle Facts through `UnityActionPresentationRegistry`. | This is presentation routing, not a rules authority or permission to add unsupported actions. |
-| Area and targeting snapshots | Immutable snapshots prevent confirmation from reusing mutable preview data. | Geometry remains feature/Unity infrastructure until a demonstrated rules feature needs a narrower contract. |
+| Stride | `StrideRules` owns action and movement resolution; movement state is rules-owned. | Route planning and exploration orchestration remain callers. Transitional bridge helpers may be removed later without changing authority. |
+| Strike, reload, ammunition, and MAP | `StrikeRules` owns validation, costs, checks, damage, reload, ammunition, and MAP. | Only explicitly prepared weapons are supported. |
+| Flanking | `FlankingRules` owns the pure opposite-side selector over the authoritative snapshot; `FlankingRule` captures current teams, threat, and topology for production Strike. | General team composition and topology remain narrow Unity adapters. |
+| Sourced conditions and Off-Guard | `ConditionRules` owns independent valued applications; `OffGuardRules` queries Off-Guard and the retained Flat-Footed import alias. Production Strike consumes the selector and rules statistics. | Condition-specific behavior requires its own feature. |
+| Slowed | `SlowedRules` owns maximum-value turn-action reduction; `UnitySlowedModule` installs its binding. | No reaction rule or speculative condition decrement was added. |
+| Rotting Aura | `RottingAuraRules` owns eligibility, deterministic rolls, typed damage, health orchestration, and completion facts. | `UnityRottingAuraModule` captures authored level, traits, geometry, and logging. |
+| Rage and Quick-Tempered | `RageRules` owns validation, frequency, timing, temporary HP, and cleanup. | End-on-reload normalization is intentional; authored armor/build inputs remain preparation data. |
+| Spellcasting | `SpellcastingRules` owns action, slot, target, effect, and timing lifecycles. `SpellFeatureRules` composes Divine Lance, Light, Shield, Guidance, Haunting Hymn, Bless, Infuse Vitality, and Heal. Production installs only `RulesCastSpellAction`. | Unselected catalog spells are data-only. |
+| Active-effect persistence | Schema-4 dungeon actor state persists registered generic effects, source identity, timing, spell slots, and sourced conditions, restoring them before enrollment. | Unsupported effect codecs fail explicitly. Rage normalization remains separate and intentional. |
+| Combat Open Door | `OpenDoorRules` owns eligibility and the one-action lifecycle; its feature observer projects the committed result to the exact stable Unity door. | Exploration doors and KayKit visual/collider work remain orchestration/presentation. |
+| Pre-built statistics and equipment | Preparation and unified enrollment seed immutable `CreatureStatisticsState`; checked-in Maren and Mace use the same Resources path as production. | General immunity and trait authorities are not invented for content without behavior. |
+| Typed presentation and targeting snapshots | Feature observers consume committed facts; immutable target/area snapshots prevent preview drift. | Presentation is not rules authority. |
 
-## Reachable integration gaps outside this lane
+## Supported production path
 
-These behaviors are reachable, but their remaining changes touch exclusive caller/composition
-ownership and are therefore reported rather than implemented here.
+`CreatureJsonConverter.CreateByName("Maren")` loads checked-in `Maren.json`, resolves `mace.json`,
+prepares the cleric, and enrolls it through the same `UnityCombatantEnrollmentPipeline` used for
+initial participants and reinforcements. The production bridge installs the selected spell actions,
+statistics, equipment actions, slots, and feature bindings. Focused regressions prove Mace Strike
+and all six selected migrated spells execute through those installed actions, not a test-only or
+legacy runtime.
 
-| Gap | Required owner and constraint |
-| --- | --- |
-| Creature statistics registration | Caller task `t_47f1df99` owns complete combatant DTO/reducer/enrollment changes and switching general check consumers. Feature adapters must not seed a parallel statistics path. |
-| Strike/spell defenses and prepared inputs | The Strike/spell integrator may remove Unity captures only after replacement authorities exist. Weaknesses, resistances, and traits do not justify speculative shared state. |
-| Rage condition/statistic reads | Requires a coordinated provider contract using rules condition/statistic state. This lane does not change the existing public provider contract or central module construction independently. |
-| Team relationships | General composition owns team-to-`PlayerId` setup. Flanking preserves current directional Unity relationships in its feature capture meanwhile. |
-| Condition and active-effect persistence | General persistence callers and save DTOs must change together, preserve intended Rage normalization, and avoid compatibility or dual restore paths. |
-| Rules-native Light durability | Part of the same caller-owned active-effect persistence gap, not a new Light-specific fallback. |
-| General managers and action controllers | Caller task `t_47f1df99` owns central bridge/module ordering, controllers, manager aliases, and shared action installation. |
+Dungeon reload restores registered active effects, condition applications, exact source identity,
+timing, and spell slots before normal encounter enrollment. Cross-floor source absence and global
+effect identity are covered; there is no parallel fallback restore path.
 
-## Explicit product decisions and non-features
+## Deliberately deferred or excluded
 
-- Dormant legacy Shield, Guidance, Haunting Hymn, Bless, Infuse Vitality, and Heal implementations
-  are not installed production behavior. No spell is enabled or migrated without explicit selection
-  of its semantics. Guidance immunity duration and Infuse Vitality target count remain unresolved.
-- Combat door legality and cost remain a known action-lifecycle/atomicity gap. This change does not
-  alter door behavior; an approved Open Door vertical and coordinated world projection are needed.
-- The legacy character-creation calculator is disconnected from preparation and encounter
-  enrollment. It is not connected or migrated without a product decision defining its build rules.
-- Goblin Scuttle, Scamper, Grab, Void Healing, Sneak Attack declarations, catalog feats/class
-  features, unsupported rule keys, most traits, and the remaining spell catalog are data-only unless
-  a reachable vertical feature explicitly implements them. Existing Sneak Attack damage remains a
-  prepared Strike contribution and now receives the authoritative Off-Guard targeting option.
-- Authored immunities are not imported by current DTOs and have no executable behavior; no immunity
-  state is invented.
-- Dungeon generation, room lifecycle, exploration planning, persistence scheduling, KayKit visual
-  and topology adapters, grid rendering/input, UI presentation, animation, audio, and scene flow are
-  not named rule migrations.
+- The legacy character builder remains disconnected and excluded. Do not repair, connect, delete,
+  test as a supported source, or add compatibility from its partial `PlayerCharacter` model.
+- Generalized weaknesses, resistances, immunities, traits, team state, and topology are deferred
+  until an executable vertical feature proves the need. Existing feature adapters remain narrow.
+- The remaining spell catalog, Goblin Scuttle, Scamper, Grab, Void Healing, catalog feats and class
+  features, and unsupported rule keys are data-only. They are not reported as migrated.
+- Slowed reaction behavior is not implemented. Rage still intentionally normalizes on reload.
 - Retained `.orig` files and commented `LineOfSight.cs` are cleanup inventory, not executable
-  fallbacks or feature work.
+  fallbacks.
 
-## Verification expectations for this lane
+## Verification map
 
-`FlankingRulesTests` covers opposite-side and corner geometry, defeated/unavailable/non-cooperating
-participants, missing authoritative state, deterministic copied ordering, duplicate invalid input,
-and the no-mutation selector contract. `OffGuardRulesTests` covers both condition identities,
-disabled/wrong/missing applications, and no state mutation. `RulesStrikeUnityTests` exercises the
-production adapter with a real rules-backed Strike and an opposite living ally.
+| Behavior | Production regression evidence |
+| --- | --- |
+| Flanking and Off-Guard | `FlankingRulesTests`, `OffGuardRulesTests`, `RulesStrikeUnityTests` |
+| Slowed and Rotting Aura | Slowed unit/UI tests, `Pf2eRottingAuraTests`, `RottingAuraPlayModeTests` |
+| Selected spells | `SpellFeatureRulesTests`, `SpellcastingRulesTests`, `SpellcastingPresentationPlayModeTests` |
+| Effect/condition persistence | `DungeonActorStateAdapterTests`, `DungeonRulesEffectPersistencePlayModeTests`, `DungeonEncounterCombatPlayModeTests` |
+| Combat Open Door | Open Door runtime/observer/bridge tests and dungeon door PlayMode tests |
+| Maren and Mace | `Pf2eRulesTests.MarenLoadsCompleteClericRulesFromCheckedInData` and checked-in cleric production PlayMode tests |
+
+The exact repository inventory, load-site accounting, and row-by-row disposition are in
+[Rules Runtime Migration Plan](Rules_Runtime_Migration_Plan.md). Architecture and lifetime rules
+remain in [Encounter Rules Runtime Implementation Guide](Encounter_Rules_Architecture.md).

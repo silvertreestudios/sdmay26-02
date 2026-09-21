@@ -23,8 +23,14 @@ namespace Game.Combat.Spells
         ) => this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
 
         /// <inheritdoc/>
-        public bool IsUndead(CreatureId creature) =>
-            SpellcastingRuntime.IsUndead(Require(creature));
+        public bool IsUndead(CreatureId creature)
+        {
+            CreatureComponent value = Require(creature);
+            return value.traits != null
+                && value.traits.Any(trait =>
+                    string.Equals(trait, "undead", StringComparison.OrdinalIgnoreCase)
+                );
+        }
 
         /// <inheritdoc/>
         public IReadOnlyList<TypedDefenseAdjustment> GetWeaknesses(CreatureId creature) =>
@@ -70,8 +76,7 @@ namespace Game.Combat.Spells
     }
 
     /// <summary>
-    /// Idempotently replaces legacy spell actions with rules-native actions on one encounter
-    /// controller.
+    /// Idempotently binds rules-native spell actions to one encounter controller.
     /// </summary>
     public static class UnitySpellActionInstaller
     {
@@ -79,10 +84,8 @@ namespace Game.Combat.Spells
         /// Installs exactly one rules action for every prepared, generically supported definition.
         /// </summary>
         /// <remarks>
-        /// Encounter composition exclusively uses the typed rules path. Every legacy spell action
-        /// is removed, so unsupported or unmigrated prepared spells are absent rather than exposed
-        /// through the legacy implementation. Existing rules-native actions are also replaced so
-        /// every installed entry owns the current encounter's catalog and spellbook dependencies.
+        /// Existing rules-native actions are replaced so every installed entry owns the current
+        /// encounter's catalog and spellbook dependencies. Unsupported prepared spells are absent.
         /// </remarks>
         /// <param name="controller">The caster whose action list is reconciled.</param>
         /// <param name="actor">The caster's encounter-stable rules identity.</param>
@@ -111,10 +114,9 @@ namespace Game.Combat.Spells
             CreatureComponent creature = controller.GetComponent<CreatureComponent>();
             List<EntityAction> currentActions = controller.GetActions();
             List<EntityAction> removals = currentActions
-                .OfType<CastSpellAction>()
+                .OfType<RulesCastSpellAction>()
                 .Cast<EntityAction>()
                 .ToList();
-            removals.AddRange(currentActions.OfType<RulesCastSpellAction>());
             List<EntityAction> additions = new();
             List<string> creatureActionNames = new();
             foreach (var key in desired)

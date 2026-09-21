@@ -102,7 +102,8 @@ namespace Game.Creature.Rules
             if (!prepared.HasOwnedItem("cleric"))
                 return;
 
-            int spellAttackModifier = SpellcastingRuntime.SpellAttackModifier(creature);
+            const int trainedProficiency = 2;
+            int spellAttackModifier = creature.level + trainedProficiency + creature.wisMod;
             SpellSlotPoolId blessPool = new("rank-1-bless");
             SpellSlotPoolId infuseVitalityPool = new("rank-1-infuse-vitality");
             SpellSlotPoolId healPool = new("font-heal");

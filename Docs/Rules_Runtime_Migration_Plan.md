@@ -2,11 +2,12 @@
 
 ## Purpose and authority
 
-This document maps the functionality present at repository base
-`f5b4755fabebc2fc6b7e9d3eab1376e0731d60a4` to the operations-based rules runtime.
-It is an implementation inventory and migration schedule, not a promise to implement additional
-Pathfinder content. The production code and data remain the source of truth when this plan becomes
-stale. Architectural constraints come from [Rules Runtime Design](Rules_Runtime_Design.md), while
+This document began as a map of the functionality present at repository base
+`f5b4755fabebc2fc6b7e9d3eab1376e0731d60a4` to the operations-based rules runtime. The integrated
+head reconciliation below is the current acceptance ledger; the later base-era mapping is retained
+as historical design rationale and must not be read as current migration status. This is not a
+promise to implement additional Pathfinder content. Production code and data remain the source of
+truth. Architectural constraints come from [Rules Runtime Design](Rules_Runtime_Design.md), while
 the current composition and lifetime contract comes from
 [Encounter Rules Runtime Implementation Guide](Encounter_Rules_Architecture.md).
 
@@ -25,7 +26,80 @@ The inventory uses these classifications:
 encounter. "Transitional" means a rules operation calls a Unity-backed adapter or captures Unity
 state. A populated generic state type is not assumed merely because its slice exists.
 
-## Reproducible inventory and completeness
+## Integrated-head reconciliation
+
+This reconciliation was refreshed after integrating the approved prerequisite histories onto
+`feat/rules-bulk-refactor`. It supersedes status claims in the historical sections below. The
+inventory uses the same path-selection and ordinal SHA-256 procedure documented in the next
+section.
+
+| Selection | Files | Contents | Path-inventory SHA-256 |
+| --- | ---: | --- | --- |
+| `Assets/Scripts` | 279 | 275 `.cs`, 2 `.asmdef`, and 2 retained noncompiled `.orig` artifacts | `cd0d91b74ba4c71eecbf1d7196bd431a157121e1e1c4245de507ae75d1df00ab` |
+| `Assets/KayKit/Runtime` | 16 | 16 player-runtime C# files | `14d7ae7e097e91433b800c27d910a32ed6a16f6e2e456179910deebd4c35505e` |
+| `Assets/UIStuff` source | 12 | 11 player-runtime C# files and 1 retained noncompiled `.orig` artifact | `63c2accd74d1c99884f2959d4bab0bc3b3ba9a5877fadb7df113dbad62465ba8` |
+| `Assets` root/runtime support | 4 | Generated input C#, input source, main assembly definition, and tutorial readme C# | `ad21d95d2faefcda779fdc2f0e8b37a61584f1ec8643007160e8f143b53e732c` |
+| `Assets/Maps/KayKit` | 2 | Authored dungeon-map JSON | `ba676a472a013edc90054b46528b381429aede35796661343c064eea8d2dd068` |
+| `Assets/KayKit/Catalogs` | 5 | Dungeon topology and presentation/source catalogs | `b7472687feebf34ec85c702b05d803e4892308d482b1b54506acc1a32412e928` |
+| Serialized combatant prefabs | 8 | Controller-bearing combatants with creature, team, and condition components | `8e572bf39091acd7654b987855b66d803841513e57784b000ec9f22e5d20ab91` |
+| Serialized rule-entry scenes | 6 | Scenes referencing at least one inventoried combatant prefab | `4be16a90ed2ebeee7b30aa1cbb025629f7fee43971ad310a278831d74031018d` |
+| Grid topology prefab | 1 | Shared serialized map settings and topology references | `940b6466aa40f9baf6b8d1cb16929eb88b71cddff313c8129eb98106f19f8def` |
+| `Assets/Resources/DataFiles` | 142 | 141 JSON files and 1 encounter catalog asset | `6b8cde46d3b7785acc66f7ce0cbcb631d529ff7bf38b40f332a66fb8388b3dc2` |
+| `Assets/Resources/Data` | 3 | Excluded legacy character-builder JSON | `53d37ebfb35d65fb41108d8f414c6496ab0c428f10f02d7023880aaab9cfb38b` |
+| `Assets/Resources/Icons` | 19 | UI icon resources | `44e96509772079ac523d59ff127de4ef38e93a59dce4867b7d73d8be67fd4aa9` |
+| `Assets/UIStuff/Resources` | 5 | Storyboard and font resources | `2386c9d507c8a4986adeb191dd7d9c3a2dd256ff555588758f30f5ab05d84818` |
+| `Assets/Tests/EditMode` | 71 | 69 C# files and 2 assembly definitions | `1da99c4460ffe2c2614fd9c065acacf6680f5678f5a4c37619bbf9400f07d9d1` |
+| `Assets/Tests/PlayMode` | 26 | 25 C# files and 1 assembly definition | `ebfd3766961d98fa443fc7f6707fcb967e39ebe6a4978d2f3d94b3652802cccc` |
+
+The independent recursive sweep contains 412 C# files: 94 tests, 14 editor-only files, and 304
+player-runtime files. The production subsystem totals include 101 non-meta files in
+`Assets/Scripts/Rules/Runtime`, 20 in `Assets/Scripts/Rules/Unity`, 43 in
+`Assets/Scripts/Combat`, 36 in `Assets/Scripts/Creature`, and 31 in `Assets/Scripts/Grid`.
+
+### Runtime load-site accounting
+
+Every production `Resources.Load`/`LoadAll` site is accounted for:
+
+| Loaded content | Production sites | Migration disposition |
+| --- | --- | --- |
+| Storyboard UI JSON | `StoryBoardControl`, `WinScreenControl` | Presentation only. |
+| `Data/ancestry` and `Data/class` | `CharacterCreationScript` | Disconnected legacy builder; explicitly excluded, with no compatibility path. |
+| Dungeon encounter catalogs and creature resources | `DungeonRunController`, `DungeonEncounterCreatureCatalog`, `CreatureJsonConverter` | Supported materialization path feeding common preparation and enrollment. |
+| Equipment JSON | `CreatureJsonConverter`, `Pf2eItemCatalog` | Supported preparation input. The 13 equipment definitions include `mace.json`. |
+| Spell JSON | `UnitySpellDefinitionCatalog` | Catalog input only; only explicitly composed definitions are executable. |
+| Pre-built creature JSON | `CreatureJsonConverter` | Supported path. The three player definitions include `Maren.json`. |
+
+`HUDController` contains only a comment mentioning `Resources.Load`; it is not a load site. No
+other production C# load site exists in the inventoried tree.
+
+### Integrated migration acceptance ledger
+
+"Complete" below is limited to the named behavior. A deferred boundary is never counted as
+complete merely because adjacent infrastructure exists.
+
+| Inventory row | Production authority | Current-head regression evidence | Status |
+| --- | --- | --- | --- |
+| Dispatch, immutable state, operation lifecycle, typed Facts, selectors, resources, and lifetimes | `Assets/Scripts/Rules/Runtime`; `UnityCombatRulesBridge`; `UnityEncounterModuleSet` | Runtime unit suites plus bridge/module-set EditMode and PlayMode suites | Complete foundation |
+| Encounter enrollment, turns, reinforcement identity, and immutable base statistics | `EncounterRuleRuntime`, unified `AddCombatantsOp`, `UnityCombatantEnrollmentPipeline`, `CreatureStatisticsState` | `UnityCombatRulesBridgeTests`, `UnityCombatantEnrollmentPipelineTests`, statistics and reinforcement regressions | Complete for registered statistics; generalized defenses, immunities, and traits remain deferred |
+| Health, temporary HP, damage, healing, and defeat | `HealthRuleRuntime` and Unity projection | Health runtime tests, Strike/spell tests, combat PlayMode suites | Complete |
+| Stride | `StrideRules` and `UnityStrideModule` | Stride runtime/integration/EditMode/PlayMode suites | Complete; retained bridge helpers are transitional API cleanup, not dual authority |
+| Strike, reload, ammunition, MAP, and presentation | `StrikeRules`, rules-native actions, typed presentation observers | Strike runtime/integration suites and `RulesStrikeUnityTests` | Complete for supported weapons |
+| Flanking and Off-Guard | `FlankingRules`, `OffGuardRules`, independent condition applications, Strike selector | `FlankingRulesTests`, `OffGuardRulesTests`, `RulesStrikeUnityTests` | Complete for supported melee topology; team/topology capture remains a documented adapter boundary |
+| Slowed | `SlowedRules` and `UnitySlowedModule` | Slowed unit and UI/combat integration regressions | Complete for maximum action reduction; reaction behavior is deliberately deferred |
+| Rotting Aura | `RottingAuraRules` and `UnityRottingAuraModule` | `Pf2eRottingAuraTests`, `RottingAuraPlayModeTests` | Complete for supported aura behavior |
+| Rage and Quick-Tempered | `RageRules` and `UnityRageModule` | Rage runtime and barbarian smoke suites | Complete; end-on-reload normalization remains intentional |
+| Spell shell, Divine Lance, Light, Shield, Guidance, Haunting Hymn, Bless, Infuse Vitality, and Heal | `SpellcastingRules`, `SpellFeatureRules`, `UnitySpellcastingComposition`; only `RulesCastSpellAction` is installed | `SpellcastingRulesTests`, `SpellFeatureRulesTests`, `SpellcastingPresentationPlayModeTests`, including checked-in Maren casting all six selected spells | Complete for selected definitions and variants; remaining catalog entries stay data-only |
+| Generic active effects, sourced conditions, spell slots, timing, and dungeon persistence | schema-4 dungeon DTOs, effect codecs, exact source/timing identities, restore-before-enrollment path | `DungeonActorStateAdapterTests`, `DungeonRulesEffectPersistencePlayModeTests`, `DungeonEncounterCombatPlayModeTests` | Complete for registered codecs; unsupported effects are not silently restored |
+| Combat Open Door | `OpenDoorRules`, feature action, feature observer, KayKit projection | Open Door runtime/observer/bridge tests and door PlayMode suite | Complete for combat legality, one-action atomicity, stable identity, and projection; exploration doors remain orchestration |
+| Supported pre-built Maren and Mace | `Maren.json`, `mace.json`, `CreatureJsonConverter`, `Pf2eCharacterPreparer`, unified enrollment | `Pf2eRulesTests.MarenLoadsCompleteClericRulesFromCheckedInData`; checked-in cleric production PlayMode regressions | Complete |
+| Legacy character builder | Disconnected UI-owned calculator | Exclusion is asserted by architecture/acceptance documentation | Excluded: do not repair, connect, delete, or add compatibility |
+| Remaining feats, actions, reactions, traits, immunities, and spells present only in catalogs | None until explicitly composed | Catalog/load tests only | Deferred/data-only, not migrated |
+
+The current contributor-facing status is summarized in
+[Rules Runtime Feature Lane Status](Rules_Runtime_Feature_Lane_Status.md) and the supported character
+boundary in [Rules Runtime Pre-Built Character Acceptance](Rules_Runtime_PreBuilt_Character_Acceptance.md).
+
+## Historical base inventory and reproducibility
 
 The inventory was generated from the checkout root with the following read-only shape. The ordered
 sets cover all authored player-runtime C#, its production assembly definitions and retained source
@@ -371,15 +445,15 @@ still accounted for:
   `RulesStrikeIntegrationPlayModeTests.cs`, `SpellcastingPresentationPlayModeTests.cs`, all five
   `TestsState/*.cs` files, and all three `TestsUI/*.cs` files.
 
-## Existing production composition and authority
+## Historical base-era production composition and authority
 
-`UnityCombatRulesBridge.Create` constructs one `RuleDispatcher`, one `RulesState`, and one
+At the original inventory base, `UnityCombatRulesBridge.Create` constructed one `RuleDispatcher`, one `RulesState`, and one
 `CompositeLifetime`. `UnityEncounterModuleSet.Create` is the only production module list and orders
 Rotting Aura, Slowed, Rage, Strike, Spellcasting, Light, health projection, and encounter
 projection. `UnityCombatantEnrollmentPipeline.Prepare` is the one initial/reinforcement preparation
 path. `AddCombatantsOp` is the one authoritative commit path.
 
-The complete production registration currently contains `CreatureState`, `HealthState`,
+The production registration at that base contained `CreatureState`, `HealthState`,
 `GridPosition`, land `GridDistance`, initiative modifier, spell slots, active rule bindings,
 equipment, ammunition, and active effects reconstructed from restored legacy
 `SpellEffectController` timed effects. That reconstruction is an enrollment adapter, not general
@@ -401,7 +475,7 @@ must extend the complete registration and its atomic reducer rather than seed a 
 | Prompt/selection | `ChoiceRequest<T>`, `IPromptAdapter<T>`, `PromptChoiceOp<T>`, `SelectionWorkflow<T>`, and `ISelectionResolver` | Operation-local immutable selection; no persistent state | **No migration. Foundation-owned.** Unity selectors remain feature adapters | `PromptOperationTests`, `SelectionValueTests`, `SelectionWorkflowTests` cover choice ownership, cancellation, invalid selections, and ordering |
 | Roll service | `IRollService`, `RandomRollService`, `ScriptedRollService`, resolution roll trace | Dispatcher-owned operation rolls | **No migration. Foundation-owned.** Remove remaining direct `UnityEngine.Random` only while migrating its feature | `RollServiceTests`; remaining direct initiative helper and legacy `D20`/`Dice` paths are transitional |
 
-## Mapped migrated features
+## Historical base-era mapped features
 
 Each row names the present behavior, not wider PF2e completeness.
 
@@ -541,8 +615,9 @@ Each row names the present behavior, not wider PF2e completeness.
   resources before costs. `UnitySpellcastingEncounterModule` enrolls slots, composes explicit
   feature-owned spell rules, and contributes a
   `UnitySpellActionInstaller` plan for both initial participants and reinforcements. After the rules
-  registration commits, that plan removes every legacy `CastSpellAction` and reconciles only the
-  supported `RulesCastSpellAction` entries. `UnityResolvedSpellCastPresentationObserver` and
+  registration commits, that plan reconciles only the supported `RulesCastSpellAction` entries.
+  The obsolete legacy spell action/effect runtime and its cleanup shim have been deleted.
+  `UnityResolvedSpellCastPresentationObserver` and
   attack/light observers project outcomes.
 - **Actual rules behavior:** cantrips cost actions but no slot; ranked spells atomically spend the
   exact authorized slot and actions; interruption after costs retains those committed costs;
@@ -611,7 +686,7 @@ Each row names the present behavior, not wider PF2e completeness.
 - **Exact owner:** `RageRules.cs`, `UnityRageActorStateProvider.cs`, `RulesRageAction.cs`, and the
   Rage enrollment adapter in `UnityEncounterModuleSet.cs` until it can move to its own adapter file.
 
-## Transitional and unmigrated rules behavior
+## Historical base-era transitional and unmigrated behavior
 
 ### Slowed
 
@@ -774,9 +849,9 @@ dispatch, action lifecycle owns action and slot costs, and active bindings own l
 The checked-in Maren player definition is selectable by name from the Resources-backed pre-built
 directory, delegates to `CreatureJsonConverter.CreateFromFile`, and reaches the same common initial
 or reinforcement enrollment path without the disconnected character builder.
-`CreatureComponent.InitializeRuntimeActions` no longer installs legacy spell actions, the spell
-installer removes any stale `CastSpellAction` entries during both initial and reinforcement
-enrollment, and attached legacy resolution remains rejected. The Unity Strike adapter no longer
+`CreatureComponent.InitializeRuntimeActions` no longer installs legacy spell actions. The legacy
+spell runtime has been deleted, and the spell installer reconciles rules-native actions directly
+during both initial and reinforcement enrollment. The Unity Strike adapter no longer
 captures legacy Infuse Vitality effects, so the active binding is the sole encounter authority.
 Enrollment also freezes authored creature traits into `CreatureState`, so the production undead
 trait drives Infuse Vitality without a Unity-side combat fallback.
@@ -928,10 +1003,10 @@ contains 84 spells. Action installation has separate owners and phases:
 
 - `PlayerActionController.Awake` and `AIActionController.Awake` install the rules-backed Stride.
 - Idempotent `CreatureComponent.InitializeRuntimeActions`, called from creature `Start` or eagerly
-  after JSON materialization, installs Rage when prepared ownership exists and adds only the legacy
-  spell entries whose prepared spells are recognized by `SpellRegistry`.
-- The spellcasting enrollment module prepares the post-commit installation that removes those
-  legacy spell entries and reconciles supported rules-native spell entries for both initial
+  after JSON materialization, installs Rage when prepared ownership exists. It does not install a
+  parallel spell runtime.
+- The spellcasting enrollment module prepares the post-commit installation that reconciles
+  supported rules-native spell entries for both initial
   participants and reinforcements.
 - The Strike enrollment module independently prepares the post-commit installation that reconciles
   rules-backed Strike and required reload entries from the enrolled item definitions.
@@ -988,7 +1063,7 @@ New lasting rules features must register their typed state in the generic codec 
 same capture/enrollment boundary; they must not add a feature-specific save fallback. No schema
 compatibility layer is required for unshipped formats; update schema, fixtures, and code together.
 
-## Work ownership and integration order
+## Historical work ownership and integration order
 
 ### Worker lanes
 
@@ -1023,12 +1098,12 @@ compatibility layer is required for unshipped formats; update schema, fixtures, 
 | `Assets/Scripts/Rules/Unity/Composition/UnityEncounterModuleSet.cs` | Defines rule IDs, action catalogs, module order, and Rage adapter | General caller/composition worker |
 | `Assets/Scripts/Rules/Unity/UnityCombatRulesBridge.cs` | Dispatcher construction, identity maps, root queues, topology, enrollment entry points, release | General caller/composition worker |
 | `EncounterCombatantState.cs`, `EncounterReducers.cs`, `UnityEncounterComposition.cs`, `UnityCombatantEnrollmentPipeline.cs` | Complete atomic registration and both addition routes | Foundation contract author plus one caller integrator, never independent feature workers |
-| `UnitySpellcastingEncounterModule.cs`, `UnitySpellcastingComposition.cs`, `CastSpellAction.cs` | Shared spell enrollment/action reconciliation/restoration | One spell caller integrator after feature adapters land |
+| `UnitySpellcastingEncounterModule.cs`, `UnitySpellcastingComposition.cs`, `RulesCastSpellAction.cs` | Shared spell enrollment/action reconciliation/restoration | One spell caller integrator after feature adapters land |
 | `CreatureComponent.cs`, `CreatureJsonConverter.cs`, `Pf2eCharacterPreparer.cs`, `PreparedCharacter.cs` | Common imported/prepared data and projections | One data/caller integrator; feature workers supply isolated converters |
 | `ActionController.cs`, `CombatManager.cs`, `DungeonActorStateAdapter.cs`, save DTOs | General authority, lifecycle, and persistence callers | General caller/persistence worker |
 | `UnityStrikeContext.cs` and `UnityAttackDataAdapter.cs` | Current Unity capture for several independently migratable inputs | Strike integrator removes captures only after replacement authorities exist |
 
-## Unresolved decisions and current gaps
+## Historical unresolved decisions and gaps
 
 These are decisions to make before the named migration, not implicit authorization to add scope:
 
@@ -1066,7 +1141,7 @@ These are decisions to make before the named migration, not implicit authorizati
     handler outcome, a feature-owned external-mutation observer, and coordinated
     projection/persistence tests; this plan does not perform that gameplay correction.
 
-## Verification contract for future migrations
+## Historical verification contract for future migrations
 
 For every mapped vertical feature:
 
