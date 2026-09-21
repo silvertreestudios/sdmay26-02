@@ -10,6 +10,7 @@ using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Light;
+using Game.Strikes;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -89,7 +90,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
-    public IEnumerator CheckedInClericLoadsAndSelectsAllMigratedSpellActions()
+    public IEnumerator CheckedInClericEnrollsCompleteRulesAndMaceStrike()
     {
         GameObject maren = CreatureJsonConverter.CreateByName("Maren");
         Assert.That(maren, Is.Not.Null);
@@ -113,9 +114,23 @@ public sealed class SpellcastingPresentationPlayModeTests
             "players"
         );
         bridge.AdvanceEncounter();
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        CreatureStatisticsState statistics = bridge.Snapshot.Statistics[actor];
+        RulesStrikeAction mace = controller
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(action => action.ActionName == "Mace");
 
         Assert.That(cleric.Build.ClassName, Is.EqualTo("Cleric"));
         Assert.That(cleric.Prepared.HasOwnedItem("cleric"), Is.True);
+        Assert.That(statistics.WillModifier, Is.EqualTo(9));
+        Assert.That(statistics.GetSkillModifier(Skill.Religion), Is.EqualTo(7));
+        Assert.That(mace.Item.Category, Is.EqualTo("simple"));
+        Assert.That(mace.Item.Group, Is.EqualTo("club"));
+        Assert.That(mace.Item.AttackModifier, Is.EqualTo(4));
+        Assert.That(mace.Item.DamageDice.Single().Dice, Is.EqualTo(new DiceExpression(1, 6)));
+        Assert.That(mace.Item.DamageDice.Single().DamageType, Is.EqualTo("bludgeoning"));
+        Assert.That(mace.Item.Traits, Does.Contain(Trait.FromSlug("shove")));
         AssertMigratedClericSpellActions(controller);
         AssertNoDuplicateSpellActions(controller.GetActions().OfType<RulesCastSpellAction>());
         Assert.That(controller.GetActions().OfType<CastSpellAction>(), Is.Empty);

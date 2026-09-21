@@ -90,7 +90,7 @@ public class Pf2eRulesTests
     }
 
     [Test]
-    public void MarenPreparesMigratedClericSpellbookFromCheckedInData()
+    public void MarenLoadsCompleteClericRulesFromCheckedInData()
     {
         GameObject maren = CreatureJsonConverter.CreateByName("Maren");
         Assert.That(maren, Is.Not.Null);
@@ -109,6 +109,19 @@ public class Pf2eRulesTests
         Assert.That(creature.Build.ClassName, Is.EqualTo("Cleric"));
         Assert.That(creature.Build.SubclassName, Is.EqualTo("Cloistered Cleric"));
         Assert.That(creature.Prepared.HasOwnedItem("cleric"), Is.True);
+        Assert.That(creature.willSave, Is.EqualTo(9));
+        Assert.That(
+            creature.skills.Single(value => value.skillName == "religion").skillMod,
+            Is.EqualTo(7)
+        );
+        EquipmentWeapon mace = creature.weapons.Single(value => value.name == "Mace");
+        Assert.That(mace.category, Is.EqualTo("simple"));
+        Assert.That(mace.group, Is.EqualTo("club"));
+        Assert.That(mace.hands, Is.EqualTo(1));
+        Assert.That(mace.damage.numberOfDice, Is.EqualTo(1));
+        Assert.That(mace.damage.sidesPerDie, Is.EqualTo(6));
+        Assert.That(mace.damage.damageType, Is.EqualTo("bludgeoning"));
+        Assert.That(mace.traits, Does.Contain("shove"));
         Assert.That(
             migrated.All(spell => creature.Prepared.SpellBook.CastableSpells.Contains(spell)),
             Is.True

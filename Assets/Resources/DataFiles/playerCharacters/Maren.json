@@ -55,11 +55,11 @@
     "saves": {
       "fortitude": 4,
       "reflex": 5,
-      "will": 7
+      "will": 9
     },
     "skills": {
       "medicine": 7,
-      "religion": 3
+      "religion": 7
     },
     "traits": {
       "rarity": "common",
