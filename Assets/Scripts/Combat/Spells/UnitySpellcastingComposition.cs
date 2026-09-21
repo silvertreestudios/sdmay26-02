@@ -81,7 +81,8 @@ namespace Game.Combat.Spells
         /// <remarks>
         /// Encounter composition exclusively uses the typed rules path. Every legacy spell action
         /// is removed, so unsupported or unmigrated prepared spells are absent rather than exposed
-        /// through the legacy implementation.
+        /// through the legacy implementation. Existing rules-native actions are also replaced so
+        /// every installed entry owns the current encounter's catalog and spellbook dependencies.
         /// </remarks>
         /// <param name="controller">The caster whose action list is reconciled.</param>
         /// <param name="actor">The caster's encounter-stable rules identity.</param>
@@ -113,25 +114,11 @@ namespace Game.Combat.Spells
                 .OfType<CastSpellAction>()
                 .Cast<EntityAction>()
                 .ToList();
-
-            Dictionary<
-                (SpellReference Spell, SpellActionVariant Variant),
-                RulesCastSpellAction
-            > retained = new();
-            foreach (RulesCastSpellAction action in currentActions.OfType<RulesCastSpellAction>())
-            {
-                var key = (action.Spell, action.Variant);
-                if (!desired.Contains(key) || retained.ContainsKey(key))
-                    removals.Add(action);
-                else
-                    retained.Add(key, action);
-            }
+            removals.AddRange(currentActions.OfType<RulesCastSpellAction>());
             List<EntityAction> additions = new();
             List<string> creatureActionNames = new();
             foreach (var key in desired)
             {
-                if (retained.ContainsKey(key))
-                    continue;
                 RulesCastSpellAction action = new(
                     key.Spell,
                     key.Variant,

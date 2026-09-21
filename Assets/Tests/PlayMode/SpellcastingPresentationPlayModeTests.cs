@@ -147,6 +147,91 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator ConsecutiveEncountersRebindSpellActionsAndPreserveResourcesWithoutDuplicates()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Consecutive Cleric", 0, prepared: true);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Consecutive Opponent", 1, prepared: false);
+        opponent.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, opponent.gameObject);
+
+        UnityCombatRulesBridge first = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10, 4),
+            "players"
+        );
+        CreatureId firstActor = first.GetCreatureId(cleric);
+        RulesCastSpellAction[] firstActions = controller
+            .GetActions()
+            .OfType<RulesCastSpellAction>()
+            .ToArray();
+        RulesCastSpellAction firstHeal = firstActions.Single(action =>
+            action.Spell == Reference("heal") && action.Variant.Actions == 1
+        );
+        first.BeginTurn(firstActor, 3);
+        Assert.That(firstHeal.IsAvailable(controller), Is.True);
+        AssertMigratedClericSpellActions(controller);
+        Assert.That(LightActions(controller), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "divine-lance"), Has.Count.EqualTo(1));
+        AssertNoDuplicateSpellActions(firstActions);
+        Assert.That(FontUses(first, firstActor), Is.EqualTo(4));
+
+        grid.Target = cleric.gameObject;
+        controller.IsTakingAction = true;
+        firstHeal.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(FontUses(first, firstActor), Is.EqualTo(3));
+        first.ReleaseOwnership();
+        Assert.That(firstHeal.IsAvailable(controller), Is.False);
+
+        UnityCombatRulesBridge second = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10, 5),
+            "players"
+        );
+        CreatureId secondActor = second.GetCreatureId(cleric);
+        RulesCastSpellAction[] secondActions = controller
+            .GetActions()
+            .OfType<RulesCastSpellAction>()
+            .ToArray();
+        RulesCastSpellAction secondHeal = secondActions.Single(action =>
+            action.Spell == Reference("heal") && action.Variant.Actions == 1
+        );
+        second.BeginTurn(secondActor, 3);
+
+        Assert.That(secondHeal, Is.Not.SameAs(firstHeal));
+        Assert.That(secondActions.Intersect(firstActions), Is.Empty);
+        Assert.DoesNotThrow(() => secondHeal.IsAvailable(controller));
+        Assert.That(secondHeal.IsAvailable(controller), Is.True);
+        AssertMigratedClericSpellActions(controller);
+        Assert.That(LightActions(controller), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "divine-lance"), Has.Count.EqualTo(1));
+        AssertNoDuplicateSpellActions(secondActions);
+        Assert.That(FontUses(second, secondActor), Is.EqualTo(3));
+
+        controller.IsTakingAction = true;
+        secondHeal.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(FontUses(second, secondActor), Is.EqualTo(2));
+        second.ReleaseOwnership();
+    }
+
+    [UnityTest]
     public IEnumerator ProductionShieldActionCastsThroughRulesAndCompletesPresentation()
     {
         InstallCoroutineRunner();
@@ -860,6 +945,17 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(RulesActions(controller, "infuse-vitality"), Has.Count.EqualTo(3));
         Assert.That(RulesActions(controller, "heal"), Has.Count.EqualTo(3));
     }
+
+    private static void AssertNoDuplicateSpellActions(IEnumerable<RulesCastSpellAction> actions) =>
+        Assert.That(
+            actions
+                .GroupBy(action => (action.Spell, action.Variant))
+                .All(group => group.Count() == 1),
+            Is.True
+        );
+
+    private static int FontUses(UnityCombatRulesBridge bridge, CreatureId actor) =>
+        bridge.Snapshot.SpellSlots[new SpellSlotPoolId($"{actor.Value}:font-heal")].Remaining;
 
     private sealed class TestActionController : ActionController
     {

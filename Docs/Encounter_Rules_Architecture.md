@@ -165,6 +165,11 @@ base statistics, invokes every enrollment module, captures initiative modifiers,
 complete `CombatantRulesState` values plus installation plans. Creating all maps before module
 preparation lets restored effects resolve
 cross-combatant sources while preparation is still reversible.
+Spell action installation reconciles the exact supported spell/variant keys but recreates each
+rules-native action for every encounter enrollment. Those action objects own encounter-scoped
+catalog and spellbook dependencies, so retaining them across ownership release would bind a later
+encounter to disposed registration maps. Replacement removes the prior entries before adding the
+new set and therefore does not accumulate duplicates.
 `UnityCombatantEnrollmentBuilder` exposes the supported contribution APIs:
 
 - `Own<TResource>` for reversible preparation resources;
