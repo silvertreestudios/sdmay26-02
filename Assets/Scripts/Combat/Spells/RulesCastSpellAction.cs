@@ -117,7 +117,8 @@ namespace Game.Combat.Spells
                     )
                     {
                         int count = profile.ExactCreatureCount > 0 ? profile.ExactCreatureCount : 1;
-                        for (int index = 0; index < count; index++)
+                        HashSet<CreatureId> selectedIds = new();
+                        while (selected.Count < count)
                         {
                             CoroutineResult<StrikeTargetResult> targetSelection = new();
                             yield return GridAPI
@@ -140,9 +141,17 @@ namespace Game.Combat.Spells
                                 || !bridge.TryGetCreatureId(target, out CreatureId targetId)
                             )
                                 yield break;
+                            if (!selectedIds.Add(targetId))
+                            {
+                                // The grid picker normally waits for fresh player input. Yielding
+                                // here also prevents an immediate test or AI picker from spinning
+                                // in the same frame when it repeats an existing target.
+                                yield return null;
+                                continue;
+                            }
                             selected.Add(targetId);
                         }
-                        spellSelection = new SpellCastSelection(selected.Distinct());
+                        spellSelection = new SpellCastSelection(selected);
                     }
                     else if (
                         profile.Kind == SpellSelectionKind.Cone

@@ -491,6 +491,88 @@ public sealed class SpellcastingPresentationPlayModeTests
         Assert.That(effect.GetState<SpellEffectState>().Target, Is.EqualTo(actor));
     }
 
+    [UnityTest]
+    public IEnumerator MultiTargetInfuseVitalityRepromptsDuplicatesAndPreservesCancellation()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Infuse Vitality Cleric", 0, prepared: true);
+        CreatureComponent firstAlly = CreateCreature(
+            "Infuse Vitality First Ally",
+            1,
+            prepared: false
+        );
+        firstAlly.gameObject.AddComponent<Team>().Name = "players";
+        CreatureComponent secondAlly = CreateCreature(
+            "Infuse Vitality Second Ally",
+            2,
+            prepared: false
+        );
+        secondAlly.gameObject.AddComponent<Team>().Name = "players";
+        CreatureComponent opponent = CreateCreature("Infuse Vitality Opponent", 3, prepared: false);
+        opponent.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController clericController =
+            cleric.gameObject.AddComponent<TestActionController>();
+        TestActionController firstController =
+            firstAlly.gameObject.AddComponent<TestActionController>();
+        TestActionController secondController =
+            secondAlly.gameObject.AddComponent<TestActionController>();
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(4);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, firstAlly.gameObject);
+        Occupy(tiles, secondAlly.gameObject);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[]
+            {
+                clericController,
+                firstController,
+                secondController,
+                opponentController,
+            },
+            tiles,
+            "players"
+        );
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        CreatureId firstTarget = bridge.GetCreatureId(firstAlly);
+        CreatureId secondTarget = bridge.GetCreatureId(secondAlly);
+        RulesCastSpellAction action = RulesActions(clericController, "infuse-vitality")
+            .Single(candidate => candidate.Variant.Actions == 2);
+        SpellSlotPoolId pool = new($"{actor.Value}:rank-1-infuse-vitality");
+
+        grid.QueueTargets(firstAlly.gameObject, firstAlly.gameObject, null);
+        bridge.BeginTurn(actor, 3);
+        yield return InvokeSpell(bridge, actor, clericController, action, cleric.gameObject);
+
+        Assert.That(grid.StrikeSelectionCount, Is.EqualTo(3));
+        Assert.That(clericController.ActionPoints, Is.EqualTo(3));
+        Assert.That(bridge.Snapshot.SpellSlots[pool].Remaining, Is.EqualTo(1));
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.InfuseVitalityEffect
+            ),
+            Is.False
+        );
+
+        grid.QueueTargets(firstAlly.gameObject, firstAlly.gameObject, secondAlly.gameObject);
+        bridge.BeginTurn(actor, 3);
+        yield return InvokeSpell(bridge, actor, clericController, action, cleric.gameObject);
+
+        Assert.That(grid.StrikeSelectionCount, Is.EqualTo(6));
+        Assert.That(clericController.ActionPoints, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.SpellSlots[pool].Remaining, Is.Zero);
+        Assert.That(
+            bridge
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Where(effect => effect.DefinitionId == SpellFeatureRules.InfuseVitalityEffect)
+                .Select(effect => effect.GetState<SpellEffectState>().Target),
+            Is.EquivalentTo(new[] { firstTarget, secondTarget })
+        );
+    }
+
     [Test]
     public void PreparedSpellMissingCatalogDefinitionFailsInstallation()
     {
@@ -1161,10 +1243,19 @@ public sealed class SpellcastingPresentationPlayModeTests
 
     private sealed class SelectingGridApi : GridAPI
     {
+        private readonly Queue<GameObject> targets = new();
+
         public GameObject Target { get; set; }
         public AreaTargetResult AreaResult { get; set; }
         public System.Action AfterSelection { get; set; }
         public StrikeTargetRequest LastStrikeRequest { get; private set; }
+        public int StrikeSelectionCount { get; private set; }
+
+        public void QueueTargets(params GameObject[] values)
+        {
+            foreach (GameObject value in values)
+                targets.Enqueue(value);
+        }
 
         public override IEnumerator SelectStridePath(
             GameObject character,
@@ -1182,7 +1273,9 @@ public sealed class SpellcastingPresentationPlayModeTests
         )
         {
             LastStrikeRequest = request;
-            target.Value = Target == null ? null : new StrikeTargetResult { Target = Target };
+            StrikeSelectionCount++;
+            GameObject selected = targets.Count > 0 ? targets.Dequeue() : Target;
+            target.Value = selected == null ? null : new StrikeTargetResult { Target = selected };
             AfterSelection?.Invoke();
             yield break;
         }
