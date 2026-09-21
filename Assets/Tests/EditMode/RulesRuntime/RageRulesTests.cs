@@ -39,38 +39,6 @@ namespace Game.Tests.EditMode.RulesRuntime
         }
 
         [Test]
-        public void RestoreNormalizationEndsAnOrphanedRagePool()
-        {
-            HealthState restored = RageRules.NormalizeRestoredHealth(
-                new HealthState(7, 10, 3, RuleSource.FromSlug("rage"), Array.Empty<RuleSource>()),
-                rageWasActive: true
-            );
-
-            Assert.That(restored.Current, Is.EqualTo(7));
-            Assert.That(restored.Temporary, Is.Zero);
-            Assert.That(restored.TemporarySource.IsEmpty, Is.True);
-            Assert.That(
-                restored.HasTemporaryHitPointImmunity(RuleSource.FromSlug("rage")),
-                Is.True
-            );
-        }
-
-        [Test]
-        public void RestoreNormalizationRecordsEndedRageAfterItsPoolWasConsumed()
-        {
-            HealthState restored = RageRules.NormalizeRestoredHealth(
-                new HealthState(7, 10),
-                rageWasActive: true
-            );
-
-            Assert.That(restored.Temporary, Is.Zero);
-            Assert.That(
-                restored.HasTemporaryHitPointImmunity(RuleSource.FromSlug("rage")),
-                Is.True
-            );
-        }
-
-        [Test]
         public async Task OrdinaryRageOwnsActionCostEffectAndTemporaryHitPoints()
         {
             TestRageActorStateProvider provider = new TestRageActorStateProvider(
@@ -411,6 +379,11 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new TestRageActorStateProvider(CreateActorState())
             );
             await dispatcher.Dispatch(new RageActionOp(Actor));
+            ActiveEffectTimingState timing = dispatcher
+                .Snapshot.ActiveEffectTimings.Select(pair => pair.Value)
+                .Single();
+            Assert.That(timing.ExpiresWithEncounter, Is.False);
+            Assert.That(timing.RemainingBoundaries, Is.EqualTo(10));
 
             ResolvedOpResult<EncounterSuspensionOutcome> suspended = RequireResolved(
                 await dispatcher.Dispatch(new SuspendEncounterOp(Encounter))
@@ -645,6 +618,16 @@ namespace Game.Tests.EditMode.RulesRuntime
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, team),
+                new CreatureStatisticsState(
+                    creature,
+                    0,
+                    10,
+                    0,
+                    0,
+                    0,
+                    new Dictionary<Skill, int>(),
+                    Array.Empty<Modifier>()
+                ),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
@@ -653,7 +636,9 @@ namespace Game.Tests.EditMode.RulesRuntime
                 bindings,
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                Array.Empty<ActiveEffectInstance>()
+                Array.Empty<ActiveEffectInstance>(),
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
 
         private static RageActorState CreateActorState(

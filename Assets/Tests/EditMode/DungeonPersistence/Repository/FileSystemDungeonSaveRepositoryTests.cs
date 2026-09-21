@@ -3,7 +3,9 @@ using System.IO;
 using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
+using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Repository;
+using Game.Rules.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -209,7 +211,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
-    public void LoadRejectsInactiveFloorWithPartyEnemyIdentityCollision()
+    public void LoadAllowsRunGlobalPartyAndFloorLocalEnemyToShareLocalText()
     {
         DungeonRunSave valid = DungeonRunSave
             .CreateNew(Party(12), CreateFloor(0))
@@ -223,23 +225,38 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         );
 
         Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
-        Assert.That(result.IsSuccess, Is.False);
-        Assert.That(result.Diagnostics.Single().Message, Does.Contain("duplicated"));
-        Assert.That(result.Diagnostics.Single().Message, Does.Contain("floors/0.json"));
+        Assert.That(result.IsSuccess, Is.True, result.Diagnostics.FirstOrDefault()?.Message);
     }
 
     [Test]
-    public void LoadRejectsInactiveFloorWithUnresolvedTimedEffectSource()
+    public void LoadRejectsInactiveFloorWithUnresolvedRulesEffectSource()
     {
         DungeonRunSave valid = CreateRun(0, 2);
         DungeonActorSaveState actor = ActorState(1, "floor-0");
-        actor.TimedEffects = new[]
+        actor.RulesEffects = new[]
         {
-            new DungeonTimedEffectSaveState
+            new DungeonRulesEffectSaveState
             {
-                Kind = "shield",
-                SourceActorId = "missing-actor",
-                RemainingTurnStarts = 1,
+                EffectId = "effect-1",
+                BindingId = "binding-1",
+                DefinitionId = RageActionDefinition.EffectDefinitionId.Value,
+                SourceActor = DungeonRulesActorReference.Floor(0, "missing-actor"),
+                BindingOwnerActor = DungeonRulesActorReference.Floor(
+                    0,
+                    InstanceId("encounter-1", 1)
+                ),
+                TimingSourceActor = DungeonRulesActorReference.Floor(
+                    0,
+                    InstanceId("encounter-1", 1)
+                ),
+                RuleSource = "rage",
+                DurationKind = EffectDurationKind.Minutes,
+                DurationAmount = 1,
+                BindingEnabled = true,
+                HasTiming = true,
+                RemainingBoundaries = 1,
+                StateKind = "rage",
+                StatePayload = "{\"StartedByQuickTempered\":false}",
             },
         };
         DungeonFloorSavePayload[] payloads = valid.FloorPayloads.ToArray();
@@ -256,14 +273,51 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
+    public void LoadAcceptsCurrentPartyEffectSourcedByCurrentFloorEnemyWithVisitedHistory()
+    {
+        DungeonRunSave valid = DungeonRunSave
+            .CreateNew(Party(12), CreateFloor(0, encounterId: "older-encounter"))
+            .WithAddedAndSelectedFloor(Party(10), CreateFloor(2, encounterId: "current-encounter"));
+        DungeonRunSaveManifest manifest = valid.Manifest;
+        manifest.Party[0].State.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = "current-floor-slowed-effect",
+                BindingId = "current-floor-slowed-binding",
+                DefinitionId = ConditionRules.DefinitionId.Value,
+                SourceActor = DungeonRulesActorReference.Floor(
+                    2,
+                    InstanceId("current-encounter", 1)
+                ),
+                BindingOwnerActor = DungeonRulesActorReference.Party("party-slot"),
+                RuleSource = "current-floor-enemy-slowed",
+                DurationKind = EffectDurationKind.Indefinite,
+                BindingEnabled = true,
+                StateKind = "condition",
+                StatePayload = "{\"Condition\":\"slowed\",\"Value\":1}",
+            },
+        };
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(
+            manifest,
+            valid.FloorPayloads.ToArray()
+        );
+
+        Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
+        Assert.That(result.IsSuccess, Is.True, result.Diagnostics.FirstOrDefault()?.Message);
+        Assert.That(result.Value.Manifest.Party[0].State.RulesEffects, Has.Length.EqualTo(1));
+    }
+
+    [Test]
     public void LoadRejectsOutdatedManifestAndUnsupportedFloorDocumentVersions()
     {
         FileSystemDungeonSaveRepository repository = new(directory);
         Assert.That(repository.Save(CreateRun(0, 2)).IsSuccess, Is.True);
         string json = File.ReadAllText(repository.AutosavePath);
         string outdated = json.Replace(
+            "\"DocumentVersion\":4",
             "\"DocumentVersion\":2",
-            "\"DocumentVersion\":1",
             StringComparison.Ordinal
         );
         File.WriteAllText(repository.AutosavePath, outdated);
@@ -334,7 +388,11 @@ public sealed class FileSystemDungeonSaveRepositoryTests
 
         DungeonSaveResult<bool> restoredExisting = repository.RestoreCheckpoint(existing.Value);
 
-        Assert.That(restoredExisting.IsSuccess, Is.True);
+        Assert.That(
+            restoredExisting.IsSuccess,
+            Is.True,
+            FormatDiagnostics(restoredExisting.Diagnostics)
+        );
         Assert.That(File.ReadAllText(repository.AutosavePath), Is.EqualTo(priorContents));
 
         File.Delete(repository.AutosavePath);
@@ -345,7 +403,11 @@ public sealed class FileSystemDungeonSaveRepositoryTests
 
         DungeonSaveResult<bool> restoredMissing = repository.RestoreCheckpoint(missing.Value);
 
-        Assert.That(restoredMissing.IsSuccess, Is.True);
+        Assert.That(
+            restoredMissing.IsSuccess,
+            Is.True,
+            FormatDiagnostics(restoredMissing.Diagnostics)
+        );
         Assert.That(File.Exists(repository.AutosavePath), Is.False);
     }
 
@@ -469,9 +531,9 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             TemporaryHitPointSource =
                 temporaryHitPoints == 0 ? string.Empty : temporaryHitPointSource,
             TemporaryHitPointImmunities = Array.Empty<string>(),
-            Conditions = Array.Empty<DungeonConditionSaveState>(),
-            TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            RulesEffects = Array.Empty<DungeonRulesEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
+            SpellSlots = Array.Empty<DungeonSpellSlotSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {
                 LeftHandId = string.Empty,
@@ -486,4 +548,14 @@ public sealed class FileSystemDungeonSaveRepositoryTests
 
     private static string InstanceId(string encounterId, int index) =>
         $"{encounterId}/creature-{index:0000}";
+
+    private static string FormatDiagnostics(
+        System.Collections.Generic.IEnumerable<DungeonSaveDiagnostic> diagnostics
+    ) =>
+        string.Join(
+            "; ",
+            diagnostics.Select(diagnostic =>
+                $"{diagnostic.Code} at {diagnostic.Path}: {diagnostic.Message}"
+            )
+        );
 }

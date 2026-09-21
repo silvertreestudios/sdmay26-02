@@ -69,7 +69,7 @@ namespace GridPrivate
 
                     foreach (GameObject occupant in tile.Occupants)
                     {
-                        if (occupant == Character)
+                        if (occupant == Character && !Request.IncludeSelf)
                             continue;
 
                         StrikeTargetResult result = StrikeTargeting.Evaluate(

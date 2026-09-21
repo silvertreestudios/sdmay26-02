@@ -141,6 +141,7 @@ namespace Game.Rules.Runtime.Tests
                     new StrikeResolutionData(
                         15,
                         Array.Empty<Modifier>(),
+                        Array.Empty<Modifier>(),
                         Array.Empty<TypedDamageDice>(),
                         Array.Empty<TypedFlatDamage>(),
                         new[] { new TypedDefenseAdjustment("slashing", 3) },
@@ -388,6 +389,7 @@ namespace Game.Rules.Runtime.Tests
                 ?? new FixedResolutionDataProvider(
                     new StrikeResolutionData(
                         15,
+                        Array.Empty<Modifier>(),
                         Array.Empty<Modifier>(),
                         Array.Empty<TypedDamageDice>(),
                         Array.Empty<TypedFlatDamage>(),

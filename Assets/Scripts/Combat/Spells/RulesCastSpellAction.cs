@@ -1,5 +1,7 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
@@ -102,7 +104,100 @@ namespace Game.Combat.Spells
                     yield break;
                 }
                 SpellCastSelection spellSelection = SpellCastSelection.Empty;
-                if (definition.Attacks.Count > 0)
+                if (
+                    catalog is ISpellActionCatalog spellCatalog
+                    && spellCatalog.TryGetCastRule(spell.Spell, out ISpellCastRule feature)
+                )
+                {
+                    SpellSelectionProfile profile = feature.GetSelection(variant);
+                    List<CreatureId> selected = new();
+                    if (
+                        profile.Kind == SpellSelectionKind.SingleCreature
+                        || profile.Kind == SpellSelectionKind.ExactCreatureCount
+                    )
+                    {
+                        int count = profile.ExactCreatureCount > 0 ? profile.ExactCreatureCount : 1;
+                        for (int index = 0; index < count; index++)
+                        {
+                            CoroutineResult<StrikeTargetResult> targetSelection = new();
+                            yield return GridAPI
+                                .GetInstance()
+                                .GetStrikeTarget(
+                                    caster,
+                                    new StrikeTargetRequest
+                                    {
+                                        IsRanged = profile.RangeFeet > 5,
+                                        FixedRangeFeet = profile.RangeFeet,
+                                        RequiresLineOfEffect = true,
+                                        IncludeSelf = true,
+                                    },
+                                    targetSelection
+                                );
+                            CreatureComponent target =
+                                targetSelection.Value?.Target?.GetComponent<CreatureComponent>();
+                            if (
+                                target == null
+                                || !bridge.TryGetCreatureId(target, out CreatureId targetId)
+                            )
+                                yield break;
+                            selected.Add(targetId);
+                        }
+                        spellSelection = new SpellCastSelection(selected.Distinct());
+                    }
+                    else if (
+                        profile.Kind == SpellSelectionKind.Cone
+                        || profile.Kind == SpellSelectionKind.Emanation
+                    )
+                    {
+                        CoroutineResult<AreaTargetResult> area = new();
+                        yield return GridAPI
+                            .GetInstance()
+                            .GetAreaTarget(
+                                caster,
+                                new AreaTargetRequest
+                                {
+                                    Shape =
+                                        profile.Kind == SpellSelectionKind.Cone
+                                            ? AreaShape.Cone
+                                            : AreaShape.Emanation,
+                                    SizeFeet = profile.AreaFeet,
+                                    IncludeCenter = profile.IncludeCaster,
+                                    RequiresLineOfEffect = true,
+                                },
+                                area
+                            );
+                        if (area.Value == null)
+                            yield break;
+                        foreach (
+                            CreatureComponent target in area
+                                .Value.Creatures.Where(value => value.IsAffected)
+                                .Select(value => value.Creature.GetComponent<CreatureComponent>())
+                                .Where(value => value != null)
+                        )
+                        {
+                            if (bridge.TryGetCreatureId(target, out CreatureId targetId))
+                                selected.Add(targetId);
+                        }
+                        if (profile.IncludeCaster && !selected.Contains(actor))
+                            selected.Insert(0, actor);
+                        if (profile.FriendlyOnly)
+                        {
+                            RulesSelectors selectors = new();
+                            selected = selected
+                                .Where(target => !selectors.IsEnemy(bridge.Snapshot, actor, target))
+                                .ToList();
+                        }
+                        spellSelection =
+                            profile.Kind == SpellSelectionKind.Cone
+                                ? new SpellCastSelection(
+                                    selected.Distinct(),
+                                    ToRulesDirection(area.Value.Placement.Direction)
+                                )
+                            : selected.Count == 0 ? SpellCastSelection.Empty
+                            : new SpellCastSelection(selected.Distinct());
+                    }
+                }
+                else if (definition.Attacks.Count > 0)
                 {
                     if (
                         definition.Attacks.Count != 1
@@ -181,5 +276,19 @@ namespace Game.Combat.Spells
             }
             yield break;
         }
+
+        private static SpellAreaDirection ToRulesDirection(AreaDirection direction) =>
+            direction switch
+            {
+                AreaDirection.East => SpellAreaDirection.East,
+                AreaDirection.NorthEast => SpellAreaDirection.NorthEast,
+                AreaDirection.North => SpellAreaDirection.North,
+                AreaDirection.NorthWest => SpellAreaDirection.NorthWest,
+                AreaDirection.West => SpellAreaDirection.West,
+                AreaDirection.SouthWest => SpellAreaDirection.SouthWest,
+                AreaDirection.South => SpellAreaDirection.South,
+                AreaDirection.SouthEast => SpellAreaDirection.SouthEast,
+                _ => throw new ArgumentOutOfRangeException(nameof(direction)),
+            };
     }
 }

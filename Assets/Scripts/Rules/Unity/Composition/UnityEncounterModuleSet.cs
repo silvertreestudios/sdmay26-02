@@ -4,6 +4,7 @@ using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.DungeonPersistence.Actors;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Light;
 using Game.Rules.Unity.Spells;
@@ -48,36 +49,40 @@ namespace Game.Rules.Unity.Composition
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles);
             UnityRottingAuraModule rottingAura = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
+            UnitySpellCreatureDataProvider spellCreatureData = new(creatures);
             RageActionDefinition rageDefinition = new(new UnityRageActorStateProvider(creatures));
             CombatActionCatalog actionCatalog = new(
                 strideDefinition,
                 strikeContext,
                 spellCatalog,
                 new UnitySpellBookProvider(creatures),
+                SpellFeatureRules.CreateCatalog(spellCreatureData),
                 rageDefinition
             );
 
             RuleRegistryBuilder registryBuilder = new();
-            registryBuilder.Define(ConditionRules.DefinitionId);
+            registryBuilder.Define(ConditionRules.DefinitionId).EffectState<ConditionState>();
             RottingAuraRules.DefineRuleBinding(registryBuilder, rottingAura);
             SlowedRules.DefineRuleBinding(registryBuilder);
             RageRules.DefineRuleBindings(registryBuilder);
+            SpellFeatureRules.DefineRuleBindings(registryBuilder);
             registryBuilder.AddOutcomeRule();
-            registryBuilder.Define(
-                UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
-            );
             foreach (
                 RuleDefinitionId definitionId in spellCatalog
                     .Definitions.SelectMany(definition => definition.Effects)
                     .Select(effect => effect.DefinitionId)
                     .Distinct()
             )
-                registryBuilder.Define(definitionId);
+                registryBuilder.Define(definitionId).EffectState<SpellEffectState>();
 
             UnityActionPresentationRegistry actionPresentation = new(actionPresentationCoordinator);
             IUnityEncounterModule[] modules =
             {
                 rottingAura,
+                new DungeonRulesEffectPersistenceModule(
+                    owner,
+                    DungeonRulesEffectPersistence.Codecs
+                ),
                 new ConditionEncounterModule(owner),
                 new UnitySlowedModule(),
                 new UnityRageModule(rageDefinition),
@@ -119,6 +124,7 @@ namespace Game.Rules.Unity.Composition
         private readonly IStrikeActionCatalog strike;
         private readonly ISpellDefinitionCatalog spell;
         private readonly ISpellBookProvider spellBooks;
+        private readonly IReadOnlyDictionary<SpellId, ISpellCastRule> spellRules;
         private readonly IReadOnlyList<IActionCatalog> featureCatalogs;
 
         internal CombatActionCatalog(
@@ -126,6 +132,7 @@ namespace Game.Rules.Unity.Composition
             IStrikeActionCatalog strike,
             ISpellDefinitionCatalog spell,
             ISpellBookProvider spellBooks,
+            IReadOnlyDictionary<SpellId, ISpellCastRule> spellRules,
             params IActionCatalog[] featureCatalogs
         )
         {
@@ -133,6 +140,7 @@ namespace Game.Rules.Unity.Composition
             this.strike = strike ?? throw new ArgumentNullException(nameof(strike));
             this.spell = spell ?? throw new ArgumentNullException(nameof(spell));
             this.spellBooks = spellBooks ?? throw new ArgumentNullException(nameof(spellBooks));
+            this.spellRules = spellRules ?? throw new ArgumentNullException(nameof(spellRules));
             if (featureCatalogs == null || featureCatalogs.Any(catalog => catalog == null))
                 throw new ArgumentException(
                     "Feature action catalogs cannot be null.",
@@ -179,5 +187,9 @@ namespace Game.Rules.Unity.Composition
 
         /// <inheritdoc/>
         public ISpellBook GetSpellBook(CreatureId creature) => spellBooks.GetSpellBook(creature);
+
+        /// <inheritdoc/>
+        public bool TryGetCastRule(SpellId spellId, out ISpellCastRule rule) =>
+            spellRules.TryGetValue(spellId, out rule);
     }
 }

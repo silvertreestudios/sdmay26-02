@@ -31,6 +31,9 @@ namespace Game.Rules.Runtime.Tests
             /// <summary>The creature identity slice.</summary>
             Creature,
 
+            /// <summary>The creature statistics slice.</summary>
+            Statistics,
+
             /// <summary>The health slice.</summary>
             Health,
 
@@ -1005,7 +1008,50 @@ namespace Game.Rules.Runtime.Tests
         }
 
         [Test]
-        public async Task AdditionRejectsNonInitialEffectVersionWithoutMutation()
+        public async Task AdditionRejectsDefinitionIncompatibleEffectStateWithoutMutation()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("typed-added-effect");
+            ActiveEffectId effectId = new ActiveEffectId("typed-added-effect-instance");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Reinforcement,
+                Source,
+                EffectDuration.Indefinite,
+                new OtherTestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                new BindingId("typed-added-effect-binding"),
+                definition,
+                Reinforcement,
+                effectId,
+                Source,
+                0
+            );
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(15, 10, 5),
+                registry: registryBuilder.Build()
+            );
+            await dispatcher.Dispatch(
+                Start(Registration(Hero, Players), Registration(Enemy, Enemies))
+            );
+            RulesSnapshot before = dispatcher.Snapshot;
+
+            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
+                dispatcher,
+                before,
+                Registration(Reinforcement, Enemies, new[] { binding }, new[] { effect })
+            );
+
+            Assert.That(rejected.Message, Does.Contain(nameof(OtherTestEffectState)));
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(binding.Id), Is.False);
+        }
+
+        [Test]
+        public async Task AdditionRestoresNonInitialEffectVersionAndDisabledBindingExactly()
         {
             RuleDefinitionId definition = new RuleDefinitionId("versioned-added-effect");
             ActiveEffectId effectId = new ActiveEffectId("versioned-added-effect-instance");
@@ -1024,10 +1070,11 @@ namespace Game.Rules.Runtime.Tests
                 Reinforcement,
                 effectId,
                 Source,
-                0
+                0,
+                false
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10, 5),
                 registry: registryBuilder.Build()
@@ -1035,15 +1082,28 @@ namespace Game.Rules.Runtime.Tests
             await dispatcher.Dispatch(
                 Start(Registration(Hero, Players), Registration(Enemy, Enemies))
             );
-            RulesSnapshot before = dispatcher.Snapshot;
-
-            InvalidOperationException rejected = AssertAdditionRejectedWithoutMutation(
-                dispatcher,
-                before,
-                Registration(Reinforcement, Enemies, new[] { binding }, new[] { effect })
+            Resolved(
+                await dispatcher.Dispatch(
+                    new AddCombatantsOp(
+                        Encounter,
+                        new[]
+                        {
+                            Registration(
+                                Reinforcement,
+                                Enemies,
+                                new[] { binding },
+                                new[] { effect }
+                            ),
+                        }
+                    )
+                )
             );
 
-            Assert.That(rejected.Message, Does.Contain("initial state version"));
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffects[effectId].EffectStateVersion,
+                Is.EqualTo(new EffectStateVersion(1))
+            );
+            Assert.That(dispatcher.Snapshot.RuleBindings[binding.Id].IsEnabled, Is.False);
         }
 
         [TestCase(false)]
@@ -1055,7 +1115,7 @@ namespace Game.Rules.Runtime.Tests
             RuleDefinitionId definition = new RuleDefinitionId("dangling-added-effect-binding");
             ActiveEffectId effectId = new ActiveEffectId("dangling-added-effect-instance");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10, 5),
                 registry: registryBuilder.Build(),
@@ -1140,7 +1200,7 @@ namespace Game.Rules.Runtime.Tests
                 1
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10, 5, 4),
                 registry: registryBuilder.Build()
@@ -1200,7 +1260,7 @@ namespace Game.Rules.Runtime.Tests
                 new[] { effect }
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10),
                 missingOwner
@@ -1288,7 +1348,7 @@ namespace Game.Rules.Runtime.Tests
                 new[] { effect }
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             registryBuilder.Define(wrongDefinition);
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(15, 10),
@@ -1334,6 +1394,7 @@ namespace Game.Rules.Runtime.Tests
 
         /// <summary>Verifies every addition-owned state slice is preflighted before any write.</summary>
         [TestCase(AdditionRegistrationCollision.Creature)]
+        [TestCase(AdditionRegistrationCollision.Statistics)]
         [TestCase(AdditionRegistrationCollision.Health)]
         [TestCase(AdditionRegistrationCollision.Position)]
         [TestCase(AdditionRegistrationCollision.LandSpeed)]
@@ -1359,6 +1420,7 @@ namespace Game.Rules.Runtime.Tests
             );
             CombatantRulesState registration = new CombatantRulesState(
                 new CreatureState(Reinforcement, Enemies),
+                Statistics(Reinforcement),
                 new HealthState(10, 10),
                 new GridPosition(3, 0, 2),
                 new GridDistance(25),
@@ -1367,13 +1429,18 @@ namespace Game.Rules.Runtime.Tests
                 new[] { binding },
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                Array.Empty<ActiveEffectInstance>()
+                Array.Empty<ActiveEffectInstance>(),
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
             RulesStateSeed seed = new RulesStateSeed();
             switch (collision)
             {
                 case AdditionRegistrationCollision.Creature:
                     seed.SeedCreature(new CreatureState(Reinforcement, Enemies));
+                    break;
+                case AdditionRegistrationCollision.Statistics:
+                    seed.SeedStatistics(Statistics(Reinforcement));
                     break;
                 case AdditionRegistrationCollision.Health:
                     seed.SeedHealth(Reinforcement, new HealthState(7, 10));
@@ -1445,6 +1512,10 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(
                 dispatcher.Snapshot.Creatures.Count(),
                 Is.EqualTo(before.Creatures.Count())
+            );
+            Assert.That(
+                dispatcher.Snapshot.Statistics.Count(),
+                Is.EqualTo(before.Statistics.Count())
             );
             Assert.That(dispatcher.Snapshot.Health.Count(), Is.EqualTo(before.Health.Count()));
             Assert.That(
@@ -1796,7 +1867,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDefinitionId definition = new RuleDefinitionId("encounter-duration-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
@@ -1954,7 +2025,7 @@ namespace Game.Rules.Runtime.Tests
                 $"precombat-{kind.ToString().ToLowerInvariant()}"
             );
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
@@ -1990,6 +2061,7 @@ namespace Game.Rules.Runtime.Tests
                         Registration(Hero, Players),
                         new CombatantRulesState(
                             new CreatureState(Enemy, Enemies),
+                            Statistics(Enemy),
                             new HealthState(10, 10),
                             new GridPosition(0, 0, 0),
                             new GridDistance(25),
@@ -1998,7 +2070,9 @@ namespace Game.Rules.Runtime.Tests
                             new[] { binding },
                             Array.Empty<EquipmentState>(),
                             Array.Empty<AmmunitionState>(),
-                            new[] { effect }
+                            new[] { effect },
+                            Array.Empty<ActiveEffectTimingRestore>(),
+                            Array.Empty<CreatureId>()
                         ),
                     }
                 )
@@ -2016,12 +2090,170 @@ namespace Game.Rules.Runtime.Tests
             Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task RestoredExternalSourceEffectUsesItsPersistedTimingSource(
+            bool externalTimingSource
+        )
+        {
+            CreatureId externalSource = new CreatureId("external-defeated-source");
+            RuleDefinitionId definition = new RuleDefinitionId("external-source-effect");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(10, 20),
+                new RulesStateSeed(),
+                registry,
+                true
+            );
+            ActiveEffectId effectId = new ActiveEffectId("external-source-effect-1");
+            BindingId bindingId = new BindingId("external-source-binding-1");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                externalSource,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Hero,
+                effectId,
+                Source,
+                1
+            );
+            CombatantRulesState hero = new CombatantRulesState(
+                new CreatureState(Hero, Players),
+                Statistics(Hero),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                0,
+                Array.Empty<SpellSlotState>(),
+                new[] { binding },
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                new[] { effect },
+                new[]
+                {
+                    new ActiveEffectTimingRestore(
+                        effectId,
+                        externalTimingSource ? externalSource : Hero,
+                        1,
+                        false
+                    ),
+                },
+                new[] { externalSource }
+            );
+
+            Resolved(await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players)));
+            Resolved(
+                await dispatcher.Dispatch(
+                    new AddCombatantsOp(Encounter, new[] { hero, Registration(Enemy, Enemies) })
+                )
+            );
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[effectId].SourceCreature,
+                Is.EqualTo(externalTimingSource ? externalSource : Hero)
+            );
+
+            Resolved(await dispatcher.Dispatch(new AdvanceEncounterOp(Encounter)));
+            EncounterState enemyTurn = dispatcher.Snapshot.Encounters[Encounter];
+            Assert.That(enemyTurn.CurrentTurn.Value.Actor, Is.EqualTo(Enemy));
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[effectId].RemainingBoundaries,
+                Is.EqualTo(1)
+            );
+
+            Resolved(await dispatcher.Dispatch(new EndTurnOp(enemyTurn.CurrentTurn.Value)));
+
+            if (externalTimingSource)
+            {
+                EncounterState heroTurn = dispatcher.Snapshot.Encounters[Encounter];
+                Assert.That(heroTurn.CurrentTurn.Value.Actor, Is.EqualTo(Hero));
+                Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+                Assert.That(
+                    dispatcher.Snapshot.ActiveEffectTimings[effectId].RemainingBoundaries,
+                    Is.EqualTo(1)
+                );
+                Resolved(await dispatcher.Dispatch(new EndTurnOp(heroTurn.CurrentTurn.Value)));
+            }
+
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(bindingId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
+        }
+
+        [Test]
+        public async Task RestoredCountedEffectRejectsZeroRemainingBoundaries()
+        {
+            RuleDefinitionId definition = new RuleDefinitionId("zero-boundary-effect");
+            RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
+            RuleRegistry registry = registryBuilder.Build();
+            RuleDispatcher dispatcher = CreateDispatcher(
+                new ScriptedRollService(20, 10),
+                new RulesStateSeed(),
+                registry,
+                true
+            );
+            ActiveEffectId effectId = new ActiveEffectId("zero-boundary-effect-1");
+            BindingId bindingId = new BindingId("zero-boundary-binding-1");
+            ActiveEffectInstance effect = new ActiveEffectInstance(
+                effectId,
+                definition,
+                Hero,
+                Source,
+                EffectDuration.Rounds(1),
+                new TestEffectState()
+            );
+            ActiveRuleBinding binding = new ActiveRuleBinding(
+                bindingId,
+                definition,
+                Hero,
+                effectId,
+                Source,
+                1
+            );
+            CombatantRulesState hero = new CombatantRulesState(
+                new CreatureState(Hero, Players),
+                Statistics(Hero),
+                new HealthState(10, 10),
+                new GridPosition(0, 0, 0),
+                new GridDistance(25),
+                0,
+                Array.Empty<SpellSlotState>(),
+                new[] { binding },
+                Array.Empty<EquipmentState>(),
+                Array.Empty<AmmunitionState>(),
+                new[] { effect },
+                new[] { new ActiveEffectTimingRestore(effectId, Hero, 0, false) },
+                Array.Empty<CreatureId>()
+            );
+
+            Resolved(await dispatcher.Dispatch(new InitEncounterOp(Encounter, Players)));
+            InvalidOperationException failure = Assert.ThrowsAsync<InvalidOperationException>(
+                async () =>
+                    await dispatcher.Dispatch(
+                        new AddCombatantsOp(Encounter, new[] { hero, Registration(Enemy, Enemies) })
+                    )
+            );
+
+            Assert.That(failure.Message, Does.Contain("conflicts with its duration"));
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(effectId), Is.False);
+        }
+
         [Test]
         public async Task OneRoundEffectExpiresBeforeSourcesNextTurnFact()
         {
             RuleDefinitionId definition = new RuleDefinitionId("timed-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10),
@@ -2076,7 +2308,7 @@ namespace Game.Rules.Runtime.Tests
         {
             RuleDefinitionId definition = new RuleDefinitionId("atomic-timed-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             EncounterState awaitingBoundary = new EncounterState(
                 Encounter,
@@ -2189,11 +2421,14 @@ namespace Game.Rules.Runtime.Tests
         [TestCase(true, false)]
         [TestCase(false, true)]
         [TestCase(true, true)]
-        public async Task CountedEffectsRetireWhenOwningEncounterCloses(bool minutes, bool suspend)
+        public async Task CountedEffectsRemainAvailableWhenOwningEncounterCloses(
+            bool minutes,
+            bool suspend
+        )
         {
             RuleDefinitionId definition = new RuleDefinitionId("counted-effect");
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder().AddOutcomeRule();
-            registryBuilder.Define(definition);
+            registryBuilder.Define(definition).EffectState<TestEffectState>();
             RuleRegistry registry = registryBuilder.Build();
             RuleDispatcher dispatcher = CreateDispatcher(
                 new ScriptedRollService(20, 10, 20, 10),
@@ -2242,33 +2477,42 @@ namespace Game.Rules.Runtime.Tests
                 Source,
                 3
             );
+            ActiveEffectId encounterId = new ActiveEffectId("encounter-effect-instance");
+            BindingId encounterBindingId = new BindingId("encounter-effect-binding");
+            ActiveEffectInstance encounterEffect = new ActiveEffectInstance(
+                encounterId,
+                definition,
+                Hero,
+                Source,
+                EffectDuration.Encounter,
+                new TestEffectState()
+            );
+            ActiveRuleBinding encounterBinding = new ActiveRuleBinding(
+                encounterBindingId,
+                definition,
+                Hero,
+                encounterId,
+                Source,
+                4
+            );
             Resolved(
                 await dispatcher.Dispatch(new CreateEffectWorkflowOp(counted, countedBinding))
             );
             Resolved(
                 await dispatcher.Dispatch(new CreateEffectWorkflowOp(permanent, permanentBinding))
             );
+            Resolved(
+                await dispatcher.Dispatch(
+                    new CreateEffectWorkflowOp(encounterEffect, encounterBinding)
+                )
+            );
 
             if (suspend)
             {
                 Resolved(await dispatcher.Dispatch(new SuspendEncounterOp(Encounter)));
-                EncounterId resumed = new EncounterId("resumed-encounter");
-                Resolved(
-                    await dispatcher.Dispatch(
-                        new StartTestEncounterOp(
-                            resumed,
-                            new[]
-                            {
-                                Registration(new CreatureId("resumed-hero"), Players),
-                                Registration(new CreatureId("resumed-enemy"), Enemies),
-                            },
-                            EncounterConclusionPolicy.VictoryOrDefeat
-                        )
-                    )
-                );
                 Assert.That(
-                    dispatcher.Snapshot.Encounters[resumed].Phase,
-                    Is.EqualTo(EncounterPhase.Active)
+                    dispatcher.Snapshot.Encounters[Encounter].Phase,
+                    Is.EqualTo(EncounterPhase.Suspended)
                 );
             }
             else
@@ -2285,11 +2529,20 @@ namespace Game.Rules.Runtime.Tests
                 );
             }
 
-            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(countedId), Is.False);
-            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(countedId), Is.False);
-            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(countedBindingId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffects[countedId], Is.EqualTo(counted));
+            Assert.That(
+                dispatcher.Snapshot.ActiveEffectTimings[countedId].RemainingBoundaries,
+                Is.EqualTo(minutes ? 10 : 1)
+            );
+            Assert.That(
+                dispatcher.Snapshot.RuleBindings[countedBindingId],
+                Is.EqualTo(countedBinding)
+            );
             Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(permanentId), Is.True);
             Assert.That(dispatcher.Snapshot.RuleBindings[permanentBindingId].IsEnabled, Is.True);
+            Assert.That(dispatcher.Snapshot.ActiveEffects.Contains(encounterId), Is.False);
+            Assert.That(dispatcher.Snapshot.ActiveEffectTimings.Contains(encounterId), Is.False);
+            Assert.That(dispatcher.Snapshot.RuleBindings.Contains(encounterBindingId), Is.False);
         }
 
         private static StartTestEncounterOp Start(params CombatantRulesState[] combatants) =>
@@ -2313,6 +2566,7 @@ namespace Game.Rules.Runtime.Tests
             foreach (CreatureId creature in rejectedCreatures)
             {
                 Assert.That(dispatcher.Snapshot.Creatures.Contains(creature), Is.False);
+                Assert.That(dispatcher.Snapshot.Statistics.Contains(creature), Is.False);
                 Assert.That(dispatcher.Snapshot.Health.Contains(creature), Is.False);
                 Assert.That(dispatcher.Snapshot.ActionEconomy.Contains(creature), Is.False);
             }
@@ -2358,6 +2612,7 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, team),
+                Statistics(creature),
                 health,
                 position,
                 new GridDistance(25),
@@ -2366,7 +2621,9 @@ namespace Game.Rules.Runtime.Tests
                 Array.Empty<ActiveRuleBinding>(),
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                Array.Empty<ActiveEffectInstance>()
+                Array.Empty<ActiveEffectInstance>(),
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
 
         private static CombatantRulesState Registration(
@@ -2377,6 +2634,7 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, team),
+                Statistics(creature),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
@@ -2385,7 +2643,9 @@ namespace Game.Rules.Runtime.Tests
                 bindings,
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                effects
+                effects,
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
 
         private static EncounterState ActiveTurnEncounter() =>
@@ -2408,6 +2668,9 @@ namespace Game.Rules.Runtime.Tests
             long order
         ) => new InitiativeEntry(creature, team, roll, 0, order, RoundNumber.First);
 
+        private static CreatureStatisticsState Statistics(CreatureId creature) =>
+            new(creature, 0, 10, 0, 0, 0, new Dictionary<Skill, int>(), Array.Empty<Modifier>());
+
         private static RulesStateSeed BaseSeed() =>
             new RulesStateSeed()
                 .SeedHealth(Hero, new HealthState(10, 10))
@@ -2421,6 +2684,7 @@ namespace Game.Rules.Runtime.Tests
         ) =>
             new CombatantRulesState(
                 new CreatureState(creature, Enemies),
+                Statistics(creature),
                 new HealthState(10, 10),
                 new GridPosition(0, 0, 0),
                 new GridDistance(25),
@@ -2440,7 +2704,9 @@ namespace Game.Rules.Runtime.Tests
                 },
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                Array.Empty<ActiveEffectInstance>()
+                Array.Empty<ActiveEffectInstance>(),
+                Array.Empty<ActiveEffectTimingRestore>(),
+                Array.Empty<CreatureId>()
             );
 
         private static RuleDispatcher CreateDispatcher(
@@ -2873,6 +3139,8 @@ namespace Game.Rules.Runtime.Tests
         }
 
         private sealed class TestEffectState : IEffectState { }
+
+        private sealed class OtherTestEffectState : IEffectState { }
 
         private sealed class StartTestEncounterOp : IRuleOp<EncounterAdvanceOutcome>
         {

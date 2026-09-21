@@ -393,7 +393,258 @@ namespace Game.Rules.Runtime
     public interface ISpellActionCatalog : IActionCatalog, ISpellDefinitionCatalog
     {
         /// <summary>Gets the immutable prepared spellbook owned by one encounter creature.</summary>
+        /// <param name="creature">The encounter creature whose preparation is requested.</param>
+        /// <returns>The required immutable spellbook, or the empty spellbook for a noncaster.</returns>
         ISpellBook GetSpellBook(CreatureId creature);
+
+        /// <summary>Attempts to resolve feature-owned casting behavior for one spell.</summary>
+        /// <param name="spell">The stable spell identity.</param>
+        /// <param name="rule">The feature rule when one was explicitly composed.</param>
+        /// <returns><see langword="true"/> when the spell has feature-owned behavior.</returns>
+        bool TryGetCastRule(SpellId spell, out ISpellCastRule rule);
+    }
+
+    /// <summary>Identifies the player-selection shape required by one spell variant.</summary>
+    public enum SpellSelectionKind
+    {
+        /// <summary>The spell requires no player-selected target.</summary>
+        None,
+
+        /// <summary>The spell selects one creature.</summary>
+        SingleCreature,
+
+        /// <summary>The spell selects a variant-defined exact number of creatures.</summary>
+        ExactCreatureCount,
+
+        /// <summary>The spell uses a directed cone area.</summary>
+        Cone,
+
+        /// <summary>The spell uses an emanation centered on its caster.</summary>
+        Emanation,
+    }
+
+    /// <summary>Describes a feature-owned spell selection without depending on Unity grid types.</summary>
+    public sealed class SpellSelectionProfile
+    {
+        /// <summary>Creates one immutable selection profile.</summary>
+        /// <param name="kind">The shape used to collect targets.</param>
+        /// <param name="rangeFeet">The maximum single-target range in feet.</param>
+        /// <param name="areaFeet">The cone or emanation size in feet.</param>
+        /// <param name="exactCreatureCount">The exact required target count, or zero.</param>
+        /// <param name="includeCaster">Whether an area includes its caster.</param>
+        /// <param name="friendlyOnly">Whether area presentation removes enemies.</param>
+        public SpellSelectionProfile(
+            SpellSelectionKind kind,
+            int rangeFeet = 0,
+            int areaFeet = 0,
+            int exactCreatureCount = 0,
+            bool includeCaster = false,
+            bool friendlyOnly = false
+        )
+        {
+            if (!Enum.IsDefined(typeof(SpellSelectionKind), kind))
+                throw new ArgumentOutOfRangeException(nameof(kind));
+            if (rangeFeet < 0 || areaFeet < 0 || exactCreatureCount < 0)
+                throw new ArgumentOutOfRangeException(
+                    "Spell selection distances and counts cannot be negative."
+                );
+            Kind = kind;
+            RangeFeet = rangeFeet;
+            AreaFeet = areaFeet;
+            ExactCreatureCount = exactCreatureCount;
+            IncludeCaster = includeCaster;
+            FriendlyOnly = friendlyOnly;
+        }
+
+        /// <summary>Gets the interaction shape used to collect targets.</summary>
+        public SpellSelectionKind Kind { get; }
+
+        /// <summary>Gets the maximum range from the caster, in feet.</summary>
+        public int RangeFeet { get; }
+
+        /// <summary>Gets the cone or emanation size, in feet.</summary>
+        public int AreaFeet { get; }
+
+        /// <summary>Gets the exact number of creatures required by the selected variant.</summary>
+        public int ExactCreatureCount { get; }
+
+        /// <summary>Gets whether an emanation includes the caster.</summary>
+        public bool IncludeCaster { get; }
+
+        /// <summary>Gets whether presentation should omit enemies from area selections.</summary>
+        public bool FriendlyOnly { get; }
+
+        /// <summary>Gets the shared profile for a spell with no target-selection interaction.</summary>
+        public static SpellSelectionProfile None { get; } = new(SpellSelectionKind.None);
+    }
+
+    /// <summary>Identifies one of the eight grid directions used to place a directed spell area.</summary>
+    public enum SpellAreaDirection
+    {
+        /// <summary>Positive horizontal grid direction.</summary>
+        East,
+
+        /// <summary>Positive horizontal and depth grid direction.</summary>
+        NorthEast,
+
+        /// <summary>Positive depth grid direction.</summary>
+        North,
+
+        /// <summary>Negative horizontal and positive depth grid direction.</summary>
+        NorthWest,
+
+        /// <summary>Negative horizontal grid direction.</summary>
+        West,
+
+        /// <summary>Negative horizontal and depth grid direction.</summary>
+        SouthWest,
+
+        /// <summary>Negative depth grid direction.</summary>
+        South,
+
+        /// <summary>Positive horizontal and negative depth grid direction.</summary>
+        SouthEast,
+    }
+
+    /// <summary>
+    /// Revalidates feature-owned spell selections against current encounter geometry before costs.
+    /// </summary>
+    public interface ISpellTargetingDataProvider
+    {
+        /// <summary>Checks current line of effect and exact area membership for a spell selection.</summary>
+        /// <param name="snapshot">The authoritative rules snapshot immediately before costs.</param>
+        /// <param name="actor">The creature attempting the cast.</param>
+        /// <param name="profile">The feature-owned selection shape.</param>
+        /// <param name="selection">The immutable player selection and directed-area intent.</param>
+        /// <returns>A valid result or the current targeting rejection.</returns>
+        ActionValidationResult ValidateSelection(
+            RulesSnapshot snapshot,
+            CreatureId actor,
+            SpellSelectionProfile profile,
+            SpellCastSelection selection
+        );
+    }
+
+    /// <summary>Supplies immutable creature facts not yet represented by encounter state.</summary>
+    public interface ISpellCreatureDataProvider
+    {
+        /// <summary>Gets whether a registered creature has the undead trait.</summary>
+        /// <param name="creature">The registered creature.</param>
+        /// <returns><see langword="true"/> when the creature is undead.</returns>
+        bool IsUndead(CreatureId creature);
+
+        /// <summary>Gets current typed weaknesses for spell damage.</summary>
+        /// <param name="creature">The registered creature.</param>
+        /// <returns>Its immutable typed weakness snapshot.</returns>
+        IReadOnlyList<TypedDefenseAdjustment> GetWeaknesses(CreatureId creature);
+
+        /// <summary>Gets current typed resistances for spell damage.</summary>
+        /// <param name="creature">The registered creature.</param>
+        /// <returns>Its immutable typed resistance snapshot.</returns>
+        IReadOnlyList<TypedDefenseAdjustment> GetResistances(CreatureId creature);
+    }
+
+    /// <summary>Owns one spell's validation, selection shape, and resolved mechanics.</summary>
+    public interface ISpellCastRule
+    {
+        /// <summary>Gets the exact spell owned by this feature rule.</summary>
+        SpellId Spell { get; }
+
+        /// <summary>Gets the player-selection contract for an action-cost variant.</summary>
+        /// <param name="variant">The definition-approved action variant.</param>
+        /// <returns>The presentation-neutral selection contract.</returns>
+        SpellSelectionProfile GetSelection(SpellActionVariant variant);
+
+        /// <summary>Validates spell-specific legality before action and slot costs commit.</summary>
+        /// <param name="snapshot">The authoritative state immediately before costs.</param>
+        /// <param name="operation">The complete requested cast.</param>
+        /// <returns>A valid result or the first feature-specific rejection.</returns>
+        ActionValidationResult Validate(RulesSnapshot snapshot, CastSpellActionOp operation);
+
+        /// <summary>Resolves the spell's feature-owned mechanics after costs commit.</summary>
+        /// <param name="frame">The validated root cast frame.</param>
+        /// <param name="context">The transactional handler context.</param>
+        /// <param name="catalog">The encounter catalog supplying the caster's spellbook.</param>
+        /// <returns>The lasting effects and per-target results.</returns>
+        System.Threading.Tasks.ValueTask<SpellFeatureOutcome> Resolve(
+            OpFrame<CastSpellActionOp> frame,
+            OpHandlerContext context,
+            ISpellActionCatalog catalog
+        );
+    }
+
+    /// <summary>Reports feature-owned effects and per-target spell results.</summary>
+    public sealed class SpellFeatureOutcome
+    {
+        /// <summary>Creates the immutable result of feature-owned spell resolution.</summary>
+        /// <param name="createdEffects">Lasting active effects created by the cast.</param>
+        /// <param name="targets">Per-target instantaneous outcomes in selection order.</param>
+        public SpellFeatureOutcome(
+            IEnumerable<ActiveEffectId> createdEffects,
+            IEnumerable<SpellTargetResolution> targets
+        )
+        {
+            CreatedEffects = Array.AsReadOnly(
+                (
+                    createdEffects ?? throw new ArgumentNullException(nameof(createdEffects))
+                ).ToArray()
+            );
+            Targets = Array.AsReadOnly(
+                (targets ?? throw new ArgumentNullException(nameof(targets))).ToArray()
+            );
+        }
+
+        /// <summary>Gets all lasting effects created by the feature.</summary>
+        public IReadOnlyList<ActiveEffectId> CreatedEffects { get; }
+
+        /// <summary>Gets deterministic per-target results in selection order.</summary>
+        public IReadOnlyList<SpellTargetResolution> Targets { get; }
+    }
+
+    /// <summary>Describes one target's committed damage, healing, save, or effect result.</summary>
+    public sealed class SpellTargetResolution
+    {
+        /// <summary>Creates one committed per-target spell outcome.</summary>
+        /// <param name="target">The affected creature.</param>
+        /// <param name="degree">The save degree, or no value when no save occurred.</param>
+        /// <param name="damage">Final typed damage parts.</param>
+        /// <param name="healing">Actual Hit Points restored.</param>
+        /// <param name="conditionApplied">Whether the conditional spell condition was applied.</param>
+        public SpellTargetResolution(
+            CreatureId target,
+            DegreeOfSuccess? degree,
+            IEnumerable<TypedDamagePart> damage,
+            int healing,
+            bool conditionApplied
+        )
+        {
+            if (target.IsEmpty)
+                throw new ArgumentException("A spell result target is required.", nameof(target));
+            if (healing < 0)
+                throw new ArgumentOutOfRangeException(nameof(healing));
+            Target = target;
+            Degree = degree;
+            Damage = Array.AsReadOnly(
+                (damage ?? throw new ArgumentNullException(nameof(damage))).ToArray()
+            );
+            Healing = healing;
+            ConditionApplied = conditionApplied;
+        }
+
+        /// <summary>Gets the affected creature.</summary>
+        public CreatureId Target { get; }
+
+        /// <summary>Gets the saving-throw degree, when the spell required one.</summary>
+        public DegreeOfSuccess? Degree { get; }
+
+        /// <summary>Gets final typed damage after the basic save and defenses.</summary>
+        public IReadOnlyList<TypedDamagePart> Damage { get; }
+
+        /// <summary>Gets the amount of healing actually applied.</summary>
+        public int Healing { get; }
+
+        /// <summary>Gets whether the spell applied its conditional condition.</summary>
+        public bool ConditionApplied { get; }
     }
 
     /// <summary>Generic immutable state carried by a spell-created active effect.</summary>

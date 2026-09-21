@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -459,10 +460,11 @@ namespace Game.Rules.Runtime
         {
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
-            builder.Define(RageActionDefinition.EffectDefinitionId);
+            builder.Define(RageActionDefinition.EffectDefinitionId).EffectState<RageEffectState>();
             builder
                 .Define(LifecycleRuleDefinitionId)
                 .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnExpirationListener())
+                .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnEncounterSuspendListener())
                 .FactListener(RuleLifecyclePhase.Reaction, new EndRageOnEncounterEndListener());
             builder
                 .Define(QuickTemperedRuleDefinitionId)
@@ -486,43 +488,6 @@ namespace Game.Rules.Runtime
             return snapshot.ActiveEffects.Any(pair =>
                 pair.Value.DefinitionId == RageActionDefinition.EffectDefinitionId
                 && pair.Value.SourceCreature == actor
-            );
-        }
-
-        /// <summary>
-        /// Normalizes health restored outside an active encounter when Rage owned the saved
-        /// temporary Hit Point pool.
-        /// </summary>
-        /// <param name="health">The validated saved health state.</param>
-        /// <param name="rageWasActive">
-        /// Whether the discarded encounter rules store reported an active Rage.
-        /// </param>
-        /// <returns>
-        /// Health with an orphaned Rage pool removed and Rage immunity applied, or the unchanged
-        /// state when Rage was inactive and another source owns the pool.
-        /// </returns>
-        /// <remarks>
-        /// Dungeon saves do not resume an active encounter or its rules store. Restoring
-        /// Rage-owned temporary Hit Points without the matching active effect would create a
-        /// second, ownerless source of truth, so restoration resolves the same health cleanup as
-        /// ending Rage.
-        /// </remarks>
-        public static HealthState NormalizeRestoredHealth(HealthState health, bool rageWasActive)
-        {
-            bool rageOwnsTemporaryHitPoints = health.TemporarySource == Source;
-            if (!rageWasActive && !rageOwnsTemporaryHitPoints)
-                return health;
-
-            RuleSource[] immunities = health
-                .TemporaryHitPointImmunities.Append(Source)
-                .Distinct()
-                .ToArray();
-            return new HealthState(
-                health.Current,
-                health.Maximum,
-                rageOwnsTemporaryHitPoints ? 0 : health.Temporary,
-                rageOwnsTemporaryHitPoints ? default : health.TemporarySource,
-                immunities
             );
         }
 
@@ -587,6 +552,22 @@ namespace Game.Rules.Runtime
             EncounterOutcomeCommittedFact fact,
             FactContext context
         )
+        {
+            if (
+                !context.Snapshot.Encounters.TryGet(fact.Encounter, out EncounterState encounter)
+                || !encounter.Roster.Any(entry => entry.Creature == context.Binding.Owner)
+            )
+                return;
+            await RageHandlerSupport.RequireResolved(
+                context.Dispatch(new EndRageOp(context.Binding.Owner, true))
+            );
+        }
+    }
+
+    internal sealed class EndRageOnEncounterSuspendListener
+        : IRuleFactListener<EncounterSuspendedFact>
+    {
+        public async ValueTask OnFactCommitted(EncounterSuspendedFact fact, FactContext context)
         {
             if (
                 !context.Snapshot.Encounters.TryGet(fact.Encounter, out EncounterState encounter)
@@ -839,8 +820,12 @@ namespace Game.Rules.Runtime
         )
         {
             RageActorState actorState = definition.GetActorState(actor);
-            ActiveEffectId effectId = new ActiveEffectId($"rage-effect-{rootId.Value}");
-            BindingId bindingId = new BindingId($"rage-binding-{rootId.Value}");
+            var identity = context.CreateActiveEffectIdentity(
+                "rage",
+                rootId.Value.ToString(CultureInfo.InvariantCulture)
+            );
+            ActiveEffectId effectId = identity.EffectId;
+            BindingId bindingId = identity.BindingId;
             ActiveEffectInstance effect = new ActiveEffectInstance(
                 effectId,
                 RageActionDefinition.EffectDefinitionId,

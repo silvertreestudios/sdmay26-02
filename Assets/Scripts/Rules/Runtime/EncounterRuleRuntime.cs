@@ -450,23 +450,25 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         )
         {
-            await ExpireEncounterOwnedEffects(frame.Op.Encounter, context);
+            await ExpireEncounterDurationEffects(frame.Op.Encounter, context);
             return EncounterHandlerResults.Require(
                 await context.Dispatch(new CommitEncounterSuspendOp(frame.Op.Encounter)),
                 "encounter suspension"
             );
         }
 
-        // Counted durations use initiative boundaries, so ending or suspending their owning
-        // encounter permanently retires that clock. Dungeon resume creates a fresh encounter;
-        // retaining the old timing would leave an enabled binding that can never advance.
-        internal static async ValueTask ExpireEncounterOwnedEffects(
+        // Encounter-duration effects end with their encounter. Counted effects retain their
+        // remaining schedule long enough for an owning host to project them at detach; dungeon
+        // restoration then enrolls that schedule against the next encounter's fresh clock.
+        internal static async ValueTask ExpireEncounterDurationEffects(
             EncounterId encounter,
             OpHandlerContext context
         )
         {
             ActiveEffectTimingState[] timings = context
-                .Snapshot.ActiveEffectTimings.Where(pair => pair.Value.Encounter == encounter)
+                .Snapshot.ActiveEffectTimings.Where(pair =>
+                    pair.Value.Encounter == encounter && pair.Value.ExpiresWithEncounter
+                )
                 .Select(pair => pair.Value)
                 .OrderBy(value => value.CreationOrder)
                 .ThenBy(value => value.Effect.Value, StringComparer.Ordinal)
@@ -503,7 +505,10 @@ namespace Game.Rules.Runtime
             OpHandlerContext context
         )
         {
-            await SuspendEncounterHandler.ExpireEncounterOwnedEffects(frame.Op.Encounter, context);
+            await SuspendEncounterHandler.ExpireEncounterDurationEffects(
+                frame.Op.Encounter,
+                context
+            );
             return EncounterHandlerResults.Require(
                 await context.Dispatch(
                     new CommitEncounterEndOp(frame.Op.Encounter, frame.Op.Outcome)

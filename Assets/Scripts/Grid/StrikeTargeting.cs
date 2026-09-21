@@ -26,6 +26,7 @@ namespace GridPublic
         public bool IsRanged { get; set; } = false;
         public bool RequiresLineOfEffect { get; set; } = true;
         public int FixedRangeFeet { get; set; } = 0;
+        public bool IncludeSelf { get; set; } = false;
 
         public int MaximumRangeFeet
         {
@@ -143,7 +144,10 @@ namespace GridPrivate
                 for (int z = start.z - maxCells; z <= start.z + maxCells; z++)
                 {
                     Vector3Int cell = new(x, start.y, z);
-                    if (!GridTargeting.IsInBounds(tiles, cell) || cell == start)
+                    if (
+                        !GridTargeting.IsInBounds(tiles, cell)
+                        || (cell == start && !request.IncludeSelf)
+                    )
                         continue;
 
                     if (IsWithinStrikeRange(start, cell, request))
@@ -161,6 +165,8 @@ namespace GridPrivate
         )
         {
             if (attacker == null || target == null || tiles == null || request == null)
+                return null;
+            if (attacker == target && !request.IncludeSelf)
                 return null;
 
             Vector3Int start = Vector3Int.RoundToInt(attacker.transform.position);
