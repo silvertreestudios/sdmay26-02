@@ -65,6 +65,51 @@ namespace Game.Rules.Runtime.Tests
             Assert.That(snapshot.Version, Is.Zero);
         }
 
+        /// <summary>
+        /// Verifies edge crossings around a translated target and symmetry when the two
+        /// threatening creatures exchange positions, without mutating their snapshots.
+        /// </summary>
+        [TestCase(-2, -1, 1, 1, false)]
+        [TestCase(-1, -2, 1, 1, false)]
+        [TestCase(-2, 1, 1, -1, false)]
+        [TestCase(-2, -1, 1, 2, false)]
+        [TestCase(-2, 1, 2, 1, false)]
+        [TestCase(1, 0, 2, 0, false)]
+        [TestCase(0, 0, 1, 0, false)]
+        [TestCase(-2, 0, 1, 0, true)]
+        [TestCase(0, -2, 0, 1, true)]
+        [TestCase(-2, -1, 2, 1, true)]
+        [TestCase(-2, -1, 1, 0, true)]
+        [TestCase(-1, -2, 0, 1, true)]
+        [TestCase(-2, -2, 1, 1, true)]
+        public void ReachFlankingRequiresSegmentAcrossOppositeTargetEdges(
+            int attackerX,
+            int attackerZ,
+            int allyX,
+            int allyZ,
+            bool expected
+        )
+        {
+            // A translated target prevents an accidental dependency on the grid origin.
+            GridPosition target = new(7, 0, -4);
+            GridPosition attacker = new(target.X + attackerX, 0, target.Z + attackerZ);
+            GridPosition ally = new(target.X + allyX, 0, target.Z + allyZ);
+            RulesSnapshot snapshot = CreateSnapshot(attacker, target, ally);
+            RulesSnapshot reversed = CreateSnapshot(ally, target, attacker);
+
+            Assert.That(
+                FlankingRules.IsFlanking(snapshot, Attacker, Target, Context(Participant(Ally))),
+                Is.EqualTo(expected)
+            );
+            Assert.That(
+                FlankingRules.IsFlanking(reversed, Attacker, Target, Context(Participant(Ally))),
+                Is.EqualTo(expected),
+                "Exchanging the threatening creatures must preserve the geometry."
+            );
+            Assert.That(snapshot.Version, Is.Zero);
+            Assert.That(reversed.Version, Is.Zero);
+        }
+
         [Test]
         public void DefeatedUnavailableOrNonThreateningParticipantsDoNotGrantFlanking()
         {

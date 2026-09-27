@@ -276,21 +276,50 @@ public sealed class RulesStrikeUnityTests
         );
     }
 
-    [Test]
-    public void RulesStrikeUsesSnapshotFlankingFromOppositeLivingAlly()
+    /// <summary>
+    /// Verifies effective Strike AC using each flanker's own reach and preserves independently
+    /// applied Off-Guard when the segment crosses adjacent target edges.
+    /// </summary>
+    [TestCase(1, 1, 3, 1, false, false, false, true)]
+    [TestCase(0, 0, 3, 2, true, false, false, false)]
+    [TestCase(0, 0, 3, 1, true, false, false, true)]
+    [TestCase(3, 1, 0, 0, false, true, false, true)]
+    [TestCase(3, 1, 0, 0, false, false, false, false)]
+    [TestCase(0, 0, 3, 2, true, false, true, true)]
+    public void RulesStrikeUsesSnapshotFlankingAcrossOppositeTargetEdges(
+        int attackerX,
+        int attackerZ,
+        int allyX,
+        int allyZ,
+        bool useReachWeapon,
+        bool allyUsesReachWeapon,
+        bool independentOffGuard,
+        bool expectedOffGuard
+    )
     {
         CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
         CreatureComponent target = CreateCreature("Target", "enemies", 20, 10);
         CreatureComponent ally = CreateCreature("Ally", "heroes", 20, 10);
+        if (useReachWeapon)
+            EquipReachWeapon(attacker);
+        if (allyUsesReachWeapon)
+            EquipReachWeapon(ally);
+        if (independentOffGuard)
+            ConditionEncounterModule.Apply(
+                target.gameObject,
+                new ConditionState(OffGuardRules.ConditionId, 1),
+                RuleSource.FromSlug("flanking-test-independent-off-guard"),
+                new ConditionSource()
+            );
         TestActionController attackerController =
             attacker.gameObject.AddComponent<TestActionController>();
         TestActionController targetController =
             target.gameObject.AddComponent<TestActionController>();
         TestActionController allyController = ally.gameObject.AddComponent<TestActionController>();
-        Place(attacker.gameObject, 0);
-        Place(target.gameObject, 1);
-        Place(ally.gameObject, 2);
-        Tile[,] tiles = CreateTiles(3);
+        attacker.transform.position = new Vector3(attackerX, 0, attackerZ);
+        target.transform.position = new Vector3(2, 0, 1);
+        ally.transform.position = new Vector3(allyX, 0, allyZ);
+        Tile[,] tiles = CreateTiles(4, 3);
         Occupy(tiles, attacker.gameObject);
         Occupy(tiles, target.gameObject);
         Occupy(tiles, ally.gameObject);
@@ -306,13 +335,34 @@ public sealed class RulesStrikeUnityTests
         RulesStrikeAction action = attackerController
             .GetActions()
             .OfType<RulesStrikeAction>()
-            .Single(candidate => candidate.ActionName == "Unarmed Strike");
+            .Single(candidate =>
+                candidate.ActionName == (useReachWeapon ? "Reach weapon" : "Unarmed Strike")
+            );
+
+        Assert.That(action.Item.ReachFeet, Is.EqualTo(useReachWeapon ? 10 : 5));
+        Assert.That(
+            allyController
+                .GetActions()
+                .OfType<RulesStrikeAction>()
+                .Max(candidate => candidate.Item.ReachFeet),
+            Is.EqualTo(allyUsesReachWeapon ? 10 : 5)
+        );
+        Assert.That(
+            OffGuardRules.IsOffGuard(bridge.Snapshot, targetId),
+            Is.EqualTo(independentOffGuard)
+        );
 
         ResolvedOpResult<StrikeResolution> result = RequireResolved(
             bridge.Dispatch(new StrikeActionOp(actor, action.Item.Item, targetId))
         );
 
-        Assert.That(result.Value.OffGuard, Is.True);
+        Assert.That(result.Value.OffGuard, Is.EqualTo(expectedOffGuard));
+        Assert.That(result.Value.ArmorClass, Is.EqualTo(expectedOffGuard ? 8 : 10));
+        Assert.That(
+            OffGuardRules.IsOffGuard(bridge.Snapshot, targetId),
+            Is.EqualTo(independentOffGuard),
+            "Flanking must neither create nor remove an independent Off-Guard application."
+        );
     }
 
     [Test]
@@ -709,11 +759,27 @@ public sealed class RulesStrikeUnityTests
         return log;
     }
 
-    private static Tile[,] CreateTiles(int width)
+    private static void EquipReachWeapon(CreatureComponent creature)
     {
-        Tile[,] tiles = new Tile[width, 1];
+        creature.weapons = new List<EquipmentWeapon>
+        {
+            new()
+            {
+                name = "Reach weapon",
+                group = "spear",
+                category = "martial",
+                traits = new List<string> { "reach" },
+                damage = new Dice(1, 6, "piercing"),
+            },
+        };
+    }
+
+    private static Tile[,] CreateTiles(int width, int depth = 1)
+    {
+        Tile[,] tiles = new Tile[width, depth];
         for (int x = 0; x < width; x++)
-            tiles[x, 0] = new Tile();
+        for (int z = 0; z < depth; z++)
+            tiles[x, z] = new Tile();
         return tiles;
     }
 
@@ -723,7 +789,8 @@ public sealed class RulesStrikeUnityTests
     private static void Occupy(Tile[,] tiles, GameObject gameObject)
     {
         int x = Mathf.RoundToInt(gameObject.transform.position.x);
-        tiles[x, 0].Occupants.Add(gameObject);
+        int z = Mathf.RoundToInt(gameObject.transform.position.z);
+        tiles[x, z].Occupants.Add(gameObject);
     }
 
     private static ResolvedOpResult<T> RequireResolved<T>(OpResult<T> result)

@@ -216,11 +216,38 @@ namespace Game.Rules.Runtime
             GridPosition target
         )
         {
-            int attackerX = Math.Sign(attacker.X - target.X);
-            int attackerZ = Math.Sign(attacker.Z - target.Z);
-            int allyX = Math.Sign(ally.X - target.X);
-            int allyZ = Math.Sign(ally.Z - target.Z);
-            return (attackerX != 0 || attackerZ != 0) && attackerX == -allyX && attackerZ == -allyZ;
+            double attackerX = (double)attacker.X - target.X;
+            double attackerZ = (double)attacker.Z - target.Z;
+            double allyX = (double)ally.X - target.X;
+            double allyZ = (double)ally.Z - target.Z;
+
+            // The supported footprint is one XZ grid cell centered on the target. Test both
+            // pairs of opposite edges: opposite quadrants alone are insufficient with reach.
+            // Inclusive edge endpoints also admit a segment through opposite corners.
+            return CrossesOppositeEdges(attackerX, attackerZ, allyX, allyZ)
+                || CrossesOppositeEdges(attackerZ, attackerX, allyZ, allyX);
+        }
+
+        private static bool CrossesOppositeEdges(
+            double startX,
+            double startZ,
+            double endX,
+            double endZ
+        )
+        {
+            const double halfCell = 0.5;
+            if (
+                !(startX < -halfCell && endX > halfCell) && !(endX < -halfCell && startX > halfCell)
+            )
+                return false;
+
+            // Both edge intersections must lie within the target square and between the
+            // creature centers. The endpoint check above ensures this is a segment test.
+            double slope = (endZ - startZ) / (endX - startX);
+            double firstIntersection = startZ + (-halfCell - startX) * slope;
+            double secondIntersection = startZ + (halfCell - startX) * slope;
+            return Math.Abs(firstIntersection) <= halfCell
+                && Math.Abs(secondIntersection) <= halfCell;
         }
     }
 }

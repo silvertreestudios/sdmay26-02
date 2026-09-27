@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Game.DungeonPersistence.Repository
@@ -261,10 +262,43 @@ namespace Game.DungeonPersistence.Repository
 
         private static void PublishAtomically(string temporaryPath, string autosavePath)
         {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                // Both paths are siblings on the same volume. Publish with a replacement rename;
+                // ReplaceFile's metadata merge/removal sequence can fail with error 1175 even
+                // after our staging handles close. Never allow a copy/delete fallback or remove
+                // the committed pathname first. Staging was flushed to disk before this call.
+                // The published file keeps staging's directory-inherited metadata; checkpoints
+                // promise exact contents, not preservation of the old file's ACLs/named streams.
+                const uint replaceExisting = 0x1;
+                const uint writeThrough = 0x8;
+                if (!MoveFileExW(temporaryPath, autosavePath, replaceExisting | writeThrough))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    throw new IOException(
+                        $"Atomic autosave publication failed (Windows error {error}).",
+                        unchecked((int)0x80070000) | error
+                    );
+                }
+                return;
+            }
+
             if (File.Exists(autosavePath))
                 File.Replace(temporaryPath, autosavePath, null, ignoreMetadataErrors: true);
             else
                 File.Move(temporaryPath, autosavePath);
         }
+
+        // Explicit Unicode entry point also supports non-ASCII save directories. This import is
+        // invoked only on Windows; other platforms retain their managed filesystem publication.
+        // https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-movefileexw
+        [DllImport(
+            "kernel32.dll",
+            CharSet = CharSet.Unicode,
+            ExactSpelling = true,
+            SetLastError = true
+        )]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool MoveFileExW(string source, string destination, uint flags);
     }
 }
