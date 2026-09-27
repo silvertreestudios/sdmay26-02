@@ -641,7 +641,7 @@ public class Pf2eRulesTests
         Assert.That(offGuardContext.DamageDice.Count, Is.EqualTo(2));
         Assert.That(offGuardContext.DamageDice.Last().numberOfDice, Is.EqualTo(1));
         Assert.That(offGuardContext.DamageDice.Last().sidesPerDie, Is.EqualTo(6));
-        Assert.That(offGuardContext.DamageDice.Last().damageType, Is.EqualTo("precision"));
+        Assert.That(offGuardContext.DamageDice.Last().damageType, Is.EqualTo("slashing"));
 
         TestStrikeProfile ineligibleWeapon = new(
             new List<Dice> { new Dice(1, 6, "slashing") },
@@ -679,7 +679,7 @@ public class Pf2eRulesTests
         Assert.That(shortbowContext.DamageDice.Count, Is.EqualTo(2));
         Assert.That(shortbowContext.DamageDice.Last().numberOfDice, Is.EqualTo(1));
         Assert.That(shortbowContext.DamageDice.Last().sidesPerDie, Is.EqualTo(6));
-        Assert.That(shortbowContext.DamageDice.Last().damageType, Is.EqualTo("precision"));
+        Assert.That(shortbowContext.DamageDice.Last().damageType, Is.EqualTo("piercing"));
     }
 
     private CreatureComponent CreatePreparedBarbarian()

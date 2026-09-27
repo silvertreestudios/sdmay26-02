@@ -168,6 +168,27 @@ namespace Game.Tests.EditMode.RulesRuntime
             );
         }
 
+        /// <summary>Prepared categories do not replace the weapon damage type or require a nonempty category.</summary>
+        [TestCase("bludgeoning", "precision")]
+        [TestCase("piercing", "precision")]
+        [TestCase("slashing", "precision")]
+        [TestCase("bludgeoning", "")]
+        [TestCase("piercing", "")]
+        [TestCase("slashing", "")]
+        public void AdditionalDiceInheritPrimaryDamageType(string damageType, string category)
+        {
+            var definition = Definition(
+                Array.Empty<PreparedStrikeModifier>(),
+                Array.Empty<PreparedStrikeAdjustment>(),
+                new[] { new PreparedStrikeDice("strike-damage", category, 1, 6, Always) }
+            );
+            var result = Evaluate(definition, Item(true, damageType: damageType), Snapshot());
+
+            Assert.That(result.DamageDice.Single().DamageType, Is.EqualTo(damageType));
+            Assert.That(result.DamageDice.Single().Dice, Is.EqualTo(new DiceExpression(1, 6)));
+            Assert.That(definition.Dice.Single().Category, Is.EqualTo(category));
+        }
+
         [Test]
         public void DefinitionCopiesCollectionsAndIgnoresStaleConditionOptions()
         {
@@ -482,7 +503,11 @@ namespace Game.Tests.EditMode.RulesRuntime
                 alterations ?? Array.Empty<PreparedStrikeAlteration>()
             );
 
-        private static StrikeItemDefinition Item(bool agile, bool ranged = false) =>
+        private static StrikeItemDefinition Item(
+            bool agile,
+            bool ranged = false,
+            string damageType = "slashing"
+        ) =>
             new(
                 new ItemId("weapon"),
                 new ItemDefinitionId("weapon"),
@@ -491,8 +516,8 @@ namespace Game.Tests.EditMode.RulesRuntime
                 "martial",
                 agile ? new[] { Trait.FromSlug("agile") } : Array.Empty<Trait>(),
                 7,
-                new[] { new TypedDamageDice(new DiceExpression(1, 6), "slashing", "weapon") },
-                new[] { new TypedFlatDamage(1, "slashing", "Strength") },
+                new[] { new TypedDamageDice(new DiceExpression(1, 6), damageType, "weapon") },
+                new[] { new TypedFlatDamage(1, damageType, "Strength") },
                 5,
                 ranged ? 60 : 0,
                 0,

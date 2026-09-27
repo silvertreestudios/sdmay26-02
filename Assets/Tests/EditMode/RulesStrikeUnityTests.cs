@@ -460,10 +460,10 @@ public sealed class RulesStrikeUnityTests
             rageStrike.Value.Damage.Sum(part => part.Amount),
             Is.GreaterThan(torgrimStrike.Item.DamageDice[0].Dice.Count + torgrim.strMod)
         );
-        Assert.That(rogueStrike.Value.Damage.Any(part => part.DamageType == "precision"), Is.True);
+        Assert.That(rogueStrike.Value.Damage.Single().DamageType, Is.EqualTo("slashing"));
         Assert.That(
             rogueStrike.Value.Damage.Single(part => part.DamageType == "slashing").Amount,
-            Is.EqualTo(4 + lena.dexMod)
+            Is.EqualTo(4 + 5 + lena.dexMod)
         );
     }
 

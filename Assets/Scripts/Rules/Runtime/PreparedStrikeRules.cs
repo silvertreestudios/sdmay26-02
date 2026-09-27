@@ -102,7 +102,7 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the statistic selector from prepared content.</summary>
         public string Selector { get; }
 
-        /// <summary>Gets the damage category carried into typed damage.</summary>
+        /// <summary>Gets the content category, such as precision, independently of the Strike's damage type.</summary>
         public string Category { get; }
 
         /// <summary>Gets the number of additional dice.</summary>
@@ -305,6 +305,7 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>Derives contextual damage anew; adjustments never modify the prepared definition.</summary>
+        /// <remarks>Additional dice inherit the weapon's primary damage type. Category-specific defenses are not evaluated here.</remarks>
         public static PreparedStrikeContributions Evaluate(
             PreparedStrikeDefinition prepared,
             StrikeItemDefinition item,
@@ -412,7 +413,7 @@ namespace Game.Rules.Runtime
                 )
                 .Select(value => new TypedDamageDice(
                     new DiceExpression(value.Count, value.Sides),
-                    value.Category,
+                    primaryType,
                     "Prepared damage dice"
                 ))
                 .ToList();
