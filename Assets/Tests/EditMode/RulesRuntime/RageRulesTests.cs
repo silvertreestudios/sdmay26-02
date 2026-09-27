@@ -78,7 +78,8 @@ namespace Game.Tests.EditMode.RulesRuntime
         public async Task OrdinaryRageIgnoresQuickTemperedMovementRequirements()
         {
             TestRageActorStateProvider provider = new TestRageActorStateProvider(
-                CreateActorState(isEncumbered: true, wearsHeavyArmor: true)
+                CreateActorState(wearsHeavyArmor: true),
+                "Encumbered"
             );
             RuleDispatcher dispatcher = CreateDispatcher(provider);
 
@@ -92,7 +93,8 @@ namespace Game.Tests.EditMode.RulesRuntime
         public async Task FatiguedOrUnownedRageIsRejectedBeforeCost()
         {
             TestRageActorStateProvider fatiguedProvider = new TestRageActorStateProvider(
-                CreateActorState(isFatigued: true)
+                CreateActorState(),
+                "Fatigued"
             );
             RuleDispatcher fatigued = CreateDispatcher(fatiguedProvider);
             TestRageActorStateProvider unownedProvider = new TestRageActorStateProvider(
@@ -121,7 +123,8 @@ namespace Game.Tests.EditMode.RulesRuntime
             RuleDispatcher allowed = CreateDispatcher(allowedProvider);
             RuleDispatcher encumbered = CreateDispatcher(
                 new TestRageActorStateProvider(
-                    CreateActorState(ownsQuickTempered: true, isEncumbered: true)
+                    CreateActorState(ownsQuickTempered: true),
+                    "Encumbered"
                 )
             );
             RuleDispatcher heavy = CreateDispatcher(
@@ -534,6 +537,7 @@ namespace Game.Tests.EditMode.RulesRuntime
             RageActionDefinition definition = new RageActionDefinition(provider);
             RuleRegistryBuilder registryBuilder = new RuleRegistryBuilder();
             RageRules.DefineRuleBindings(registryBuilder);
+            registryBuilder.Define(ConditionRules.DefinitionId).EffectState<ConditionState>();
             List<ActiveRuleBinding> actorBindings = RageRules
                 .CreateInitialBindings(Actor, provider.Get(Actor))
                 .ToList();
@@ -585,7 +589,15 @@ namespace Game.Tests.EditMode.RulesRuntime
                             Encounter,
                             new[]
                             {
-                                Registration(Actor, Party, actorInitiativeModifier, actorBindings),
+                                Registration(
+                                    Actor,
+                                    Party,
+                                    actorInitiativeModifier,
+                                    actorBindings,
+                                    provider is TestRageActorStateProvider testProvider
+                                        ? testProvider.Condition
+                                        : string.Empty
+                                ),
                                 Registration(
                                     Enemy,
                                     Opposition,
@@ -614,9 +626,35 @@ namespace Game.Tests.EditMode.RulesRuntime
             CreatureId creature,
             PlayerId team,
             int initiativeModifier,
-            IReadOnlyList<ActiveRuleBinding> bindings
-        ) =>
-            new CombatantRulesState(
+            IReadOnlyList<ActiveRuleBinding> bindings,
+            string condition = ""
+        )
+        {
+            List<ActiveEffectInstance> effects = new();
+            List<ActiveRuleBinding> allBindings = bindings.ToList();
+            if (condition.Length > 0)
+            {
+                var effect = new ActiveEffectInstance(
+                    new ActiveEffectId("test-condition"),
+                    ConditionRules.DefinitionId,
+                    creature,
+                    RuleSource.FromSlug("test-condition"),
+                    EffectDuration.Indefinite,
+                    new ConditionState(new ConditionId(condition), 1)
+                );
+                effects.Add(effect);
+                allBindings.Add(
+                    new ActiveRuleBinding(
+                        new BindingId("test-condition"),
+                        ConditionRules.DefinitionId,
+                        creature,
+                        effect.Id,
+                        effect.Source,
+                        0
+                    )
+                );
+            }
+            return new CombatantRulesState(
                 new CreatureState(creature, team),
                 new CreatureStatisticsState(
                     creature,
@@ -633,27 +671,24 @@ namespace Game.Tests.EditMode.RulesRuntime
                 new GridDistance(25),
                 initiativeModifier,
                 Array.Empty<SpellSlotState>(),
-                bindings,
+                allBindings,
                 Array.Empty<EquipmentState>(),
                 Array.Empty<AmmunitionState>(),
-                Array.Empty<ActiveEffectInstance>(),
+                effects,
                 Array.Empty<ActiveEffectTimingRestore>(),
                 Array.Empty<CreatureId>()
             );
+        }
 
         private static RageActorState CreateActorState(
             bool ownsRage = true,
             bool ownsQuickTempered = false,
-            bool isFatigued = false,
-            bool isEncumbered = false,
             bool wearsHeavyArmor = false,
             bool hasInvulnerableRager = false
         ) =>
             new RageActorState(
                 ownsRage,
                 ownsQuickTempered,
-                isFatigued,
-                isEncumbered,
                 wearsHeavyArmor,
                 hasInvulnerableRager,
                 1,
@@ -673,8 +708,13 @@ namespace Game.Tests.EditMode.RulesRuntime
         {
             private readonly RageActorState state;
 
-            public TestRageActorStateProvider(RageActorState state) =>
+            public string Condition { get; }
+
+            public TestRageActorStateProvider(RageActorState state, string condition = "")
+            {
                 this.state = state ?? throw new ArgumentNullException(nameof(state));
+                Condition = condition;
+            }
 
             public RageActorState Get(CreatureId actor)
             {

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Game.Rules.Runtime;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;

@@ -18,35 +18,6 @@ namespace Game.Combat.Rules
         private const int DefaultUnarmedReachFeet = 5;
 
         /// <summary>
-        /// Evaluates the retained legacy Strike context through the runtime Flanking selector.
-        /// </summary>
-        /// <remarks>
-        /// Production rules-backed Strikes use the snapshot overload. This adapter remains for
-        /// compiled legacy calculation fixtures and intentionally searches only the current grid's
-        /// occupants instead of discovering scene combatants.
-        /// </remarks>
-        public static bool GrantsOffGuardToMeleeAttack(
-            GameObject attacker,
-            GameObject target,
-            StrikeProfile strike
-        )
-        {
-            if (attacker == null || target == null || strike == null || strike.IsRangedAttack)
-                return false;
-
-            Tile[,] tiles = TryGetTiles();
-            if (tiles == null)
-                return false;
-
-            return IsFlanking(
-                attacker,
-                target,
-                tiles,
-                Math.Max(DefaultUnarmedReachFeet, strike.ReachFeet)
-            );
-        }
-
-        /// <summary>
         /// Adapts a standalone Unity grid to the same runtime Flanking selector used in encounters.
         /// </summary>
         public static bool IsFlanking(

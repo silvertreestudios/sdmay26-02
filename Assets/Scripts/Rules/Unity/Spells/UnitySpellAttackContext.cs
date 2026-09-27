@@ -103,44 +103,73 @@ namespace Game.Rules.Unity.Spells
             if (!creatures.TryGetValue(actor, out CreatureComponent caster) || caster == null)
                 return ActionValidationResult.Invalid("The spell caster is unavailable.");
 
-            if (profile.Kind == SpellSelectionKind.None)
-                return selection.Creatures.Count == 0
-                    ? ActionValidationResult.Valid
-                    : ActionValidationResult.Invalid("The spell does not select a target.");
+            if (!TryCaptureReachable(caster, profile, selection, out var reachable))
+                return ActionValidationResult.Invalid("The selected spell area is unavailable.");
+            return SpellTargetingRules.ValidateSelection(
+                snapshot,
+                actor,
+                profile,
+                selection,
+                reachable,
+                friendshipProvider
+            );
+        }
+
+        private bool TryCaptureReachable(
+            CreatureComponent caster,
+            SpellSelectionProfile profile,
+            SpellCastSelection selection,
+            out List<CreatureId> reachable
+        )
+        {
+            reachable = new();
             if (
                 profile.Kind == SpellSelectionKind.SingleCreature
                 || profile.Kind == SpellSelectionKind.ExactCreatureCount
             )
-                return ValidateCreatureTargets(snapshot, actor, caster, profile, selection);
+            {
+                foreach (CreatureId targetId in selection.Creatures)
+                    if (
+                        creatures.TryGetValue(targetId, out CreatureComponent target)
+                        && target != null
+                        && StrikeTargeting.Evaluate(
+                            caster.gameObject,
+                            target.gameObject,
+                            tiles,
+                            new StrikeTargetRequest
+                            {
+                                IsRanged = profile.RangeFeet > 5,
+                                FixedRangeFeet = profile.RangeFeet,
+                                RequiresLineOfEffect = true,
+                                IncludeSelf = true,
+                            }
+                        ) != null
+                    )
+                        reachable.Add(targetId);
+                return true;
+            }
             if (
-                profile.Kind != SpellSelectionKind.Cone
-                && profile.Kind != SpellSelectionKind.Emanation
+                (
+                    profile.Kind != SpellSelectionKind.Cone
+                    && profile.Kind != SpellSelectionKind.Emanation
+                ) || (profile.Kind == SpellSelectionKind.Cone && !selection.HasAreaDirection)
             )
-                return ActionValidationResult.Invalid("The spell selection shape is unsupported.");
-            if (profile.Kind == SpellSelectionKind.Cone && !selection.HasAreaDirection)
-                return ActionValidationResult.Invalid(
-                    "A directed spell area requires its chosen direction."
-                );
-
+                return true;
+            AreaShape shape =
+                profile.Kind == SpellSelectionKind.Cone ? AreaShape.Cone : AreaShape.Emanation;
             AreaTargetResult current = AreaTargeting.Evaluate(
                 caster.gameObject,
                 tiles,
                 new AreaTargetRequest
                 {
-                    Shape =
-                        profile.Kind == SpellSelectionKind.Cone
-                            ? AreaShape.Cone
-                            : AreaShape.Emanation,
+                    Shape = shape,
                     SizeFeet = profile.AreaFeet,
                     IncludeCenter = profile.IncludeCaster,
                     RequiresLineOfEffect = true,
                 },
                 new AreaPlacement
                 {
-                    Shape =
-                        profile.Kind == SpellSelectionKind.Cone
-                            ? AreaShape.Cone
-                            : AreaShape.Emanation,
+                    Shape = shape,
                     OriginCell = UnityEngine.Vector3Int.RoundToInt(caster.transform.position),
                     Direction =
                         profile.Kind == SpellSelectionKind.Cone
@@ -149,9 +178,7 @@ namespace Game.Rules.Unity.Spells
                 }
             );
             if (current == null)
-                return ActionValidationResult.Invalid("The selected spell area is unavailable.");
-
-            HashSet<CreatureId> expected = new();
+                return false;
             foreach (
                 CreatureComponent target in current
                     .Creatures.Where(value => value.IsAffected)
@@ -159,25 +186,11 @@ namespace Game.Rules.Unity.Spells
                     .Where(value => value != null)
             )
             {
-                KeyValuePair<CreatureId, CreatureComponent> registered = creatures.FirstOrDefault(
-                    pair => pair.Value == target
-                );
-                if (
-                    registered.Key.IsEmpty
-                    || !snapshot.Health.TryGet(registered.Key, out HealthState health)
-                    || !health.IsLiving
-                    || (profile.FriendlyOnly && !AreFriendly(snapshot, actor, registered.Key))
-                )
-                    continue;
-                expected.Add(registered.Key);
+                var registered = creatures.FirstOrDefault(pair => pair.Value == target);
+                if (!registered.Key.IsEmpty)
+                    reachable.Add(registered.Key);
             }
-            if (profile.IncludeCaster)
-                expected.Add(actor);
-            return expected.SetEquals(selection.Creatures)
-                ? ActionValidationResult.Valid
-                : ActionValidationResult.Invalid(
-                    "The selected creatures no longer match the spell area."
-                );
+            return true;
         }
 
         /// <inheritdoc/>
@@ -218,17 +231,14 @@ namespace Game.Rules.Unity.Spells
                 // The rules slice owns the untyped base AC. Cover remains a typed candidate so it
                 // participates correctly in circumstance-modifier stacking during resolution.
                 Math.Max(1, statistics.ArmorClass),
-                targeting.CoverAcBonus == 0
-                    ? Array.Empty<Modifier>()
-                    : new[]
-                    {
-                        new Modifier(
-                            targeting.CoverAcBonus,
-                            ModifierType.Circumstance,
-                            RuleSource.FromSlug("cover"),
-                            Statistic.ArmorClass
-                        ),
-                    },
+                StrikeTargetingRules.ArmorClassModifiers(
+                    StrikeTargetingOutcome.Legal(
+                        targeting.DistanceFeet,
+                        0,
+                        targeting.CoverAcBonus,
+                        false
+                    )
+                ),
                 Array.Empty<Modifier>(),
                 UnityAttackDataAdapter.CaptureWeaknesses(defender),
                 UnityAttackDataAdapter.CaptureResistances(defender)
@@ -241,52 +251,6 @@ namespace Game.Rules.Unity.Spells
                 throw new InvalidOperationException($"Creature '{id.Value}' is unavailable.");
             return creature;
         }
-
-        private ActionValidationResult ValidateCreatureTargets(
-            RulesSnapshot snapshot,
-            CreatureId actor,
-            CreatureComponent caster,
-            SpellSelectionProfile profile,
-            SpellCastSelection selection
-        )
-        {
-            foreach (CreatureId targetId in selection.Creatures)
-            {
-                if (
-                    !creatures.TryGetValue(targetId, out CreatureComponent target)
-                    || target == null
-                )
-                    return ActionValidationResult.Invalid(
-                        "A selected spell target is unavailable."
-                    );
-                if (profile.FriendlyOnly && !AreFriendly(snapshot, actor, targetId))
-                    return ActionValidationResult.Invalid(
-                        "The selected spell target is not friendly."
-                    );
-                StrikeTargetResult targeting = StrikeTargeting.Evaluate(
-                    caster.gameObject,
-                    target.gameObject,
-                    tiles,
-                    new StrikeTargetRequest
-                    {
-                        IsRanged = profile.RangeFeet > 5,
-                        FixedRangeFeet = profile.RangeFeet,
-                        RequiresLineOfEffect = true,
-                        IncludeSelf = true,
-                    }
-                );
-                if (targeting == null)
-                    return ActionValidationResult.Invalid(
-                        "A selected spell target is out of range or has no line of effect."
-                    );
-            }
-            return ActionValidationResult.Valid;
-        }
-
-        private bool AreFriendly(RulesSnapshot snapshot, CreatureId source, CreatureId target) =>
-            snapshot.Creatures.TryGet(source, out CreatureState sourceState)
-            && snapshot.Creatures.TryGet(target, out CreatureState targetState)
-            && friendshipProvider.IsFriendly(sourceState.Player, targetState.Player);
 
         private static AreaDirection ToUnityDirection(SpellAreaDirection direction) =>
             direction switch

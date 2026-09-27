@@ -66,13 +66,11 @@ namespace Game.Combat.Spells
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
             builder.AddInitiativeModifiers(
-                SpellFeatureRules
-                    .CollectInitiativeModifiers(
-                        builder.CreatureId,
-                        builder.RuleBindings,
-                        builder.ActiveEffects
-                    )
-                    .Select(UnityCreatureStatisticsAdapter.ToCreatureModifier)
+                SpellFeatureRules.CollectInitiativeModifiers(
+                    builder.CreatureId,
+                    builder.RuleBindings,
+                    builder.ActiveEffects
+                )
             );
             ISpellBook book = catalog.GetSpellBook(builder.CreatureId);
             SpellSlotResourceSeed restoredSeed =

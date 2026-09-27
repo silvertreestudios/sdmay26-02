@@ -35,7 +35,7 @@ section.
 
 | Selection | Files | Contents | Path-inventory SHA-256 |
 | --- | ---: | --- | --- |
-| `Assets/Scripts` | 279 | 275 `.cs`, 2 `.asmdef`, and 2 retained noncompiled `.orig` artifacts | `cd0d91b74ba4c71eecbf1d7196bd431a157121e1e1c4245de507ae75d1df00ab` |
+| `Assets/Scripts` | 282 | 278 `.cs`, 2 `.asmdef`, and 2 retained noncompiled `.orig` artifacts | `d1db7eb8a79e32b29dd81d01e0df920523f773209fb3ef947b6ff597d1786a60` |
 | `Assets/KayKit/Runtime` | 16 | 16 player-runtime C# files | `14d7ae7e097e91433b800c27d910a32ed6a16f6e2e456179910deebd4c35505e` |
 | `Assets/UIStuff` source | 12 | 11 player-runtime C# files and 1 retained noncompiled `.orig` artifact | `63c2accd74d1c99884f2959d4bab0bc3b3ba9a5877fadb7df113dbad62465ba8` |
 | `Assets` root/runtime support | 4 | Generated input C#, input source, main assembly definition, and tutorial readme C# | `ad21d95d2faefcda779fdc2f0e8b37a61584f1ec8643007160e8f143b53e732c` |
@@ -48,12 +48,12 @@ section.
 | `Assets/Resources/Data` | 3 | Excluded legacy character-builder JSON | `53d37ebfb35d65fb41108d8f414c6496ab0c428f10f02d7023880aaab9cfb38b` |
 | `Assets/Resources/Icons` | 19 | UI icon resources | `44e96509772079ac523d59ff127de4ef38e93a59dce4867b7d73d8be67fd4aa9` |
 | `Assets/UIStuff/Resources` | 5 | Storyboard and font resources | `2386c9d507c8a4986adeb191dd7d9c3a2dd256ff555588758f30f5ab05d84818` |
-| `Assets/Tests/EditMode` | 71 | 69 C# files and 2 assembly definitions | `1da99c4460ffe2c2614fd9c065acacf6680f5678f5a4c37619bbf9400f07d9d1` |
+| `Assets/Tests/EditMode` | 72 | 70 C# files and 2 assembly definitions | `3fd4b9dbddb19c481cbbe1e63cdb40eac3cba5592dee2a0ac21bc5cc9738634b` |
 | `Assets/Tests/PlayMode` | 26 | 25 C# files and 1 assembly definition | `ebfd3766961d98fa443fc7f6707fcb967e39ebe6a4978d2f3d94b3652802cccc` |
 
-The independent recursive sweep contains 412 C# files: 94 tests, 14 editor-only files, and 304
-player-runtime files. The production subsystem totals include 101 non-meta files in
-`Assets/Scripts/Rules/Runtime`, 20 in `Assets/Scripts/Rules/Unity`, 43 in
+The independent recursive sweep contains 416 C# files: 95 tests, 14 editor-only files, and 307
+player-runtime files. The production subsystem totals include 106 non-meta files in
+`Assets/Scripts/Rules/Runtime`, 20 in `Assets/Scripts/Rules/Unity`, 41 in
 `Assets/Scripts/Combat`, 36 in `Assets/Scripts/Creature`, and 31 in `Assets/Scripts/Grid`.
 
 ### Runtime load-site accounting
@@ -98,6 +98,31 @@ complete merely because adjacent infrastructure exists.
 The current contributor-facing status is summarized in
 [Rules Runtime Feature Lane Status](Rules_Runtime_Feature_Lane_Status.md) and the supported character
 boundary in [Rules Runtime Pre-Built Character Acceptance](Rules_Runtime_PreBuilt_Character_Acceptance.md).
+
+### Rules-authority closure audit
+
+The following code reconciliation supersedes the earlier broad “complete” labels for these
+boundaries. Normal-host Unity 6000.2.1f1 verification passed after the fixture corrections:
+targeted EditMode 131/131, full EditMode 1,087/1,087, and full PlayMode 231/231, with zero failed,
+skipped, or inconclusive tests. The first host targeted run exposed two fixtures that dispatched
+a nested-only removal operation as an external request; those fixtures now use an explicit test
+workflow. Earlier failed logs remain preserved alongside the passing XML and tested-file manifest
+in the delivery evidence. Source hashes match that tested manifest; this verification update
+changes documentation only. Pure NUnit and compiler checks remain supplemental evidence.
+
+| Audited production path | Final ownership and evidence |
+| --- | --- |
+| Strike preparation and per-target capture | `PreparedStrikeDefinition` copies collection and predicate inputs at enrollment; `PreparedStrikeRules` owns supported profile preparation and contextual calculation. `PreparedStrikeRulesTests` checks repeatability, context changes, ordered adjustments, replacement, ability substitution, tags, dice, and immutable inputs. `RulesStrikeUnityTests` checks cached-source mutation and stale target display isolation. |
+| Strike preview/execution and spell cover | Grid code measures geometry; `StrikeTargetingRules` owns range and cover policy for both consumers. Pure boundary tests plus `GridPreviewAndEncounterTargetingAgreeAtRangeBoundaries` cover the handoff. |
+| Rage eligibility and condition transport | `RageRules` selects sourced conditions from the snapshot. Initial raw import is superseded by explicit restore/detach transport. `RageReadsSourcedConditionsDespiteStaleDisplayAndAfterRemoval` covers independent removal, exact detached restoration, and absence preservation; existing generic dungeon condition codecs remain unchanged. |
+| Enrollment initiative | `InitiativeRules` combines captured base statistics and normalized feature modifiers through one `ModifierCollection`; no production call to `CreatureComponent.ResolveInitiative` remains. Existing restored-Guidance initial/reinforcement coverage remains applicable. |
+| Spell selection | `UnitySpellAttackContext` captures scene reachability; `SpellTargetingRules` owns living/friendly membership and selection policy. Pure membership/direction regressions and existing cast-selection integrations cover the contract. |
+| Other capture/providers | `UnityAttackDataAdapter` copies typed defenses; `UnitySpellCreatureDataProvider` extracts immutable traits/defenses; `UnityRottingAuraModule` captures aura geometry and static source levels. `UnityCreatureStatisticsAdapter` captures prepared base values and explicit generic modifier inputs, not live condition providers. No new parallel mutable slice is justified by these inputs. |
+| Dormant alternatives | No source or serialized references to the deleted pipeline/Strike-context GUIDs remain. The random controller initiative method and Slow reaction suppression have no retained implementation. `Pf2eRulesEngine.GetAlteredTraits` is called only by a data-only Raging Intimidation fixture; the disconnected builder and uncomposed catalog content remain excluded. |
+
+This change does not alter encounter/action/health/movement/MAP reducers, active-effect timing or
+persistence codecs, the accepted checkpoint replacement repair, or the supported spell catalogs.
+No new reactions, moving Bless behavior, or unsupported catalog features are activated.
 
 ## Historical base inventory and reproducibility
 

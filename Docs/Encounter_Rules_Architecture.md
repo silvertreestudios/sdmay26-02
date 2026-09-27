@@ -37,12 +37,11 @@ Attachment is identity-sensitive. A read through a creature or controller is val
 bridge that currently owns it. Cleanup from an older encounter must not detach or overwrite a newer
 owner.
 
-The encounter is not fully rules-native. Rotting Aura owns its deterministic turn listener, dice,
+Rotting Aura owns its deterministic turn listener, dice,
 typed damage, and health workflow in the rules runtime, but a narrow feature adapter still captures
-its current Unity aura geometry and unmigrated creature traits, levels, weaknesses, and resistances.
+its current Unity aura geometry and immutable creature traits, levels, weaknesses, and resistances.
 Prepared-character and component data, including immutable base statistics, are still read during
-enrollment, and some scene-compatible manager entry points remain. Treat those paths as migration
-seams, not alternative authorities.
+enrollment, and some scene-compatible manager entry points remain. These are input and orchestration boundaries, not alternative rules authorities.
 
 `UnityCombatRulesBridge.CreateExplorationStride` is a special temporary composition. It reuses the
 Stride rules without attaching combat authority or spending encounter action economy.
@@ -521,6 +520,46 @@ Dungeon restoration preserves arbitrary positive condition values, independent o
 exact identities, and remaining timing through the generic rules-effect envelope. Slowed is the
 first consumer of this shared bookkeeping; other condition mechanics, the Slow spell, generic
 condition reduction/removal rules, and special condition interactions are not implicitly implemented.
+
+## Contextual Strike and condition authority
+
+`UnityPreparedStrikeDataAdapter` freezes copied definitions, prepared numeric facts, permanent
+roll options, and ability modifiers during the common Strike enrollment path. JSON predicates are
+compiled into immutable `PreparedPredicate` clauses; neither mutable JSON nor `RuleModifier`
+instances enter `RulesRuntime`. `PreparedStrikeRules` owns supported unarmed/weapon preparation,
+context options, item tags, last-matching modifier selection, ordered upgrade/multiply adjustments,
+ability substitution, and extra dice. Each evaluation uses local values. Target and actor condition
+options come from enabled `ConditionRules` applications, and active Rage options come from
+`RageRules`; cached active-condition/effect options are excluded. Enrollment lifetime cleanup removes
+the captured definitions with the actor's other Strike mappings.
+
+`StrikeTargetingRules` owns six-increment limits, range penalties, cover classification and typed AC
+candidates, and enemy eligibility using enrolled faction identities. `GridPrivate.StrikeTargeting`
+retains distance measurement, scene availability, corner/ray sampling, and grid iteration. Both
+preview and execution call the same pure policy; this does not install another targeting engine.
+`SpellTargetingRules` owns supported selection shape, living/friendly area membership, and exact
+membership validation from the scene-extracted reachable identities. Spell cover uses the same typed
+cover policy. `InitiativeRules` resolves the better imported initiative or prepared Perception and
+all generic/restored-effect modifier candidates once, before common combatant addition rolls.
+
+Rage's immutable actor inputs contain ownership, armor, level, and Constitution only. Fatigued and
+Encumbered eligibility reads enabled authoritative condition applications, including restored
+applications. Their legacy no-op helpers remain no-op; no new condition penalties or reactions are
+implemented. First enrollment can import previously unseeded sourced display entries. An explicit
+restore/detach transport, including an empty transport, supersedes those entries so stale display
+names cannot resurrect removed conditions. Ordinary pre-encounter applications continue to use
+`ConditionSeed`; attached decisions never read it or `Conditions.ActiveConditionNames`.
+
+The dormant `AttackResultPipeline` and its unused Strike request/context/profile/adjustment/event
+contracts are removed after source and serialized-GUID reference checks. Used typed outcome,
+`DamageRollResolution`, and combat-log presentation types remain. The controller's unused random
+initiative method and Slow's dormant reaction-clearing listener are removed. Prepared-content tests
+now evaluate the pure Strike feature rather than a second legacy damage calculation.
+
+Regression coverage is in `PreparedStrikeRulesTests`, `RageRulesTests`, `RulesRageUnityTests`,
+`RulesStrikeUnityTests`, and the existing spell/persistence suites. Current execution evidence belongs
+in the delivery handoff; compilation and standalone pure NUnit results do not replace full Unity
+EditMode and PlayMode verification.
 
 ## Recipe: add or migrate a vertical feature
 

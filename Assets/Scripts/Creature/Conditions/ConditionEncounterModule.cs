@@ -149,11 +149,43 @@ namespace Game.Creature.Rules
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)
         {
             ConditionSeed seed = builder.Controller.GetComponent<ConditionSeed>();
-            if (seed == null)
-                return;
+            var applications =
+                seed == null
+                    ? new System.Collections.Generic.List<(
+                        ConditionState State,
+                        RuleSource Source
+                    )>()
+                    : seed.Applications.ToList();
+            Conditions display = builder.Controller.GetComponent<Conditions>();
+            var represented = new System.Collections.Generic.HashSet<string>(
+                applications
+                    .Select(value => value.State.Condition.Value)
+                    .Concat(
+                        builder
+                            .ActiveEffects.Where(effect => effect.State is ConditionState)
+                            .Select(effect => effect.GetState<ConditionState>().Condition.Value)
+                    ),
+                StringComparer.OrdinalIgnoreCase
+            );
+            // A restore/detach transport is a complete authority snapshot, including absence.
+            // Its leftover display names must never recreate removed or expired applications.
+            if (
+                display != null
+                && builder.Controller.GetComponent<DungeonRulesEffectSeed>() == null
+            )
+                foreach (var imported in display.CaptureApplications())
+                    if (!represented.Contains(imported.ConditionId))
+                        applications.Add(
+                            (
+                                new ConditionState(new ConditionId(imported.ConditionId), 1),
+                                imported.Source != null
+                                && imported.Source.TryGetReplaySource(out RuleSource source)
+                                    ? source
+                                    : RuleSource.FromSlug("imported-condition")
+                            )
+                        );
             // Freeze before the addition commit: its Facts will update the Unity projection.
-            var applications = seed.Applications.ToArray();
-            for (int i = 0; i < applications.Length; i++)
+            for (int i = 0; i < applications.Count; i++)
             {
                 var application = applications[i];
                 var identity = builder.CreateActiveEffectIdentity(

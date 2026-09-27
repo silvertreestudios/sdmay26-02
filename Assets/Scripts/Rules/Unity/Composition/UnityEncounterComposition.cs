@@ -147,18 +147,6 @@ namespace Game.Rules.Unity.Composition
             );
         }
 
-        /// <summary>
-        /// Converts a normalized runtime modifier for use by the legacy creature-side initiative
-        /// resolver while encounter enrollment is still reversible.
-        /// </summary>
-        internal static Pf2eModifier ToCreatureModifier(Modifier modifier) =>
-            new(
-                modifier.Value,
-                ConvertModifierType(modifier.Type),
-                modifier.Source.Slug,
-                ConvertStatistic(modifier.Statistic)
-            );
-
         private static IReadOnlyList<Modifier> CaptureGenericModifiers(
             CreatureComponent creature
         ) =>
@@ -186,16 +174,6 @@ namespace Game.Rules.Unity.Composition
                 _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
             };
 
-        private static Pf2eModifierType ConvertModifierType(ModifierType type) =>
-            type switch
-            {
-                ModifierType.Untyped => Pf2eModifierType.Untyped,
-                ModifierType.Circumstance => Pf2eModifierType.Circumstance,
-                ModifierType.Item => Pf2eModifierType.Item,
-                ModifierType.Status => Pf2eModifierType.Status,
-                _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
-            };
-
         private static Statistic ConvertStatistic(Pf2eStatistic statistic) =>
             statistic switch
             {
@@ -207,20 +185,6 @@ namespace Game.Rules.Unity.Composition
                 Pf2eStatistic.SkillCheck => Statistic.SkillCheck,
                 Pf2eStatistic.Initiative => Statistic.Initiative,
                 Pf2eStatistic.DifficultyClass => Statistic.DifficultyClass,
-                _ => throw new ArgumentOutOfRangeException(nameof(statistic), statistic, null),
-            };
-
-        private static Pf2eStatistic ConvertStatistic(Statistic statistic) =>
-            statistic switch
-            {
-                Statistic.AttackRoll => Pf2eStatistic.AttackRoll,
-                Statistic.ArmorClass => Pf2eStatistic.ArmorClass,
-                Statistic.FortitudeSave => Pf2eStatistic.FortitudeSave,
-                Statistic.ReflexSave => Pf2eStatistic.ReflexSave,
-                Statistic.WillSave => Pf2eStatistic.WillSave,
-                Statistic.SkillCheck => Pf2eStatistic.SkillCheck,
-                Statistic.Initiative => Pf2eStatistic.Initiative,
-                Statistic.DifficultyClass => Pf2eStatistic.DifficultyClass,
                 _ => throw new ArgumentOutOfRangeException(nameof(statistic), statistic, null),
             };
 
@@ -244,7 +208,7 @@ namespace Game.Rules.Unity.Composition
         private readonly List<AmmunitionState> ammunition = new();
         private readonly List<ActiveEffectInstance> activeEffects = new();
         private readonly List<ActiveEffectTimingRestore> activeEffectTimings = new();
-        private readonly List<Pf2eModifier> initiativeModifiers = new();
+        private readonly List<Modifier> initiativeModifiers = new();
         private readonly HashSet<CreatureId> externalEffectReferences = new();
         private readonly List<RegistrationToken> durableReservations = new();
         private readonly CompositeLifetime preparationLifetime;
@@ -403,7 +367,7 @@ namespace Game.Rules.Unity.Composition
         /// Adds feature-owned candidates to the single initiative calculation performed after all
         /// enrollment modules have prepared their state and before the atomic registration commit.
         /// </summary>
-        internal void AddInitiativeModifiers(IEnumerable<Pf2eModifier> modifiers)
+        internal void AddInitiativeModifiers(IEnumerable<Modifier> modifiers)
         {
             if (modifiers == null)
                 throw new ArgumentNullException(nameof(modifiers));
@@ -414,7 +378,8 @@ namespace Game.Rules.Unity.Composition
         /// Resolves the enrollment initiative modifier once, including prepared feature candidates
         /// and the creature's ordinary typed-stacking inputs.
         /// </summary>
-        internal int ResolveInitiative() => Creature.ResolveInitiative(initiativeModifiers).Total;
+        internal int ResolveInitiative() =>
+            InitiativeRules.ResolveModifier(Creature.initiative, statistics, initiativeModifiers);
 
         /// <summary>Freezes the prepared base and feature contributions into one immutable state.</summary>
         internal CombatantRulesState BuildState(int initiativeModifier) =>

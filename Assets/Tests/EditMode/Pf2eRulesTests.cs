@@ -4,6 +4,7 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Strike;
 using GridPublic;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -502,27 +503,27 @@ public class Pf2eRulesTests
             Is.TypeOf<ResolvedOpResult<RageStartOutcome>>()
         );
 
-        StrikeProfile greataxe = new(
+        TestStrikeProfile greataxe = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
             new List<DamageValue> { new DamageValue("Slashing", 4) }
         );
-        StrikeResolutionContext greataxeContext = PrepareStrike(creature, greataxe);
+        PreparedStrikeResult greataxeContext = PrepareStrike(creature, greataxe);
         Assert.That(greataxeContext.FlatDamages.Last().DamageAmount, Is.EqualTo(3));
 
-        StrikeProfile agile = new(
+        TestStrikeProfile agile = new(
             new List<Dice> { new Dice(1, 4, "Bludgeoning") },
             new List<DamageValue> { new DamageValue("Bludgeoning", 4) }
         );
         agile.Traits.Add("agile");
-        StrikeResolutionContext agileContext = PrepareStrike(creature, agile);
+        PreparedStrikeResult agileContext = PrepareStrike(creature, agile);
         Assert.That(agileContext.FlatDamages.Last().DamageAmount, Is.EqualTo(1));
 
         bridge.Dispatch(new EndRageOp(actor));
-        StrikeProfile notRaging = new(
+        TestStrikeProfile notRaging = new(
             new List<Dice> { new Dice(1, 12, "Slashing") },
             new List<DamageValue> { new DamageValue("Slashing", 4) }
         );
-        StrikeResolutionContext notRagingContext = PrepareStrike(creature, notRaging);
+        PreparedStrikeResult notRagingContext = PrepareStrike(creature, notRaging);
         Assert.That(notRagingContext.FlatDamages.Count, Is.EqualTo(1));
     }
 
@@ -593,7 +594,7 @@ public class Pf2eRulesTests
     {
         CreatureComponent creature = CreatePreparedRogue();
 
-        StrikeProfile finesseStrike = new(
+        TestStrikeProfile finesseStrike = new(
             new List<Dice> { new Dice(1, 6, "slashing") },
             new List<DamageValue> { new DamageValue("slashing", creature.strMod) }
         )
@@ -602,10 +603,13 @@ public class Pf2eRulesTests
             ItemSlug = "dogslicer",
             WeaponCategory = "martial",
         };
-        StrikeResolutionContext finesseContext = PrepareStrike(creature, finesseStrike);
-        Assert.That(finesseContext.FlatDamages[0].DamageAmount, Is.EqualTo(creature.dexMod));
+        PreparedStrikeResult finesseContext = PrepareStrike(creature, finesseStrike);
+        Assert.That(
+            finesseContext.FlatDamages.Sum(value => value.DamageAmount),
+            Is.EqualTo(creature.dexMod)
+        );
 
-        StrikeProfile nonFinesseStrike = new(
+        TestStrikeProfile nonFinesseStrike = new(
             new List<Dice> { new Dice(1, 6, "slashing") },
             new List<DamageValue> { new DamageValue("slashing", creature.strMod) }
         )
@@ -614,8 +618,11 @@ public class Pf2eRulesTests
             ItemSlug = "scimitar",
             WeaponCategory = "martial",
         };
-        StrikeResolutionContext nonFinesseContext = PrepareStrike(creature, nonFinesseStrike);
-        Assert.That(nonFinesseContext.FlatDamages[0].DamageAmount, Is.EqualTo(creature.strMod));
+        PreparedStrikeResult nonFinesseContext = PrepareStrike(creature, nonFinesseStrike);
+        Assert.That(
+            nonFinesseContext.FlatDamages.Sum(value => value.DamageAmount),
+            Is.EqualTo(creature.strMod)
+        );
     }
 
     [Test]
@@ -624,19 +631,19 @@ public class Pf2eRulesTests
         CreatureComponent rogue = CreatePreparedRogue();
         CreatureComponent target = CreateTarget("Target");
 
-        StrikeProfile normalTarget = CreateDogslicerStrike(rogue);
-        StrikeResolutionContext normalContext = PrepareStrike(rogue, normalTarget, target);
+        TestStrikeProfile normalTarget = CreateDogslicerStrike(rogue);
+        PreparedStrikeResult normalContext = PrepareStrike(rogue, normalTarget, target);
         Assert.That(normalContext.DamageDice.Count, Is.EqualTo(1));
 
         target.GetComponent<Conditions>().Add("Off-Guard", new ConditionSource());
-        StrikeProfile offGuardTarget = CreateDogslicerStrike(rogue);
-        StrikeResolutionContext offGuardContext = PrepareStrike(rogue, offGuardTarget, target);
+        TestStrikeProfile offGuardTarget = CreateDogslicerStrike(rogue);
+        PreparedStrikeResult offGuardContext = PrepareStrike(rogue, offGuardTarget, target);
         Assert.That(offGuardContext.DamageDice.Count, Is.EqualTo(2));
         Assert.That(offGuardContext.DamageDice.Last().numberOfDice, Is.EqualTo(1));
         Assert.That(offGuardContext.DamageDice.Last().sidesPerDie, Is.EqualTo(6));
         Assert.That(offGuardContext.DamageDice.Last().damageType, Is.EqualTo("precision"));
 
-        StrikeProfile ineligibleWeapon = new(
+        TestStrikeProfile ineligibleWeapon = new(
             new List<Dice> { new Dice(1, 6, "slashing") },
             new List<DamageValue> { new DamageValue("slashing", rogue.strMod) }
         )
@@ -645,7 +652,7 @@ public class Pf2eRulesTests
             ItemSlug = "scimitar",
             WeaponCategory = "martial",
         };
-        StrikeResolutionContext ineligibleContext = PrepareStrike(rogue, ineligibleWeapon, target);
+        PreparedStrikeResult ineligibleContext = PrepareStrike(rogue, ineligibleWeapon, target);
         Assert.That(ineligibleContext.DamageDice.Count, Is.EqualTo(1));
     }
 
@@ -656,7 +663,7 @@ public class Pf2eRulesTests
         CreatureComponent target = CreateTarget("Flat-Footed Target");
         target.GetComponent<Conditions>().Add("Flat-Footed", new ConditionSource());
 
-        StrikeProfile shortbowStrike = new(
+        TestStrikeProfile shortbowStrike = new(
             new List<Dice> { new Dice(1, 6, "piercing") },
             new List<DamageValue>()
         )
@@ -667,7 +674,7 @@ public class Pf2eRulesTests
             IsRangedAttack = true,
         };
 
-        StrikeResolutionContext shortbowContext = PrepareStrike(rogue, shortbowStrike, target);
+        PreparedStrikeResult shortbowContext = PrepareStrike(rogue, shortbowStrike, target);
 
         Assert.That(shortbowContext.DamageDice.Count, Is.EqualTo(2));
         Assert.That(shortbowContext.DamageDice.Last().numberOfDice, Is.EqualTo(1));
@@ -765,34 +772,138 @@ public class Pf2eRulesTests
         return creature;
     }
 
-    private StrikeResolutionContext PrepareStrike(
+    private PreparedStrikeResult PrepareStrike(
         CreatureComponent attacker,
-        StrikeProfile profile,
+        TestStrikeProfile profile,
         CreatureComponent target = null
     )
     {
         CreatureComponent resolvedTarget = target ?? CreateTarget("Prepared Strike Target");
-        StrikeResolutionContext context = StrikeResolutionContext.FromRequest(
-            new StrikeResolutionRequest
+        var actor = new CreatureId("prepared-actor");
+        var targetId = new CreatureId("prepared-target");
+        RulesSnapshot snapshot;
+        var controller = attacker.GetComponent<ActionController>();
+        if (
+            controller != null
+            && controller.TryGetCombatRules(
+                out UnityCombatRulesBridge bridge,
+                out CreatureId attachedActor
+            )
+        )
+        {
+            snapshot = bridge.Snapshot;
+            actor = attachedActor;
+        }
+        else
+        {
+            RulesStateSeed seed = new();
+            seed.SeedCreature(new CreatureState(actor, new PlayerId("players")));
+            seed.SeedCreature(new CreatureState(targetId, new PlayerId("enemies")));
+            int index = 0;
+            foreach (
+                string condition in resolvedTarget.GetComponent<Conditions>().GetConditionNames()
+            )
             {
-                Attacker = attacker.gameObject,
-                Target = resolvedTarget.gameObject,
-                Profile = profile,
-                TargetingResult = new StrikeTargetResult
-                {
-                    Target = resolvedTarget.gameObject,
-                    LineOfEffect = StrikeLineOfEffect.Clear,
-                    Cover = StrikeCover.None,
-                },
+                var effect = new ActiveEffectInstance(
+                    new ActiveEffectId($"condition-{index}"),
+                    ConditionRules.DefinitionId,
+                    actor,
+                    RuleSource.FromSlug("fixture"),
+                    EffectDuration.Indefinite,
+                    new ConditionState(new ConditionId(condition), 1)
+                );
+                seed.SeedActiveEffect(effect);
+                seed.SeedRuleBinding(
+                    new ActiveRuleBinding(
+                        new BindingId($"condition-{index++}"),
+                        ConditionRules.DefinitionId,
+                        targetId,
+                        effect.Id,
+                        effect.Source,
+                        0
+                    )
+                );
             }
+            snapshot = new InMemoryRulesStore(seed).Snapshot;
+        }
+        var item = new StrikeItemDefinition(
+            new ItemId("fixture-item"),
+            new ItemDefinitionId(profile.ItemSlug),
+            "Fixture",
+            "",
+            profile.WeaponCategory,
+            profile.Traits.Select(Trait.FromSlug),
+            0,
+            profile.DamageDice.Select(value => new TypedDamageDice(
+                new DiceExpression(value.numberOfDice, value.sidesPerDie),
+                value.damageType,
+                "Fixture"
+            )),
+            profile.FlatDamages.Select(value => new TypedFlatDamage(
+                value.DamageAmount,
+                value.DamageType,
+                "Base"
+            )),
+            5,
+            profile.IsRangedAttack ? 60 : 0,
+            0,
+            StrikeAmmunitionRequirement.None
         );
-        Pf2eRulesEngine.ApplyPreparedStrikeAdjustments(context);
-        return context;
+        PreparedStrikeContributions result = PreparedStrikeRules.Evaluate(
+            UnityPreparedStrikeDataAdapter.Capture(attacker),
+            item,
+            StrikeTargetingOutcome.Legal(5, 0, 0, false),
+            snapshot,
+            actor,
+            targetId
+        );
+        return new PreparedStrikeResult
+        {
+            FlatDamages = profile
+                .FlatDamages.Concat(
+                    result.FlatDamage.Select(value => new DamageValue(
+                        value.DamageType,
+                        value.Amount
+                    ))
+                )
+                .ToList(),
+            DamageDice = profile
+                .DamageDice.Concat(
+                    result.DamageDice.Select(value => new Dice(
+                        value.Dice.Count,
+                        value.Dice.Sides,
+                        value.DamageType
+                    ))
+                )
+                .ToList(),
+        };
     }
 
-    private static StrikeProfile CreateDogslicerStrike(CreatureComponent rogue)
+    private sealed class PreparedStrikeResult
     {
-        return new StrikeProfile(
+        internal List<DamageValue> FlatDamages;
+        internal List<Dice> DamageDice;
+    }
+
+    private sealed class TestStrikeProfile
+    {
+        internal TestStrikeProfile(List<Dice> dice, List<DamageValue> flat)
+        {
+            DamageDice = dice;
+            FlatDamages = flat;
+        }
+
+        internal List<Dice> DamageDice;
+        internal List<DamageValue> FlatDamages;
+        internal List<string> Traits = new();
+        internal string ItemSlug = "fixture-item";
+        internal string WeaponCategory = "martial";
+        internal bool IsRangedAttack;
+    }
+
+    private static TestStrikeProfile CreateDogslicerStrike(CreatureComponent rogue)
+    {
+        return new TestStrikeProfile(
             new List<Dice> { new Dice(1, 6, "slashing") },
             new List<DamageValue> { new DamageValue("slashing", rogue.strMod) }
         )

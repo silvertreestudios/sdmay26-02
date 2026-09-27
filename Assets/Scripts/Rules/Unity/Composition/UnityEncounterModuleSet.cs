@@ -54,7 +54,7 @@ namespace Game.Rules.Unity.Composition
                     "Encounter extensions cannot contain null.",
                     nameof(extensions)
                 );
-            UnityStrikeContext strikeContext = new(creatures, tiles);
+            UnityStrikeContext strikeContext = new(creatures, tiles, friendshipProvider);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles, friendshipProvider);
             UnityRottingAuraModule rottingAura = new(creatures, tiles);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();

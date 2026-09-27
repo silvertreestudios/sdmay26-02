@@ -74,6 +74,196 @@ public sealed class RulesStrikeUnityTests
         Assert.That(lena.GetAmmoQuantity("arrows"), Is.EqualTo(20));
     }
 
+    [TestCase(10, true, 0)]
+    [TestCase(15, true, -2)]
+    [TestCase(60, true, -10)]
+    [TestCase(65, false, 0)]
+    public void GridPreviewAndEncounterTargetingAgreeAtRangeBoundaries(
+        int feet,
+        bool legal,
+        int penalty
+    )
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature("Target", "enemies", 20, 18);
+        attacker.transform.position = Vector3.zero;
+        target.transform.position = new Vector3(feet / 5, 0, 0);
+        var actorController = attacker.gameObject.AddComponent<TestActionController>();
+        var targetController = target.gameObject.AddComponent<TestActionController>();
+        Tile[,] tiles = CreateTiles(14);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { actorController, targetController },
+            tiles,
+            new ScriptedRollService(10, 10),
+            "heroes"
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId defender = bridge.GetCreatureId(target);
+        UnityStrikeContext context = new(
+            new Dictionary<CreatureId, CreatureComponent>
+            {
+                [actor] = attacker,
+                [defender] = target,
+            },
+            tiles,
+            SamePlayerCombatantFriendshipProvider.Instance
+        );
+        var item = new StrikeItemDefinition(
+            new ItemId("ranged"),
+            new ItemDefinitionId("ranged"),
+            "Ranged",
+            "",
+            "martial",
+            Array.Empty<Trait>(),
+            5,
+            new[] { new TypedDamageDice(new DiceExpression(1, 6), "piercing", "ranged") },
+            Array.Empty<TypedFlatDamage>(),
+            5,
+            10,
+            0,
+            StrikeAmmunitionRequirement.None
+        );
+        StrikeTargetResult preview = StrikeTargeting.Evaluate(
+            attacker.gameObject,
+            target.gameObject,
+            tiles,
+            new StrikeTargetRequest { IsRanged = true, RangeIncrementFeet = 10 }
+        );
+        StrikeTargetingOutcome execution = context.Evaluate(bridge.Snapshot, actor, item, defender);
+        Assert.That(preview != null, Is.EqualTo(legal));
+        Assert.That(execution is LegalStrikeTargetingOutcome, Is.EqualTo(legal));
+        if (execution is LegalStrikeTargetingOutcome accepted)
+        {
+            Assert.That(accepted.RangePenalty, Is.EqualTo(penalty));
+            Assert.That(accepted.RangePenalty, Is.EqualTo(preview.RangePenalty));
+            Assert.That(accepted.CoverBonus, Is.EqualTo(preview.CoverAcBonus));
+            Assert.That(accepted.DistanceFeet, Is.EqualTo(preview.DistanceFeet));
+        }
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void PreparedCaptureFreezesDefinitionsAndUsesConditionAuthority()
+    {
+        CreatureComponent attacker = CreateCreature("Attacker", "heroes", 20, 10);
+        CreatureComponent target = CreateCreature("Target", "enemies", 20, 18);
+        var prepared = Pf2eCharacterPreparer.EnsurePrepared(attacker);
+        var modifier = new RuleModifier
+        {
+            Selector = "strike-damage",
+            Slug = "context-bonus",
+            Value = 5,
+            Predicate = Newtonsoft.Json.Linq.JToken.Parse("[\"target:condition:Fatigued\"]"),
+        };
+        prepared.Modifiers.Add(modifier);
+        prepared.Adjustments.Add(
+            new RuleAdjustment
+            {
+                Selector = "strike-damage",
+                Slug = "context-bonus",
+                Mode = "multiply",
+                Value = .5f,
+            }
+        );
+        var actorController = attacker.gameObject.AddComponent<TestActionController>();
+        var targetController = target.gameObject.AddComponent<TestActionController>();
+        Tile[,] tiles = CreateTiles(2);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { actorController, targetController },
+            tiles,
+            new ScriptedRollService(10, 10),
+            "heroes",
+            EncounterConclusionPolicy.VictoryOrDefeat,
+            new[] { EffectRemovalTestWorkflow.CreateExtension() }
+        );
+        CreatureId actor = bridge.GetCreatureId(attacker);
+        CreatureId defender = bridge.GetCreatureId(target);
+        UnityStrikeContext context = new(
+            new Dictionary<CreatureId, CreatureComponent>
+            {
+                [actor] = attacker,
+                [defender] = target,
+            },
+            tiles,
+            SamePlayerCombatantFriendshipProvider.Instance
+        );
+        using IDisposable registration = context.PrepareCombatant(actor, attacker, out _, out _);
+        StrikeItemDefinition item = context
+            .GetItems(actor)
+            .Single(value => value.Definition.Value == "unarmed");
+        bridge.Dispatch(
+            new ApplyConditionOp(
+                defender,
+                new ConditionId("Fatigued"),
+                1,
+                actor,
+                RuleSource.FromSlug("test-condition"),
+                EffectDuration.Indefinite
+            )
+        );
+        target.GetComponent<Conditions>().Clear("Fatigued");
+        for (int index = 0; index < 3; index++)
+            Assert.That(
+                context
+                    .Capture(
+                        bridge.Snapshot,
+                        actor,
+                        item,
+                        defender,
+                        StrikeTargetingOutcome.Legal(5, 0, 0, false)
+                    )
+                    .FlatDamage.Single()
+                    .Amount,
+                Is.EqualTo(2)
+            );
+        Assert.That(modifier.Value, Is.EqualTo(5));
+        modifier.Value = 99;
+        ((Newtonsoft.Json.Linq.JArray)modifier.Predicate)[0] = "never";
+        Assert.That(
+            context
+                .Capture(
+                    bridge.Snapshot,
+                    actor,
+                    item,
+                    defender,
+                    StrikeTargetingOutcome.Legal(5, 0, 0, false)
+                )
+                .FlatDamage.Single()
+                .Amount,
+            Is.EqualTo(2),
+            "Enrollment owns a deep immutable definition."
+        );
+        var effect = ConditionRules.GetApplications(bridge.Snapshot, defender).Single();
+        var binding = bridge
+            .Snapshot.RuleBindings.Select(pair => pair.Value)
+            .Single(value => value.EffectId == effect.Id);
+        EffectRemovalTestWorkflow.Remove(
+            bridge,
+            new RemoveActiveEffectOp(
+                effect.Id,
+                binding.Id,
+                effect.EffectStateVersion,
+                ActiveEffectRemovalReason.Ended,
+                RuleSource.FromSlug("test-removal")
+            )
+        );
+        Assert.That(ConditionRules.GetApplications(bridge.Snapshot, defender), Is.Empty);
+        target.GetComponent<Conditions>().Add("Fatigued", new ConditionSource());
+        Assert.That(
+            context
+                .Capture(
+                    bridge.Snapshot,
+                    actor,
+                    item,
+                    defender,
+                    StrikeTargetingOutcome.Legal(5, 0, 0, false)
+                )
+                .FlatDamage,
+            Is.Empty
+        );
+        bridge.ReleaseOwnership();
+    }
+
     [Test]
     public void StrikeCaptureKeepsCoverAsTypedArmorClassCandidate()
     {
@@ -98,7 +288,8 @@ public sealed class RulesStrikeUnityTests
                 [actor] = attacker,
                 [targetId] = target,
             },
-            tiles
+            tiles,
+            SamePlayerCombatantFriendshipProvider.Instance
         );
         using IDisposable preparation = context.PrepareCombatant(actor, attacker, out _, out _);
         StrikeItemDefinition item = context

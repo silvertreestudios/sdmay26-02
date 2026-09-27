@@ -10,7 +10,7 @@ namespace Game.Rules.Runtime
     /// <remarks>
     /// The rules implementation depends on this narrow boundary instead of Unity components or
     /// prepared-character objects. Hosts may read those systems while constructing the value, but
-    /// every Rage decision is made from <see cref="RageActorState"/>.
+    /// Rage combines <see cref="RageActorState"/> with authoritative condition and effect selectors.
     /// </remarks>
     public interface IRageActorStateProvider
     {
@@ -26,8 +26,6 @@ namespace Game.Rules.Runtime
         /// <summary>Initializes immutable Rage inputs for one creature.</summary>
         /// <param name="ownsRage">Whether the creature owns the Rage action.</param>
         /// <param name="ownsQuickTempered">Whether the creature owns Quick-Tempered.</param>
-        /// <param name="isFatigued">Whether Fatigued currently prevents Rage.</param>
-        /// <param name="isEncumbered">Whether Encumbered prevents Quick-Tempered.</param>
         /// <param name="wearsHeavyArmor">Whether heavy armor prevents Quick-Tempered.</param>
         /// <param name="hasInvulnerableRager">
         /// Whether the creature has the feature that permits Quick-Tempered in heavy armor.
@@ -39,8 +37,6 @@ namespace Game.Rules.Runtime
         public RageActorState(
             bool ownsRage,
             bool ownsQuickTempered,
-            bool isFatigued,
-            bool isEncumbered,
             bool wearsHeavyArmor,
             bool hasInvulnerableRager,
             int level,
@@ -51,8 +47,6 @@ namespace Game.Rules.Runtime
                 throw new ArgumentOutOfRangeException(nameof(level));
             OwnsRage = ownsRage;
             OwnsQuickTempered = ownsQuickTempered;
-            IsFatigued = isFatigued;
-            IsEncumbered = isEncumbered;
             WearsHeavyArmor = wearsHeavyArmor;
             HasInvulnerableRager = hasInvulnerableRager;
             Level = level;
@@ -64,12 +58,6 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets whether the creature owns Quick-Tempered.</summary>
         public bool OwnsQuickTempered { get; }
-
-        /// <summary>Gets whether the creature is Fatigued.</summary>
-        public bool IsFatigued { get; }
-
-        /// <summary>Gets whether the creature is Encumbered.</summary>
-        public bool IsEncumbered { get; }
 
         /// <summary>Gets whether the creature is wearing heavy armor.</summary>
         public bool WearsHeavyArmor { get; }
@@ -189,7 +177,7 @@ namespace Game.Rules.Runtime
 
         /// <summary>Creates the Rage definition against an immutable-facts provider.</summary>
         /// <param name="actorStateProvider">
-        /// The boundary used to capture current ownership, condition, armor, and statistic facts.
+        /// The boundary used to capture immutable ownership, armor, and statistic facts.
         /// </param>
         public RageActionDefinition(IRageActorStateProvider actorStateProvider) =>
             this.actorStateProvider =
@@ -420,6 +408,17 @@ namespace Game.Rules.Runtime
             CreatureId actor
         ) => IsRaging(snapshot, actor) ? ActiveRollOptions : Array.Empty<string>();
 
+        private static bool HasCondition(RulesSnapshot snapshot, CreatureId actor, string name) =>
+            ConditionRules
+                .GetApplications(snapshot, actor)
+                .Any(effect =>
+                    string.Equals(
+                        effect.GetState<ConditionState>().Condition.Value,
+                        name,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
+
         internal static ActionValidationResult Validate(
             RulesSnapshot snapshot,
             CreatureId actor,
@@ -439,14 +438,14 @@ namespace Game.Rules.Runtime
                 return ActionValidationResult.Invalid("The actor does not own Rage.");
             if (IsRaging(snapshot, actor))
                 return ActionValidationResult.Invalid("The actor is already raging.");
-            if (state.IsFatigued)
+            if (HasCondition(snapshot, actor, "Fatigued"))
                 return ActionValidationResult.Invalid("The actor is fatigued.");
 
             if (!quickTempered)
                 return ActionValidationResult.Valid;
             if (!state.OwnsQuickTempered)
                 return ActionValidationResult.Invalid("The actor does not own Quick-Tempered.");
-            if (state.IsEncumbered)
+            if (HasCondition(snapshot, actor, "Encumbered"))
                 return ActionValidationResult.Invalid("The actor is encumbered.");
             if (state.WearsHeavyArmor && !state.HasInvulnerableRager)
                 return ActionValidationResult.Invalid("The actor is wearing heavy armor.");

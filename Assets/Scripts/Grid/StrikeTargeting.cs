@@ -1,18 +1,11 @@
 using System;
 using System.Collections.Generic;
 using Game.KayKit;
+using Game.Rules.Runtime;
 using UnityEngine;
 
 namespace GridPublic
 {
-    public enum StrikeCover
-    {
-        None,
-        Lesser,
-        Standard,
-        Greater,
-    }
-
     public enum StrikeLineOfEffect
     {
         Clear,
@@ -28,19 +21,13 @@ namespace GridPublic
         public int FixedRangeFeet { get; set; } = 0;
         public bool IncludeSelf { get; set; } = false;
 
-        public int MaximumRangeFeet
-        {
-            get
-            {
-                if (IsRanged && FixedRangeFeet > 0)
-                    return FixedRangeFeet;
-                if (IsRanged && FixedRangeFeet > 0)
-                    return FixedRangeFeet;
-                if (IsRanged && RangeIncrementFeet > 0)
-                    return RangeIncrementFeet * 6;
-                return ReachFeet;
-            }
-        }
+        public int MaximumRangeFeet =>
+            StrikeTargetingRules.MaximumRangeFeet(
+                IsRanged,
+                ReachFeet,
+                RangeIncrementFeet,
+                FixedRangeFeet
+            );
     }
 
     public class StrikeTargetResult
@@ -51,19 +38,7 @@ namespace GridPublic
         public StrikeCover Cover { get; set; }
         public int RangePenalty { get; set; }
 
-        public int CoverAcBonus
-        {
-            get
-            {
-                return Cover switch
-                {
-                    StrikeCover.Lesser => 1,
-                    StrikeCover.Standard => 2,
-                    StrikeCover.Greater => 4,
-                    _ => 0,
-                };
-            }
-        }
+        public int CoverAcBonus => StrikeTargetingRules.CoverArmorClassBonus(Cover);
 
         public bool IsLegal => Target != null && LineOfEffect == StrikeLineOfEffect.Clear;
     }
@@ -103,30 +78,17 @@ namespace GridPrivate
             if (request == null)
                 return false;
 
-            int distance = MeasureGridDistanceFeet(start, target);
-            if (request.IsRanged)
-            {
-                if (request.FixedRangeFeet > 0)
-                    return distance <= request.FixedRangeFeet;
-                return request.RangeIncrementFeet > 0 && distance <= request.RangeIncrementFeet * 6;
-            }
-            return distance <= request.ReachFeet;
+            return StrikeTargetingRules.IsWithinRange(
+                MeasureGridDistanceFeet(start, target),
+                request.IsRanged,
+                request.ReachFeet,
+                request.RangeIncrementFeet,
+                request.FixedRangeFeet
+            );
         }
 
-        public static int CalculateRangePenalty(int distanceFeet, int rangeIncrementFeet)
-        {
-            if (rangeIncrementFeet <= 0 || distanceFeet <= rangeIncrementFeet)
-                return 0;
-
-            int increment = Mathf.CeilToInt(distanceFeet / (float)rangeIncrementFeet);
-            if (increment > 6)
-                throw new ArgumentOutOfRangeException(
-                    nameof(distanceFeet),
-                    "Ranged Strikes cannot target beyond six range increments."
-                );
-
-            return -2 * (increment - 1);
-        }
+        public static int CalculateRangePenalty(int distanceFeet, int rangeIncrementFeet) =>
+            StrikeTargetingRules.RangePenalty(distanceFeet, rangeIncrementFeet);
 
         public static List<Vector3Int> CellsInRange(
             Tile[,] tiles,
@@ -189,9 +151,7 @@ namespace GridPrivate
             )
                 return null;
 
-            GridPublic.StrikeCover cover = GridPublic.StrikeCover.None;
-            if (request.IsRanged && clearRays > 0 && clearRays < 16)
-                cover = GridPublic.StrikeCover.Standard;
+            StrikeCover cover = StrikeTargetingRules.CoverFromRays(request.IsRanged, clearRays);
 
             int rangePenalty =
                 request.IsRanged && request.FixedRangeFeet <= 0
