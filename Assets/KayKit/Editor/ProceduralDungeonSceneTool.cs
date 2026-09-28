@@ -25,6 +25,7 @@ namespace Game.KayKit.Editor
         private const string SourceScenePath = "Assets/Scenes/UnitTestingScene.unity";
         private const string LenaPrefabPath = "Assets/Prefabs/Creatures/Lena.prefab";
         private const string TorgrimPrefabPath = "Assets/Prefabs/Creatures/Torgrim.prefab";
+        private const string MarenPrefabPath = "Assets/Prefabs/Creatures/Maren.prefab";
         private const int FixtureSeed = 156;
         private const int FixtureSize = 31;
         private const int FixtureMinimumRoomSize = 5;
@@ -174,15 +175,16 @@ namespace Game.KayKit.Editor
                         .Where(cell => IsWalkable(document, cell))
                 )
                 .Distinct()
-                .Take(2)
+                .Take(3)
                 .ToArray();
-            if (cells.Length != 2)
+            if (cells.Length != 3)
                 throw new InvalidOperationException(
-                    "The procedural fixture requires two authored party cells."
+                    "The procedural fixture requires three authored party cells."
                 );
 
             InstantiatePartyMember(LenaPrefabPath, "Lena", cells[0]);
             InstantiatePartyMember(TorgrimPrefabPath, "Torgrim", cells[1]);
+            InstantiatePartyMember(MarenPrefabPath, "Maren", cells[2]);
         }
 
         private static void InstantiatePartyMember(

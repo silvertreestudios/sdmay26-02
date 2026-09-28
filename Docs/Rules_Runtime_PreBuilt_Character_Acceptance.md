@@ -27,6 +27,17 @@ code remains authoritative, and the lifetime/composition rules in
 5. Dungeon saves restore supported mutable actor state, registered effects, sourced conditions,
    timing, and spell slots before the same preparation and enrollment path resumes play.
 
+## Default party
+
+New runs author Lena, Torgrim, and Maren as the exact three-member default party. Maren uses the
+checked-in level-1 cloistered-cleric build, Mace, five cantrips, Bless, Infuse Vitality, and healing
+font Heal slots already covered by this supported path. Deity selection, domain/focus-spell
+mechanics, broader cleric progression, and unsupported catalog spells remain outside this contract.
+
+The authored roster is part of save compatibility. Saves created with the former Lena/Torgrim-only
+roster cannot Continue after this change and must start a new run. The game rejects that mismatch;
+it does not migrate or delete the old save.
+
 ## Integrated acceptance ledger
 
 | Boundary | Production evidence | Current regression evidence | Status |

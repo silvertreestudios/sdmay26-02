@@ -431,6 +431,12 @@ namespace Game.DungeonPersistence
                 );
             }
 
+            // Authored party prefabs remain inactive until the run is committed, so Unity has not
+            // invoked Start yet. Prepare their idempotent derived state before the initial save;
+            // otherwise a caster would be checkpointed with no slot pools and fail enrollment.
+            foreach (ActionController controller in party)
+                controller.GetComponent<CreatureComponent>().InitializeRuntimeActions();
+
             DungeonTravelDiagnostic acquisition = DungeonRunController.AcquireFirstVisit(
                 generator,
                 encounterPlanner,

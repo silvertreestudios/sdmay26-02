@@ -36,6 +36,7 @@ public sealed class KayKitAnimatedCreatureTests
 
     [TestCase("Lena", "adventurers/ranger")]
     [TestCase("Torgrim", "adventurers/barbarian")]
+    [TestCase("Maren", "adventurers/mage")]
     [TestCase("Zombie Shambler", "skeletons/skeleton_minion")]
     [TestCase("Zombie Shambler (Rotting Aura)", "skeletons/skeleton_minion")]
     [TestCase("Skeleton Guard", "skeletons/skeleton_warrior")]
