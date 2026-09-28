@@ -1,10 +1,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
 using Game.Creature;
+using Game.Creature.Rules;
+using Game.DungeonPersistence.Actors;
+using Game.DungeonPersistence.Repository;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using GridPrivate;
@@ -72,6 +76,271 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.WhosTurn(), Is.Not.SameAs(dormantEnemy.GameObject));
         Assert.That(dormantEnemy.Controller.StartTurnCount, Is.Zero);
         Assert.That(dormantEnemy.Controller.HasTurnAuthority, Is.False);
+    }
+
+    /// <summary>
+    /// Verifies combat startup does not re-import a passive condition already waiting in restored
+    /// rules state.
+    /// </summary>
+    [Test]
+    public void StartDungeonCombat_RestoredSlowPassiveEnrollsOneApplication()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 200);
+        CombatantFixture restoredZombie = CreateCombatant("Restored Zombie", "Enemies", 100);
+        restoredZombie.Creature.passives.Add("Slow");
+        InstallRestoredSlowed(
+            restoredZombie,
+            40,
+            "restored-zombie",
+            RuleSource.FromSlug("passive:slow").Slug
+        );
+
+        Assert.DoesNotThrow(() =>
+            manager.StartDungeonCombat(new[] { player.Controller, restoredZombie.Controller })
+        );
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        CreatureId zombie = bridge.GetCreatureId(restoredZombie.Controller);
+        Assert.That(
+            ConditionRules.GetValue(bridge.Snapshot, zombie, SlowedRules.ConditionId),
+            Is.EqualTo(1)
+        );
+        Assert.That(ConditionRules.GetApplications(bridge.Snapshot, zombie).Count(), Is.EqualTo(1));
+    }
+
+    /// <summary>
+    /// Verifies restored reinforcement identities advance the live dispatcher before addition.
+    /// </summary>
+    [Test]
+    public void AddDungeonReinforcements_RestoredHighWaterProtectsLaterEffectIdentity()
+    {
+        const long restoredCreationOrder = 200;
+        CombatantFixture player = CreateCombatant("Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 100);
+        CombatantFixture reinforcement = CreateCombatant("Restored Reinforcement", "Enemies", 50);
+        InstallRestoredSlowed(reinforcement, restoredCreationOrder, "restored-reinforcement");
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+
+        manager.AddDungeonReinforcements(new[] { reinforcement.Controller });
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        CreatureId actor = bridge.GetCreatureId(reinforcement.Controller);
+        RuleSource newSource = RuleSource.FromSlug("post-reinforcement-condition");
+        Assert.That(
+            bridge.Dispatch(
+                new ApplyConditionOp(
+                    actor,
+                    SlowedRules.ConditionId,
+                    2,
+                    actor,
+                    newSource,
+                    EffectDuration.Indefinite
+                )
+            ),
+            Is.TypeOf<ResolvedOpResult<ActiveEffectCreationOutcome>>()
+        );
+        ActiveRuleBinding created = bridge
+            .Snapshot.RuleBindings.Select(pair => pair.Value)
+            .Single(binding => binding.EffectId.HasValue && binding.Source == newSource);
+        Assert.That(created.CreationOrder, Is.GreaterThan(restoredCreationOrder));
+        Assert.That(bridge.Snapshot.ActiveEffects.Count, Is.EqualTo(2));
+    }
+
+    /// <summary>
+    /// Verifies failed preparation releases stable actor associations along with the reused ID.
+    /// </summary>
+    [Test]
+    public void AddDungeonReinforcements_FailedPreparationReleasesStableActorAssociation()
+    {
+        CombatantFixture player = CreateCombatant("Player", "Players", 200);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 100);
+        CombatantFixture failed = CreateCombatant("Failed Reinforcement", "Enemies", 50);
+        CombatantFixture replacement = CreateCombatant("Replacement Reinforcement", "Enemies", 40);
+        InstallRestoredSlowed(failed, 300, "failed-reinforcement");
+        InstallRestoredSlowed(replacement, 301, "replacement-reinforcement");
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        failed.Controller.GetActionsEvent.AddListener(_ =>
+            throw new InvalidOperationException("Injected later preparation failure.")
+        );
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
+            manager.AddDungeonReinforcements(new[] { failed.Controller })
+        );
+
+        Assert.That(failure.Message, Does.Contain("Injected later preparation failure"));
+        Assert.That(
+            failed.Controller.GetComponent<DungeonRulesEffectSeed>().Effects.Count,
+            Is.EqualTo(1),
+            "Failed preparation must leave the restore transport available for retry."
+        );
+        failed.Controller.GetActionsEvent.RemoveAllListeners();
+
+        Assert.DoesNotThrow(() =>
+            manager.AddDungeonReinforcements(new[] { replacement.Controller })
+        );
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        CreatureId replacementId = bridge.GetCreatureId(replacement.Controller);
+        Assert.That(replacementId.Value, Is.EqualTo("combat-creature-3"));
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Select(pair => pair.Key.Value),
+            Is.EquivalentTo(new[] { "restored-slowed-effect-301" })
+        );
+        Assert.That(
+            bridge
+                .Snapshot.RuleBindings.Select(pair => pair.Value)
+                .Count(binding => binding.EffectId.HasValue),
+            Is.EqualTo(1)
+        );
+        DungeonActorSaveState recaptured = DungeonActorStateAdapter.Capture(
+            replacement.Controller,
+            actor =>
+                actor == replacement.GameObject
+                    ? DungeonRulesActorReference.Party("replacement-reinforcement")
+                    : throw new InvalidOperationException("Unexpected restored actor.")
+        );
+        Assert.That(recaptured.RulesEffects, Has.Length.EqualTo(1));
+        Assert.That(
+            recaptured.RulesEffects[0].SourceActor,
+            Is.EqualTo(DungeonRulesActorReference.Party("replacement-reinforcement"))
+        );
+        Assert.That(
+            recaptured.RulesEffects[0].BindingOwnerActor,
+            Is.EqualTo(DungeonRulesActorReference.Party("replacement-reinforcement"))
+        );
+    }
+
+    /// <summary>
+    /// Verifies an omitted live source keeps one identity when it later joins as a reinforcement.
+    /// </summary>
+    [Test]
+    public void AddDungeonReinforcements_OmittedRestoredSourceExpiresAtItsEnrolledBoundary()
+    {
+        DungeonRulesActorReference playerActor = DungeonRulesActorReference.Party("player");
+        DungeonRulesActorReference sourceActor = DungeonRulesActorReference.Floor(0, "late-source");
+        ActiveEffectId effectId = new("restored-late-source-light");
+        BindingId bindingId = new("restored-late-source-light-binding");
+        CombatantFixture player = CreateCombatant("Player", "Players", 300);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 200);
+        CombatantFixture source = CreateCombatant("Late Source", "Enemies", 100);
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            player.Controller,
+            _ => playerActor
+        );
+        saved.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = effectId.Value,
+                BindingId = bindingId.Value,
+                DefinitionId = "spell-effect-light",
+                SourceActor = sourceActor,
+                BindingOwnerActor = playerActor,
+                TimingSourceActor = sourceActor,
+                RuleSource = "spell:light",
+                DurationKind = EffectDurationKind.Rounds,
+                DurationAmount = 1,
+                EffectStateVersion = 0,
+                CreationOrder = 400,
+                BindingEnabled = true,
+                HasTiming = true,
+                RemainingBoundaries = 1,
+                ExpiresWithEncounter = false,
+                StateKind = "spell",
+                StatePayload = JsonUtility.ToJson(
+                    new SpellEffectPayload
+                    {
+                        Spell = "light",
+                        Rank = 1,
+                        TargetActor = sourceActor,
+                    }
+                ),
+            },
+        };
+        DungeonActorStateAdapter.PrepareRestore(
+            player.Controller,
+            saved,
+            player.Creature.Health.Current,
+            isDefeated: false,
+            actor =>
+                actor.Equals(playerActor) ? player.GameObject
+                : actor.Equals(sourceActor) ? source.GameObject
+                : null
+        )();
+
+        manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+
+        UnityCombatRulesBridge bridge = GetCombatRules(manager);
+        CreatureId playerId = bridge.GetCreatureId(player.Controller);
+        ActiveEffectInstance restored = bridge.Snapshot.ActiveEffects[effectId];
+        CreatureId reservedSourceId = restored.SourceCreature;
+        ActiveRuleBinding binding = bridge.Snapshot.RuleBindings[bindingId];
+        ActiveEffectTimingState timing = bridge.Snapshot.ActiveEffectTimings[effectId];
+        Assert.That(bridge.Snapshot.Creatures.Contains(reservedSourceId), Is.False);
+        Assert.That(binding.Owner, Is.EqualTo(playerId));
+        Assert.That(binding.EffectId, Is.EqualTo(effectId));
+        Assert.That(timing.SourceCreature, Is.EqualTo(reservedSourceId));
+        Assert.That(restored.GetState<SpellEffectState>().Target, Is.EqualTo(reservedSourceId));
+        Assert.That(bridge.Snapshot.ActiveEffects.Count, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.ActiveEffectTimings.Count, Is.EqualTo(1));
+
+        manager.AddDungeonReinforcements(new[] { source.Controller });
+
+        CreatureId enrolledSourceId = bridge.GetCreatureId(source.Controller);
+        Assert.That(enrolledSourceId, Is.EqualTo(reservedSourceId));
+        restored = bridge.Snapshot.ActiveEffects[effectId];
+        binding = bridge.Snapshot.RuleBindings[bindingId];
+        timing = bridge.Snapshot.ActiveEffectTimings[effectId];
+        Assert.That(restored.SourceCreature, Is.EqualTo(enrolledSourceId));
+        Assert.That(restored.GetState<SpellEffectState>().Target, Is.EqualTo(enrolledSourceId));
+        Assert.That(binding.Owner, Is.EqualTo(playerId));
+        Assert.That(binding.EffectId, Is.EqualTo(effectId));
+        Assert.That(timing.SourceCreature, Is.EqualTo(enrolledSourceId));
+        Assert.That(timing.RemainingBoundaries, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.ActiveEffects.Count, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.ActiveEffectTimings.Count, Is.EqualTo(1));
+        DungeonActorSaveState recaptured = DungeonActorStateAdapter.Capture(
+            player.Controller,
+            actor =>
+                actor == player.GameObject ? playerActor
+                : actor == source.GameObject ? sourceActor
+                : throw new InvalidOperationException("Unexpected restored actor.")
+        );
+        Assert.That(recaptured.RulesEffects, Has.Length.EqualTo(1));
+        Assert.That(recaptured.RulesEffects[0].EffectId, Is.EqualTo(effectId.Value));
+        Assert.That(recaptured.RulesEffects[0].BindingId, Is.EqualTo(bindingId.Value));
+        Assert.That(recaptured.RulesEffects[0].SourceActor, Is.EqualTo(sourceActor));
+        Assert.That(recaptured.RulesEffects[0].BindingOwnerActor, Is.EqualTo(playerActor));
+        Assert.That(
+            JsonUtility
+                .FromJson<SpellEffectPayload>(recaptured.RulesEffects[0].StatePayload)
+                .TargetActor,
+            Is.EqualTo(sourceActor)
+        );
+
+        Assert.That(manager.WhosTurn(), Is.SameAs(player.GameObject));
+        player.Controller.EndTurn();
+        Assert.That(manager.WhosTurn(), Is.SameAs(enemy.GameObject));
+        Assert.That(bridge.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+
+        enemy.Controller.EndTurn();
+
+        Assert.That(manager.WhosTurn(), Is.SameAs(source.GameObject));
+        Assert.That(bridge.Snapshot.ActiveEffects.Contains(effectId), Is.False);
+        Assert.That(bridge.Snapshot.RuleBindings.Contains(bindingId), Is.False);
+        Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(effectId), Is.False);
+        Assert.That(
+            DungeonActorStateAdapter
+                .Capture(
+                    player.Controller,
+                    actor =>
+                        actor == player.GameObject ? playerActor
+                        : actor == source.GameObject ? sourceActor
+                        : throw new InvalidOperationException("Unexpected restored actor.")
+                )
+                .RulesEffects,
+            Is.Empty
+        );
     }
 
     /// <summary>Verifies an active typed roster never suppresses a missing Unity mapping.</summary>
@@ -712,6 +981,120 @@ public sealed class DungeonEncounterCombatPlayModeTests
         Assert.That(manager.IsCombatActive, Is.False);
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void FiniteEffectSurvivesNormalCloseThroughExplorationSaveAndReload(bool suspend)
+    {
+        DungeonRulesActorReference playerActor = DungeonRulesActorReference.Party("player");
+        ActiveEffectId immunityId = new("restored-guidance-immunity-across-encounters");
+        CombatantFixture player = CreateCombatant("Player", "Players", 100);
+        CombatantFixture enemy = CreateCombatant("Enemy", "Enemies", 0);
+        player.Creature.level = 1;
+        player.Creature.wisMod = 4;
+        player.Creature.Build = new CharacterBuild { ClassName = "Cleric" };
+        player.Creature.Prepared = Pf2eCharacterPreparer.Prepare(
+            player.Creature,
+            player.Creature.Build
+        );
+        InstallRestoredGuidanceImmunity(player, playerActor, immunityId);
+
+        if (suspend)
+            manager.EnterTactics();
+        else
+            manager.StartDungeonCombat(new[] { player.Controller, enemy.Controller });
+        UnityCombatRulesBridge first = GetCombatRules(manager);
+        CreatureId actor = first.GetCreatureId(player.Controller);
+        OpResult<CastSpellOutcome> shieldResult = first.Dispatch(
+            new CastSpellActionOp(
+                actor,
+                new SpellReference(new SpellId("shield"), 1),
+                new SpellActionVariant(1),
+                SpellCastSelection.Empty
+            )
+        );
+        Assert.That(shieldResult, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
+        ResolvedOpResult<CastSpellOutcome> shieldCast =
+            (ResolvedOpResult<CastSpellOutcome>)shieldResult;
+        ActiveEffectId effectId = shieldCast.Value.CreatedEffects.Single();
+        Assert.That(first.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+        Assert.That(first.Snapshot.ActiveEffects.Contains(immunityId), Is.True);
+        Assert.That(
+            first.Snapshot.ActiveEffectTimings[effectId].RemainingBoundaries,
+            Is.EqualTo(1)
+        );
+        Assert.That(
+            first.Snapshot.ActiveEffectTimings[immunityId].RemainingBoundaries,
+            Is.EqualTo(599)
+        );
+
+        if (suspend)
+            Assert.That(manager.TryReturnToExploration(), Is.True);
+        else
+            enemy.Creature.ApplyFinalDamage(
+                enemy.Creature.hp,
+                RuleSource.FromSlug("test-finite-effect-normal-end")
+            );
+
+        Assert.That(manager.IsCombatActive, Is.False);
+        player.Controller.SetDungeonExploration(true);
+        DungeonActorSaveState detached = DungeonActorStateAdapter.Capture(
+            player.Controller,
+            actor =>
+                actor == player.GameObject
+                    ? playerActor
+                    : throw new InvalidOperationException("Unexpected detached actor.")
+        );
+        Assert.That(detached.RulesEffects, Has.Length.EqualTo(2));
+        Assert.That(
+            detached
+                .RulesEffects.Single(effect => effect.EffectId == effectId.Value)
+                .RemainingBoundaries,
+            Is.EqualTo(1)
+        );
+        Assert.That(
+            detached
+                .RulesEffects.Single(effect => effect.EffectId == immunityId.Value)
+                .RemainingBoundaries,
+            Is.EqualTo(599)
+        );
+
+        DungeonSaveResult<DungeonActorSaveState> parsed = DungeonSaveJson.ParseActor(
+            DungeonSaveJson.SerializeActor(detached)
+        );
+        Assert.That(parsed.IsSuccess, Is.True);
+        DungeonActorStateAdapter.PrepareRestore(
+            player.Controller,
+            parsed.Value,
+            player.Creature.Health.Current,
+            isDefeated: false,
+            actor => actor.Equals(playerActor) ? player.GameObject : null
+        )();
+
+        CombatantFixture reloadEnemy = CreateCombatant("Reload Enemy", "Enemies", 200);
+        manager.StartDungeonCombat(new[] { player.Controller, reloadEnemy.Controller });
+
+        UnityCombatRulesBridge restored = GetCombatRules(manager);
+        Assert.That(restored.Snapshot.ActiveEffects.Contains(effectId), Is.True);
+        Assert.That(restored.Snapshot.ActiveEffects.Contains(immunityId), Is.True);
+        Assert.That(
+            restored.Snapshot.ActiveEffectTimings[effectId].Encounter,
+            Is.EqualTo(restored.GetEncounter().Id)
+        );
+        Assert.That(
+            restored.Snapshot.ActiveEffectTimings[effectId].RemainingBoundaries,
+            Is.EqualTo(1)
+        );
+        Assert.That(
+            restored.Snapshot.ActiveEffectTimings[immunityId].RemainingBoundaries,
+            Is.EqualTo(599)
+        );
+        reloadEnemy.Creature.ApplyFinalDamage(
+            reloadEnemy.Creature.hp,
+            RuleSource.FromSlug("test-finite-effect-reload-end")
+        );
+        Assert.That(manager.IsCombatActive, Is.False);
+    }
+
     [Test]
     public void ManualTactics_ReinforcementDefeatRequiresExplicitExit()
     {
@@ -981,6 +1364,99 @@ public sealed class DungeonEncounterCombatPlayModeTests
         return new CombatantFixture(gameObject, creature, conditions, controller);
     }
 
+    private static void InstallRestoredSlowed(
+        CombatantFixture fixture,
+        long creationOrder,
+        string actorId,
+        string ruleSource = ""
+    )
+    {
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            fixture.Controller,
+            _ => DungeonRulesActorReference.Party(actorId)
+        );
+        saved.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = $"restored-slowed-effect-{creationOrder}",
+                BindingId = $"restored-slowed-binding-{creationOrder}",
+                DefinitionId = ConditionRules.DefinitionId.Value,
+                SourceActor = DungeonRulesActorReference.Party(actorId),
+                BindingOwnerActor = DungeonRulesActorReference.Party(actorId),
+                RuleSource = string.IsNullOrWhiteSpace(ruleSource)
+                    ? SlowedRules.Source.Slug
+                    : ruleSource,
+                DurationKind = EffectDurationKind.Indefinite,
+                EffectStateVersion = 0,
+                CreationOrder = creationOrder,
+                BindingEnabled = true,
+                HasTiming = false,
+                StateKind = "condition",
+                StatePayload = $"{{\"Condition\":\"{SlowedRules.ConditionId.Value}\",\"Value\":1}}",
+            },
+        };
+        DungeonActorStateAdapter.PrepareRestore(
+            fixture.Controller,
+            saved,
+            fixture.Creature.Health.Current,
+            isDefeated: false,
+            restoredActor =>
+                restoredActor.Equals(DungeonRulesActorReference.Party(actorId))
+                    ? fixture.GameObject
+                    : null
+        )();
+    }
+
+    private static void InstallRestoredGuidanceImmunity(
+        CombatantFixture fixture,
+        DungeonRulesActorReference actor,
+        ActiveEffectId effectId
+    )
+    {
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            fixture.Controller,
+            _ => actor
+        );
+        saved.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = effectId.Value,
+                BindingId = effectId.Value + "-binding",
+                DefinitionId = SpellFeatureRules.GuidanceImmunity.Value,
+                SourceActor = actor,
+                BindingOwnerActor = actor,
+                TimingSourceActor = actor,
+                RuleSource = "spell:guidance",
+                DurationKind = EffectDurationKind.Minutes,
+                DurationAmount = 60,
+                EffectStateVersion = 0,
+                CreationOrder = 501,
+                BindingEnabled = true,
+                HasTiming = true,
+                RemainingBoundaries = 600,
+                ExpiresWithEncounter = false,
+                StateKind = "spell",
+                StatePayload = JsonUtility.ToJson(
+                    new SpellEffectPayload
+                    {
+                        Spell = "guidance",
+                        Rank = 1,
+                        TargetActor = actor,
+                    }
+                ),
+            },
+        };
+        DungeonActorStateAdapter.PrepareRestore(
+            fixture.Controller,
+            saved,
+            fixture.Creature.Health.Current,
+            isDefeated: false,
+            restoredActor => restoredActor.Equals(actor) ? fixture.GameObject : null
+        )();
+    }
+
     private GameObject Create(string name)
     {
         GameObject gameObject = new(name);
@@ -1051,6 +1527,14 @@ public sealed class DungeonEncounterCombatPlayModeTests
         public CreatureComponent Creature { get; }
         public Conditions Conditions { get; }
         public TestActionController Controller { get; }
+    }
+
+    [Serializable]
+    private sealed class SpellEffectPayload
+    {
+        public string Spell;
+        public int Rank;
+        public DungeonRulesActorReference TargetActor;
     }
 
     private sealed class TestActionController : ActionController

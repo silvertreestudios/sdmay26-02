@@ -52,10 +52,6 @@ public static class DefinedAbilities
             {
                 slow.Apply(Slow, g);
             }
-
-            actionController.GetReactionsEvent.AddListener(
-                (List<EntityAction> reactions) => reactions.Clear()
-            );
         }
     );
 

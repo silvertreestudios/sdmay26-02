@@ -143,7 +143,7 @@ namespace Game.Rules.Runtime.Tests
         private static RuleDispatcher CreateDispatcher()
         {
             RuleRegistryBuilder registry = new();
-            registry.Define(ConditionRules.DefinitionId);
+            registry.Define(ConditionRules.DefinitionId).EffectState<ConditionState>();
             PlayerId player = new("test-player");
             RulesStateSeed seed = new RulesStateSeed()
                 .SeedCreature(new CreatureState(Target, player))

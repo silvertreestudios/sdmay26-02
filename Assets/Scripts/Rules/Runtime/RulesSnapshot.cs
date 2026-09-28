@@ -1,7 +1,12 @@
+using System;
+using System.Collections.Generic;
+
 namespace Game.Rules.Runtime
 {
     public sealed class RulesSnapshot
     {
+        private readonly StateSliceSnapshot<RuleStateSlot, object> stateValues;
+
         public long Version { get; }
         public StateSliceSnapshot<CreatureId, CreatureState> Creatures { get; }
 
@@ -93,6 +98,49 @@ namespace Game.Rules.Runtime
             ActiveEffectTimings = new StateSliceSnapshot<ActiveEffectId, ActiveEffectTimingState>(
                 data.ActiveEffectTimings
             );
+            stateValues = new StateSliceSnapshot<RuleStateSlot, object>(data.StateValues);
+        }
+
+        /// <summary>Gets an immutable feature-owned value by its stable typed key.</summary>
+        /// <typeparam name="TState">The immutable state type declared by the key.</typeparam>
+        /// <param name="key">The owning feature's stable state key.</param>
+        /// <returns>The committed value in this exact snapshot.</returns>
+        /// <exception cref="ArgumentException"><paramref name="key"/> is empty.</exception>
+        /// <exception cref="KeyNotFoundException">No value is registered for the key.</exception>
+        public TState GetState<TState>(RuleStateKey<TState> key)
+            where TState : class
+        {
+            RequireStateKey(key);
+            if (!stateValues.TryGet(key.Slot, out object value))
+                throw new KeyNotFoundException($"No rules state is registered for '{key}'.");
+            return (TState)value;
+        }
+
+        /// <summary>Tries to get an immutable feature-owned value from this exact snapshot.</summary>
+        /// <typeparam name="TState">The immutable state type declared by the key.</typeparam>
+        /// <param name="key">The owning feature's stable state key.</param>
+        /// <param name="value">The committed value when registered; otherwise, the default.</param>
+        /// <returns><see langword="true"/> when the key is registered.</returns>
+        /// <exception cref="ArgumentException"><paramref name="key"/> is empty.</exception>
+        public bool TryGetState<TState>(RuleStateKey<TState> key, out TState value)
+            where TState : class
+        {
+            RequireStateKey(key);
+            if (stateValues.TryGet(key.Slot, out object stored))
+            {
+                value = (TState)stored;
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        private static void RequireStateKey<TState>(RuleStateKey<TState> key)
+            where TState : class
+        {
+            if (key.IsEmpty)
+                throw new ArgumentException("A rule-state key is required.", nameof(key));
         }
     }
 }

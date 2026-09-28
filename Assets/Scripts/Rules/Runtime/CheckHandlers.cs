@@ -1,9 +1,53 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace Game.Rules.Runtime
 {
+    internal sealed class AdjustArmorClassHandler
+        : IOpHandler<AdjustArmorClassOp, ModifierCollection>
+    {
+        private static readonly RuleSource BaseSource = RuleSource.FromSlug("captured-armor-class");
+        private readonly IRulesSelectors selectors;
+
+        public AdjustArmorClassHandler(IRulesSelectors selectors) =>
+            this.selectors = selectors ?? throw new ArgumentNullException(nameof(selectors));
+
+        public ValueTask<ModifierCollection> Handle(
+            OpFrame<AdjustArmorClassOp> frame,
+            OpHandlerContext context
+        )
+        {
+            selectors.TryGetCurrentModifiers(
+                context.Snapshot,
+                frame.Op.Target,
+                Statistic.ArmorClass,
+                out ModifierCollection enrolled
+            );
+            return new ValueTask<ModifierCollection>(
+                new ModifierCollection(
+                    Statistic.ArmorClass,
+                    new[]
+                    {
+                        Modifier.Untyped(frame.Op.BaseArmorClass, BaseSource, Statistic.ArmorClass),
+                    }
+                        .Concat(enrolled.Candidates)
+                        .Concat(frame.Op.InitialModifiers)
+                )
+            );
+        }
+    }
+
+    internal sealed class CollectStrikeDamageDiceHandler
+        : IOpHandler<CollectStrikeDamageDiceOp, IReadOnlyList<TypedDamageDice>>
+    {
+        public ValueTask<IReadOnlyList<TypedDamageDice>> Handle(
+            OpFrame<CollectStrikeDamageDiceOp> frame,
+            OpHandlerContext context
+        ) => new ValueTask<IReadOnlyList<TypedDamageDice>>(Array.Empty<TypedDamageDice>());
+    }
+
     // Check handlers deliberately contain no state mutation. They combine a pure selector result
     // with the callback-scoped roll source so middleware and trace provenance remain engine-owned.
     internal sealed class AttackCheckHandler : IOpHandler<AttackCheckOp, CheckOutcome>

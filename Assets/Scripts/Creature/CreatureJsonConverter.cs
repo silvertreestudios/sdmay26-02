@@ -771,7 +771,10 @@ namespace Game.Creature
             }
         }
 
-        // Create by name from Resources/Datafiles
+        /// <summary>Creates a checked-in creature or pre-built player character by name.</summary>
+        /// <param name="creatureName">The authored creature name or normalized file name.</param>
+        /// <param name="prefab">An optional presentation prefab to instantiate.</param>
+        /// <returns>The loaded creature, or <see langword="null"/> when no definition exists.</returns>
         public static GameObject CreateByName(string creatureName, GameObject prefab = null)
         {
             if (string.IsNullOrEmpty(creatureName))
@@ -782,6 +785,8 @@ namespace Game.Creature
             {
                 $"Datafiles/{creatureName}",
                 $"Datafiles/{normalizedName}",
+                $"DataFiles/playerCharacters/{creatureName}",
+                $"DataFiles/playerCharacters/{normalizedName}",
             };
 
             foreach (string resourcePath in candidatePaths.Distinct())
@@ -792,7 +797,7 @@ namespace Game.Creature
             }
 
             Debug.LogWarning(
-                $"CreatureJsonConverter: creature not found in Resources/Datafiles: {creatureName}"
+                $"CreatureJsonConverter: checked-in creature not found by name: {creatureName}"
             );
             return null;
         }

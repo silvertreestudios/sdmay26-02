@@ -4,9 +4,14 @@ using UnityEngine;
 namespace Game.Rules
 {
     /// <summary>
-    /// Simple component-backed modifier store for temporary or generic sources that do not yet have a dedicated provider.
-    /// Prefer domain-specific providers for complex systems such as feats, spells, auras, and equipment.
+    /// Simple component-backed modifier store for generic sources that do not have a dedicated
+    /// rules feature.
     /// </summary>
+    /// <remarks>
+    /// Encounter enrollment copies this collection into immutable rules statistics. Changes made
+    /// afterward do not affect that active encounter. Use a feature-owned binding or effect for
+    /// conditions, spells, auras, equipment, and other contributions that can change in combat.
+    /// </remarks>
     public class Pf2eModifierCollection : MonoBehaviour, IPf2eModifierProvider
     {
         private readonly List<Pf2eModifier> modifiers = new();

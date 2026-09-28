@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
@@ -47,9 +48,11 @@ public sealed class UnityCombatRulesBridgeTests
                         new CreatureId("initial"),
                         new PlayerId("module-order-player")
                     ),
+                    Statistics(new CreatureId("initial")),
                     new HealthState(1, 1),
                     new GridPosition(0, 0, 0),
                     new GridDistance(0),
+                    new ActiveEffectIdentityScope("module-order-first"),
                     firstLifetime
                 )
             );
@@ -61,9 +64,11 @@ public sealed class UnityCombatRulesBridgeTests
                         new CreatureId("reinforcement"),
                         new PlayerId("module-order-player")
                     ),
+                    Statistics(new CreatureId("reinforcement")),
                     new HealthState(1, 1),
                     new GridPosition(1, 0, 0),
                     new GridDistance(0),
+                    new ActiveEffectIdentityScope("module-order-second"),
                     secondLifetime
                 )
             );
@@ -142,80 +147,15 @@ public sealed class UnityCombatRulesBridgeTests
     }
 
     [Test]
-    public void RestoredFiniteSpellEffectUsesEncounterTimingAndProjectsRemainingDuration()
+    public void InitialAndReinforcementEnrollmentCaptureImmutableCompleteBaseStatistics()
     {
-        GameObject sourceObject = new GameObject("restored-effect-source");
-        GameObject targetObject = new GameObject("restored-effect-target");
+        GameObject initialObject = new GameObject("statistics-initial");
+        GameObject anchorObject = new GameObject("statistics-anchor");
+        GameObject reinforcementObject = new GameObject("statistics-reinforcement");
         try
         {
-            BridgeTestActionController source = ConfigureCombatant(
-                sourceObject,
-                "Players",
-                Vector3Int.zero
-            );
-            BridgeTestActionController target = ConfigureCombatant(
-                targetObject,
-                "Enemies",
-                Vector3Int.right
-            );
-            BlessSpellEffect bless = new BlessSpellEffect(sourceObject)
-            {
-                RemainingTargetTurnStarts = 2,
-            };
-            SpellEffectController targetEffects = SpellEffectController.GetOrAdd(targetObject);
-            targetEffects.RestoreEffects(new[] { bless });
-
-            UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-                new ActionController[] { source, target },
-                CreateTiles(2),
-                new ScriptedRollService(20, 1),
-                "Players"
-            );
-            bridge.AdvanceEncounter();
-
-            ActiveEffectInstance restored = bridge
-                .Snapshot.ActiveEffects.Select(pair => pair.Value)
-                .Single(effect =>
-                    effect.DefinitionId
-                    == UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
-                );
-            CreatureId sourceId = bridge.GetCreatureId(source);
-            Assert.That(restored.SourceCreature, Is.EqualTo(sourceId));
-            Assert.That(
-                bridge.Snapshot.ActiveEffectTimings[restored.Id].RemainingBoundaries,
-                Is.EqualTo(1)
-            );
-            Assert.That(bless.RemainingTargetTurnStarts, Is.EqualTo(1));
-            Assert.That(targetEffects.HasEffect<BlessSpellEffect>(), Is.True);
-
-            for (int turn = 0; turn < 3 && targetEffects.HasEffect<BlessSpellEffect>(); turn++)
-            {
-                TurnIdentity current = bridge.GetEncounter().CurrentTurn.Value;
-                bridge.EndTurn(current.Actor);
-            }
-
-            Assert.That(targetEffects.HasEffect<BlessSpellEffect>(), Is.False);
-            Assert.That(bridge.Snapshot.ActiveEffects.Contains(restored.Id), Is.False);
-            Assert.That(bridge.Snapshot.ActiveEffectTimings.Contains(restored.Id), Is.False);
-            bridge.ReleaseOwnership();
-        }
-        finally
-        {
-            Object.DestroyImmediate(sourceObject);
-            Object.DestroyImmediate(targetObject);
-        }
-    }
-
-    [Test]
-    public void LaterAdditionCommitsRestoredSpellEffectThroughCommonEnrollment()
-    {
-        GameObject sourceObject = new GameObject("later-effect-source");
-        GameObject anchorObject = new GameObject("later-effect-anchor");
-        GameObject targetObject = new GameObject("later-effect-target");
-        try
-        {
-            BridgeTestActionController source = ConfigureCombatant(
-                sourceObject,
+            BridgeTestActionController initial = ConfigureCombatant(
+                initialObject,
                 "Players",
                 Vector3Int.zero
             );
@@ -224,45 +164,84 @@ public sealed class UnityCombatRulesBridgeTests
                 "Enemies",
                 Vector3Int.right
             );
-            BridgeTestActionController target = ConfigureCombatant(
-                targetObject,
-                "Enemies",
+            BridgeTestActionController reinforcement = ConfigureCombatant(
+                reinforcementObject,
+                "Players",
                 new Vector3Int(2, 0, 0)
             );
-            BlessSpellEffect bless = new BlessSpellEffect(sourceObject)
+            ConfigureStatistics(initialObject.GetComponent<CreatureComponent>(), 0);
+            ConfigureStatistics(reinforcementObject.GetComponent<CreatureComponent>(), 10);
+            Pf2eModifierCollection initialModifiers = ConfigureStatisticsModifiers(initialObject);
+            Pf2eModifierCollection reinforcementModifiers = ConfigureStatisticsModifiers(
+                reinforcementObject
+            );
+            initialObject.GetComponent<CreatureComponent>().traits = new List<string>
             {
-                RemainingTargetTurnStarts = 2,
+                "undead",
+                "mindless",
             };
-            SpellEffectController.GetOrAdd(targetObject).RestoreEffects(new[] { bless });
+            reinforcementObject.GetComponent<CreatureComponent>().traits = new List<string>
+            {
+                "undead",
+            };
             UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
-                new ActionController[] { source, anchor },
+                new ActionController[] { initial, anchor },
                 CreateTiles(3),
-                new ScriptedRollService(20, 10, 5),
+                new ScriptedRollService(20, 1, 10),
                 "Players"
             );
             bridge.AdvanceEncounter();
 
-            bridge.AddCombatants(new ActionController[] { target });
+            bridge.AddCombatants(new ActionController[] { reinforcement });
+            ConfigureStatistics(initialObject.GetComponent<CreatureComponent>(), 20);
+            ConfigureStatistics(reinforcementObject.GetComponent<CreatureComponent>(), 30);
+            initialModifiers.Clear();
+            reinforcementModifiers.Clear();
 
-            ActiveEffectInstance restored = bridge
-                .Snapshot.ActiveEffects.Select(pair => pair.Value)
-                .Single(effect =>
-                    effect.DefinitionId
-                    == UnitySpellcastingEncounterModule.RestoredTimedEffectDefinitionId
-                );
-            Assert.That(restored.SourceCreature, Is.EqualTo(bridge.GetCreatureId(source)));
+            AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(initial), 0);
+            AssertStatistics(bridge.Snapshot, bridge.GetCreatureId(reinforcement), 10);
             Assert.That(
-                bridge.Snapshot.ActiveEffectTimings[restored.Id].RemainingBoundaries,
-                Is.EqualTo(2)
+                bridge.Snapshot.Creatures[bridge.GetCreatureId(initial)].Traits,
+                Is.EquivalentTo(new[] { Trait.FromSlug("undead"), Trait.FromSlug("mindless") })
             );
-            Assert.That(bless.RemainingTargetTurnStarts, Is.EqualTo(2));
+            Assert.That(
+                bridge.Snapshot.Creatures[bridge.GetCreatureId(reinforcement)].Traits,
+                Is.EqualTo(new[] { Trait.FromSlug("undead") })
+            );
             bridge.ReleaseOwnership();
         }
         finally
         {
-            Object.DestroyImmediate(sourceObject);
+            Object.DestroyImmediate(initialObject);
             Object.DestroyImmediate(anchorObject);
-            Object.DestroyImmediate(targetObject);
+            Object.DestroyImmediate(reinforcementObject);
+        }
+    }
+
+    [Test]
+    public void StatisticsCaptureLeavesFeatureOwnedConditionModifiersDynamic()
+    {
+        GameObject combatantObject = new GameObject("statistics-dynamic-condition");
+        try
+        {
+            CreatureComponent creature = combatantObject.AddComponent<CreatureComponent>();
+            Conditions conditions = combatantObject.AddComponent<Conditions>();
+            conditions.Add("Off-Guard", null);
+
+            CreatureStatisticsState statistics = UnityCreatureStatisticsAdapter.Capture(
+                creature,
+                new CreatureId("statistics-dynamic-condition")
+            );
+
+            Assert.That(statistics.Modifiers, Is.Empty);
+            Assert.That(
+                conditions.GetModifiers(Pf2eStatistic.ArmorClass).Single().Value,
+                Is.EqualTo(-2)
+            );
+        }
+        finally
+        {
+            Object.DestroyImmediate(combatantObject);
         }
     }
 
@@ -1247,6 +1226,8 @@ public sealed class UnityCombatRulesBridgeTests
             CreatureId id = bridge.GetCreatureId(controller);
             RecordingMovementObserver observer = new RecordingMovementObserver();
 
+            Assert.That(bridge.Snapshot.Statistics.Contains(id), Is.True);
+
             bool resolved = await bridge.DispatchProjectedStride(
                 id,
                 new MovementPath(
@@ -1473,6 +1454,141 @@ public sealed class UnityCombatRulesBridgeTests
         team.Name = teamName;
         return combatant.AddComponent<BridgeTestActionController>();
     }
+
+    private static void ConfigureStatistics(CreatureComponent creature, int offset)
+    {
+        creature.attackBonus = 7 + offset;
+        creature.ac = 18 + offset;
+        creature.fortitudeSave = 5 + offset;
+        creature.reflexSave = 6 + offset;
+        creature.willSave = 4 + offset;
+        creature.allSaves = 1;
+        creature.strMod = 2 + offset;
+        creature.dexMod = 3 + offset;
+        creature.intMod = 5 + offset;
+        creature.wisMod = 4 + offset;
+        creature.skills = new List<SkillValue>
+        {
+            new SkillValue { skillName = "Perception", skillMod = 9 + offset },
+        };
+    }
+
+    private static Pf2eModifierCollection ConfigureStatisticsModifiers(GameObject combatant)
+    {
+        Pf2eModifierCollection modifiers = combatant.AddComponent<Pf2eModifierCollection>();
+        modifiers.Add(
+            new Pf2eModifier(
+                1,
+                Pf2eModifierType.Status,
+                "Snapshot attack",
+                Pf2eStatistic.AttackRoll
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                2,
+                Pf2eModifierType.Circumstance,
+                "Snapshot armor class",
+                Pf2eStatistic.ArmorClass
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                3,
+                Pf2eModifierType.Item,
+                "Snapshot fortitude",
+                Pf2eStatistic.FortitudeSave
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                -1,
+                Pf2eModifierType.Status,
+                "Snapshot reflex",
+                Pf2eStatistic.ReflexSave
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(4, Pf2eModifierType.Untyped, "Snapshot will", Pf2eStatistic.WillSave)
+        );
+        modifiers.Add(
+            new Pf2eModifier(5, Pf2eModifierType.Item, "Snapshot skill", Pf2eStatistic.SkillCheck)
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                6,
+                Pf2eModifierType.Circumstance,
+                "Snapshot initiative",
+                Pf2eStatistic.Initiative
+            )
+        );
+        modifiers.Add(
+            new Pf2eModifier(
+                7,
+                Pf2eModifierType.Status,
+                "Snapshot difficulty class",
+                Pf2eStatistic.DifficultyClass
+            )
+        );
+        return modifiers;
+    }
+
+    private static void AssertStatistics(RulesSnapshot snapshot, CreatureId creature, int offset)
+    {
+        CreatureStatisticsState statistics = snapshot.Statistics[creature];
+        RulesSelectors selectors = new RulesSelectors();
+        Assert.That(statistics.Creature, Is.EqualTo(creature));
+        Assert.That(statistics.AttackModifier, Is.EqualTo(7 + offset));
+        Assert.That(statistics.ArmorClass, Is.EqualTo(18 + offset));
+        Assert.That(statistics.FortitudeModifier, Is.EqualTo(6 + offset));
+        Assert.That(statistics.ReflexModifier, Is.EqualTo(7 + offset));
+        Assert.That(statistics.WillModifier, Is.EqualTo(5 + offset));
+        Assert.That(
+            statistics.GetSkillModifier(Skill.FromName("perception")),
+            Is.EqualTo(9 + offset)
+        );
+        Assert.That(statistics.GetSkillModifier(Skill.Athletics), Is.EqualTo(2 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Acrobatics), Is.EqualTo(3 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Crafting), Is.EqualTo(5 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Occultism), Is.EqualTo(5 + offset));
+        Assert.That(statistics.GetSkillModifier(Skill.Religion), Is.EqualTo(4 + offset));
+        Assert.That(statistics.Modifiers, Has.Count.EqualTo(8));
+        Assert.That(selectors.GetAttackModifiers(snapshot, creature).Total, Is.EqualTo(8 + offset));
+        Assert.That(selectors.GetArmorClass(snapshot, creature), Is.EqualTo(20 + offset));
+        Assert.That(
+            selectors.GetSavingThrowModifiers(snapshot, creature, SaveKind.Fortitude).Total,
+            Is.EqualTo(9 + offset)
+        );
+        Assert.That(
+            selectors.GetSavingThrowModifiers(snapshot, creature, SaveKind.Reflex).Total,
+            Is.EqualTo(6 + offset)
+        );
+        Assert.That(
+            selectors.GetSavingThrowModifiers(snapshot, creature, SaveKind.Will).Total,
+            Is.EqualTo(9 + offset)
+        );
+        Assert.That(
+            selectors
+                .GetSkillCheckModifiers(snapshot, creature, Skill.FromName("perception"))
+                .Total,
+            Is.EqualTo(14 + offset)
+        );
+        Assert.That(
+            selectors.GetCurrentModifiers(snapshot, creature, Statistic.Initiative).Total,
+            Is.EqualTo(6)
+        );
+        Assert.That(
+            selectors.GetCurrentModifiers(snapshot, creature, Statistic.DifficultyClass).Total,
+            Is.EqualTo(7)
+        );
+        Assert.That(
+            statistics.Modifiers.Select(modifier => modifier.Source.Slug),
+            Does.Contain("snapshot-armor-class")
+        );
+    }
+
+    private static CreatureStatisticsState Statistics(CreatureId creature) =>
+        new(creature, 0, 10, 0, 0, 0, new Dictionary<Skill, int>(), Array.Empty<Modifier>());
 
     private static GridPrivate.Tile[,] CreateTiles(int width)
     {

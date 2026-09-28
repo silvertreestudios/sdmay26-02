@@ -803,32 +803,15 @@ namespace Game.Creature
                 _unloadedWeapons.Add(key);
         }
 
-        public int GetReloadCost(EquipmentWeapon weapon)
-        {
-            if (weapon == null)
-                return 0;
-
-            if (
-                !string.IsNullOrWhiteSpace(weapon.reload)
-                && int.TryParse(weapon.reload, out int cost)
-            )
-                return Mathf.Max(0, cost);
-
-            if (weapon.traits != null)
-            {
-                foreach (string trait in weapon.traits)
-                {
-                    if (
-                        trait != null
-                        && trait.StartsWith("reload-", System.StringComparison.OrdinalIgnoreCase)
-                        && int.TryParse(trait.Substring(7), out cost)
-                    )
-                        return Mathf.Max(0, cost);
-                }
-            }
-
-            return 0;
-        }
+        /// <summary>Adapts imported equipment values to the shared Strike reload policy.</summary>
+        /// <param name="weapon">The equipped weapon; Unity's absent equipment boundary costs no reload actions.</param>
+        public int GetReloadCost(EquipmentWeapon weapon) =>
+            weapon == null
+                ? 0
+                : Game.Rules.Runtime.PreparedStrikeRules.ReloadActions(
+                    weapon.reload,
+                    weapon.traits ?? new List<string>()
+                );
 
         private static string NormalizeEquipmentKey(string value)
         {
@@ -921,7 +904,6 @@ namespace Game.Creature
             runtimeActionsInitialized = true;
             if (Prepared != null && Prepared.HasOwnedItem("rage"))
                 actionController.AddAction(new RulesRageAction());
-            CastSpellAction.AddSpellActions(gameObject);
         }
 
         void Update()

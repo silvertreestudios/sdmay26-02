@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Game.Rules.Runtime;
 using GridPrivate;
 using UnityEngine;
 
@@ -24,8 +25,7 @@ namespace GridPublic
         /// Standard cover when between one and fifteen rays are clear; otherwise no cover.
         /// This threshold also applies to bursts, which have at most four clear rays.
         /// </summary>
-        public StrikeCover Cover =>
-            ClearRays > 0 && ClearRays < 16 ? StrikeCover.Standard : StrikeCover.None;
+        public StrikeCover Cover => StrikeTargetingRules.CoverFromRays(true, ClearRays);
 
         /// <summary>Whether the occupant was affected at capture time, even if it has since been destroyed.</summary>
         public bool IsAffected => LineOfEffect == StrikeLineOfEffect.Clear;

@@ -10,6 +10,9 @@ guide deliberately documents some production mechanisms that are not universal d
 requirements. If this guide and production code disagree about current behavior, the code is the
 source of truth and this guide should be updated with the change.
 
+For the playable-character boundary used to accept the bulk migration, see the
+[pre-built character acceptance contract](Rules_Runtime_PreBuilt_Character_Acceptance.md).
+
 ## Authority in a live encounter
 
 `UnityCombatRulesBridge` owns one `RuleDispatcher`, one `RulesState`, and one encounter lifetime.
@@ -21,23 +24,24 @@ clients or projections of the migrated state.
 | --- | --- |
 | Encounter phase, roster, initiative, round, and current turn | `EncounterState` in `RulesState` |
 | Encounter action economy | `ActionEconomyState`; controller values are read projections |
+| Base attack, Armor Class, saves, and skills | `CreatureStatisticsState`; immutable values are captured during common enrollment |
 | Health, temporary Hit Points, and defeat | `HealthState`; `CreatureComponent` receives committed projections |
 | Position, land Speed, and movement budget | Runtime movement slices; Unity transforms project committed movement |
 | Multiple attack penalty | `MultipleAttackPenaltyState` |
 | Strike equipment, ammunition, and loaded state | Runtime equipment/ammunition slices prepared by the Strike module |
-| Spell slots, Focus Points, active effects, and bindings | Runtime resource/effect slices prepared by feature modules |
-| Active-effect timing | Membership in `ActiveEffects` means an effect is active. `ActiveEffectTimingState` is an intentionally materialized schedule: it copies immutable effect and binding identifiers, source, duration behavior (encounter-scoped or boundary-counted), and creation order so boundary advancement can filter and order without loading related state on every boundary, and removal can address the binding directly rather than reverse-searching for it. Only `RemainingBoundaries` evolves. Expiration atomically removes the effect and associated state. |
+| Spell slots, Focus Points, active effects, and bindings | Runtime resource/effect slices prepared by feature modules. Dungeon persistence captures and restores these rules values; it does not persist a writable Unity effect projection. |
+| Active-effect timing | Membership in `ActiveEffects` means an effect is active. `ActiveEffectTimingState` is an intentionally materialized schedule: it copies immutable effect and binding identifiers, the timing actor identity, duration behavior (encounter-scoped or boundary-counted), and creation order so boundary advancement can filter and order without loading related state on every boundary, and removal can address the binding directly rather than reverse-searching for it. The timing actor normally equals effect provenance but is independently preserved when those identities differ. Only `RemainingBoundaries` evolves. Expiration atomically removes the effect and associated state. |
 | Rule checks and modifier stacking for migrated actions | Runtime check handlers and `ModifierCollection` |
 
 Attachment is identity-sensitive. A read through a creature or controller is valid only for the
 bridge that currently owns it. Cleanup from an older encounter must not detach or overwrite a newer
 owner.
 
-The encounter is not fully rules-native. Rotting Aura owns its deterministic turn listener, dice,
+Rotting Aura owns its deterministic turn listener, dice,
 typed damage, and health workflow in the rules runtime, but a narrow feature adapter still captures
-its current Unity aura geometry and unmigrated creature traits, levels, weaknesses, and resistances.
-Prepared-character and component data are still read during enrollment, and some scene-compatible
-manager entry points remain. Treat those paths as migration seams, not alternative authorities.
+its current Unity aura geometry and immutable creature traits, levels, weaknesses, and resistances.
+Prepared-character and component data, including immutable base statistics, are still read during
+enrollment, and some scene-compatible manager entry points remain. These are input and orchestration boundaries, not alternative rules authorities.
 
 `UnityCombatRulesBridge.CreateExplorationStride` is a special temporary composition. It reuses the
 Stride rules without attaching combat authority or spending encounter action economy.
@@ -55,6 +59,7 @@ Stride rules without attaching combat authority or spending encounter action eco
 | Current action and feature rules | [`StrideRules.cs`](../Assets/Scripts/Rules/Runtime/StrideRules.cs), [`StrikeRules.cs`](../Assets/Scripts/Rules/Runtime/StrikeRules.cs), [`SpellcastingRules.cs`](../Assets/Scripts/Rules/Runtime/SpellcastingRules.cs), [`SpellAttackRules.cs`](../Assets/Scripts/Rules/Runtime/SpellAttackRules.cs), [`RageRules.cs`](../Assets/Scripts/Rules/Runtime/RageRules.cs) |
 | Unity encounter composition | [`UnityEncounterModuleSet.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterModuleSet.cs), [`UnityEncounterComposition.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityEncounterComposition.cs) |
 | Enrollment and rollback | [`UnityCombatantEnrollmentPipeline.cs`](../Assets/Scripts/Rules/Unity/Composition/UnityCombatantEnrollmentPipeline.cs) |
+| Generic dungeon effect persistence | [`DungeonRulesEffectPersistence.cs`](../Assets/Scripts/DungeonPersistence/Actors/DungeonRulesEffectPersistence.cs), [`DungeonSaveData.cs`](../Assets/Scripts/DungeonPersistence/Repository/DungeonSaveData.cs) |
 | Unity authority and synchronous dispatch boundary | [`UnityCombatRulesBridge.cs`](../Assets/Scripts/Rules/Unity/UnityCombatRulesBridge.cs) |
 | Rage Unity composition, data capture, and action entry | [`UnityRageModule.cs`](../Assets/Scripts/Rules/Unity/UnityRageModule.cs) |
 | Strike and spell Unity adapters | [`UnityStrikeEncounterModule.cs`](../Assets/Scripts/Rules/Unity/Strike/UnityStrikeEncounterModule.cs), [`UnitySpellcastingEncounterModule.cs`](../Assets/Scripts/Combat/Spells/UnitySpellcastingEncounterModule.cs) |
@@ -71,21 +76,29 @@ for the selected capability rather than treating one large file as the entire su
 composition contract:
 
 1. `UnityRottingAuraModule`
-2. `ConditionEncounterModule`
-3. `UnitySlowedModule`
-4. `UnityRageModule'
-5. `UnityStrikeEncounterModule`
-6. `UnitySpellcastingEncounterModule`
-7. `UnityActionPresentationModule`
-8. `UnityLightModule`
-9. `UnityHealthProjectionModule`
-10. `UnityEncounterProjectionModule`
+2. `DungeonRulesEffectPersistenceModule`
+3. `ConditionEncounterModule`
+4. `UnitySlowedModule`
+5. `UnityRageModule`
+6. `UnityStrikeEncounterModule`
+7. `UnitySpellcastingEncounterModule`
+8. Explicit floor-installed feature extensions, in registration order
+9. `UnityActionPresentationModule`
+10. `UnityLightModule`
+11. `UnityHealthProjectionModule`
+12. `UnityEncounterProjectionModule`
 
 Before constructing that list, the module set creates shared typed contexts and catalogs, defines
 every `RuleDefinitionId` required by this composition, and builds the `RuleRegistry`. Modules are
 supplied explicitly; they do not discover or register themselves. The bridge supplies that exact
 registry to active-effect and encounter runtime composition and supplies the composed action catalog
 to the action lifecycle before any module configures the dispatcher.
+
+The dungeon floor registers Open Door's `UnityDoorEncounterModule` and action catalog through the
+generic exact-identity encounter-extension host before an encounter is constructed. The module set
+copies those explicit contributions into the ordered module and action-catalog sequences before it
+builds the dispatcher. This is instance-owned composition, not scene discovery or
+self-registration; disposing the floor's registration prevents it from leaking into a later floor.
 
 `UnityEncounterComposition` preserves the supplied order and invokes only the capability interfaces
 each module implements:
@@ -106,15 +119,17 @@ dispatcher or enrollment hooks merely for symmetry.
 | Module | Capabilities |
 | --- | --- |
 | Rotting Aura | Dispatcher, runtime Fact presentation, topology refresh, and combatant enrollment; a binding-scoped `TurnBeganFact` listener is defined at composition |
+| Dungeon rules-effect persistence | Combatant enrollment of validated generic save envelopes before feature presentation observes creation Facts |
 | Condition applications | Shared application handler, runtime active-effect projection, and combatant enrollment |
 | Slowed | Combatant enrollment; one resource-calculation binding per creature |
 | Rage | Dispatcher configuration and combatant enrollment |
 | Strike | Dispatcher, action presentation, runtime state projection, combatant enrollment, and topology refresh |
-| Spellcasting | Dispatcher, action presentation, runtime effect projection, combatant enrollment, and topology refresh |
+| Spellcasting | Dispatcher, action presentation, combatant enrollment, and topology refresh |
 | Action presentation | Runtime registration of the shared lifecycle Fact observer and encounter-owned coordinator |
 | Light | Runtime effect presentation; spell effect creation and duration remain data-driven |
 | Health projection | Runtime Fact projection |
 | Encounter projection | Runtime Fact projection into the Unity-owned presentation FIFO |
+| Open Door | Floor-owned authoritative door store plus an explicitly installed encounter action validator and handler. Its immutable `DoorWorldState` uses the store's generic typed-state slot, so shared state APIs do not name or interpret doors. |
 
 ## Construction order
 
@@ -122,7 +137,8 @@ The private `UnityCombatRulesBridge` constructor performs these boundaries in or
 
 1. Create the mutable topology provider, shared feature contexts, catalogs, registry, explicit
    module set, composition, and enrollment pipeline.
-2. Call `UnityCombatantEnrollmentPipeline.Prepare` for all initial participants.
+2. Call `UnityCombatantEnrollmentPipeline.Prepare` for all initial participants, capturing each
+   combatant's immutable base statistics before commit.
 3. Build the dispatcher store from an empty `RulesStateSeed`; combat encounter construction does
    not seed combatant state.
 4. Configure shared runtimes on `RuleDispatcherBuilder`: health, MAP, checks, active effects,
@@ -151,15 +167,26 @@ preparation ahead of the authoritative commit, but the current Unity installatio
 fail afterward.
 
 `Prepare` validates the complete controller batch, reserves creature/player identity allocation,
-creates every Unity-to-rules map provisionally, validates future attachments, invokes every
-enrollment module, captures initiative modifiers, and freezes complete `CombatantRulesState` values
-plus installation plans. Creating all maps before module preparation lets restored effects resolve
-cross-combatant sources while preparation is still reversible.
+creates every Unity-to-rules map provisionally, validates future attachments, captures immutable
+base statistics, invokes every enrollment module, collects feature-owned initiative candidates
+during that preparation, resolves typed stacking once after all modules finish, and freezes
+complete `CombatantRulesState` values plus installation plans. Restored effects therefore influence
+initiative before the atomic addition commit without becoming a parallel statistics authority;
+one-use effects consume from the later committed initiative-assignment Fact. Creating all maps
+before module preparation lets restored effects resolve cross-combatant sources while preparation
+is still reversible.
+Spell action installation reconciles the exact supported spell/variant keys but recreates each
+rules-native action for every encounter enrollment. Those action objects own encounter-scoped
+catalog and spellbook dependencies, so retaining them across ownership release would bind a later
+encounter to disposed registration maps. Replacement removes the prior entries before adding the
+new set and therefore does not accumulate duplicates.
 `UnityCombatantEnrollmentBuilder` exposes the supported contribution APIs:
 
 - `Own<TResource>` for reversible preparation resources;
-- `AddSpellSlots`, `AddRuleBindings`, `AddEquipment`, `AddAmmunition`, and `AddActiveEffects` for
-  rules state committed atomically with the combatant; and
+- `Reserve` for provisional identity associations that roll back with preparation and become
+  durable only when the common combatant addition commits;
+- `AddSpellSlots`, `AddRuleBindings`, `AddEquipment`, `AddAmmunition`, `AddActiveEffects`, and
+  `AddActiveEffectTimings` for rules state committed atomically with the combatant; and
 - `AddInstallation(IUnityCombatantInstallationContribution)` for precomputed Unity changes.
 
 Do not expand that builder with a new feature-named field. Add feature-owned values to the complete
@@ -200,15 +227,82 @@ durable rules registration and maps are not rolled back. A new feature contribut
 registration state and therefore supports both initial and later batches without a second state
 workflow.
 
-### Restored-effect enrollment
+### Dungeon rules-effect persistence
 
-`UnitySpellcastingEncounterModule` is the production example of state that crosses both enrollment
-routes. During preparation it converts supported `SpellEffectController` entries into paired
-`ActiveEffectInstance` and `ActiveRuleBinding` values with stable IDs. The complete combatant
-registration carries each restored effect and matching binding through the same addition reducer.
-That reducer creates encounter timing and emits the generic `ActiveEffectCreatedFact`.
-`RestoredSpellEffectTimingObserver` projects initiative-boundary counts and removes Unity effects
-when `ActiveEffectRemovedFact` commits.
+Dungeon saves capture active rules state from the attached bridge, never from Unity effect
+components. Each `DungeonRulesEffectSaveState` is a generic envelope containing the exact effect,
+binding, definition, stable source actor, stable binding owner, stable timing actor, rule source,
+effect-state version, binding creation order and enabled state, duration, and materialized remaining timing. The state
+payload is delegated to an explicitly composed `IDungeonEffectStateCodec`, keyed by a stable save
+kind, the concrete `IEffectState` type, and every rule definition allowed to use that codec. The
+same definition declares its exact effect-state type in the `RuleRegistry`. Save validation checks
+the definition-to-codec pair before accepting an envelope, while active-effect creation and common
+combatant enrollment check the definition-to-state pair before an authoritative commit. Codecs own
+only serialization of their immutable feature state and any stable actor references in that state;
+the persistence layer contains no effect-name or spell-name switch.
+
+The current production catalog covers every active effect state type: `ConditionState`,
+`SpellEffectState`, and `RageEffectState`. A feature that introduces another persisted
+`IEffectState` adds one codec to the explicit catalog and ensures its rule definition is composed;
+it does not add a feature branch to actor capture or restore. Future spells can use the existing
+`SpellEffectState` contract when that payload is sufficient. This contract does not activate or
+implement dormant spell content.
+
+The dungeon actor adapter installs a temporary `DungeonRulesEffectSeed` through the real dungeon
+reload path. During common combatant preparation, `DungeonRulesEffectPersistenceModule` resolves
+stable dungeon actor IDs to the new encounter's `CreatureId` values and contributes the exact
+effect, binding, and timing records to `AddCombatantsOp`. The restored timing record remaps its
+actor independently from effect provenance. That clock must be enrolled, incoming, or an explicit
+external effect reference; an omitted external clock uses the new-round fallback and keeps its
+reserved identity if it enrolls later. Restoration therefore commits rules state
+before `ActiveEffectCreatedFact` reaches presentation observers. Light and other feature-owned
+presentation reconstruct from that Fact without recasting, spending action or spell costs,
+replaying damage, or creating replacement identities. Existing pre-encounter `ConditionSeed`
+entries are cleared when an explicit dungeon rules seed is installed so repeated reload cannot
+enroll the same application through two paths. Passive import checks pending restored condition
+state before adding a new pre-encounter application, so combat startup cannot recreate a restored
+passive condition before enrollment.
+
+After a successful addition installs Unity authority, the temporary restore seed is consumed. On
+ownership release, the persistence module projects the final immutable rules effects back into a
+detached seed before the next exploration checkpoint or encounter. This projection is the
+between-encounter transport, not a second live authority: later removals, expiry, and Rage ending
+come from the final rules snapshot, while conditions newly applied during exploration continue to
+use `ConditionSeed`. Detached checkpoint capture folds those new condition applications into the
+same generic envelope alongside the projected rules effects. Failed preparation or addition leaves
+the original restore seed available for retry.
+
+The save graph validates globally unique effect and binding IDs, binding-owner association, all
+source/owner/timing/payload actor references, codec payloads, and consistency between duration and timing.
+Party actor references are run-global roster identities; non-party references pair their floor
+depth with the floor-local encounter identity. Validation resolves those references against the
+whole visited-run graph, while restore materializes only actors on the selected floor and represents
+valid references from other floors as external actors. A same-named encounter member on another
+depth therefore cannot replace an absent source carried through a stair transition.
+Finite and encounter effects restore their remaining schedule rather than deriving a fresh one;
+indefinite effects have no timing record. Rage is restored as an ordinary active effect, so reload
+alone neither ends Rage nor changes its temporary Hit Points. Real gameplay removal and encounter
+termination continue through the existing Rage and active-effect operations. This contract for all
+supported active effects supersedes the historical blanket end-Rage-on-reload planning assumption;
+reload is transport, not a gameplay termination trigger.
+
+An effect may retain a stable source or payload actor identity after that dungeon actor has been
+defeated or left on another floor and is no longer materialized. Restoration represents that
+reference explicitly as an external effect actor rather than discarding the effect or inventing a
+live `GameObject`. A materialized actor omitted from the current roster instead reserves one
+encounter `CreatureId`; every restored reference uses that identity, and the same actor claims it
+if later enrolled. Both the future-ID reservation and its stable dungeon-reference association are
+preparation-owned until the effect registration commits, so failure cannot leak provenance into a
+later candidate that reuses the rolled-back ID. A counted
+duration whose source remains external advances once at each new-round boundary. Counted restores
+require a positive remaining boundary count. Dispatcher operation IDs start above every restored
+binding creation order, including restored effects supplied by later combatant additions. New
+effect and effect-binding identities come from one unique namespace shared by the bridge's
+pre-dispatch enrollment and dispatcher callbacks; local operation numbers and combatant IDs are
+only suffixes inside that namespace. Independent floor bridges therefore cannot generate the same
+persisted identity. Restored identities bypass generation and remain exact. Detached condition
+applications have no bridge, so their identities use the persisted dungeon actor reference—which
+includes floor depth for non-party actors—as their run-global namespace.
 
 Finite effects created for a source in a populated initialized encounter are scheduled immediately,
 before the first explicit advance, just as they are during an active encounter. This lets
@@ -238,8 +332,10 @@ encounter handlers and engine reducers. Its current division of responsibility i
   clear turn resources through reducers, and advance.
 - `EncounterOutcomeListener`: after reaction-phase zero-HP listeners settle, finalize defeat and
   evaluate encounter outcome.
-- `SuspendEncounterHandler` and `EndEncounterHandler`: remove encounter-owned timed effects as
-  expired before committing suspension or outcome.
+- `SuspendEncounterHandler` and `EndEncounterHandler`: remove encounter-duration effects as expired
+  before committing suspension or outcome. Boundary-counted effects retain their remaining
+  schedule in the final snapshot so ownership release can project them into the detached dungeon
+  transport and restoration can bind them to the next encounter's clock.
 - Encounter reducers and the shared reducers they invoke atomically mutate roster, initiative
   boundary, current turn, actions, reactions, MAP, movement reset state, phase, and outcome while
   emitting committed Facts.
@@ -371,9 +467,11 @@ that root ends. Do not transfer short-lived observation into the encounter lifet
 | Action lifecycle and atomic action/rule-resource costs | Production |
 | Encounter roster, initiative, turn progression, action economy, and conclusion | Production authority |
 | Health, temporary Hit Points, defeat, and Unity health projection | Production authority |
+| Base attack, Armor Class, saves, and skills | Production immutable enrollment state for initial participants and reinforcements |
 | Stride and movement topology/budget | Production; bridge still has first-slice Stride helpers |
+| Open Door and persistent door topology | Production authority in a floor-lived door rules store; encounter use is one-action Interact with Manipulate |
 | Strike, checks, modifier collection, damage, ammunition/reload, and MAP | Production |
-| Spellcasting, spell attacks, resources, effects, restoration, and presentation | Production for implemented spells |
+| Spellcasting, spell attacks, resources, effects, generic dungeon restoration, and presentation | Production for implemented spells |
 | Rage bindings, action, effect state, and Unity enrollment | Production |
 | Light effect presentation | Production adapter |
 | Rotting Aura turn-start semantics | Feature-owned rules listener and tick workflow; narrow read-only Unity targeting/data and Fact-presentation adapters |
@@ -413,12 +511,55 @@ owns shared Unity application, enrollment, and effect-Fact projection.
 applications for later enrollment. It is never read for attached rules calculations. Finite
 applications belong to the existing encounter lifetime, not the between-encounter seed.
 Projection re-queries surviving applications after removal instead of unconditionally clearing the
-condition's display entry.
+condition's display entry. Imported passives carry an explicit stable replay source. Only a replay
+from that identified passive may consume a matching pending restore; an ordinary distinct
+`ConditionSource` always creates its own application even when value, rules source, and source actor
+match an existing restore.
 
-The legacy `Conditions` save shape still persists names rather than mechanical values and lifetimes.
-Save restoration of arbitrary valued or timed conditions is not introduced here. Slowed is the first
-consumer of this shared bookkeeping; other condition mechanics, the Slow spell, generic condition
-reduction/removal rules, and special condition interactions are not implicitly implemented.
+Dungeon restoration preserves arbitrary positive condition values, independent overlapping sources,
+exact identities, and remaining timing through the generic rules-effect envelope. Slowed is the
+first consumer of this shared bookkeeping; other condition mechanics, the Slow spell, generic
+condition reduction/removal rules, and special condition interactions are not implicitly implemented.
+
+## Contextual Strike and condition authority
+
+`UnityPreparedStrikeDataAdapter` freezes copied definitions, prepared numeric facts, permanent
+roll options, and ability modifiers during the common Strike enrollment path. JSON predicates are
+compiled into immutable `PreparedPredicate` clauses; neither mutable JSON nor `RuleModifier`
+instances enter `RulesRuntime`. `PreparedStrikeRules` owns supported unarmed/weapon preparation,
+context options, item tags, last-matching modifier selection, ordered upgrade/multiply adjustments,
+ability substitution, and extra dice. Each evaluation uses local values. Target and actor condition
+options come from enabled `ConditionRules` applications, and active Rage options come from
+`RageRules`; cached active-condition/effect options are excluded. Enrollment lifetime cleanup removes
+the captured definitions with the actor's other Strike mappings.
+
+`StrikeTargetingRules` owns six-increment limits, range penalties, cover classification and typed AC
+candidates, and enemy eligibility using enrolled faction identities. `GridPrivate.StrikeTargeting`
+retains distance measurement, scene availability, corner/ray sampling, and grid iteration. Both
+preview and execution call the same pure policy; this does not install another targeting engine.
+`SpellTargetingRules` owns supported selection shape, living/friendly area membership, and exact
+membership validation from the scene-extracted reachable identities. Spell cover uses the same typed
+cover policy. `InitiativeRules` resolves the better imported initiative or prepared Perception and
+all generic/restored-effect modifier candidates once, before common combatant addition rolls.
+
+Rage's immutable actor inputs contain ownership, armor, level, and Constitution only. Fatigued and
+Encumbered eligibility reads enabled authoritative condition applications, including restored
+applications. Their legacy no-op helpers remain no-op; no new condition penalties or reactions are
+implemented. First enrollment can import previously unseeded sourced display entries. An explicit
+restore/detach transport, including an empty transport, supersedes those entries so stale display
+names cannot resurrect removed conditions. Ordinary pre-encounter applications continue to use
+`ConditionSeed`; attached decisions never read it or `Conditions.ActiveConditionNames`.
+
+The dormant `AttackResultPipeline` and its unused Strike request/context/profile/adjustment/event
+contracts are removed after source and serialized-GUID reference checks. Used typed outcome,
+`DamageRollResolution`, and combat-log presentation types remain. The controller's unused random
+initiative method and Slow's dormant reaction-clearing listener are removed. Prepared-content tests
+now evaluate the pure Strike feature rather than a second legacy damage calculation.
+
+Regression coverage is in `PreparedStrikeRulesTests`, `RageRulesTests`, `RulesRageUnityTests`,
+`RulesStrikeUnityTests`, and the existing spell/persistence suites. Current execution evidence belongs
+in the delivery handoff; compilation and standalone pure NUnit results do not replace full Unity
+EditMode and PlayMode verification.
 
 ## Recipe: add or migrate a vertical feature
 
@@ -485,8 +626,8 @@ presentation requirements. Keep them narrowly scoped:
   IDs for ordinary immutable values.
 - The encounter presentation FIFO keeps Unity callbacks outside rules resolution and preserves
   commit order. Do not merge it with caller-owned action presentation sequencing.
-- Restored spell-effect extraction and projection belong to spell restoration. Do not require its
-  Unity adapter records for effects created normally by rules operations.
+- Generic dungeon effect envelopes transport authoritative rules state through enrollment. Do not
+  add feature-specific fallback extraction, Unity-side duration ownership, or synthesized identities.
 - `UnityCombatRulesBridge` still contains Stride-specific fields and helpers from the first migrated
   slice. They are a transitional exception, not a template for more feature methods.
 - The complete state carried by `AddCombatantsOp` is an inventory of current implementation, not a

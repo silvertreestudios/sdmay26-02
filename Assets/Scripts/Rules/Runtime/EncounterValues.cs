@@ -40,6 +40,33 @@ namespace Game.Rules.Runtime
         ProtagonistDefeatOnly,
     }
 
+    /// <summary>Answers ordered friendship questions between encounter participants.</summary>
+    /// <remarks>
+    /// Friendship is directional: a provider may consider one participant friendly toward another
+    /// without considering the reverse relationship friendly. Features use this shared contract
+    /// instead of inferring relationships from player identity.
+    /// </remarks>
+    public interface ICombatantFriendshipProvider
+    {
+        /// <summary>Checks whether the source participant treats the target as friendly.</summary>
+        /// <param name="source">The player controlling the acting creature.</param>
+        /// <param name="target">The player controlling the other creature.</param>
+        /// <returns>Whether the ordered source-to-target relationship is friendly.</returns>
+        bool IsFriendly(PlayerId source, PlayerId target);
+    }
+
+    /// <summary>Treats only creatures controlled by the same player as friendly.</summary>
+    public sealed class SamePlayerCombatantFriendshipProvider : ICombatantFriendshipProvider
+    {
+        private SamePlayerCombatantFriendshipProvider() { }
+
+        /// <summary>Gets the stateless shared provider.</summary>
+        public static SamePlayerCombatantFriendshipProvider Instance { get; } = new();
+
+        /// <inheritdoc/>
+        public bool IsFriendly(PlayerId source, PlayerId target) => source == target;
+    }
+
     /// <summary>Stores a positive one-based encounter round.</summary>
     public readonly struct RoundNumber : IEquatable<RoundNumber>, IComparable<RoundNumber>
     {
@@ -457,8 +484,8 @@ namespace Game.Rules.Runtime
 
         /// <summary>
         /// Gets whether the source duration was encounter-scoped instead of boundary-counted.
-        /// All finite timings retire when their owning encounter closes because no later encounter
-        /// can advance that timing identity.
+        /// Encounter-scoped timings expire before the encounter closes. Boundary-counted timings
+        /// remain available for host persistence and are rebound to a fresh encounter on restore.
         /// </summary>
         public bool ExpiresWithEncounter { get; }
 
@@ -502,6 +529,13 @@ namespace Game.Rules.Runtime
             ActiveEffectInstance effect,
             ActiveRuleBinding binding,
             EncounterState encounter
+        ) => ForEncounter(effect, binding, encounter, effect.SourceCreature);
+
+        internal static ActiveEffectTimingState ForEncounter(
+            ActiveEffectInstance effect,
+            ActiveRuleBinding binding,
+            EncounterState encounter,
+            CreatureId timingSourceCreature
         )
         {
             int boundaries =
@@ -513,7 +547,7 @@ namespace Game.Rules.Runtime
                 effect.Id,
                 encounter.Id,
                 binding.Id,
-                effect.SourceCreature,
+                timingSourceCreature,
                 boundaries,
                 effect.Duration.Kind == EffectDurationKind.Encounter,
                 binding.CreationOrder

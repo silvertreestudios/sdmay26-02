@@ -3,7 +3,9 @@ using System.IO;
 using System.Linq;
 using Game.Creature;
 using Game.DungeonGeneration;
+using Game.DungeonPersistence.Actors;
 using Game.DungeonPersistence.Repository;
+using Game.Rules.Runtime;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -209,7 +211,7 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
-    public void LoadRejectsInactiveFloorWithPartyEnemyIdentityCollision()
+    public void LoadAllowsRunGlobalPartyAndFloorLocalEnemyToShareLocalText()
     {
         DungeonRunSave valid = DungeonRunSave
             .CreateNew(Party(12), CreateFloor(0))
@@ -223,23 +225,38 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         );
 
         Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
-        Assert.That(result.IsSuccess, Is.False);
-        Assert.That(result.Diagnostics.Single().Message, Does.Contain("duplicated"));
-        Assert.That(result.Diagnostics.Single().Message, Does.Contain("floors/0.json"));
+        Assert.That(result.IsSuccess, Is.True, result.Diagnostics.FirstOrDefault()?.Message);
     }
 
     [Test]
-    public void LoadRejectsInactiveFloorWithUnresolvedTimedEffectSource()
+    public void LoadRejectsInactiveFloorWithUnresolvedRulesEffectSource()
     {
         DungeonRunSave valid = CreateRun(0, 2);
         DungeonActorSaveState actor = ActorState(1, "floor-0");
-        actor.TimedEffects = new[]
+        actor.RulesEffects = new[]
         {
-            new DungeonTimedEffectSaveState
+            new DungeonRulesEffectSaveState
             {
-                Kind = "shield",
-                SourceActorId = "missing-actor",
-                RemainingTurnStarts = 1,
+                EffectId = "effect-1",
+                BindingId = "binding-1",
+                DefinitionId = RageActionDefinition.EffectDefinitionId.Value,
+                SourceActor = DungeonRulesActorReference.Floor(0, "missing-actor"),
+                BindingOwnerActor = DungeonRulesActorReference.Floor(
+                    0,
+                    InstanceId("encounter-1", 1)
+                ),
+                TimingSourceActor = DungeonRulesActorReference.Floor(
+                    0,
+                    InstanceId("encounter-1", 1)
+                ),
+                RuleSource = "rage",
+                DurationKind = EffectDurationKind.Minutes,
+                DurationAmount = 1,
+                BindingEnabled = true,
+                HasTiming = true,
+                RemainingBoundaries = 1,
+                StateKind = "rage",
+                StatePayload = "{\"StartedByQuickTempered\":false}",
             },
         };
         DungeonFloorSavePayload[] payloads = valid.FloorPayloads.ToArray();
@@ -256,14 +273,51 @@ public sealed class FileSystemDungeonSaveRepositoryTests
     }
 
     [Test]
+    public void LoadAcceptsCurrentPartyEffectSourcedByCurrentFloorEnemyWithVisitedHistory()
+    {
+        DungeonRunSave valid = DungeonRunSave
+            .CreateNew(Party(12), CreateFloor(0, encounterId: "older-encounter"))
+            .WithAddedAndSelectedFloor(Party(10), CreateFloor(2, encounterId: "current-encounter"));
+        DungeonRunSaveManifest manifest = valid.Manifest;
+        manifest.Party[0].State.RulesEffects = new[]
+        {
+            new DungeonRulesEffectSaveState
+            {
+                EffectId = "current-floor-slowed-effect",
+                BindingId = "current-floor-slowed-binding",
+                DefinitionId = ConditionRules.DefinitionId.Value,
+                SourceActor = DungeonRulesActorReference.Floor(
+                    2,
+                    InstanceId("current-encounter", 1)
+                ),
+                BindingOwnerActor = DungeonRulesActorReference.Party("party-slot"),
+                RuleSource = "current-floor-enemy-slowed",
+                DurationKind = EffectDurationKind.Indefinite,
+                BindingEnabled = true,
+                StateKind = "condition",
+                StatePayload = "{\"Condition\":\"slowed\",\"Value\":1}",
+            },
+        };
+
+        DungeonSaveResult<DungeonRunSave> result = ParseCandidate(
+            manifest,
+            valid.FloorPayloads.ToArray()
+        );
+
+        Assert.That(valid.Manifest.CurrentDepth, Is.EqualTo(2));
+        Assert.That(result.IsSuccess, Is.True, result.Diagnostics.FirstOrDefault()?.Message);
+        Assert.That(result.Value.Manifest.Party[0].State.RulesEffects, Has.Length.EqualTo(1));
+    }
+
+    [Test]
     public void LoadRejectsOutdatedManifestAndUnsupportedFloorDocumentVersions()
     {
         FileSystemDungeonSaveRepository repository = new(directory);
         Assert.That(repository.Save(CreateRun(0, 2)).IsSuccess, Is.True);
         string json = File.ReadAllText(repository.AutosavePath);
         string outdated = json.Replace(
+            "\"DocumentVersion\":4",
             "\"DocumentVersion\":2",
-            "\"DocumentVersion\":1",
             StringComparison.Ordinal
         );
         File.WriteAllText(repository.AutosavePath, outdated);
@@ -329,24 +383,192 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         File.WriteAllText(repository.AutosavePath, priorContents);
         DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> existing =
             repository.CaptureCheckpoint();
-        Assert.That(existing.IsSuccess, Is.True);
-        Assert.That(repository.Save(CreateRun(0)).IsSuccess, Is.True);
+        Assert.That(existing.IsSuccess, Is.True, FormatDiagnostics(existing.Diagnostics));
+        DungeonSaveResult<bool> savedOverExisting = repository.Save(CreateRun(0));
+        Assert.That(
+            savedOverExisting.IsSuccess,
+            Is.True,
+            FormatDiagnostics(savedOverExisting.Diagnostics)
+        );
 
         DungeonSaveResult<bool> restoredExisting = repository.RestoreCheckpoint(existing.Value);
 
-        Assert.That(restoredExisting.IsSuccess, Is.True);
+        Assert.That(
+            restoredExisting.IsSuccess,
+            Is.True,
+            FormatDiagnostics(restoredExisting.Diagnostics)
+        );
         Assert.That(File.ReadAllText(repository.AutosavePath), Is.EqualTo(priorContents));
 
         File.Delete(repository.AutosavePath);
         DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> missing =
             repository.CaptureCheckpoint();
-        Assert.That(missing.IsSuccess, Is.True);
-        Assert.That(repository.Save(CreateRun(0)).IsSuccess, Is.True);
+        Assert.That(missing.IsSuccess, Is.True, FormatDiagnostics(missing.Diagnostics));
+        DungeonSaveResult<bool> savedWhenMissing = repository.Save(CreateRun(0));
+        Assert.That(
+            savedWhenMissing.IsSuccess,
+            Is.True,
+            FormatDiagnostics(savedWhenMissing.Diagnostics)
+        );
 
         DungeonSaveResult<bool> restoredMissing = repository.RestoreCheckpoint(missing.Value);
 
-        Assert.That(restoredMissing.IsSuccess, Is.True);
+        Assert.That(
+            restoredMissing.IsSuccess,
+            Is.True,
+            FormatDiagnostics(restoredMissing.Diagnostics)
+        );
         Assert.That(File.Exists(repository.AutosavePath), Is.False);
+    }
+
+    /// <summary>Checks that staging preserves the old pathname contents until complete bytes publish.</summary>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void SavePublishesExactStagedBytes(bool destinationExists)
+    {
+        Directory.CreateDirectory(directory);
+        string autosavePath = Path.Combine(directory, "autosave.json");
+        byte[] prior = { 0, 255, 128, 13, 10 };
+        if (destinationExists)
+            File.WriteAllBytes(autosavePath, prior);
+        byte[] stagedBytes = Array.Empty<byte>();
+        int stagedCalls = 0;
+        FileSystemDungeonSaveRepository repository = new(
+            directory,
+            staged: path =>
+            {
+                stagedCalls++;
+                Assert.That(File.Exists(autosavePath), Is.EqualTo(destinationExists));
+                if (destinationExists)
+                    Assert.That(File.ReadAllBytes(autosavePath), Is.EqualTo(prior));
+                stagedBytes = File.ReadAllBytes(path);
+            }
+        );
+
+        DungeonSaveResult<bool> saved = repository.Save(
+            CreateRun(0, 2).WithSelectedFloor(2, Party(8))
+        );
+
+        Assert.That(saved.IsSuccess, Is.True, FormatDiagnostics(saved.Diagnostics));
+        Assert.That(stagedCalls, Is.EqualTo(1));
+        Assert.That(stagedBytes, Is.Not.Empty);
+        Assert.That(File.ReadAllBytes(autosavePath), Is.EqualTo(stagedBytes));
+        DungeonSaveResult<DungeonRunSave> loaded = repository.Load();
+        Assert.That(loaded.IsSuccess, Is.True, FormatDiagnostics(loaded.Diagnostics));
+        Assert.That(loaded.Value.Manifest.CurrentDepth, Is.EqualTo(2));
+        Assert.That(Directory.GetFiles(directory), Is.EquivalentTo(new[] { autosavePath }));
+    }
+
+    /// <summary>Rollback restores opaque bytes, including invalid UTF-8, without parsing or re-encoding.</summary>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void CheckpointRestoresOpaqueBytesOverExistingOrMissingDestination(
+        bool destinationExists
+    )
+    {
+        Directory.CreateDirectory(directory);
+        FileSystemDungeonSaveRepository repository = new(directory);
+        byte[] prior = { 0, 255, 128, 13, 10, 239, 187, 191 };
+        File.WriteAllBytes(repository.AutosavePath, prior);
+        DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> checkpoint =
+            repository.CaptureCheckpoint();
+        Assert.That(checkpoint.IsSuccess, Is.True, FormatDiagnostics(checkpoint.Diagnostics));
+        if (destinationExists)
+            File.WriteAllBytes(repository.AutosavePath, new byte[] { 42, 43 });
+        else
+            File.Delete(repository.AutosavePath);
+
+        DungeonSaveResult<bool> restored = repository.RestoreCheckpoint(checkpoint.Value);
+
+        Assert.That(restored.IsSuccess, Is.True, FormatDiagnostics(restored.Diagnostics));
+        Assert.That(File.ReadAllBytes(repository.AutosavePath), Is.EqualTo(prior));
+        Assert.That(
+            Directory.GetFiles(directory),
+            Is.EquivalentTo(new[] { repository.AutosavePath })
+        );
+    }
+
+    /// <summary>A failed rollback publication reports failure and leaves the current bytes intact.</summary>
+    [Test]
+    public void InterruptedRollbackPreservesCurrentBytesAndCleansStaging()
+    {
+        Directory.CreateDirectory(directory);
+        byte[] prior = { 0, 255, 128 };
+        byte[] current = { 10, 20, 30, 40 };
+        int publishCalls = 0;
+        FileSystemDungeonSaveRepository repository = new(
+            directory,
+            (source, destination) =>
+            {
+                publishCalls++;
+                Assert.That(File.ReadAllBytes(source), Is.EqualTo(prior));
+                Assert.That(File.ReadAllBytes(destination), Is.EqualTo(current));
+                throw new IOException("Simulated interrupted rollback publication.");
+            }
+        );
+        File.WriteAllBytes(repository.AutosavePath, prior);
+        DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> checkpoint =
+            repository.CaptureCheckpoint();
+        Assert.That(checkpoint.IsSuccess, Is.True, FormatDiagnostics(checkpoint.Diagnostics));
+        File.WriteAllBytes(repository.AutosavePath, current);
+
+        DungeonSaveResult<bool> restored = repository.RestoreCheckpoint(checkpoint.Value);
+
+        Assert.That(restored.IsSuccess, Is.False, FormatDiagnostics(restored.Diagnostics));
+        Assert.That(
+            restored.Diagnostics.Single().Code,
+            Is.EqualTo(DungeonSaveDiagnosticCode.IoFailure)
+        );
+        Assert.That(publishCalls, Is.EqualTo(1));
+        Assert.That(File.ReadAllBytes(repository.AutosavePath), Is.EqualTo(current));
+        Assert.That(
+            Directory.GetFiles(directory),
+            Is.EquivalentTo(new[] { repository.AutosavePath })
+        );
+    }
+
+    /// <summary>Windows sharing denial must fail Save and rollback without damaging committed bytes.</summary>
+    [TestCase(false)]
+    [TestCase(true)]
+    [Platform(Include = "Win")]
+    public void DestinationDenyingDeletePreservesCurrentBytes(bool restoreCheckpoint)
+    {
+        Directory.CreateDirectory(directory);
+        FileSystemDungeonSaveRepository repository = new(directory);
+        File.WriteAllBytes(repository.AutosavePath, new byte[] { 0, 255, 128 });
+        DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> checkpoint =
+            repository.CaptureCheckpoint();
+        Assert.That(checkpoint.IsSuccess, Is.True, FormatDiagnostics(checkpoint.Diagnostics));
+        byte[] current = { 10, 20, 30, 40 };
+        File.WriteAllBytes(repository.AutosavePath, current);
+
+        // Keep the conflicting handle alive throughout publication. No timing, external owner,
+        // retry, or injected publisher is involved; reads remain available for byte assertions.
+        using (
+            FileStream held = new(
+                repository.AutosavePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read
+            )
+        )
+        {
+            DungeonSaveResult<bool> result = restoreCheckpoint
+                ? repository.RestoreCheckpoint(checkpoint.Value)
+                : repository.Save(CreateRun(0));
+
+            Assert.That(result.IsSuccess, Is.False, FormatDiagnostics(result.Diagnostics));
+            Assert.That(
+                result.Diagnostics.Single().Code,
+                Is.EqualTo(DungeonSaveDiagnosticCode.IoFailure)
+            );
+            Assert.That(result.Diagnostics.Single().Path, Is.EqualTo(repository.AutosavePath));
+            Assert.That(File.ReadAllBytes(repository.AutosavePath), Is.EqualTo(current));
+            Assert.That(
+                Directory.GetFiles(directory),
+                Is.EquivalentTo(new[] { repository.AutosavePath })
+            );
+        }
     }
 
     [Test]
@@ -370,6 +592,116 @@ public sealed class FileSystemDungeonSaveRepositoryTests
         );
         Assert.That(File.ReadAllText(repository.AutosavePath), Is.EqualTo(committed));
         Assert.That(repository.Load().Value.Manifest.CurrentDepth, Is.EqualTo(2));
+    }
+
+    /// <summary>Repeated publication and rollback must preserve every captured byte and missing state.</summary>
+    [Test]
+    public void RepeatedSaveAndRollbackPreserveExactCheckpoints()
+    {
+        FileSystemDungeonSaveRepository repository = new(
+            Path.Combine(directory, "saves-\u00e9-\u65e5")
+        );
+        DungeonRunSave save = CreateRun(0, 2);
+        for (int iteration = 0; iteration < 100; iteration++)
+        {
+            bool existed = iteration % 3 != 0;
+            byte[] prior = { 0, 255, 128, (byte)iteration, 13, 10 };
+            Directory.CreateDirectory(Path.GetDirectoryName(repository.AutosavePath));
+            if (existed)
+                File.WriteAllBytes(repository.AutosavePath, prior);
+            else
+                File.Delete(repository.AutosavePath);
+
+            DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> checkpoint =
+                repository.CaptureCheckpoint();
+            Assert.That(checkpoint.IsSuccess, Is.True, FormatDiagnostics(checkpoint.Diagnostics));
+            DungeonSaveResult<bool> saved = repository.Save(save);
+            Assert.That(
+                saved.IsSuccess,
+                Is.True,
+                $"Save iteration {iteration}: {FormatDiagnostics(saved.Diagnostics)}"
+            );
+            Assert.That(
+                File.ReadAllText(repository.AutosavePath),
+                Is.EqualTo(DungeonSaveJson.Serialize(save))
+            );
+            DungeonSaveResult<bool> restored = repository.RestoreCheckpoint(checkpoint.Value);
+            Assert.That(
+                restored.IsSuccess,
+                Is.True,
+                $"Rollback iteration {iteration}: {FormatDiagnostics(restored.Diagnostics)}"
+            );
+            Assert.That(File.Exists(repository.AutosavePath), Is.EqualTo(existed));
+            if (existed)
+                Assert.That(File.ReadAllBytes(repository.AutosavePath), Is.EqualTo(prior));
+            Assert.That(
+                Directory.GetFiles(Path.GetDirectoryName(repository.AutosavePath)),
+                Is.EquivalentTo(existed ? new[] { repository.AutosavePath } : Array.Empty<string>())
+            );
+        }
+    }
+
+    /// <summary>Windows rejects an open destination without changing bytes, then publishes after close.</summary>
+    [TestCase(false)]
+    [TestCase(true)]
+    [Platform(Include = "Win")]
+    public void PublicationWithOpenDestinationPreservesBytesAndSucceedsAfterClose(
+        bool restoreCheckpoint
+    )
+    {
+        Directory.CreateDirectory(directory);
+        FileSystemDungeonSaveRepository repository = new(directory);
+        byte[] captured = { 0, 255, 128 };
+        byte[] current = { 10, 20, 30, 40 };
+        File.WriteAllBytes(repository.AutosavePath, captured);
+        DungeonSaveResult<IDungeonSaveRepositoryCheckpoint> checkpoint =
+            repository.CaptureCheckpoint();
+        Assert.That(checkpoint.IsSuccess, Is.True, FormatDiagnostics(checkpoint.Diagnostics));
+        File.WriteAllBytes(repository.AutosavePath, current);
+        DungeonRunSave save = CreateRun(0);
+
+        // Windows replacement rename rejects an open destination, including delete-sharing
+        // readers. Atomicity requires keeping its committed bytes intact when that happens.
+        using (
+            FileStream reader = new(
+                repository.AutosavePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete
+            )
+        )
+        {
+            DungeonSaveResult<bool> blocked = restoreCheckpoint
+                ? repository.RestoreCheckpoint(checkpoint.Value)
+                : repository.Save(save);
+            Assert.That(blocked.IsSuccess, Is.False, FormatDiagnostics(blocked.Diagnostics));
+            Assert.That(
+                blocked.Diagnostics.Single().Code,
+                Is.EqualTo(DungeonSaveDiagnosticCode.IoFailure)
+            );
+            using MemoryStream oldContents = new();
+            reader.CopyTo(oldContents);
+            Assert.That(oldContents.ToArray(), Is.EqualTo(current));
+            Assert.That(File.ReadAllBytes(repository.AutosavePath), Is.EqualTo(current));
+            Assert.That(
+                Directory.GetFiles(directory),
+                Is.EquivalentTo(new[] { repository.AutosavePath })
+            );
+        }
+
+        DungeonSaveResult<bool> result = restoreCheckpoint
+            ? repository.RestoreCheckpoint(checkpoint.Value)
+            : repository.Save(save);
+
+        Assert.That(result.IsSuccess, Is.True, FormatDiagnostics(result.Diagnostics));
+        byte[] expected = restoreCheckpoint
+            ? captured
+            : new System.Text.UTF8Encoding(false).GetBytes(DungeonSaveJson.Serialize(save));
+        Assert.That(File.ReadAllBytes(repository.AutosavePath), Is.EqualTo(expected));
+        Assert.That(
+            Directory.GetFiles(directory),
+            Is.EquivalentTo(new[] { repository.AutosavePath })
+        );
     }
 
     private static DungeonRunSave CreateRun(params int[] depths)
@@ -469,9 +801,9 @@ public sealed class FileSystemDungeonSaveRepositoryTests
             TemporaryHitPointSource =
                 temporaryHitPoints == 0 ? string.Empty : temporaryHitPointSource,
             TemporaryHitPointImmunities = Array.Empty<string>(),
-            Conditions = Array.Empty<DungeonConditionSaveState>(),
-            TimedEffects = Array.Empty<DungeonTimedEffectSaveState>(),
+            RulesEffects = Array.Empty<DungeonRulesEffectSaveState>(),
             PreparedEffects = Array.Empty<DungeonPreparedEffectSaveState>(),
+            SpellSlots = Array.Empty<DungeonSpellSlotSaveState>(),
             Equipment = new DungeonEquipmentSaveState
             {
                 LeftHandId = string.Empty,
@@ -486,4 +818,14 @@ public sealed class FileSystemDungeonSaveRepositoryTests
 
     private static string InstanceId(string encounterId, int index) =>
         $"{encounterId}/creature-{index:0000}";
+
+    private static string FormatDiagnostics(
+        System.Collections.Generic.IEnumerable<DungeonSaveDiagnostic> diagnostics
+    ) =>
+        string.Join(
+            "; ",
+            diagnostics.Select(diagnostic =>
+                $"{diagnostic.Code} at {diagnostic.Path}: {diagnostic.Message}"
+            )
+        );
 }

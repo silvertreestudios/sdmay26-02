@@ -806,11 +806,12 @@ public sealed class RulesStrikeScenePlayModeTests : PlayModeBase
             out Vector3Int lenaCell,
             out Vector3Int targetCell
         );
-        MoveCombatant(grid.GetTiles(), lena, lenaCell);
-        MoveCombatant(grid.GetTiles(), target, targetCell);
         CreatureComponent targetCreature = target.GetComponent<CreatureComponent>();
-        targetCreature.ac = 1;
         targetCreature.GrantSourceTemporaryHitPoints(RuleSource.FromSlug("strike-scene-test"), 100);
+        CombatManager combatManager = (CombatManager)CombatManagerInterface.GetInstance();
+        combatManager.ReleaseTacticsForTeardown();
+
+        targetCreature.ac = 1;
         CreatureComponent lenaCreature = lena.GetComponent<CreatureComponent>();
         Pf2eModifierCollection modifiers = lena.AddComponent<Pf2eModifierCollection>();
         modifiers.Add(
@@ -821,8 +822,11 @@ public sealed class RulesStrikeScenePlayModeTests : PlayModeBase
                 Pf2eStatistic.AttackRoll
             )
         );
+        MoveCombatant(grid.GetTiles(), lena, lenaCell);
+        MoveCombatant(grid.GetTiles(), target, targetCell);
+        combatManager.StartCombat();
+
         ActionController controller = lena.GetComponent<ActionController>();
-        CombatManagerInterface combatManager = CombatManagerInterface.GetInstance();
         int remainingTurns = combatManager.GetCombatants().Count + 1;
         while (combatManager.WhosTurn() != lena && remainingTurns-- > 0)
             combatManager.NextTurn();
