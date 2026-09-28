@@ -169,6 +169,7 @@ namespace Game.KayKit.Editor
             {
                 { "Lena", "adventurers/ranger" },
                 { "Torgrim", "adventurers/barbarian" },
+                { "Maren", "adventurers/mage" },
                 { "Zombie Shambler", "skeletons/skeleton_minion" },
                 { "Zombie Shambler (Rotting Aura)", "skeletons/skeleton_minion" },
                 { "Skeleton Guard", "skeletons/skeleton_warrior" },
@@ -221,6 +222,7 @@ namespace Game.KayKit.Editor
 
             ValidatePatchedPrefab("Assets/Prefabs/Creatures/Lena.prefab", visualCatalog, errors);
             ValidatePatchedPrefab("Assets/Prefabs/Creatures/Torgrim.prefab", visualCatalog, errors);
+            ValidatePatchedPrefab("Assets/Prefabs/Creatures/Maren.prefab", visualCatalog, errors);
             ValidatePatchedPrefab(
                 "Assets/Prefabs/Creatures/goblin-warrior.prefab",
                 visualCatalog,
@@ -730,6 +732,12 @@ namespace Game.KayKit.Editor
                         "adventurers/barbarian",
                         "adventurer",
                         barbarian
+                    ),
+                    new CreatureVisualCatalogEntry(
+                        "Maren",
+                        "adventurers/mage",
+                        "adventurer",
+                        mageStaff
                     ),
                     new CreatureVisualCatalogEntry(
                         "Zombie Shambler",

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Game.Combat.Encounters;
+using Game.Combat.Spells;
 using Game.Creature;
 using Game.DungeonGeneration;
 using Game.DungeonPersistence;
@@ -99,10 +100,13 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(controller.StartingSeed, Is.EqualTo(807239348));
         Assert.That(down.Cell, Is.EqualTo(new DungeonCell(13, 3)));
         Assert.That(down.ArrivalCell, Is.EqualTo(new DungeonCell(13, 2)));
-        IReadOnlyDictionary<string, ActionController> partyByName = ProductionParty()
-            .ToDictionary(member => member.name, member => member, StringComparer.Ordinal);
-        partyByName["Lena"].transform.position = new Vector3(13f, 0f, 2f);
-        partyByName["Torgrim"].transform.position = new Vector3(13f, 0f, 1f);
+        ActionController[] productionParty = ProductionParty();
+        PlacePartyAtStair(down, productionParty);
+        IReadOnlyDictionary<string, ActionController> partyByName = productionParty.ToDictionary(
+            member => member.name,
+            member => member,
+            StringComparer.Ordinal
+        );
         partyByName["Lena"].IsTakingAction = true;
         Physics.SyncTransforms();
         yield return null;
@@ -403,8 +407,49 @@ public sealed class DungeonProductionFlowPlayModeTests
         Assert.That(firstController.CurrentDepth, Is.Zero);
         Assert.That(firstStatus.text, Does.Contain("Seed -2147483648"));
         Assert.That(firstStatus.text, Does.Contain("Depth 0"));
-        Assert.That(ProductionParty(), Has.Length.EqualTo(2));
-        Assert.That(ProductionParty().All(member => member.gameObject.activeInHierarchy), Is.True);
+        yield return null;
+        ActionController[] firstParty = ProductionParty();
+        Assert.That(
+            firstParty.Select(member => member.name),
+            Is.EquivalentTo(new[] { "Lena", "Torgrim", "Maren" })
+        );
+        Assert.That(firstParty.All(member => member.gameObject.activeInHierarchy), Is.True);
+        Assert.That(
+            firstParty
+                .Select(member => member.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId)
+                .OrderBy(value => value, StringComparer.Ordinal),
+            Is.EqualTo(new[] { "party-slot-lena", "party-slot-maren", "party-slot-torgrim" })
+        );
+        Assert.That(
+            firstParty
+                .Select(member => Vector3Int.RoundToInt(member.transform.position))
+                .Distinct()
+                .Count(),
+            Is.EqualTo(3)
+        );
+        ActionController maren = firstParty.Single(member => member.name == "Maren");
+        CreatureComponent marenCreature = maren.GetComponent<CreatureComponent>();
+        Assert.That(maren, Is.TypeOf<PlayerActionController>());
+        Assert.That(marenCreature.weapons.Single().name, Is.EqualTo("Mace"));
+        Assert.That(marenCreature.Prepared.SpellBook.SpellAttackModifier, Is.EqualTo(7));
+        Assert.That(marenCreature.Prepared.SpellBook.SpellDc, Is.EqualTo(17));
+        Assert.That(
+            marenCreature
+                .Prepared.SpellBook.CreateInitialSlotStates(new CreatureId("new-run-maren"))
+                .Select(slot => slot.Remaining),
+            Is.EquivalentTo(new[] { 4, 1, 1 })
+        );
+        Assert.That(
+            firstParty.All(member => member.GetComponent<Portrait>().GetPortraitSnapshot() != null),
+            Is.True
+        );
+        int playerCards = Object
+            .FindObjectsByType<UIDocument>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)
+            .SelectMany(document =>
+                document.rootVisualElement.Query<VisualElement>("Card").ToList()
+            )
+            .Count();
+        Assert.That(playerCards, Is.EqualTo(3));
 
         DungeonSaveResult<DungeonRunSave> firstSave = new FileSystemDungeonSaveRepository(
             firstDirectory
@@ -415,6 +460,20 @@ public sealed class DungeonProductionFlowPlayModeTests
             string.Join(" ", firstSave.Diagnostics.Select(item => item.Message))
         );
         Assert.That(firstSave.Value.Manifest.StartingSeed, Is.EqualTo(int.MinValue));
+        DungeonPartyMemberSaveState savedMaren = firstSave.Value.Manifest.Party.Single(member =>
+            member.RosterSlotId == "party-slot-maren"
+        );
+        Assert.That(
+            savedMaren.State.SpellSlots.Select(slot => (slot.PoolId, slot.Remaining, slot.Maximum)),
+            Is.EquivalentTo(
+                new[]
+                {
+                    ("font-heal", 4, 4),
+                    ("rank-1-bless", 1, 1),
+                    ("rank-1-infuse-vitality", 1, 1),
+                }
+            )
+        );
 
         string secondDirectory = TrackDirectory("reproduce-b");
         yield return LaunchNewRun(secondDirectory, suppliedSeed);
@@ -459,6 +518,23 @@ public sealed class DungeonProductionFlowPlayModeTests
         Map map = RequireMap();
         DungeonLevelDocument floor = map.ValidateSource().JsonMap.LevelDocument;
         party = ProductionParty();
+        ActionController maren = party.Single(member => member.name == "Maren");
+        CreatureComponent marenCreature = maren.GetComponent<CreatureComponent>();
+        HealthState expectedMarenHealth = new(marenCreature.maxHp - 2, marenCreature.maxHp);
+        marenCreature.InitializeHealthBeforeEncounter(expectedMarenHealth);
+        SpellSlotResourceSeed marenResources = maren.GetComponent<SpellSlotResourceSeed>();
+        Assert.That(marenResources, Is.Not.Null);
+        marenResources.Initialize(
+            new[]
+            {
+                new PreparedSpellSlotResource(new SpellSlotPoolId("font-heal"), 3, 4),
+                new PreparedSpellSlotResource(new SpellSlotPoolId("rank-1-bless"), 0, 1),
+                new PreparedSpellSlotResource(new SpellSlotPoolId("rank-1-infuse-vitality"), 1, 1),
+            }
+        );
+        string[] expectedMarenWeapons = marenCreature
+            .weapons.Select(weapon => weapon.name)
+            .ToArray();
         DungeonEncounterRuntimeController runtime =
             Object.FindFirstObjectByType<DungeonEncounterRuntimeController>();
         Assert.That(runtime, Is.Not.Null);
@@ -578,7 +654,12 @@ public sealed class DungeonProductionFlowPlayModeTests
             "Continue must populate the exact committed floor JSON rather than regenerating it."
         );
 
-        foreach (ActionController member in ProductionParty())
+        ActionController[] restoredParty = ProductionParty();
+        Assert.That(
+            restoredParty.Select(member => member.name),
+            Is.EquivalentTo(new[] { "Lena", "Torgrim", "Maren" })
+        );
+        foreach (ActionController member in restoredParty)
         {
             DungeonPartyMemberIdentity identity = member.GetComponent<DungeonPartyMemberIdentity>();
             Vector3Int position = Vector3Int.RoundToInt(member.transform.position);
@@ -589,7 +670,29 @@ public sealed class DungeonProductionFlowPlayModeTests
             );
         }
         AssertPartyCameraFraming();
-
+        ActionController restoredMaren = restoredParty.Single(member => member.name == "Maren");
+        CreatureComponent restoredMarenCreature = restoredMaren.GetComponent<CreatureComponent>();
+        Assert.That(restoredMarenCreature.Health, Is.EqualTo(expectedMarenHealth));
+        Assert.That(
+            restoredMarenCreature.weapons.Select(weapon => weapon.name),
+            Is.EqualTo(expectedMarenWeapons)
+        );
+        SpellSlotResourceSeed restoredResources =
+            restoredMaren.GetComponent<SpellSlotResourceSeed>();
+        Assert.That(
+            restoredResources
+                .Capture(restoredMaren)
+                .Select(resource => (resource.Pool.Value, resource.Remaining, resource.Maximum)),
+            Is.EquivalentTo(
+                new[]
+                {
+                    ("font-heal", 3, 4),
+                    ("rank-1-bless", 0, 1),
+                    ("rank-1-infuse-vitality", 1, 1),
+                }
+            ),
+            "Continue must not refresh spent Heal or prepared-spell pools."
+        );
         DungeonDoorController[] restoredDoors = Object
             .FindObjectsByType<DungeonDoorController>(
                 FindObjectsInactive.Exclude,
@@ -649,6 +752,55 @@ public sealed class DungeonProductionFlowPlayModeTests
                 ),
             Is.EqualTo(encounter.CreatureIds.Count)
         );
+
+        DungeonLevelDocument restoredDocument = restoredMap.ValidateSource().JsonMap.LevelDocument;
+        DungeonRoom restoredEncounterRoom = restoredDocument.Rooms.Single(room =>
+            room.Id == encounter.RoomId
+        );
+        SetPartyCells(
+            restoredParty,
+            AvailablePartyCells(restoredDocument, restoredEncounterRoom, restoredParty.Length)
+        );
+        InvokeRuntimeUpdate(restoredRuntime);
+        yield return null;
+        string[] restoredActionNames = restoredMaren
+            .GetActions()
+            .Select(action => action.ActionName)
+            .ToArray();
+        Assert.That(restoredActionNames, Is.Unique, "Continue must not duplicate action entries.");
+        Assert.That(restoredActionNames.Count(name => name == "Mace"), Is.EqualTo(1));
+        Assert.That(restoredActionNames.Count(name => name == "Heal 2A"), Is.EqualTo(1));
+        Assert.That(restoredActionNames.Count(name => name == "Bless"), Is.EqualTo(1));
+    }
+
+    /// <summary>
+    /// Rejects a pre-change two-member save without reading or deleting the player's save folder.
+    /// </summary>
+    [UnityTest]
+    public IEnumerator ContinueRejectsOldTwoMemberRosterInIsolatedStorage()
+    {
+        string directory = TrackDirectory("old-roster");
+        yield return LaunchNewRun(directory, "90125");
+
+        FileSystemDungeonSaveRepository repository = new(directory);
+        DungeonSaveResult<DungeonRunSave> loaded = repository.Load();
+        Assert.That(loaded.IsSuccess, Is.True);
+        DungeonRunSaveManifest manifest = loaded.Value.Manifest;
+        manifest.Party = manifest
+            .Party.Where(member => member.RosterSlotId != "party-slot-maren")
+            .ToArray();
+        DungeonRunSave oldRoster = new(manifest, loaded.Value.FloorPayloads);
+        Assert.That(repository.Save(oldRoster).IsSuccess, Is.True);
+
+        yield return LoadMenu(directory, entropy: 1L);
+        PushButton(menuRoot.Q<Button>("ContinueButton"));
+        yield return WaitForDungeonScene();
+
+        Assert.That(Object.FindFirstObjectByType<DungeonRunController>(), Is.Null);
+        DungeonSaveResult<DungeonRunSave> preserved = repository.Load();
+        Assert.That(preserved.IsSuccess, Is.True);
+        Assert.That(preserved.Value.Manifest.Party, Has.Length.EqualTo(2));
+        Assert.That(File.Exists(repository.AutosavePath), Is.True);
     }
 
     private IEnumerator LaunchNewRun(string directory, string seedText)
@@ -692,6 +844,25 @@ public sealed class DungeonProductionFlowPlayModeTests
         }
 
         Assert.Fail("The production procedural dungeon did not initialize within 30 seconds.");
+    }
+
+    private static IEnumerator WaitForDungeonScene()
+    {
+        float deadline = Time.realtimeSinceStartup + 30f;
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            if (
+                SceneManager.GetActiveScene().name == DungeonScene
+                && !SceneTransitionManager.IsTransitioning
+            )
+            {
+                yield return null;
+                yield break;
+            }
+            yield return null;
+        }
+
+        Assert.Fail("The production procedural dungeon scene did not finish loading.");
     }
 
     private static IEnumerator WaitForMainMenu()
