@@ -246,10 +246,10 @@ namespace Game.DungeonPersistence.Autosave
             DungeonLevelDocument Floor
         ) CaptureCurrentState()
         {
-            Dictionary<string, GameObject> actorsById = BuildActorIndex();
-            string IdentifyActor(GameObject actor)
+            Dictionary<DungeonRulesActorReference, GameObject> actorsById = BuildActorIndex();
+            DungeonRulesActorReference IdentifyActor(GameObject actor)
             {
-                foreach (KeyValuePair<string, GameObject> entry in actorsById)
+                foreach (KeyValuePair<DungeonRulesActorReference, GameObject> entry in actorsById)
                 {
                     if (entry.Value == actor)
                         return entry.Key;
@@ -293,9 +293,9 @@ namespace Game.DungeonPersistence.Autosave
             return (partyState, floor);
         }
 
-        private Dictionary<string, GameObject> BuildActorIndex()
+        private Dictionary<DungeonRulesActorReference, GameObject> BuildActorIndex()
         {
-            Dictionary<string, GameObject> actors = new(StringComparer.Ordinal);
+            Dictionary<DungeonRulesActorReference, GameObject> actors = new();
             foreach (ActionController controller in party)
             {
                 DungeonPartyMemberIdentity identity =
@@ -304,7 +304,10 @@ namespace Game.DungeonPersistence.Autosave
                     throw new InvalidOperationException(
                         $"Party actor '{controller.name}' has no stable roster slot."
                     );
-                actors.Add(identity.RosterSlotId, controller.gameObject);
+                actors.Add(
+                    DungeonRulesActorReference.Party(identity.RosterSlotId),
+                    controller.gameObject
+                );
             }
             foreach (
                 DungeonEncounterMember member in runtime.GetComponentsInChildren<DungeonEncounterMember>(
@@ -313,7 +316,13 @@ namespace Game.DungeonPersistence.Autosave
             )
             {
                 if (member != null && member.IsConfigured)
-                    actors.Add(member.InstanceId, member.gameObject);
+                    actors.Add(
+                        DungeonRulesActorReference.Floor(
+                            activeSourceDocument.Generation.Depth,
+                            member.InstanceId
+                        ),
+                        member.gameObject
+                    );
             }
             return actors;
         }

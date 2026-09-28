@@ -6,10 +6,13 @@ using System.Reflection;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
+using Game.DungeonPersistence.Actors;
+using Game.DungeonPersistence.Repository;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Light;
+using Game.Strikes;
 using GridPrivate;
 using GridPublic;
 using NUnit.Framework;
@@ -54,7 +57,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     }
 
     [Test]
-    public void PreStartInitializationAddsLegacySpellsButDoesNotAddLight()
+    public void PreStartInitializationDoesNotInstallAnySpellAuthority()
     {
         CreatureComponent cleric = CreateCreature("Pre-Start Cleric", 0, prepared: false);
         cleric.level = 1;
@@ -63,6 +66,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
         cleric.InitializeRuntimeActions();
 
+        Assert.That(cleric.Prepared.Spellcasting, Is.Null);
         RulesCastSpellAction[] light = controller
             .GetActions()
             .OfType<RulesCastSpellAction>()
@@ -70,27 +74,391 @@ public sealed class SpellcastingPresentationPlayModeTests
             .ToArray();
         Assert.That(light, Is.Empty);
         Assert.That(RulesActions(controller, "divine-lance"), Is.Empty);
-        Assert.That(
-            controller
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "light"),
-            Is.False
+    }
+
+    [UnityTest]
+    public IEnumerator CheckedInClericEnrollsCompleteRulesAndMaceStrike()
+    {
+        GameObject maren = CreatureJsonConverter.CreateByName("Maren");
+        Assert.That(maren, Is.Not.Null);
+        created.Add(maren);
+        maren.transform.position = Vector3.zero;
+        CreatureComponent cleric = maren.GetComponent<CreatureComponent>();
+        maren.AddComponent<Team>().Name = "players";
+        TestActionController controller = maren.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Maren Spell Opponent", 1, prepared: false);
+        opponent.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, maren);
+        Occupy(tiles, opponent.gameObject);
+
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            "players"
+        );
+        bridge.AdvanceEncounter();
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        CreatureStatisticsState statistics = bridge.Snapshot.Statistics[actor];
+        RulesStrikeAction mace = controller
+            .GetActions()
+            .OfType<RulesStrikeAction>()
+            .Single(action => action.ActionName == "Mace");
+
+        Assert.That(cleric.Build.ClassName, Is.EqualTo("Cleric"));
+        Assert.That(cleric.Prepared.HasOwnedItem("cleric"), Is.True);
+        Assert.That(statistics.WillModifier, Is.EqualTo(9));
+        Assert.That(statistics.GetSkillModifier(Skill.Religion), Is.EqualTo(7));
+        Assert.That(mace.Item.Category, Is.EqualTo("simple"));
+        Assert.That(mace.Item.Group, Is.EqualTo("club"));
+        Assert.That(mace.Item.AttackModifier, Is.EqualTo(4));
+        Assert.That(mace.Item.DamageDice.Single().Dice, Is.EqualTo(new DiceExpression(1, 6)));
+        Assert.That(mace.Item.DamageDice.Single().DamageType, Is.EqualTo("bludgeoning"));
+        Assert.That(mace.Item.Traits, Does.Contain(Trait.FromSlug("shove")));
+        AssertMigratedClericSpellActions(controller);
+        AssertNoDuplicateSpellActions(controller.GetActions().OfType<RulesCastSpellAction>());
+        bridge.ReleaseOwnership();
+    }
+
+    [UnityTest]
+    public IEnumerator CheckedInMarenCastsAllSixMigratedSpellsThroughProductionActions()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        GameObject maren = CreatureJsonConverter.CreateByName("Maren");
+        Assert.That(maren, Is.Not.Null);
+        created.Add(maren);
+        maren.transform.position = Vector3.zero;
+        CreatureComponent cleric = maren.GetComponent<CreatureComponent>();
+        maren.AddComponent<Team>().Name = "players";
+        TestActionController controller = maren.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Maren Spell Opponent", 1, prepared: false, 20);
+        opponent.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, maren);
+        Occupy(tiles, opponent.gameObject);
+
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10, 10, 4, 5),
+            "players"
+        );
+        CreatureId actor = bridge.GetCreatureId(cleric);
+
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "shield").Single(),
+            maren
         );
         Assert.That(
-            controller
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Any(action => action.Spell.Slug == "divine-lance"),
-            Is.False
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.ShieldEffect
+            ),
+            Is.True
+        );
+
+        grid.Target = maren;
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "guidance").Single(),
+            maren
         );
         Assert.That(
-            controller
-                .GetActions()
-                .OfType<CastSpellAction>()
-                .Count(action => action.ActionName == "Shield"),
-            Is.EqualTo(1)
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.GuidanceEffect
+            ),
+            Is.True
         );
+
+        grid.AreaResult = AreaTargeting.Evaluate(
+            maren,
+            tiles,
+            new AreaTargetRequest
+            {
+                Shape = AreaShape.Cone,
+                SizeFeet = 15,
+                RequiresLineOfEffect = true,
+            },
+            new AreaPlacement
+            {
+                Shape = AreaShape.Cone,
+                OriginCell = Vector3Int.zero,
+                Direction = AreaDirection.East,
+            }
+        );
+        int opponentHealth = opponent.Health.Current;
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "haunting-hymn").Single(),
+            maren
+        );
+        Assert.That(opponent.Health.Current, Is.LessThan(opponentHealth));
+
+        grid.AreaResult = AreaTargeting.Evaluate(
+            maren,
+            tiles,
+            new AreaTargetRequest
+            {
+                Shape = AreaShape.Emanation,
+                SizeFeet = 15,
+                IncludeCenter = true,
+                RequiresLineOfEffect = true,
+            },
+            new AreaPlacement
+            {
+                Shape = AreaShape.Emanation,
+                OriginCell = Vector3Int.zero,
+                Direction = AreaDirection.East,
+            }
+        );
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "bless").Single(),
+            maren
+        );
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.BlessEffect
+            ),
+            Is.True
+        );
+
+        grid.Target = maren;
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "infuse-vitality")
+                .Single(action => action.Variant.Actions == 1),
+            maren
+        );
+        Assert.That(
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.InfuseVitalityEffect
+            ),
+            Is.True
+        );
+
+        cleric.ApplyFinalDamage(2, RuleSource.FromSlug("maren-production-casting-test"));
+        int damagedHealth = cleric.Health.Current;
+        yield return InvokeSpell(
+            bridge,
+            actor,
+            controller,
+            RulesActions(controller, "heal").Single(action => action.Variant.Actions == 1),
+            maren
+        );
+        Assert.That(cleric.Health.Current, Is.GreaterThan(damagedHealth));
+        Assert.That(
+            bridge
+                .Snapshot
+                .SpellSlots[new SpellSlotPoolId($"{actor.Value}:rank-1-bless")]
+                .Remaining,
+            Is.Zero
+        );
+        Assert.That(
+            bridge
+                .Snapshot
+                .SpellSlots[new SpellSlotPoolId($"{actor.Value}:rank-1-infuse-vitality")]
+                .Remaining,
+            Is.Zero
+        );
+        Assert.That(FontUses(bridge, actor), Is.EqualTo(3));
+        bridge.ReleaseOwnership();
+    }
+
+    [TestCase("guidance", 1, "friendly", true)]
+    [TestCase("guidance", 1, "hostile", false)]
+    [TestCase("guidance", 1, "neutral", false)]
+    [TestCase("bless", 2, "friendly", true)]
+    [TestCase("bless", 2, "hostile", false)]
+    [TestCase("bless", 2, "neutral", false)]
+    [TestCase("infuse-vitality", 1, "friendly", true)]
+    [TestCase("infuse-vitality", 1, "hostile", false)]
+    [TestCase("infuse-vitality", 1, "neutral", false)]
+    [TestCase("heal", 2, "friendly", true)]
+    [TestCase("heal", 2, "hostile", false)]
+    [TestCase("heal", 2, "neutral", false)]
+    public void ProductionBridgeUsesDirectionalFriendshipForSpellTargets(
+        string slug,
+        int actions,
+        string relationship,
+        bool expectedSuccess
+    )
+    {
+        const string casterTeam = "players";
+        string targetTeam = string.Concat("spell-target-", relationship);
+        if (TeamRules.TryGetInstance(out TeamRules existingTeamRules))
+            Object.DestroyImmediate(existingTeamRules.gameObject);
+        GameObject teamRulesObject = new("Directional Spell Team Rules");
+        created.Add(teamRulesObject);
+        TeamRules teamRules = teamRulesObject.AddComponent<TeamRules>();
+        teamRules.AddHostileTeam(casterTeam);
+        teamRules.OneWayFriendly(casterTeam, casterTeam);
+        if (relationship == "neutral")
+            teamRules.AddNeutralTeam(targetTeam);
+        else
+            teamRules.AddHostileTeam(targetTeam);
+        if (relationship == "friendly")
+            teamRules.OneWayFriendly(casterTeam, targetTeam);
+
+        CreatureComponent caster = CreateCreature("Directional Spell Caster", 0, prepared: true);
+        CreatureComponent target = CreateCreature("Directional Spell Target", 1, prepared: false);
+        target.gameObject.AddComponent<Team>().Name = targetTeam;
+        TestActionController casterController =
+            caster.gameObject.AddComponent<TestActionController>();
+        TestActionController targetController =
+            target.gameObject.AddComponent<TestActionController>();
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, caster.gameObject);
+        Occupy(tiles, target.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { casterController, targetController },
+            tiles,
+            casterTeam
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster);
+        CreatureId targetId = bridge.GetCreatureId(target);
+        SpellCastSelection selection =
+            slug == "bless"
+                ? new SpellCastSelection(new[] { casterId, targetId })
+                : new SpellCastSelection(new[] { targetId });
+        bridge.BeginTurn(casterId, 3);
+
+        OpResult<CastSpellOutcome> result = bridge.Dispatch(
+            new CastSpellActionOp(
+                casterId,
+                Reference(slug),
+                new SpellActionVariant(actions),
+                selection
+            )
+        );
+        string failure = result is InvalidOpResult<CastSpellOutcome> invalid
+            ? invalid.Reason
+            : string.Empty;
+
+        Assert.That(
+            result,
+            expectedSuccess
+                ? Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>()
+                : Is.TypeOf<InvalidOpResult<CastSpellOutcome>>(),
+            failure
+        );
+        Assert.That(
+            bridge.Snapshot.ActionEconomy[casterId].ActionsRemaining,
+            Is.EqualTo(expectedSuccess ? 3 - actions : 3)
+        );
+        Assert.That(bridge.IsFriendly(casterId, targetId), Is.EqualTo(expectedSuccess));
+        Assert.That(teamRules.IsFriendly(casterTeam, targetTeam), Is.EqualTo(expectedSuccess));
+        if (relationship == "friendly")
+        {
+            Assert.That(bridge.IsFriendly(targetId, casterId), Is.False);
+            Assert.That(
+                teamRules.IsFriendly(targetTeam, casterTeam),
+                Is.False,
+                "Spell targeting must use the caster-to-target relationship direction."
+            );
+        }
+        bridge.ReleaseOwnership();
+    }
+
+    [Test]
+    public void HauntingHymnSchedulesDeafenedBeforeFinalEnemyDamageEndsEncounter()
+    {
+        CreatureComponent caster = CreateCreature("Finalizing Hymn Caster", 0, prepared: true);
+        CreatureComponent finalEnemy = CreateCreature(
+            "Finalizing Hymn Enemy",
+            1,
+            prepared: false,
+            hitPoints: 1
+        );
+        finalEnemy.gameObject.AddComponent<Team>().Name = "enemies";
+        CreatureComponent survivor = CreateCreature(
+            "Finalizing Hymn Survivor",
+            2,
+            prepared: false,
+            hitPoints: 30
+        );
+        survivor.gameObject.AddComponent<Team>().Name = "players";
+        TestActionController casterController =
+            caster.gameObject.AddComponent<TestActionController>();
+        TestActionController enemyController =
+            finalEnemy.gameObject.AddComponent<TestActionController>();
+        TestActionController survivorController =
+            survivor.gameObject.AddComponent<TestActionController>();
+        Tile[,] tiles = CreateTiles(3);
+        Occupy(tiles, caster.gameObject);
+        Occupy(tiles, finalEnemy.gameObject);
+        Occupy(tiles, survivor.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { casterController, enemyController, survivorController },
+            tiles,
+            new ScriptedRollService(1, 1, 1, 1, 1, 1, 1, 1),
+            "players"
+        );
+        CreatureId casterId = bridge.GetCreatureId(caster);
+        CreatureId enemyId = bridge.GetCreatureId(finalEnemy);
+        CreatureId survivorId = bridge.GetCreatureId(survivor);
+        bridge.BeginTurn(casterId, 3);
+
+        OpResult<CastSpellOutcome> result = bridge.Dispatch(
+            new CastSpellActionOp(
+                casterId,
+                Reference("haunting-hymn"),
+                new SpellActionVariant(2),
+                new SpellCastSelection(new[] { enemyId, survivorId }, SpellAreaDirection.East)
+            )
+        );
+
+        Assert.That(result, Is.TypeOf<ResolvedOpResult<CastSpellOutcome>>());
+        Assert.That(bridge.GetEncounter().Phase, Is.EqualTo(EncounterPhase.Ended));
+        Assert.That(finalEnemy.Health.Current, Is.Zero);
+        ActiveRuleBinding survivorBinding = bridge
+            .Snapshot.RuleBindings.Select(pair => pair.Value)
+            .Single(binding =>
+                binding.Owner == survivorId
+                && binding.DefinitionId == ConditionRules.DefinitionId
+                && binding.EffectId.HasValue
+                && bridge
+                    .Snapshot.ActiveEffects[binding.EffectId.Value]
+                    .GetState<ConditionState>()
+                    .Condition == new ConditionId("Deafened")
+            );
+        ActiveEffectTimingState timing = bridge.Snapshot.ActiveEffectTimings[
+            survivorBinding.EffectId.Value
+        ];
+        Assert.That(timing.RemainingBoundaries, Is.EqualTo(10));
+        Assert.That(timing.SourceCreature, Is.EqualTo(casterId));
+
+        DungeonRulesActorReference casterReference = DungeonRulesActorReference.Party("caster");
+        DungeonRulesActorReference survivorReference = DungeonRulesActorReference.Party("survivor");
+        DungeonActorSaveState saved = DungeonActorStateAdapter.Capture(
+            survivorController,
+            actor => actor == caster.gameObject ? casterReference : survivorReference
+        );
+        DungeonRulesEffectSaveState persisted = saved.RulesEffects.Single();
+        Assert.That(persisted.HasTiming, Is.True);
+        Assert.That(persisted.RemainingBoundaries, Is.EqualTo(10));
+        Assert.That(
+            DungeonSaveJson.ParseActor(DungeonSaveJson.SerializeActor(saved)).IsSuccess,
+            Is.True
+        );
+        bridge.ReleaseOwnership();
     }
 
     [UnityTest]
@@ -117,13 +485,9 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         Assert.That(LightActions(initialController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(initialController, "divine-lance"), Has.Count.EqualTo(1));
+        AssertMigratedClericSpellActions(initialController);
         Assert.That(LightActions(noncasterController), Is.Empty);
         Assert.That(RulesActions(noncasterController, "divine-lance"), Is.Empty);
-        Assert.That(
-            initialController.GetActions().OfType<CastSpellAction>(),
-            Is.Empty,
-            "Encounter composition must remove Shield and every other legacy spell action."
-        );
 
         CreatureComponent reinforcement = CreateCreature("Reinforcement", 2, prepared: true);
         TestActionController reinforcementController =
@@ -142,10 +506,251 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         Assert.That(LightActions(reinforcementController), Has.Count.EqualTo(1));
         Assert.That(RulesActions(reinforcementController, "divine-lance"), Has.Count.EqualTo(1));
+        AssertMigratedClericSpellActions(reinforcementController);
+    }
+
+    [UnityTest]
+    public IEnumerator ConsecutiveEncountersRebindSpellActionsAndPreserveResourcesWithoutDuplicates()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Consecutive Cleric", 0, prepared: true);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Consecutive Opponent", 1, prepared: false);
+        opponent.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, opponent.gameObject);
+
+        UnityCombatRulesBridge first = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10, 4),
+            "players"
+        );
+        CreatureId firstActor = first.GetCreatureId(cleric);
+        RulesCastSpellAction[] firstActions = controller
+            .GetActions()
+            .OfType<RulesCastSpellAction>()
+            .ToArray();
+        RulesCastSpellAction firstHeal = firstActions.Single(action =>
+            action.Spell == Reference("heal") && action.Variant.Actions == 1
+        );
+        first.BeginTurn(firstActor, 3);
+        Assert.That(firstHeal.IsAvailable(controller), Is.True);
+        AssertMigratedClericSpellActions(controller);
+        Assert.That(LightActions(controller), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "divine-lance"), Has.Count.EqualTo(1));
+        AssertNoDuplicateSpellActions(firstActions);
+        Assert.That(FontUses(first, firstActor), Is.EqualTo(4));
+
+        grid.Target = cleric.gameObject;
+        controller.IsTakingAction = true;
+        firstHeal.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(FontUses(first, firstActor), Is.EqualTo(3));
+        first.ReleaseOwnership();
+        Assert.That(firstHeal.IsAvailable(controller), Is.False);
+
+        UnityCombatRulesBridge second = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            new ScriptedRollService(20, 10, 5),
+            "players"
+        );
+        CreatureId secondActor = second.GetCreatureId(cleric);
+        RulesCastSpellAction[] secondActions = controller
+            .GetActions()
+            .OfType<RulesCastSpellAction>()
+            .ToArray();
+        RulesCastSpellAction secondHeal = secondActions.Single(action =>
+            action.Spell == Reference("heal") && action.Variant.Actions == 1
+        );
+        second.BeginTurn(secondActor, 3);
+
+        Assert.That(secondHeal, Is.Not.SameAs(firstHeal));
+        Assert.That(secondActions.Intersect(firstActions), Is.Empty);
+        Assert.DoesNotThrow(() => secondHeal.IsAvailable(controller));
+        Assert.That(secondHeal.IsAvailable(controller), Is.True);
+        AssertMigratedClericSpellActions(controller);
+        Assert.That(LightActions(controller), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "divine-lance"), Has.Count.EqualTo(1));
+        AssertNoDuplicateSpellActions(secondActions);
+        Assert.That(FontUses(second, secondActor), Is.EqualTo(3));
+
+        controller.IsTakingAction = true;
+        secondHeal.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(FontUses(second, secondActor), Is.EqualTo(2));
+        second.ReleaseOwnership();
+    }
+
+    [UnityTest]
+    public IEnumerator ProductionShieldActionCastsThroughRulesAndCompletesPresentation()
+    {
+        InstallCoroutineRunner();
+        CreatureComponent cleric = CreateCreature("Shield Cleric", 0, prepared: true);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Shield Opponent", 1, prepared: false);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            "players"
+        );
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        RulesCastSpellAction shield = RulesActions(controller, "shield").Single();
+        actionCompleteCount = 0;
+        OnActionComplete.AddListener(CountActionComplete);
+
+        bridge.BeginTurn(actor, 3);
+        controller.IsTakingAction = true;
+        shield.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && actionCompleteCount == 0; frame++)
+            yield return null;
+
+        Assert.That(actionCompleteCount, Is.EqualTo(1));
+        Assert.That(controller.IsTakingAction, Is.False);
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        ActiveEffectInstance effect = bridge
+            .Snapshot.ActiveEffects.Select(pair => pair.Value)
+            .Single(value => value.DefinitionId == SpellFeatureRules.ShieldEffect);
+        Assert.That(effect.SourceCreature, Is.EqualTo(actor));
+        Assert.That(effect.GetState<SpellEffectState>().Target, Is.EqualTo(actor));
+        Assert.That(effect.GetState<SpellEffectState>().Spell, Is.EqualTo(Reference("shield")));
+    }
+
+    [UnityTest]
+    public IEnumerator SingleCreatureSpellSelectionCanTargetTheCaster()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Self Guidance Cleric", 0, prepared: true);
+        TestActionController controller = cleric.gameObject.AddComponent<TestActionController>();
+        CreatureComponent opponent = CreateCreature("Self Guidance Opponent", 1, prepared: false);
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(2);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[] { controller, opponentController },
+            tiles,
+            "players"
+        );
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        RulesCastSpellAction guidance = RulesActions(controller, "guidance").Single();
+        grid.Target = cleric.gameObject;
+        bridge.BeginTurn(actor, 3);
+        controller.IsTakingAction = true;
+
+        guidance.Invoke(cleric.gameObject);
+        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+            yield return null;
+
+        Assert.That(grid.LastStrikeRequest, Is.Not.Null);
+        Assert.That(grid.LastStrikeRequest.IncludeSelf, Is.True);
+        Assert.That(controller.ActionPoints, Is.EqualTo(2));
+        ActiveEffectInstance effect = bridge
+            .Snapshot.ActiveEffects.Select(pair => pair.Value)
+            .Single(value => value.DefinitionId == SpellFeatureRules.GuidanceEffect);
+        Assert.That(effect.GetState<SpellEffectState>().Target, Is.EqualTo(actor));
+    }
+
+    [UnityTest]
+    public IEnumerator MultiTargetInfuseVitalityRepromptsDuplicatesAndPreservesCancellation()
+    {
+        InstallCoroutineRunner();
+        SelectingGridApi grid = InstallGrid();
+        CreatureComponent cleric = CreateCreature("Infuse Vitality Cleric", 0, prepared: true);
+        CreatureComponent firstAlly = CreateCreature(
+            "Infuse Vitality First Ally",
+            1,
+            prepared: false
+        );
+        firstAlly.gameObject.AddComponent<Team>().Name = "players";
+        CreatureComponent secondAlly = CreateCreature(
+            "Infuse Vitality Second Ally",
+            2,
+            prepared: false
+        );
+        secondAlly.gameObject.AddComponent<Team>().Name = "players";
+        CreatureComponent opponent = CreateCreature("Infuse Vitality Opponent", 3, prepared: false);
+        opponent.gameObject.AddComponent<Team>().Name = "enemies";
+        TestActionController clericController =
+            cleric.gameObject.AddComponent<TestActionController>();
+        TestActionController firstController =
+            firstAlly.gameObject.AddComponent<TestActionController>();
+        TestActionController secondController =
+            secondAlly.gameObject.AddComponent<TestActionController>();
+        TestActionController opponentController =
+            opponent.gameObject.AddComponent<TestActionController>();
+        yield return null;
+        Tile[,] tiles = CreateTiles(4);
+        Occupy(tiles, cleric.gameObject);
+        Occupy(tiles, firstAlly.gameObject);
+        Occupy(tiles, secondAlly.gameObject);
+        Occupy(tiles, opponent.gameObject);
+        UnityCombatRulesBridge bridge = UnityCombatRulesBridge.Create(
+            new ActionController[]
+            {
+                clericController,
+                firstController,
+                secondController,
+                opponentController,
+            },
+            tiles,
+            "players"
+        );
+        CreatureId actor = bridge.GetCreatureId(cleric);
+        CreatureId firstTarget = bridge.GetCreatureId(firstAlly);
+        CreatureId secondTarget = bridge.GetCreatureId(secondAlly);
+        RulesCastSpellAction action = RulesActions(clericController, "infuse-vitality")
+            .Single(candidate => candidate.Variant.Actions == 2);
+        SpellSlotPoolId pool = new($"{actor.Value}:rank-1-infuse-vitality");
+
+        grid.QueueTargets(firstAlly.gameObject, firstAlly.gameObject, null);
+        bridge.BeginTurn(actor, 3);
+        yield return InvokeSpell(bridge, actor, clericController, action, cleric.gameObject);
+
+        Assert.That(grid.StrikeSelectionCount, Is.EqualTo(3));
+        Assert.That(clericController.ActionPoints, Is.EqualTo(3));
+        Assert.That(bridge.Snapshot.SpellSlots[pool].Remaining, Is.EqualTo(1));
         Assert.That(
-            reinforcementController.GetActions().OfType<CastSpellAction>(),
-            Is.Empty,
-            "Reinforcement composition must remove Shield and every other legacy spell action."
+            bridge.Snapshot.ActiveEffects.Any(pair =>
+                pair.Value.DefinitionId == SpellFeatureRules.InfuseVitalityEffect
+            ),
+            Is.False
+        );
+
+        grid.QueueTargets(firstAlly.gameObject, firstAlly.gameObject, secondAlly.gameObject);
+        bridge.BeginTurn(actor, 3);
+        yield return InvokeSpell(bridge, actor, clericController, action, cleric.gameObject);
+
+        Assert.That(grid.StrikeSelectionCount, Is.EqualTo(6));
+        Assert.That(clericController.ActionPoints, Is.EqualTo(1));
+        Assert.That(bridge.Snapshot.SpellSlots[pool].Remaining, Is.Zero);
+        Assert.That(
+            bridge
+                .Snapshot.ActiveEffects.Select(pair => pair.Value)
+                .Where(effect => effect.DefinitionId == SpellFeatureRules.InfuseVitalityEffect)
+                .Select(effect => effect.GetState<SpellEffectState>().Target),
+            Is.EquivalentTo(new[] { firstTarget, secondTarget })
         );
     }
 
@@ -684,6 +1289,22 @@ public sealed class SpellcastingPresentationPlayModeTests
         return creature;
     }
 
+    private static IEnumerator InvokeSpell(
+        UnityCombatRulesBridge bridge,
+        CreatureId actor,
+        ActionController controller,
+        RulesCastSpellAction action,
+        GameObject caster
+    )
+    {
+        bridge.BeginTurn(actor, 3);
+        controller.IsTakingAction = true;
+        action.Invoke(caster);
+        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+            yield return null;
+        Assert.That(controller.IsTakingAction, Is.False, action.ActionName);
+    }
+
     private static List<RulesCastSpellAction> LightActions(ActionController controller) =>
         RulesActions(controller, "light");
 
@@ -775,6 +1396,27 @@ public sealed class SpellcastingPresentationPlayModeTests
 
     private void CountMissEvent(GameObject attacker) => missEventCount++;
 
+    private static void AssertMigratedClericSpellActions(ActionController controller)
+    {
+        Assert.That(RulesActions(controller, "shield"), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "guidance"), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "haunting-hymn"), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "bless"), Has.Count.EqualTo(1));
+        Assert.That(RulesActions(controller, "infuse-vitality"), Has.Count.EqualTo(3));
+        Assert.That(RulesActions(controller, "heal"), Has.Count.EqualTo(3));
+    }
+
+    private static void AssertNoDuplicateSpellActions(IEnumerable<RulesCastSpellAction> actions) =>
+        Assert.That(
+            actions
+                .GroupBy(action => (action.Spell, action.Variant))
+                .All(group => group.Count() == 1),
+            Is.True
+        );
+
+    private static int FontUses(UnityCombatRulesBridge bridge, CreatureId actor) =>
+        bridge.Snapshot.SpellSlots[new SpellSlotPoolId($"{actor.Value}:font-heal")].Remaining;
+
     private sealed class TestActionController : ActionController
     {
         public override void EndTurn() { }
@@ -782,8 +1424,19 @@ public sealed class SpellcastingPresentationPlayModeTests
 
     private sealed class SelectingGridApi : GridAPI
     {
+        private readonly Queue<GameObject> targets = new();
+
         public GameObject Target { get; set; }
+        public AreaTargetResult AreaResult { get; set; }
         public System.Action AfterSelection { get; set; }
+        public StrikeTargetRequest LastStrikeRequest { get; private set; }
+        public int StrikeSelectionCount { get; private set; }
+
+        public void QueueTargets(params GameObject[] values)
+        {
+            foreach (GameObject value in values)
+                targets.Enqueue(value);
+        }
 
         public override IEnumerator SelectStridePath(
             GameObject character,
@@ -800,7 +1453,10 @@ public sealed class SpellcastingPresentationPlayModeTests
             CoroutineResult<StrikeTargetResult> target
         )
         {
-            target.Value = Target == null ? null : new StrikeTargetResult { Target = Target };
+            LastStrikeRequest = request;
+            StrikeSelectionCount++;
+            GameObject selected = targets.Count > 0 ? targets.Dequeue() : Target;
+            target.Value = selected == null ? null : new StrikeTargetResult { Target = selected };
             AfterSelection?.Invoke();
             yield break;
         }
@@ -811,6 +1467,7 @@ public sealed class SpellcastingPresentationPlayModeTests
             CoroutineResult<AreaTargetResult> target
         )
         {
+            target.Value = AreaResult;
             yield break;
         }
 
@@ -856,6 +1513,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         private readonly UnitySpellDefinitionCatalog definitions;
         private readonly CreatureId owner;
         private readonly ISpellBook book;
+        private readonly IReadOnlyDictionary<SpellId, ISpellCastRule> rules;
         private bool definitionsAvailable = true;
 
         public TestSpellActionCatalog(
@@ -867,6 +1525,10 @@ public sealed class SpellcastingPresentationPlayModeTests
             this.definitions = definitions;
             this.owner = owner;
             this.book = book;
+            rules = SpellFeatureRules.CreateCatalog(
+                new PresentationSpellCreatureData(),
+                SamePlayerCombatantFriendshipProvider.Instance
+            );
         }
 
         public ActionProfile GetBaseProfile(ActionDefinitionId definitionId) =>
@@ -885,6 +1547,9 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         public ISpellBook GetSpellBook(CreatureId creature) =>
             creature == owner ? book : EmptySpellBook.Instance;
+
+        public bool TryGetCastRule(SpellId spell, out ISpellCastRule rule) =>
+            rules.TryGetValue(spell, out rule);
 
         public void RemoveDefinitions() => definitionsAvailable = false;
     }
@@ -925,5 +1590,22 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         public ISpellBook GetSpellBook(CreatureId creature) =>
             creature == owner ? book : EmptySpellBook.Instance;
+
+        public bool TryGetCastRule(SpellId spell, out ISpellCastRule rule)
+        {
+            rule = null;
+            return false;
+        }
+    }
+
+    private sealed class PresentationSpellCreatureData : ISpellCreatureDataProvider
+    {
+        public bool IsUndead(CreatureId creature) => false;
+
+        public IReadOnlyList<TypedDefenseAdjustment> GetWeaknesses(CreatureId creature) =>
+            Array.Empty<TypedDefenseAdjustment>();
+
+        public IReadOnlyList<TypedDefenseAdjustment> GetResistances(CreatureId creature) =>
+            Array.Empty<TypedDefenseAdjustment>();
     }
 }

@@ -26,13 +26,16 @@ namespace Game.Rules.Unity
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
         private readonly Dictionary<ActionController, CreatureId> controllerIds = new();
         private readonly Dictionary<CreatureId, ActionController> controllers = new();
+        private readonly Dictionary<CreatureComponent, CreatureId> reservedCreatureIds = new();
         private readonly Dictionary<string, PlayerId> playerIds = new(
             StringComparer.OrdinalIgnoreCase
         );
-        private readonly UnityTeamStrideFriendshipProvider strideFriendshipProvider = new();
+        private readonly UnityTeamCombatantFriendshipProvider combatantFriendshipProvider = new();
         private readonly Dictionary<HealthChangeOriginId, RuleSource> origins = new();
         private readonly MutableGridTopologyProvider topologyProvider;
         private readonly StrideActionDefinition strideDefinition;
+        private readonly ActiveEffectIdentityScope activeEffectIdentities;
+        private readonly SequentialOpIdProvider operationIds;
         private readonly RuleDispatcher dispatcher;
         private readonly UnityEncounterComposition composition;
         private readonly UnityCombatantEnrollmentPipeline enrollmentPipeline;
@@ -67,15 +70,17 @@ namespace Game.Rules.Unity
             bool attachControllers,
             IRollService rollService,
             string protagonistTeamName,
-            EncounterConclusionPolicy conclusionPolicy
+            EncounterConclusionPolicy conclusionPolicy,
+            IReadOnlyList<UnityEncounterExtension> extensions
         )
         {
             currentTiles = tiles;
             topologyProvider = new MutableGridTopologyProvider(CreateTopology(tiles));
             strideDefinition = new StrideActionDefinition(
                 topologyProvider,
-                strideFriendshipProvider
+                combatantFriendshipProvider
             );
+            activeEffectIdentities = ActiveEffectIdentityScope.CreateUnique();
             UnityEncounterModuleSet modules = UnityEncounterModuleSet.Create(
                 this,
                 actionPresentationCoordinator,
@@ -83,7 +88,9 @@ namespace Game.Rules.Unity
                 controllers,
                 tiles,
                 strideDefinition,
-                attachControllers
+                combatantFriendshipProvider,
+                attachControllers,
+                extensions
             );
             composition = modules.Composition;
             enrollmentPipeline = new UnityCombatantEnrollmentPipeline(
@@ -100,10 +107,13 @@ namespace Game.Rules.Unity
                 RulesStateSeed seed = new RulesStateSeed();
                 if (!attachControllers)
                     enrollment.SeedExploration(seed);
+                operationIds = new SequentialOpIdProvider(enrollment.FirstAvailableOperationId);
                 RuleDispatcherBuilder dispatcherBuilder = new RuleDispatcherBuilder(
                     new InMemoryRulesStore(seed),
-                    rollService ?? throw new ArgumentNullException(nameof(rollService))
+                    rollService ?? throw new ArgumentNullException(nameof(rollService)),
+                    operationIds
                 )
+                    .UseActiveEffectIdentityScope(activeEffectIdentities)
                     .UseHealthRules()
                     .UseMultipleAttackPenaltyRules()
                     .UseCheckResolution()
@@ -194,7 +204,38 @@ namespace Game.Rules.Unity
                 true,
                 rollService,
                 protagonistTeamName,
-                conclusionPolicy
+                conclusionPolicy,
+                Array.Empty<UnityEncounterExtension>()
+            );
+        }
+
+        /// <summary>Creates combat rules with explicitly installed feature extensions.</summary>
+        internal static UnityCombatRulesBridge Create(
+            IEnumerable<ActionController> encounterControllers,
+            Tile[,] tiles,
+            IRollService rollService,
+            string protagonistTeamName,
+            EncounterConclusionPolicy conclusionPolicy,
+            IReadOnlyList<UnityEncounterExtension> extensions
+        )
+        {
+            if (encounterControllers == null)
+                throw new ArgumentNullException(nameof(encounterControllers));
+            ActionController[] copied = encounterControllers.ToArray();
+            ValidateTiles(tiles);
+            if (string.IsNullOrWhiteSpace(protagonistTeamName))
+                throw new ArgumentException(
+                    "A protagonist team name is required.",
+                    nameof(protagonistTeamName)
+                );
+            return new UnityCombatRulesBridge(
+                copied,
+                tiles,
+                true,
+                rollService,
+                protagonistTeamName,
+                conclusionPolicy,
+                extensions ?? throw new ArgumentNullException(nameof(extensions))
             );
         }
 
@@ -229,7 +270,8 @@ namespace Game.Rules.Unity
                 false,
                 new RandomRollService(),
                 string.Empty,
-                EncounterConclusionPolicy.VictoryOrDefeat
+                EncounterConclusionPolicy.VictoryOrDefeat,
+                Array.Empty<UnityEncounterExtension>()
             );
         }
 
@@ -258,15 +300,47 @@ namespace Game.Rules.Unity
                 playerIds,
                 StringComparer.OrdinalIgnoreCase
             );
+            Dictionary<CreatureComponent, CreatureId> savedCreatureReservations = new(
+                reservedCreatureIds
+            );
             return new RegistrationToken(() =>
             {
                 nextCreatureId = savedNextCreatureId;
                 playerIds.Clear();
                 foreach (KeyValuePair<string, PlayerId> pair in savedPlayers)
                     playerIds.Add(pair.Key, pair.Value);
-                strideFriendshipProvider.Reset(savedPlayers);
+                combatantFriendshipProvider.Reset(savedPlayers);
+                reservedCreatureIds.Clear();
+                foreach (
+                    KeyValuePair<CreatureComponent, CreatureId> pair in savedCreatureReservations
+                )
+                    reservedCreatureIds.Add(pair.Key, pair.Value);
             });
         }
+
+        /// <summary>
+        /// Reserves the encounter identity a live Unity creature will claim if it enrolls later.
+        /// </summary>
+        /// <remarks>
+        /// The surrounding enrollment identity reservation owns rollback. This lets rules state
+        /// refer to a currently omitted live actor without replacing its identity when the same
+        /// creature joins as a reinforcement.
+        /// </remarks>
+        internal CreatureId ReserveCreatureId(CreatureComponent creature)
+        {
+            if (creature == null)
+                throw new ArgumentNullException(nameof(creature));
+            if (creatureIds.TryGetValue(creature, out CreatureId registered))
+                return registered;
+            if (reservedCreatureIds.TryGetValue(creature, out CreatureId reserved))
+                return reserved;
+            CreatureId created = AllocateCreatureId();
+            reservedCreatureIds.Add(creature, created);
+            return created;
+        }
+
+        /// <summary>Reports whether an ID currently has a provisional or durable Unity mapping.</summary>
+        internal bool HasRegistrationMap(CreatureId creature) => controllers.ContainsKey(creature);
 
         /// <summary>Gets the stable rules ID assigned to a registered creature.</summary>
         /// <param name="creature">The registered Unity creature.</param>
@@ -418,6 +492,18 @@ namespace Game.Rules.Unity
             return encounter;
         }
 
+        /// <summary>Checks one ordered friendship relationship in this encounter.</summary>
+        /// <param name="source">The acting registered creature.</param>
+        /// <param name="target">The other registered creature.</param>
+        /// <returns>
+        /// <see langword="true"/> when the source participant treats the target participant as
+        /// friendly; otherwise, <see langword="false"/>.
+        /// </returns>
+        public bool IsFriendly(CreatureId source, CreatureId target) =>
+            Snapshot.Creatures.TryGet(source, out CreatureState sourceState)
+            && Snapshot.Creatures.TryGet(target, out CreatureState targetState)
+            && combatantFriendshipProvider.IsFriendly(sourceState.Player, targetState.Player);
+
         /// <summary>Dispatches one synchronous typed rules operation.</summary>
         /// <typeparam name="TResult">The operation's structural result type.</typeparam>
         /// <param name="operation">The feature-owned immutable operation to dispatch.</param>
@@ -457,6 +543,7 @@ namespace Game.Rules.Unity
             );
             try
             {
+                operationIds.EnsureNextAtLeast(enrollment.FirstAvailableOperationId);
                 enrollment.Commit();
                 enrollment.AttachAndInstall();
                 enrollment.TransferTo(encounterLifetime);
@@ -725,17 +812,30 @@ namespace Game.Rules.Unity
                 throw new InvalidOperationException(
                     "Every combat controller requires a creature component."
                 );
-            CreatureId creatureId = AllocateCreatureId();
+            CreatureId creatureId = reservedCreatureIds.TryGetValue(
+                creature,
+                out CreatureId reserved
+            )
+                ? reserved
+                : AllocateCreatureId();
             PlayerId playerId = GetPlayerId(controller);
             Vector3Int position = Vector3Int.RoundToInt(controller.transform.position);
             int speedFeet = Mathf.Max(0, Mathf.RoundToInt(creature.speed));
             return new UnityCombatantEnrollmentBuilder(
                 controller,
                 creature,
-                new CreatureState(creatureId, playerId),
+                new CreatureState(
+                    creatureId,
+                    playerId,
+                    (creature.traits ?? new List<string>())
+                        .Where(trait => !string.IsNullOrWhiteSpace(trait))
+                        .Select(Trait.FromSlug)
+                ),
+                UnityCreatureStatisticsAdapter.Capture(creature, creatureId),
                 creature.GetHealthInitializationState(),
                 new GridPosition(position.x, position.y, position.z),
                 new GridDistance(speedFeet),
+                activeEffectIdentities,
                 preparationLifetime
             );
         }
@@ -750,7 +850,7 @@ namespace Game.Rules.Unity
                     return existing;
                 PlayerId playerId = new PlayerId($"combat-side-{playerIds.Count + 1}");
                 playerIds.Add(teamName, playerId);
-                strideFriendshipProvider.Register(playerId, teamName);
+                combatantFriendshipProvider.Register(playerId, teamName);
                 return playerId;
             }
             return new PlayerId($"combat-side-unassigned-{nextCreatureId}");
@@ -894,6 +994,7 @@ namespace Game.Rules.Unity
         {
             CreatureId id = state.Creature.Id;
             seed.SeedCreature(state.Creature)
+                .SeedStatistics(state.Statistics)
                 .SeedHealth(id, state.Health)
                 .SeedPosition(id, state.Position)
                 .SeedLandSpeed(id, state.LandSpeed)
@@ -1042,7 +1143,7 @@ namespace Game.Rules.Unity
             );
         }
 
-        private sealed class UnityTeamStrideFriendshipProvider : IStrideFriendshipProvider
+        private sealed class UnityTeamCombatantFriendshipProvider : ICombatantFriendshipProvider
         {
             private readonly Dictionary<PlayerId, string> teamNames = new();
 

@@ -23,6 +23,8 @@ namespace Game.Rules.Runtime
         private readonly IRulesStore store;
         private readonly IOpIdProvider ids;
         private readonly IRollService rollService;
+        private ActiveEffectIdentityScope activeEffectIdentities =
+            ActiveEffectIdentityScope.CreateUnique();
         private RuleRegistry ruleRegistry = RuleRegistry.Empty;
         private bool isRuleRegistryConfigured;
         private ActionRuntimeConfiguration actionRuntimeConfiguration =
@@ -70,6 +72,20 @@ namespace Game.Rules.Runtime
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.rollService = rollService ?? throw new ArgumentNullException(nameof(rollService));
             this.ids = ids ?? throw new ArgumentNullException(nameof(ids));
+        }
+
+        /// <summary>
+        /// Uses one identity namespace for every active effect created by this dispatcher.
+        /// </summary>
+        /// <param name="scope">
+        /// The namespace shared with any pre-dispatch enrollment that generates effect identities.
+        /// </param>
+        /// <returns>This builder so configuration can be chained.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="scope"/> is null.</exception>
+        public RuleDispatcherBuilder UseActiveEffectIdentityScope(ActiveEffectIdentityScope scope)
+        {
+            activeEffectIdentities = scope ?? throw new ArgumentNullException(nameof(scope));
+            return this;
         }
 
         /// <summary>
@@ -270,6 +286,8 @@ namespace Game.Rules.Runtime
                 typeof(CollectSkillCheckModifiersOp),
                 typeof(CollectSavingThrowModifiersOp),
                 typeof(CollectAttackModifiersOp),
+                typeof(AdjustArmorClassOp),
+                typeof(CollectStrikeDamageDiceOp),
             };
             foreach (Type reservedType in reservedTypes)
             {
@@ -314,6 +332,18 @@ namespace Game.Rules.Runtime
             Add(
                 new HandlerRegistration<CollectAttackModifiersOp, ModifierCollection>(
                     new CollectAttackModifiersHandler(selectors),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<AdjustArmorClassOp, ModifierCollection>(
+                    new AdjustArmorClassHandler(selectors),
+                    InvocationPolicy.NestedOnly
+                )
+            );
+            Add(
+                new HandlerRegistration<CollectStrikeDamageDiceOp, IReadOnlyList<TypedDamageDice>>(
+                    new CollectStrikeDamageDiceHandler(),
                     InvocationPolicy.NestedOnly
                 )
             );
@@ -460,6 +490,7 @@ namespace Game.Rules.Runtime
                 store,
                 ids,
                 rollService,
+                activeEffectIdentities,
                 completedRegistrations,
                 ruleRegistry,
                 actionRuntime

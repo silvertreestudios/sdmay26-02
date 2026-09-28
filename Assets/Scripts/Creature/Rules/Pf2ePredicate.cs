@@ -23,77 +23,79 @@ namespace Game.Creature.Rules
             IEnumerable<string> itemOptions = null
         )
         {
+            var options = (
+                prepared == null ? Enumerable.Empty<string>() : prepared.RollOptions
+            ).Concat(itemOptions ?? Enumerable.Empty<string>());
+            return Compile(predicate, prepared).Matches(options);
+        }
+
+        /// <summary>Copies JSON clauses and prepared numeric facts into a Unity-free immutable predicate.</summary>
+        public static Game.Rules.Runtime.PreparedPredicate Compile(
+            JToken predicate,
+            PreparedCharacter prepared
+        )
+        {
             if (predicate == null || predicate.Type == JTokenType.Null)
-                return true;
-
+                return Game.Rules.Runtime.PreparedPredicate.All(
+                    Array.Empty<Game.Rules.Runtime.PreparedPredicate>()
+                );
             if (predicate is JArray array)
-                return array.All(entry => Evaluate(entry, prepared, itemOptions));
-
+                return Game.Rules.Runtime.PreparedPredicate.All(
+                    array.Select(entry => Compile(entry, prepared))
+                );
             if (predicate.Type == JTokenType.String)
-                return EvaluateAtomic(predicate.Value<string>(), prepared, itemOptions);
-
+            {
+                string option = predicate.Value<string>();
+                if (
+                    option != null
+                    && option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
+                )
+                {
+                    if (option.EndsWith(":rank", StringComparison.OrdinalIgnoreCase))
+                        return Game.Rules.Runtime.PreparedPredicate.AtLeast(
+                            GetNumeric(option, prepared),
+                            1
+                        );
+                    if (option.Contains(":rank:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string[] parts = option.Split(':');
+                        return parts.Length == 4 && int.TryParse(parts[3], out int rank)
+                            ? Game.Rules.Runtime.PreparedPredicate.AtLeast(
+                                GetNumeric($"skill:{parts[1]}:rank", prepared),
+                                rank
+                            )
+                            : Game.Rules.Runtime.PreparedPredicate.Any(
+                                Array.Empty<Game.Rules.Runtime.PreparedPredicate>()
+                            );
+                    }
+                }
+                return Game.Rules.Runtime.PreparedPredicate.Option(option);
+            }
             if (predicate is JObject obj)
             {
                 if (obj.TryGetValue("and", out JToken andToken))
-                    return (andToken as JArray)?.All(entry =>
-                            Evaluate(entry, prepared, itemOptions)
-                        )
-                        ?? Evaluate(andToken, prepared, itemOptions);
+                    return Compile(andToken, prepared);
                 if (obj.TryGetValue("or", out JToken orToken))
-                    return (orToken as JArray)?.Any(entry => Evaluate(entry, prepared, itemOptions))
-                        ?? Evaluate(orToken, prepared, itemOptions);
+                    return orToken is JArray alternatives
+                        ? Game.Rules.Runtime.PreparedPredicate.Any(
+                            alternatives.Select(entry => Compile(entry, prepared))
+                        )
+                        : Compile(orToken, prepared);
                 if (obj.TryGetValue("not", out JToken notToken))
-                    return !Evaluate(notToken, prepared, itemOptions);
-                if (obj.TryGetValue("gte", out JToken gteToken))
-                    return EvaluateGte(gteToken as JArray, prepared);
+                    return Game.Rules.Runtime.PreparedPredicate.Not(Compile(notToken, prepared));
+                if (
+                    obj.TryGetValue("gte", out JToken gteToken)
+                    && gteToken is JArray gte
+                    && gte.Count == 2
+                )
+                    return Game.Rules.Runtime.PreparedPredicate.AtLeast(
+                        GetNumeric(gte[0].Value<string>(), prepared),
+                        gte[1].Value<int>()
+                    );
             }
-
-            return false;
-        }
-
-        private static bool EvaluateAtomic(
-            string option,
-            PreparedCharacter prepared,
-            IEnumerable<string> itemOptions
-        )
-        {
-            if (string.IsNullOrWhiteSpace(option))
-                return true;
-
-            if (
-                option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
-                && option.EndsWith(":rank", StringComparison.OrdinalIgnoreCase)
-            )
-                return GetNumeric(option, prepared) > 0;
-
-            if (
-                option.StartsWith("skill:", StringComparison.OrdinalIgnoreCase)
-                && option.Contains(":rank:", StringComparison.OrdinalIgnoreCase)
-            )
-            {
-                string[] parts = option.Split(':');
-                return parts.Length == 4
-                    && int.TryParse(parts[3], out int rank)
-                    && GetNumeric($"skill:{parts[1]}:rank", prepared) >= rank;
-            }
-
-            if (
-                itemOptions != null
-                && itemOptions.Contains(option, StringComparer.OrdinalIgnoreCase)
-            )
-                return true;
-
-            return prepared?.RollOptions.Contains(option) ?? false;
-        }
-
-        private static bool EvaluateGte(JArray gte, PreparedCharacter prepared)
-        {
-            if (gte == null || gte.Count != 2)
-                return false;
-
-            int left = GetNumeric(gte[0].Value<string>(), prepared);
-            int right = gte[1].Value<int>();
-            return left >= right;
+            return Game.Rules.Runtime.PreparedPredicate.Any(
+                Array.Empty<Game.Rules.Runtime.PreparedPredicate>()
+            );
         }
 
         private static int GetNumeric(string path, PreparedCharacter prepared)

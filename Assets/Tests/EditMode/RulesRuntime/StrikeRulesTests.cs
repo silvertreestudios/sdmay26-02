@@ -141,6 +141,7 @@ namespace Game.Rules.Runtime.Tests
                     new StrikeResolutionData(
                         15,
                         Array.Empty<Modifier>(),
+                        Array.Empty<Modifier>(),
                         Array.Empty<TypedDamageDice>(),
                         Array.Empty<TypedFlatDamage>(),
                         new[] { new TypedDefenseAdjustment("slashing", 3) },
@@ -155,6 +156,75 @@ namespace Game.Rules.Runtime.Tests
 
             Assert.That(resolution.FinalDamage, Is.EqualTo(8));
             Assert.That(resolution.Damage.Single().Amount, Is.EqualTo(8));
+        }
+
+        /// <summary>Precision dice join weapon damage before critical scaling and typed defenses, then commit health once.</summary>
+        [TestCase(10, 0, 7, 2)]
+        [TestCase(10, 3, 0, 12)]
+        [TestCase(20, 0, 7, 11)]
+        [TestCase(20, 3, 0, 21)]
+        public async Task PreparedPrecisionDiceShareWeaponDamageDefenses(
+            int attackRoll,
+            int weakness,
+            int resistance,
+            int expectedDamage
+        )
+        {
+            StrikeItemDefinition item = CreateItem();
+            var prepared = new PreparedStrikeDefinition(
+                Array.Empty<string>(),
+                new Dictionary<string, int>(),
+                Array.Empty<PreparedStrikeModifier>(),
+                Array.Empty<PreparedStrikeAdjustment>(),
+                new[]
+                {
+                    new PreparedStrikeDice(
+                        "strike-damage",
+                        "precision",
+                        1,
+                        6,
+                        PreparedPredicate.Option("target:condition:off-guard")
+                    ),
+                },
+                Array.Empty<PreparedStrikeAlteration>()
+            );
+            var contributions = PreparedStrikeRules.Evaluate(
+                prepared,
+                item,
+                StrikeTargetingOutcome.Legal(5, 0, 0, true),
+                new InMemoryRulesStore(new RulesStateSeed()).Snapshot,
+                Actor,
+                Target
+            );
+            TestRuntime runtime = CreateRuntime(
+                new ScriptedRollService(attackRoll, 4, 3),
+                item,
+                targetHp: 30,
+                resolutionDataProvider: new FixedResolutionDataProvider(
+                    new StrikeResolutionData(
+                        15,
+                        Array.Empty<Modifier>(),
+                        Array.Empty<Modifier>(),
+                        contributions.DamageDice,
+                        contributions.FlatDamage,
+                        new[] { new TypedDefenseAdjustment("slashing", weakness) },
+                        new[] { new TypedDefenseAdjustment("slashing", resistance) }
+                    )
+                )
+            );
+
+            var result = AssertResolved(
+                await runtime.Dispatcher.Dispatch(new StrikeActionOp(Actor, Weapon, Target))
+            );
+
+            Assert.That(result.Value.Damage.Single().DamageType, Is.EqualTo("slashing"));
+            Assert.That(result.Value.FinalDamage, Is.EqualTo(expectedDamage));
+            Assert.That(
+                runtime.Dispatcher.Snapshot.Health[Target].Current,
+                Is.EqualTo(30 - expectedDamage)
+            );
+            Assert.That(result.Facts.OfType<DamageAppliedFact>().Count(), Is.EqualTo(1));
+            Assert.That(runtime.Rolls.Remaining, Is.Zero);
         }
 
         [Test]
@@ -388,6 +458,7 @@ namespace Game.Rules.Runtime.Tests
                 ?? new FixedResolutionDataProvider(
                     new StrikeResolutionData(
                         15,
+                        Array.Empty<Modifier>(),
                         Array.Empty<Modifier>(),
                         Array.Empty<TypedDamageDice>(),
                         Array.Empty<TypedFlatDamage>(),

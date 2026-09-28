@@ -285,23 +285,6 @@ public abstract class ActionController : MonoBehaviour
         selectionDriven.Invoke(gameObject, resolver);
     }
 
-    public uint GetInitiative()
-    {
-        int initiativeBonus = this.gameObject.GetComponent<CreatureComponent>().GetInitiative();
-        uint roll = (uint)Random.Range(1, 20);
-        Debug.Log(
-            this.gameObject.name
-                + " rolled initiative: "
-                + roll
-                + " +"
-                + initiativeBonus
-                + " = "
-                + (roll + initiativeBonus)
-        );
-        roll += (uint)initiativeBonus;
-        return roll;
-    }
-
     public void AddAction(EntityAction action)
     {
         Actions.Add(action);

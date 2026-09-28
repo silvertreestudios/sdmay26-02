@@ -45,7 +45,7 @@ Use these tests before expanding the shared runtime:
   paths for formats that have not shipped.
 - Remove obsolete state and adapters when authority moves. Do not synchronize two writable models.
 
-Production mechanisms such as reversible Unity preparation, restored-effect extraction, and
+Production mechanisms such as reversible Unity preparation, generic rules-state restoration, and
 presentation queues solve current integration requirements. Their existence does not make them
 mandatory patterns for every feature, and new code should not copy their supporting state unless it
 has the same demonstrated requirement.
@@ -193,6 +193,27 @@ varies per application, such as a rolled value that cannot be derived.
 Prefer a binding or effect that derives its contribution from the authoritative snapshot over
 synchronized child effects or copied caches. If state is not queried after the current operation,
 keep it in the operation workflow instead of persisting it.
+
+Persistence of active rules uses a generic envelope for exact effect and binding identity,
+provenance, duration, and remaining schedule, plus an explicitly registered codec for the immutable
+`IEffectState` payload. Restoration enters through the same complete-combatant addition reducer as
+new encounter state and publishes the ordinary creation Facts only after commit. It must not recast
+an action, replay causal damage, refresh a duration, synthesize replacement identities, or make a
+Unity component a parallel authority. New effect-state types extend the codec catalog rather than a
+central feature-name switch. Each effect-backed rule definition explicitly declares its exact
+state type, and each persistence codec explicitly declares the definitions it supports. Validation
+rejects a mismatched definition, codec kind, or concrete state type before accepting a save or
+committing creation/enrollment. Newly created effect and effect-binding identities use one unique
+namespace shared by a rules host's enrollment and dispatcher callbacks, so independent hosts can
+persist their active state in the same graph without relying on encounter-local operation numbers.
+
+The restore transport is consumed only after successful enrollment and is refreshed from the final
+rules snapshot when encounter ownership ends. Stable actor references may outlive a materialized
+combatant; the restore contract carries those references explicitly instead of rejecting otherwise
+valid effects. Run-global actors and floor-local actors remain distinct in that transport so local
+identifiers reused on another floor cannot change an effect's provenance. Counted effects always
+restore a positive remaining schedule, and new dispatcher identity begins above restored
+creation-order high water so active identities cannot be reused.
 
 ### Determinism and ordering
 

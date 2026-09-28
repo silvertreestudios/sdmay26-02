@@ -75,6 +75,29 @@ namespace Game.Rules.Runtime
         }
 
         /// <summary>
+        /// Creates a globally namespaced identity pair for one new active-effect application.
+        /// </summary>
+        /// <param name="kind">A stable discriminator for the feature's creation path.</param>
+        /// <param name="localIdentity">A value unique within this dispatcher and path.</param>
+        /// <returns>The paired active-effect and effect-binding identities.</returns>
+        /// <remarks>
+        /// Use this only for new identities. Restored effects retain their exact saved identifiers.
+        /// Like other callback services, this method is invalid after the callback returns.
+        /// </remarks>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="kind"/> or <paramref name="localIdentity"/> is blank.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">The callback is no longer active.</exception>
+        public (ActiveEffectId EffectId, BindingId BindingId) CreateActiveEffectIdentity(
+            string kind,
+            string localIdentity
+        )
+        {
+            RequireActive();
+            return dispatcher.CreateActiveEffectIdentity(kind, localIdentity);
+        }
+
+        /// <summary>
         /// Dispatches a child operation under the callback that owns this context.
         /// </summary>
         /// <typeparam name="TResult">The successful result type of the child operation.</typeparam>

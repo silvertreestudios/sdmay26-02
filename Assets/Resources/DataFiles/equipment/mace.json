@@ -1,0 +1,29 @@
+{
+  "type": "weapon",
+  "name": "Mace",
+  "group": "club",
+  "category": "simple",
+  "hands": 1,
+  "damageDice": 1,
+  "damageDie": 6,
+  "damageType": "bludgeoning",
+  "description": "A one-handed bludgeoning weapon with a heavy head.",
+  "traits": [
+    "shove"
+  ],
+  "materialType": null,
+  "materialGrade": null,
+  "runes": [],
+  "price": "1",
+  "range": 0,
+  "reload": "-",
+  "ammo": "",
+  "bulk": 1,
+  "baseItem": "mace",
+  "publication": {
+    "license": "ORC",
+    "remaster": true,
+    "title": "Pathfinder Player Core"
+  },
+  "Source": "packs/equipment"
+}
