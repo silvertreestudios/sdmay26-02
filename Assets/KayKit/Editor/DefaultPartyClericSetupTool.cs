@@ -29,8 +29,23 @@ namespace Game.KayKit.Editor
         private const string RosterSlotId = "party-slot-maren";
         private const string CreatureContentId = "player-character-maren";
 
-        /// <summary>Regenerates only the default-party assets owned by the Maren integration.</summary>
+        /// <summary>
+        /// Regenerates the Maren default-party assets after allowing the developer to save or
+        /// cancel changes to open scenes.
+        /// </summary>
         [MenuItem("Tools/Creatures/Regenerate Default Party Cleric")]
+        public static void RegenerateFromMenu()
+        {
+            TryRegenerateFromMenu(
+                EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo,
+                RegenerateBatch
+            );
+        }
+
+        /// <summary>
+        /// Batchmode-safe entry point that regenerates only the assets owned by the Maren
+        /// default-party integration.
+        /// </summary>
         public static void RegenerateBatch()
         {
             CreatureVisualCatalog catalog = AddMarenVisualMapping();
@@ -39,6 +54,15 @@ namespace Game.KayKit.Editor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("Regenerated Maren default-party assets.");
+        }
+
+        private static bool TryRegenerateFromMenu(Func<bool> saveOrDiscardPrompt, Action regenerate)
+        {
+            if (!saveOrDiscardPrompt())
+                return false;
+
+            regenerate();
+            return true;
         }
 
         private static CreatureVisualCatalog AddMarenVisualMapping()

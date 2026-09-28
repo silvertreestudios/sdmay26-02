@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.DungeonPersistence.Actors;
@@ -11,6 +12,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
 
 /// <summary>Protects the authored Maren prefab and three-member default party contract.</summary>
@@ -86,48 +88,91 @@ public sealed class DefaultPartyClericTests
     [Test]
     public void ProceduralDungeonAuthorsExactDefaultPartyOnDistinctWalkableCells()
     {
-        EditorSceneManager.OpenScene(ProceduralDungeonSceneTool.ScenePath, OpenSceneMode.Single);
-        ActionController[] party = Object
-            .FindObjectsByType<ActionController>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None
-            )
-            .Where(controller =>
-                string.Equals(
-                    controller.GetComponent<Team>()?.Name,
-                    "Players",
-                    StringComparison.OrdinalIgnoreCase
-                )
-            )
-            .ToArray();
+        Scene originalActiveScene = SceneManager.GetActiveScene();
+        Scene partyScene = SceneManager.GetSceneByPath(ProceduralDungeonSceneTool.ScenePath);
+        bool ownsPartyScene = !partyScene.isLoaded;
 
-        Assert.That(
-            party.Select(member => member.name),
-            Is.EquivalentTo(new[] { "Lena", "Torgrim", "Maren" })
-        );
-        Assert.That(
-            party
-                .Select(member => member.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId)
-                .OrderBy(value => value, StringComparer.Ordinal),
-            Is.EqualTo(new[] { "party-slot-lena", "party-slot-maren", "party-slot-torgrim" })
-        );
-        Assert.That(
-            party
-                .Select(member => Vector3Int.RoundToInt(member.transform.position))
-                .Distinct()
-                .Count(),
-            Is.EqualTo(3)
-        );
-        Assert.That(party.All(member => !member.gameObject.activeSelf), Is.True);
-
-        Map map = Object.FindFirstObjectByType<Map>();
-        Assert.That(map, Is.Not.Null);
-        var document = map.ValidateSource().JsonMap.LevelDocument;
-        foreach (ActionController member in party)
+        try
         {
-            Vector3Int position = Vector3Int.RoundToInt(member.transform.position);
-            char cell = document.Rows[document.Height - 1 - position.z][position.x];
-            Assert.That(cell == '.' || cell == 'D', Is.True, member.name);
+            if (ownsPartyScene)
+            {
+                partyScene = EditorSceneManager.OpenScene(
+                    ProceduralDungeonSceneTool.ScenePath,
+                    OpenSceneMode.Additive
+                );
+            }
+
+            GameObject[] sceneRoots = partyScene.GetRootGameObjects();
+            ActionController[] party = sceneRoots
+                .SelectMany(root => root.GetComponentsInChildren<ActionController>(true))
+                .Where(controller =>
+                    string.Equals(
+                        controller.GetComponent<Team>()?.Name,
+                        "Players",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                .ToArray();
+
+            Assert.That(
+                party.Select(member => member.name),
+                Is.EquivalentTo(new[] { "Lena", "Torgrim", "Maren" })
+            );
+            Assert.That(
+                party
+                    .Select(member =>
+                        member.GetComponent<DungeonPartyMemberIdentity>().RosterSlotId
+                    )
+                    .OrderBy(value => value, StringComparer.Ordinal),
+                Is.EqualTo(new[] { "party-slot-lena", "party-slot-maren", "party-slot-torgrim" })
+            );
+            Assert.That(
+                party
+                    .Select(member => Vector3Int.RoundToInt(member.transform.position))
+                    .Distinct()
+                    .Count(),
+                Is.EqualTo(3)
+            );
+            Assert.That(party.All(member => !member.gameObject.activeSelf), Is.True);
+
+            Map map = sceneRoots
+                .SelectMany(root => root.GetComponentsInChildren<Map>(true))
+                .SingleOrDefault();
+            Assert.That(map, Is.Not.Null);
+            var document = map.ValidateSource().JsonMap.LevelDocument;
+            foreach (ActionController member in party)
+            {
+                Vector3Int position = Vector3Int.RoundToInt(member.transform.position);
+                char cell = document.Rows[document.Height - 1 - position.z][position.x];
+                Assert.That(cell == '.' || cell == 'D', Is.True, member.name);
+            }
         }
+        finally
+        {
+            if (ownsPartyScene && partyScene.IsValid() && partyScene.isLoaded)
+                EditorSceneManager.CloseScene(partyScene, true);
+            if (originalActiveScene.IsValid() && originalActiveScene.isLoaded)
+                SceneManager.SetActiveScene(originalActiveScene);
+        }
+    }
+
+    [Test]
+    public void RegenerationMenuGuardDoesNotRegenerateWhenSceneSaveIsCancelled()
+    {
+        MethodInfo method = typeof(DefaultPartyClericSetupTool).GetMethod(
+            "TryRegenerateFromMenu",
+            BindingFlags.Static | BindingFlags.NonPublic
+        );
+        Assert.That(method, Is.Not.Null);
+        int regenerationCalls = 0;
+
+        bool result = (bool)
+            method.Invoke(
+                null,
+                new object[] { (Func<bool>)(() => false), (Action)(() => regenerationCalls++) }
+            );
+
+        Assert.That(result, Is.False);
+        Assert.That(regenerationCalls, Is.Zero);
     }
 }
