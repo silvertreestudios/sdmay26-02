@@ -277,33 +277,48 @@ namespace Game.Rules.Unity
                     Func<IEnumerator> createStep = steps.Dequeue();
                     IEnumerator step = null;
                     Exception failure;
-                    while (TryMoveNext(createStep, ref step, out object current, out failure))
+                    try
                     {
-                        if (ReferenceEquals(current, ReactionBarrier))
+                        while (TryMoveNext(createStep, ref step, out object current, out failure))
                         {
-                            while (sequence.ReactionSteps.Count > 0)
+                            if (ReferenceEquals(current, ReactionBarrier))
                             {
-                                Func<IEnumerator> createReaction = sequence.ReactionSteps.Dequeue();
-                                IEnumerator reaction = null;
-                                Exception reactionFailure;
-                                while (
-                                    TryMoveNext(
-                                        createReaction,
-                                        ref reaction,
-                                        out object reactionCurrent,
-                                        out reactionFailure
-                                    )
-                                )
-                                    yield return reactionCurrent;
-                                if (reactionFailure != null)
+                                while (sequence.ReactionSteps.Count > 0)
                                 {
-                                    Debug.LogException(reactionFailure);
-                                    yield break;
+                                    Func<IEnumerator> createReaction =
+                                        sequence.ReactionSteps.Dequeue();
+                                    IEnumerator reaction = null;
+                                    Exception reactionFailure;
+                                    try
+                                    {
+                                        while (
+                                            TryMoveNext(
+                                                createReaction,
+                                                ref reaction,
+                                                out object reactionCurrent,
+                                                out reactionFailure
+                                            )
+                                        )
+                                            yield return reactionCurrent;
+                                    }
+                                    finally
+                                    {
+                                        (reaction as IDisposable)?.Dispose();
+                                    }
+                                    if (reactionFailure != null)
+                                    {
+                                        Debug.LogException(reactionFailure);
+                                        yield break;
+                                    }
                                 }
+                                continue;
                             }
-                            continue;
+                            yield return current;
                         }
-                        yield return current;
+                    }
+                    finally
+                    {
+                        (step as IDisposable)?.Dispose();
                     }
                     if (failure != null)
                     {

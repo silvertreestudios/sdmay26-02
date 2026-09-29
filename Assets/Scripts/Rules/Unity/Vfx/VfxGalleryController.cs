@@ -23,6 +23,8 @@ namespace Game.Rules.Unity.Vfx
         private int selected;
         private Coroutine playAll;
         private Coroutine selectedPlayback;
+        private IEnumerator playAllRoutine;
+        private IEnumerator selectedPlaybackRoutine;
         private VfxCoverageEntry lastPlayed;
         private float persistentPreviewSeconds = 0.8f;
         private string feedback = string.Empty;
@@ -41,6 +43,12 @@ namespace Game.Rules.Unity.Vfx
 
         /// <summary>Gets the production cues emitted by the most recently completed fixture.</summary>
         public IReadOnlyList<string> LastTrace => fixture.Trace;
+
+        internal IReadOnlyList<(
+            string Cue,
+            Vector3 Origin,
+            Vector3 Destination
+        )> LastTransientStarts => fixture.TransientStarts;
 
         /// <summary>Gets the exact target count staged for the current fixture.</summary>
         public int CurrentTargetCount => fixture.TargetCount;
@@ -88,6 +96,12 @@ namespace Game.Rules.Unity.Vfx
                 TogglePlayAll();
         }
 
+        internal void StopPlayAllForTests()
+        {
+            if (playAll != null)
+                TogglePlayAll();
+        }
+
         internal void ConfigureTestTiming(float persistentHoldSeconds)
         {
             if (persistentHoldSeconds < 0f)
@@ -130,6 +144,12 @@ namespace Game.Rules.Unity.Vfx
             Time.timeScale = 1f;
             fixture?.Dispose();
             playback?.Dispose();
+        }
+
+        private void OnDisable()
+        {
+            CancelPlayback();
+            Time.timeScale = 1f;
         }
 
         private void OnGUI()
@@ -219,26 +239,21 @@ namespace Game.Rules.Unity.Vfx
             for (int index = 0; index < filtered.Count; index++)
             {
                 selected = index;
-                yield return PlayRoutine(filtered[index]);
+                IEnumerator routine = PlayRoutine(filtered[index]);
+                using (routine as IDisposable)
+                {
+                    while (routine.MoveNext())
+                        yield return routine.Current;
+                }
             }
             playAll = null;
+            playAllRoutine = null;
         }
 
         /// <summary>Resets playback and restores normal simulation speed.</summary>
         public void ResetGallery()
         {
-            if (playAll != null)
-            {
-                StopCoroutine(playAll);
-                playAll = null;
-            }
-            if (selectedPlayback != null)
-            {
-                StopCoroutine(selectedPlayback);
-                selectedPlayback = null;
-            }
-            fixture.Reset();
-            playback.Reset();
+            CancelPlayback();
             Time.timeScale = 1f;
             feedback = "Reset complete; no gallery-owned visuals remain.";
         }
@@ -271,14 +286,9 @@ namespace Game.Rules.Unity.Vfx
         {
             if (entry != null)
             {
-                if (playAll != null)
-                {
-                    StopCoroutine(playAll);
-                    playAll = null;
-                }
-                if (selectedPlayback != null)
-                    StopCoroutine(selectedPlayback);
-                selectedPlayback = StartCoroutine(PlayTracked(entry));
+                CancelPlayback();
+                selectedPlaybackRoutine = PlayTracked(entry);
+                selectedPlayback = StartCoroutine(selectedPlaybackRoutine);
             }
         }
 
@@ -289,31 +299,59 @@ namespace Game.Rules.Unity.Vfx
             playback.Reset();
             feedback = "Playing committed fixture through " + entry.gameplayTrigger;
             IEnumerator routine = fixture.Play(entry);
-            while (routine.MoveNext())
-                yield return routine.Current;
+            using (routine as IDisposable)
+            {
+                while (routine.MoveNext())
+                    yield return routine.Current;
+            }
             feedback = "Complete: " + entry.id;
         }
 
         private IEnumerator PlayTracked(VfxCoverageEntry entry)
         {
-            yield return PlayRoutine(entry);
+            IEnumerator routine = PlayRoutine(entry);
+            using (routine as IDisposable)
+            {
+                while (routine.MoveNext())
+                    yield return routine.Current;
+            }
             selectedPlayback = null;
+            selectedPlaybackRoutine = null;
         }
 
         private void TogglePlayAll()
         {
             if (playAll != null)
             {
+                CancelPlayback();
+                feedback = "Play All stopped; no gallery-owned visuals remain.";
+                return;
+            }
+            CancelPlayback();
+            playAllRoutine = PlayAllEntries();
+            playAll = StartCoroutine(playAllRoutine);
+        }
+
+        private void CancelPlayback()
+        {
+            if (playAll != null)
+            {
+                IEnumerator routine = playAllRoutine;
                 StopCoroutine(playAll);
                 playAll = null;
-                return;
+                playAllRoutine = null;
+                (routine as IDisposable)?.Dispose();
             }
             if (selectedPlayback != null)
             {
+                IEnumerator routine = selectedPlaybackRoutine;
                 StopCoroutine(selectedPlayback);
                 selectedPlayback = null;
+                selectedPlaybackRoutine = null;
+                (routine as IDisposable)?.Dispose();
             }
-            playAll = StartCoroutine(PlayAllEntries());
+            fixture?.Reset();
+            playback?.Reset();
         }
 
         private VfxCoverageEntry Current() =>

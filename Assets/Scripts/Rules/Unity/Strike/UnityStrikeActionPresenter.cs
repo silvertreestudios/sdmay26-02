@@ -129,10 +129,14 @@ namespace Game.Rules.Unity.Strike
             IEnumerator travel = vfx.PlayTransient(
                 StrikeVfxCueSelector.GetTravel(item.Label),
                 attacker.transform.position + Vector3.up * 0.6f,
-                target.transform.position + Vector3.up * 0.6f
+                target.transform.position + Vector3.up * 0.6f,
+                lifetimeOwner: attacker.transform
             );
-            while (travel.MoveNext())
-                yield return travel.Current;
+            using (travel as IDisposable)
+            {
+                while (travel.MoveNext())
+                    yield return travel.Current;
+            }
 
             if (StrikeVfxCueSelector.TryGetImpact(item.Label, result.Degree, out VfxCueId impact))
             {
@@ -142,19 +146,27 @@ namespace Game.Rules.Unity.Strike
                     impact,
                     target.transform.position + Vector3.up * 0.6f,
                     target.transform.position + Vector3.up * 0.6f,
-                    intensity
+                    intensity,
+                    target.transform
                 );
-                while (impactPlayback.MoveNext())
-                    yield return impactPlayback.Current;
+                using (impactPlayback as IDisposable)
+                {
+                    while (impactPlayback.MoveNext())
+                        yield return impactPlayback.Current;
+                }
                 foreach (VfxCueId accent in StrikeVfxCueSelector.GetContributionAccents(result))
                 {
                     IEnumerator accentPlayback = vfx.PlayTransient(
                         accent,
                         target.transform.position + Vector3.up * 0.6f,
-                        target.transform.position + Vector3.up * 0.6f
+                        target.transform.position + Vector3.up * 0.6f,
+                        lifetimeOwner: target.transform
                     );
-                    while (accentPlayback.MoveNext())
-                        yield return accentPlayback.Current;
+                    using (accentPlayback as IDisposable)
+                    {
+                        while (accentPlayback.MoveNext())
+                            yield return accentPlayback.Current;
+                    }
                 }
             }
 

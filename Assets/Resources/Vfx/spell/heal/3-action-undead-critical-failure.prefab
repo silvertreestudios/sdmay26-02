@@ -1218,7 +1218,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 412e75a8959a38647bcb89c9f6f0e0be, type: 3}
   m_Name:
   m_EditorClassIdentifier: MainGameAssembly::Game.Rules.Unity.Vfx.UnityVfxInstance
-  motion: 2
+  motion: 0
   duration: 0.8
   baseScale: 1.35
 --- !u!198 &8455875233424913032
@@ -1852,7 +1852,7 @@ ParticleSystem:
   ShapeModule:
     serializedVersion: 6
     enabled: 1
-    type: 17
+    type: 0
     angle: 25
     length: 5
     boxThickness: {x: 0, y: 0, z: 0}

@@ -15,7 +15,14 @@ namespace Game.Rules.Unity.Vfx
                 return;
             if (!Application.isPlaying)
             {
-                while (routine.MoveNext()) { }
+                try
+                {
+                    while (routine.MoveNext()) { }
+                }
+                finally
+                {
+                    (routine as IDisposable)?.Dispose();
+                }
                 return;
             }
             owner.StartCoroutine(routine);
@@ -83,6 +90,7 @@ namespace Game.Rules.Unity.Vfx
         private float timelineDurationScale = 1f;
 
         internal event Action<VfxCueId> CueStarted = delegate { };
+        internal event Action<VfxCueId, Vector3, Vector3> TransientStarted = delegate { };
 
         /// <summary>Creates an isolated playback owner.</summary>
         public UnityVfxPlayback(IVfxPrefabCatalog catalog, string ownerName)
@@ -109,43 +117,59 @@ namespace Game.Rules.Unity.Vfx
             timelineDurationScale = durationScale;
         }
 
-        /// <summary>Plays one complete transient timeline and yields until its terminal frame.</summary>
+        /// <summary>
+        /// Plays one complete transient timeline and yields until its terminal frame or cancellation.
+        /// </summary>
+        /// <param name="cue">The exact production cue to instantiate.</param>
+        /// <param name="origin">The authored motion's starting world position.</param>
+        /// <param name="destination">The authored motion's ending world position.</param>
+        /// <param name="intensity">A relative scale multiplier for the committed outcome.</param>
+        /// <param name="lifetimeOwner">
+        /// Optional scene owner whose disable or destruction immediately ends the transient.
+        /// </param>
         public IEnumerator PlayTransient(
             VfxCueId cue,
             Vector3 origin,
             Vector3 destination,
-            float intensity = 1f
+            float intensity = 1f,
+            Transform lifetimeOwner = null
         )
         {
             ThrowIfDisposed();
             CueStarted(cue);
-            GameObject instance = UnityEngine.Object.Instantiate(
-                catalog.Require(cue),
-                origin,
-                Quaternion.identity,
-                host.transform
-            );
-            instance.name = "VFX " + cue.Value;
-            UnityVfxInstance behavior = instance.GetComponent<UnityVfxInstance>();
-            if (behavior == null)
-                throw new InvalidOperationException(
-                    $"VFX prefab '{cue}' is missing {nameof(UnityVfxInstance)}."
+            TransientStarted(cue, origin, destination);
+            GameObject instance = null;
+            try
+            {
+                instance = UnityEngine.Object.Instantiate(
+                    catalog.Require(cue),
+                    origin,
+                    Quaternion.identity,
+                    host.transform
                 );
-            behavior.Begin(
-                origin,
-                destination,
-                Mathf.Max(0.25f, intensity),
-                persistent: false,
-                timelineDurationScale
-            );
-            if (!Application.isPlaying)
+                instance.name = "VFX " + cue.Value;
+                UnityVfxInstance behavior = instance.GetComponent<UnityVfxInstance>();
+                if (behavior == null)
+                    throw new InvalidOperationException(
+                        $"VFX prefab '{cue}' is missing {nameof(UnityVfxInstance)}."
+                    );
+                behavior.BindLifetime(lifetimeOwner);
+                behavior.Begin(
+                    origin,
+                    destination,
+                    Mathf.Max(0.25f, intensity),
+                    persistent: false,
+                    timelineDurationScale
+                );
+                if (!Application.isPlaying)
+                    yield break;
+                while (instance != null && behavior != null && !behavior.IsComplete)
+                    yield return null;
+            }
+            finally
             {
                 Destroy(instance);
-                yield break;
             }
-            while (instance != null && behavior != null && !behavior.IsComplete)
-                yield return null;
-            Destroy(instance);
         }
 
         /// <summary>Creates or replaces one persistent object under an authoritative stable key.</summary>

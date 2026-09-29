@@ -5,6 +5,7 @@ using System.Linq;
 using Game.Combat.Spells;
 using Game.Creature;
 using Game.Rules.Runtime;
+using Game.Rules.Unity;
 using Game.Rules.Unity.Vfx;
 using NUnit.Framework;
 using UnityEngine;
@@ -225,7 +226,7 @@ public sealed class VfxGalleryPlayModeTests
         yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
         VfxGalleryController gallery = Object.FindFirstObjectByType<VfxGalleryController>();
         Assert.That(gallery, Is.Not.Null);
-        Assert.That(gallery.EntryCount, Is.EqualTo(69));
+        Assert.That(gallery.EntryCount, Is.EqualTo(VfxCoverageManifest.Load().entries.Count));
         gallery.ConfigureTestTiming(0.01f);
         Time.captureDeltaTime = 0.1f;
 
@@ -262,7 +263,11 @@ public sealed class VfxGalleryPlayModeTests
             int expectedTargets =
                 entry.id.Contains("infuse-vitality/3-action") ? 3
                 : entry.id.Contains("infuse-vitality/2-action") ? 2
-                : entry.id is "spell/light/2-action/create" or "spell/shield/1-action/create" ? 0
+                : entry.id is "spell/heal/3-action/living" or "spell/heal/3-action/area-wave" ? 3
+                : entry.id.StartsWith("spell/light/")
+                || entry.id.StartsWith("spell/shield/")
+                || entry.id.StartsWith("spell/bless/")
+                    ? 0
                 : 1;
             Assert.That(gallery.CurrentTargetCount, Is.EqualTo(expectedTargets), entry.id);
             if (entry.id.StartsWith("spell/infuse-vitality/"))
@@ -271,6 +276,22 @@ public sealed class VfxGalleryPlayModeTests
                     gallery.LastTrace.Count(cue => cue == entry.cue),
                     Is.EqualTo(expectedTargets),
                     entry.id + " must emit one simultaneous production beam per selected target."
+                );
+            }
+            if (entry.id.StartsWith("spell/heal/2-action/"))
+            {
+                Assert.That(
+                    gallery.LastTrace.Count(cue => cue == "spell/heal/2-action-delivery"),
+                    Is.EqualTo(1),
+                    entry.id + " must emit one ranged delivery before its target result."
+                );
+            }
+            if (entry.id.StartsWith("spell/heal/3-action/"))
+            {
+                Assert.That(
+                    gallery.LastTrace.Count(cue => cue == "spell/heal/3-action-emanation"),
+                    Is.EqualTo(1),
+                    entry.id + " must emit exactly one area wave."
                 );
             }
             if (
@@ -315,6 +336,97 @@ public sealed class VfxGalleryPlayModeTests
         Assert.That(gallery.LastTrace, Is.Empty);
         Time.captureDeltaTime = 0f;
         Scene cleanup = SceneManager.CreateScene("VFX Gallery Coverage Cleanup");
+        SceneManager.SetActiveScene(cleanup);
+        yield return SceneManager.UnloadSceneAsync("VfxGallery");
+    }
+
+    [UnityTest]
+    public IEnumerator HealDeliveryAndHymnResultsUseTheirCorrectSourceAndTargetAnchors()
+    {
+        yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
+        VfxGalleryController gallery = Object.FindFirstObjectByType<VfxGalleryController>();
+        gallery.ConfigureTestTiming(0.01f);
+        Time.captureDeltaTime = 0.1f;
+        Transform source = GameObject.Find("Gallery Source").transform;
+        Transform firstTarget = GameObject.Find("Gallery Target").transform;
+
+        gallery.Select("spell/heal/1-action/living");
+        yield return gallery.PlaySelectedForTests();
+        var touch = gallery.LastTransientStarts.Single(value =>
+            value.Cue == "spell/heal/1-action-living"
+        );
+        Assert.That(
+            Vector3.Distance(touch.Origin, firstTarget.position + Vector3.up * 0.6f),
+            Is.LessThan(0.01f)
+        );
+        Assert.That(touch.Destination, Is.EqualTo(touch.Origin));
+
+        gallery.Select("spell/heal/2-action/living");
+        yield return gallery.PlaySelectedForTests();
+        var delivery = gallery.LastTransientStarts.Single(value =>
+            value.Cue == "spell/heal/2-action-delivery"
+        );
+        var rangedResult = gallery.LastTransientStarts.Single(value =>
+            value.Cue == "spell/heal/2-action-living"
+        );
+        Assert.That(
+            Vector3.Distance(delivery.Origin, source.position + Vector3.up * 0.6f),
+            Is.LessThan(0.01f)
+        );
+        Assert.That(
+            Vector3.Distance(delivery.Destination, firstTarget.position + Vector3.up * 0.6f),
+            Is.LessThan(0.01f)
+        );
+        Assert.That(rangedResult.Origin, Is.EqualTo(rangedResult.Destination));
+        Assert.That(
+            gallery.LastTrace.ToList().IndexOf("spell/heal/2-action-delivery"),
+            Is.LessThan(gallery.LastTrace.ToList().IndexOf("spell/heal/2-action-living"))
+        );
+
+        gallery.Select("spell/heal/3-action/living");
+        yield return gallery.PlaySelectedForTests();
+        Assert.That(
+            gallery.LastTrace.Count(cue => cue == "spell/heal/3-action-emanation"),
+            Is.EqualTo(1)
+        );
+        Assert.That(
+            gallery.LastTrace.Where(cue => cue.StartsWith("spell/heal/3-action-")).ToArray(),
+            Is.EqualTo(
+                new[]
+                {
+                    "spell/heal/3-action-emanation",
+                    "spell/heal/3-action-living",
+                    "spell/heal/3-action-undead-success",
+                    "spell/heal/3-action-undead-critical-failure",
+                }
+            )
+        );
+        string[] areaResults =
+        {
+            "spell/heal/3-action-living",
+            "spell/heal/3-action-undead-success",
+            "spell/heal/3-action-undead-critical-failure",
+        };
+        Assert.That(
+            gallery
+                .LastTransientStarts.Where(value => areaResults.Contains(value.Cue))
+                .All(value => value.Origin == value.Destination),
+            Is.True
+        );
+
+        gallery.Select("spell/haunting-hymn/2-action/critical-failure");
+        yield return gallery.PlaySelectedForTests();
+        var hymn = gallery.LastTransientStarts.Single(value =>
+            value.Cue == "spell/haunting-hymn/critical-failure"
+        );
+        Assert.That(
+            Vector3.Distance(hymn.Origin, firstTarget.position + Vector3.up * 0.6f),
+            Is.LessThan(0.01f)
+        );
+        Assert.That(hymn.Destination, Is.EqualTo(hymn.Origin));
+
+        Time.captureDeltaTime = 0f;
+        Scene cleanup = SceneManager.CreateScene("VFX Delivery Anchor Cleanup");
         SceneManager.SetActiveScene(cleanup);
         yield return SceneManager.UnloadSceneAsync("VfxGallery");
     }
@@ -386,6 +498,13 @@ public sealed class VfxGalleryPlayModeTests
         gallery.BeginPlayAllForTests();
         yield return null;
         Assert.That(gallery.IsPlayAllActive, Is.True);
+        gallery.StopPlayAllForTests();
+        yield return null;
+        Assert.That(gallery.IsPlaybackActive, Is.False);
+        Assert.That(gallery.LiveVfxObjectCount, Is.Zero);
+        gallery.BeginPlayAllForTests();
+        yield return null;
+        Assert.That(gallery.IsPlayAllActive, Is.True);
 
         gallery.Select("spell/divine-lance/2-action/critical");
         gallery.BeginSelectedForTests();
@@ -410,6 +529,51 @@ public sealed class VfxGalleryPlayModeTests
         Scene cleanup = SceneManager.CreateScene("VFX Gallery Exclusive Playback Cleanup");
         SceneManager.SetActiveScene(cleanup);
         yield return SceneManager.UnloadSceneAsync("VfxGallery");
+    }
+
+    [UnityTest]
+    public IEnumerator AbortedPresentationAndDisabledOwnerDestroyTheirActiveTransients()
+    {
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Transient cancellation test"
+        );
+        using UnityActionPresentationCoordinator coordinator = new();
+        object action = new();
+        coordinator.Begin(action, new OpId(44));
+        coordinator.Enqueue(
+            action,
+            () =>
+                playback.PlayTransient(
+                    new VfxCueId("spell/divine-lance/projectile"),
+                    Vector3.zero,
+                    Vector3.right
+                )
+        );
+        IEnumerator drain = coordinator.Drain(action);
+
+        Assert.That(drain.MoveNext(), Is.True);
+        Assert.That(playback.LiveObjectCount, Is.EqualTo(1));
+        (drain as System.IDisposable)?.Dispose();
+        yield return null;
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+
+        GameObject owner = new("Transient lifetime owner");
+        IEnumerator ownerBound = playback.PlayTransient(
+            new VfxCueId("spell/divine-lance/projectile"),
+            Vector3.zero,
+            Vector3.right,
+            lifetimeOwner: owner.transform
+        );
+        Assert.That(ownerBound.MoveNext(), Is.True);
+        Assert.That(playback.LiveObjectCount, Is.EqualTo(1));
+        owner.SetActive(false);
+        yield return null;
+        yield return null;
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+        (ownerBound as System.IDisposable)?.Dispose();
+        Object.Destroy(owner);
+        yield return null;
     }
 
     [UnityTest]
@@ -569,7 +733,11 @@ public sealed class VfxGalleryPlayModeTests
 
         Assert.That(peakObjects, Is.InRange(1, 3));
         Assert.That(peakParticles, Is.InRange(1, 12));
-        Assert.That(peakRenderers, Is.InRange(1, 24));
+        Assert.That(
+            peakRenderers,
+            Is.InRange(1, 32),
+            "Mixed-target area Heal intentionally presents three bounded target outcomes together."
+        );
         Assert.That(peakLights, Is.EqualTo(1));
         Assert.That(peakSharedMaterials, Is.InRange(1, 8));
         Assert.That(Object.FindObjectsByType<UnityVfxInstance>(FindObjectsSortMode.None), Is.Empty);

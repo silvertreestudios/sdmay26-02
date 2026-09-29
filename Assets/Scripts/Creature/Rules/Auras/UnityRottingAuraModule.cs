@@ -159,7 +159,8 @@ namespace Game.Creature.Rules
                             : "auxiliary/rotting-aura-tick"
                     ),
                     target.transform.position + Vector3.up * 0.6f,
-                    target.transform.position + Vector3.up * 0.6f
+                    target.transform.position + Vector3.up * 0.6f,
+                    lifetimeOwner: target.transform
                 )
             );
         }

@@ -194,7 +194,8 @@ namespace Game.Rules.Unity.Vfx
                     playback.PlayTransient(
                         selection.Value.RemovalCue,
                         removalAnchor.Transform.TransformPoint(removalAnchor.LocalOffset),
-                        removalAnchor.Transform.TransformPoint(removalAnchor.LocalOffset)
+                        removalAnchor.Transform.TransformPoint(removalAnchor.LocalOffset),
+                        lifetimeOwner: removalAnchor.Transform
                     )
                 );
                 return;
@@ -261,10 +262,14 @@ namespace Game.Rules.Unity.Vfx
             IEnumerator transient = playback.PlayTransient(
                 removalCue,
                 anchor.Transform.TransformPoint(anchor.LocalOffset),
-                anchor.Transform.TransformPoint(anchor.LocalOffset)
+                anchor.Transform.TransformPoint(anchor.LocalOffset),
+                lifetimeOwner: anchor.Transform
             );
-            while (transient.MoveNext())
-                yield return transient.Current;
+            using (transient as IDisposable)
+            {
+                while (transient.MoveNext())
+                    yield return transient.Current;
+            }
         }
     }
 }

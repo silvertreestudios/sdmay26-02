@@ -57,6 +57,24 @@ namespace Game.Rules.Unity.Vfx
                 throw new InvalidOperationException(
                     "The VFX coverage manifest contains no entries."
                 );
+            HashSet<string> ids = new(StringComparer.Ordinal);
+            foreach (VfxCoverageEntry entry in manifest.entries)
+            {
+                if (
+                    entry == null
+                    || string.IsNullOrWhiteSpace(entry.id)
+                    || string.IsNullOrWhiteSpace(entry.cue)
+                    || string.IsNullOrWhiteSpace(entry.gameplayTrigger)
+                    || string.IsNullOrWhiteSpace(entry.evidence)
+                )
+                    throw new InvalidOperationException(
+                        "Every VFX coverage entry requires an ID, cue, gameplay trigger, and evidence."
+                    );
+                if (!ids.Add(entry.id))
+                    throw new InvalidOperationException(
+                        $"The VFX coverage manifest repeats gallery ID '{entry.id}'."
+                    );
+            }
             return manifest;
         }
     }

@@ -297,10 +297,14 @@ namespace Game.Combat.Spells
             IEnumerator castVfx = vfx.PlayTransient(
                 SpellVfxCueSelector.GetCast(operation.Spell.Spell),
                 actor.transform.position + Vector3.up * 0.6f,
-                actor.transform.position + Vector3.up * 0.6f
+                actor.transform.position + Vector3.up * 0.6f,
+                lifetimeOwner: actor.transform
             );
-            while (castVfx.MoveNext())
-                yield return castVfx.Current;
+            using (castVfx as IDisposable)
+            {
+                while (castVfx.MoveNext())
+                    yield return castVfx.Current;
+            }
         }
 
         /// <inheritdoc/>
@@ -331,10 +335,14 @@ namespace Game.Combat.Spells
                 IEnumerator projectile = vfx.PlayTransient(
                     SpellVfxCueSelector.GetResult(operation.Spell.Spell, operation.Variant.Actions),
                     creature.transform.position + Vector3.up * 0.6f,
-                    attackTarget.transform.position + Vector3.up * 0.6f
+                    attackTarget.transform.position + Vector3.up * 0.6f,
+                    lifetimeOwner: creature.transform
                 );
-                while (projectile.MoveNext())
-                    yield return projectile.Current;
+                using (projectile as IDisposable)
+                {
+                    while (projectile.MoveNext())
+                        yield return projectile.Current;
+                }
                 if (attack.Hit)
                 {
                     IEnumerator impact = vfx.PlayTransient(
@@ -343,15 +351,44 @@ namespace Game.Combat.Spells
                         attackTarget.transform.position + Vector3.up * 0.6f,
                         attack.Degree == Game.Rules.Runtime.DegreeOfSuccess.CriticalSuccess
                             ? 1.5f
-                            : 1f
+                            : 1f,
+                        attackTarget.transform
                     );
-                    while (impact.MoveNext())
-                        yield return impact.Current;
+                    using (impact as IDisposable)
+                    {
+                        while (impact.MoveNext())
+                            yield return impact.Current;
+                    }
                 }
                 yield return UnityActionPresentationCoordinator.ReactionBarrier;
                 PresentAttack(definition, creature, attack);
             }
 
+            bool areaHeal = operation.Spell.Spell.Value == "heal" && operation.Variant.Actions == 3;
+            if (
+                areaHeal
+                && result.TargetResolutions.Count > 0
+                && SpellVfxCueSelector.TryGetHealDelivery(
+                    operation.Variant.Actions,
+                    out VfxCueId areaWave
+                )
+            )
+            {
+                Vector3 casterPosition = creature.transform.position + Vector3.up * 0.6f;
+                IEnumerator wave = vfx.PlayTransient(
+                    areaWave,
+                    casterPosition,
+                    casterPosition,
+                    lifetimeOwner: creature.transform
+                );
+                using (wave as IDisposable)
+                {
+                    while (wave.MoveNext())
+                        yield return wave.Current;
+                }
+            }
+
+            List<IEnumerator> simultaneousTargetResults = new();
             foreach (SpellTargetResolution targetResult in result.TargetResolutions)
             {
                 if (
@@ -364,6 +401,28 @@ namespace Game.Combat.Spells
                     || !target.traits.Any(trait =>
                         string.Equals(trait, "undead", StringComparison.OrdinalIgnoreCase)
                     );
+                Vector3 targetPosition = target.transform.position + Vector3.up * 0.6f;
+                if (
+                    operation.Spell.Spell.Value == "heal"
+                    && operation.Variant.Actions == 2
+                    && SpellVfxCueSelector.TryGetHealDelivery(
+                        operation.Variant.Actions,
+                        out VfxCueId rangedDelivery
+                    )
+                )
+                {
+                    IEnumerator delivery = vfx.PlayTransient(
+                        rangedDelivery,
+                        creature.transform.position + Vector3.up * 0.6f,
+                        targetPosition,
+                        lifetimeOwner: creature.transform
+                    );
+                    using (delivery as IDisposable)
+                    {
+                        while (delivery.MoveNext())
+                            yield return delivery.Current;
+                    }
+                }
                 IEnumerator resultVfx = vfx.PlayTransient(
                     SpellVfxCueSelector.GetResult(
                         operation.Spell.Spell,
@@ -371,11 +430,29 @@ namespace Game.Combat.Spells
                         targetResult.Degree,
                         living
                     ),
-                    creature.transform.position + Vector3.up * 0.6f,
-                    target.transform.position + Vector3.up * 0.6f
+                    targetPosition,
+                    targetPosition,
+                    lifetimeOwner: target.transform
                 );
-                while (resultVfx.MoveNext())
-                    yield return resultVfx.Current;
+                if (areaHeal)
+                    simultaneousTargetResults.Add(resultVfx);
+                else
+                {
+                    using (resultVfx as IDisposable)
+                    {
+                        while (resultVfx.MoveNext())
+                            yield return resultVfx.Current;
+                    }
+                }
+            }
+            if (simultaneousTargetResults.Count > 0)
+            {
+                IEnumerator simultaneous = PlaySimultaneously(simultaneousTargetResults);
+                using (simultaneous as IDisposable)
+                {
+                    while (simultaneous.MoveNext())
+                        yield return simultaneous.Current;
+                }
             }
 
             if (result.AttackResolutions.Count == 0 && result.TargetResolutions.Count == 0)
@@ -389,10 +466,14 @@ namespace Game.Combat.Spells
                             operation.Variant.Actions
                         ),
                         creature.transform.position + Vector3.up * 0.6f,
-                        creature.transform.position + Vector3.up * 0.6f
+                        creature.transform.position + Vector3.up * 0.6f,
+                        lifetimeOwner: creature.transform
                     );
-                    while (selfResult.MoveNext())
-                        yield return selfResult.Current;
+                    using (selfResult as IDisposable)
+                    {
+                        while (selfResult.MoveNext())
+                            yield return selfResult.Current;
+                    }
                 }
                 List<IEnumerator> selectedTimelines = new();
                 foreach (CreatureId selectedTarget in selected)
@@ -409,20 +490,46 @@ namespace Game.Combat.Spells
                                 operation.Variant.Actions
                             ),
                             creature.transform.position + Vector3.up * 0.6f,
-                            target.transform.position + Vector3.up * 0.6f
+                            target.transform.position + Vector3.up * 0.6f,
+                            lifetimeOwner: creature.transform
                         )
                     );
                 }
-                while (selectedTimelines.Count > 0)
+                IEnumerator simultaneous = PlaySimultaneously(selectedTimelines);
+                using (simultaneous as IDisposable)
                 {
-                    for (int index = selectedTimelines.Count - 1; index >= 0; index--)
+                    while (simultaneous.MoveNext())
+                        yield return simultaneous.Current;
+                }
+            }
+        }
+
+        private static IEnumerator PlaySimultaneously(List<IEnumerator> timelines)
+        {
+            try
+            {
+                while (timelines.Count > 0)
+                {
+                    for (int index = 0; index < timelines.Count; )
                     {
-                        if (!selectedTimelines[index].MoveNext())
-                            selectedTimelines.RemoveAt(index);
+                        IEnumerator timeline = timelines[index];
+                        if (timeline.MoveNext())
+                        {
+                            index++;
+                            continue;
+                        }
+                        (timeline as IDisposable)?.Dispose();
+                        timelines.RemoveAt(index);
                     }
-                    if (selectedTimelines.Count > 0)
+                    if (timelines.Count > 0)
                         yield return null;
                 }
+            }
+            finally
+            {
+                foreach (IEnumerator timeline in timelines)
+                    (timeline as IDisposable)?.Dispose();
+                timelines.Clear();
             }
         }
 

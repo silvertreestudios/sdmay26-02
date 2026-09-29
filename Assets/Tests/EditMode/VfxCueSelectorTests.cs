@@ -5,6 +5,7 @@ using Game.Combat.Spells;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Vfx;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 public sealed class VfxCoverageManifestTests
@@ -88,7 +89,7 @@ public sealed class VfxCoverageManifestTests
     public void CoverageManifestReconcilesRequiredVariantsProfilesAndExclusions()
     {
         VfxCoverageManifest manifest = VfxCoverageManifest.Load();
-        Assert.That(manifest.entries, Has.Count.EqualTo(69));
+        Assert.That(manifest.entries, Is.Not.Empty);
         int spellVariants = manifest
             .entries.Where(entry => entry.category == "spell")
             .Select(entry => string.Join("/", entry.id.Split('/').Take(3)))
@@ -134,6 +135,70 @@ public sealed class VfxCoverageManifestTests
                 );
             }
         }
+    }
+
+    [Test]
+    public void ManifestAndProductionPrefabCatalogHaveExactInverseCoverage()
+    {
+        string[] manifestCues = VfxCoverageManifest
+            .Load()
+            .entries.Select(entry => entry.cue)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+        const string root = "Assets/Resources/Vfx/";
+        string[] prefabCues = AssetDatabase
+            .FindAssets("t:Prefab", new[] { "Assets/Resources/Vfx" })
+            .Select(AssetDatabase.GUIDToAssetPath)
+            .Where(path => path.EndsWith(".prefab", StringComparison.Ordinal))
+            .Select(path =>
+                path.Substring(root.Length, path.Length - root.Length - ".prefab".Length)
+            )
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.That(manifestCues, Is.EqualTo(prefabCues));
+    }
+
+    [Test]
+    public void ManifestListsEverySpellTimelinePhaseSelectedByProduction()
+    {
+        string[] manifestCues = VfxCoverageManifest
+            .Load()
+            .entries.Select(entry => entry.cue)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        foreach (string spell in SpellVfxCueSelector.SupportedSpells)
+            Assert.That(
+                manifestCues,
+                Does.Contain(SpellVfxCueSelector.GetCast(new SpellId(spell)).Value),
+                spell
+            );
+        foreach (
+            string spell in new[] { "light", "shield", "guidance", "bless", "infuse-vitality" }
+        )
+        {
+            Assert.That(
+                SpellVfxCueSelector.TryGetPersistent(new SpellId(spell), out VfxCueId cue),
+                Is.True
+            );
+            Assert.That(manifestCues, Does.Contain(cue.Value), spell);
+        }
+        for (int actions = 2; actions <= 3; actions++)
+        {
+            Assert.That(SpellVfxCueSelector.TryGetHealDelivery(actions, out VfxCueId cue), Is.True);
+            Assert.That(manifestCues, Does.Contain(cue.Value), $"Heal {actions}-action delivery");
+        }
+    }
+
+    [Test]
+    public void HealTouchRangedAndAreaPhasesUseDistinctAuthoredMotion()
+    {
+        AssertMotion("spell/heal/1-action-living", VfxMotionKind.Burst);
+        AssertMotion("spell/heal/2-action-delivery", VfxMotionKind.Projectile);
+        AssertMotion("spell/heal/2-action-living", VfxMotionKind.Burst);
+        AssertMotion("spell/heal/3-action-emanation", VfxMotionKind.Emanation);
+        AssertMotion("spell/heal/3-action-living", VfxMotionKind.Burst);
     }
 
     [Test]
@@ -254,5 +319,16 @@ public sealed class VfxCoverageManifestTests
 
         Assert.That(selection.Cue.Value, Is.EqualTo("spell/guidance/persistent"));
         Assert.That(selection.RemovalCue.Value, Is.EqualTo("spell/guidance/consume"));
+    }
+
+    private static void AssertMotion(string cue, VfxMotionKind expected)
+    {
+        GameObject prefab = new ResourcesVfxPrefabCatalog().Require(new VfxCueId(cue));
+        SerializedObject serialized = new(prefab.GetComponent<UnityVfxInstance>());
+        Assert.That(
+            serialized.FindProperty("motion").enumValueIndex,
+            Is.EqualTo((int)expected),
+            cue
+        );
     }
 }

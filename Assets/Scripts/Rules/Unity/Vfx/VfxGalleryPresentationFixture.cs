@@ -43,6 +43,8 @@ namespace Game.Rules.Unity.Vfx
         private readonly UnityActionPresentationCoordinator actionPresentation = new();
         private readonly UnityHealthProjectionModule.HealthProjectionObserver healthPresentation;
         private readonly List<string> trace = new();
+        private readonly List<(string Cue, Vector3 Origin, Vector3 Destination)> transientStarts =
+            new();
         private float persistentHoldSeconds = 0.8f;
         private ActiveEffectInstance currentEffect;
         private ActiveRuleBinding currentBinding;
@@ -112,10 +114,14 @@ namespace Game.Rules.Unity.Vfx
                 playback
             );
             playback.CueStarted += RecordCue;
+            playback.TransientStarted += RecordTransient;
         }
 
         /// <summary>Gets the exact production cues emitted by the latest fixture timeline.</summary>
         public IReadOnlyList<string> Trace => trace;
+
+        internal IReadOnlyList<(string Cue, Vector3 Origin, Vector3 Destination)> TransientStarts =>
+            transientStarts;
 
         /// <summary>Gets the number of targets staged by the latest fixture timeline.</summary>
         public int TargetCount { get; private set; }
@@ -141,6 +147,7 @@ namespace Game.Rules.Unity.Vfx
                 throw new ArgumentNullException(nameof(entry));
             ThrowIfDisposed();
             trace.Clear();
+            transientStarts.Clear();
             TargetCount = DetermineTargetCount(entry);
             Stage(entry);
 
@@ -169,6 +176,7 @@ namespace Game.Rules.Unity.Vfx
             currentBinding = null;
             TargetCount = 0;
             trace.Clear();
+            transientStarts.Clear();
         }
 
         /// <inheritdoc/>
@@ -178,6 +186,7 @@ namespace Game.Rules.Unity.Vfx
                 return;
             disposed = true;
             playback.CueStarted -= RecordCue;
+            playback.TransientStarted -= RecordTransient;
             Reset();
         }
 
@@ -226,23 +235,38 @@ namespace Game.Rules.Unity.Vfx
             {
                 RulesDegreeOfSuccess? degree = ParseDegree(entry.outcome);
                 bool living = !entry.outcome.Contains("undead", StringComparison.Ordinal);
-                creatures[TargetIds[0]].traits = living
-                    ? new List<string>()
-                    : new List<string> { "undead" };
-                results.Add(
-                    new SpellTargetResolution(
-                        TargetIds[0],
-                        degree,
-                        living
-                            ? Array.Empty<TypedDamagePart>()
-                            : new[]
-                            {
-                                new TypedDamagePart("vitality", 8, new[] { spell.Spell.Value }),
-                            },
-                        living ? 8 : 0,
-                        entry.outcome == "critical-failure"
-                    )
-                );
+                for (int index = 0; index < selected.Length; index++)
+                {
+                    bool targetLiving = living;
+                    RulesDegreeOfSuccess? targetDegree = degree;
+                    if (spell.Spell.Value == "heal" && selected.Length == 3 && living)
+                    {
+                        targetLiving = index == 0;
+                        targetDegree = index switch
+                        {
+                            1 => RulesDegreeOfSuccess.Success,
+                            2 => RulesDegreeOfSuccess.CriticalFailure,
+                            _ => null,
+                        };
+                    }
+                    creatures[selected[index]].traits = targetLiving
+                        ? new List<string>()
+                        : new List<string> { "undead" };
+                    results.Add(
+                        new SpellTargetResolution(
+                            selected[index],
+                            targetDegree,
+                            targetLiving
+                                ? Array.Empty<TypedDamagePart>()
+                                : new[]
+                                {
+                                    new TypedDamagePart("vitality", 8, new[] { spell.Spell.Value }),
+                                },
+                            targetLiving ? 8 : 0,
+                            targetDegree == RulesDegreeOfSuccess.CriticalFailure
+                        )
+                    );
+                }
             }
 
             CastSpellOutcome outcome = new(
@@ -536,7 +560,13 @@ namespace Game.Rules.Unity.Vfx
                 return 3;
             if (entry.id.Contains("infuse-vitality/2-action", StringComparison.Ordinal))
                 return 2;
-            if (entry.id is "spell/light/2-action/create" or "spell/shield/1-action/create")
+            if (entry.id is "spell/heal/3-action/living" or "spell/heal/3-action/area-wave")
+                return 3;
+            if (
+                entry.id.StartsWith("spell/light/", StringComparison.Ordinal)
+                || entry.id.StartsWith("spell/shield/", StringComparison.Ordinal)
+                || entry.id.StartsWith("spell/bless/", StringComparison.Ordinal)
+            )
                 return 0;
             return 1;
         }
@@ -594,11 +624,21 @@ namespace Game.Rules.Unity.Vfx
 
         private static IEnumerator Drain(IEnumerator routine)
         {
-            while (routine.MoveNext())
-                yield return routine.Current;
+            try
+            {
+                while (routine.MoveNext())
+                    yield return routine.Current;
+            }
+            finally
+            {
+                (routine as IDisposable)?.Dispose();
+            }
         }
 
         private void RecordCue(VfxCueId cue) => trace.Add(cue.Value);
+
+        private void RecordTransient(VfxCueId cue, Vector3 origin, Vector3 destination) =>
+            transientStarts.Add((cue.Value, origin, destination));
 
         private OpId BeginPresentation(object action, Func<IEnumerator> beginning)
         {

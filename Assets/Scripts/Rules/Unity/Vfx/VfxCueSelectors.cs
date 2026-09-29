@@ -134,6 +134,25 @@ namespace Game.Rules.Unity.Vfx
             return new VfxCueId("spell/" + spell.Value + "/" + suffix);
         }
 
+        /// <summary>
+        /// Gets the distinct delivery phase for ranged or area Heal, or no cue for touch Heal.
+        /// </summary>
+        public static bool TryGetHealDelivery(int actions, out VfxCueId cue)
+        {
+            switch (actions)
+            {
+                case 2:
+                    cue = new VfxCueId("spell/heal/2-action-delivery");
+                    return true;
+                case 3:
+                    cue = new VfxCueId("spell/heal/3-action-emanation");
+                    return true;
+                default:
+                    cue = default;
+                    return false;
+            }
+        }
+
         /// <summary>Gets the contact cue for a successful spell attack.</summary>
         public static VfxCueId GetAttackImpact(SpellId spell, DegreeOfSuccess degree)
         {

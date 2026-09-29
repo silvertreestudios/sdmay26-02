@@ -35,59 +35,36 @@ public static class SpellAttackVfxAssetGenerator
         Debug.Log($"Generated {cues.Count} production VFX prefabs and the VFX gallery scene.");
     }
 
+    /// <summary>
+    /// Regenerates only the Heal delivery and target-result prefabs whose authored motion differs.
+    /// </summary>
+    [MenuItem("Tools/VFX/Regenerate Heal Delivery Prefabs")]
+    public static void GenerateHealDeliveryPrefabs()
+    {
+        Directory.CreateDirectory(MaterialRoot);
+        Directory.CreateDirectory(PrefabRoot);
+        softParticle = CreateSoftParticleTexture();
+        string[] cues =
+        {
+            "spell/heal/2-action-delivery",
+            "spell/heal/3-action-emanation",
+            "spell/heal/3-action-living",
+            "spell/heal/3-action-undead-critical-success",
+            "spell/heal/3-action-undead-success",
+            "spell/heal/3-action-undead-failure",
+            "spell/heal/3-action-undead-critical-failure",
+        };
+        foreach (string cue in cues)
+            CreatePrefab(cue);
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log($"Generated {cues.Length} Heal delivery and target-result VFX prefabs.");
+    }
+
     private static HashSet<string> CollectCues()
     {
         VfxCoverageManifest manifest = VfxCoverageManifest.Load();
-        HashSet<string> cues = manifest
-            .entries.Select(entry => entry.cue)
-            .ToHashSet(StringComparer.Ordinal);
-        string[] spellIds =
-        {
-            "light",
-            "divine-lance",
-            "shield",
-            "guidance",
-            "haunting-hymn",
-            "bless",
-            "infuse-vitality",
-            "heal",
-        };
-        foreach (string spell in spellIds)
-            cues.Add("spell/" + spell + "/cast");
-        cues.Add("spell/divine-lance/projectile");
-        cues.Add("spell/divine-lance/critical");
-        cues.Add("spell/infuse-vitality/persistent");
-        foreach (string actions in new[] { "1-action", "2-action", "3-action" })
-        {
-            foreach (
-                string degree in new[]
-                {
-                    "critical-success",
-                    "success",
-                    "failure",
-                    "critical-failure",
-                }
-            )
-                cues.Add($"spell/heal/{actions}-undead-{degree}");
-        }
-        foreach (
-            string family in new[]
-            {
-                "unarmed",
-                "slash",
-                "heavy-slash",
-                "piercing",
-                "bludgeoning",
-                "bow",
-                "sling",
-            }
-        )
-        {
-            cues.Add($"strike/{family}/travel");
-            cues.Add($"strike/{family}/hit");
-            cues.Add($"strike/{family}/critical");
-        }
-        return cues;
+        return manifest.entries.Select(entry => entry.cue).ToHashSet(StringComparer.Ordinal);
     }
 
     private static void CreatePrefab(string cue)
@@ -124,6 +101,7 @@ public static class SpellAttackVfxAssetGenerator
             : cue.Contains("bow", StringComparison.Ordinal)
             || cue.Contains("lance", StringComparison.Ordinal)
             || cue.Contains("piercing", StringComparison.Ordinal)
+            || cue == "spell/heal/2-action-delivery"
                 ? PrimitiveType.Capsule
             : cue.Contains("shield", StringComparison.Ordinal) ? PrimitiveType.Cylinder
             : cue.Contains("hymn", StringComparison.Ordinal)
@@ -324,7 +302,7 @@ public static class SpellAttackVfxAssetGenerator
         shape.shapeType =
             cue.Contains("hymn", StringComparison.Ordinal) ? ParticleSystemShapeType.Cone
             : cue.Contains("bless", StringComparison.Ordinal)
-            || cue.Contains("heal/3-action", StringComparison.Ordinal)
+            || cue == "spell/heal/3-action-emanation"
                 ? ParticleSystemShapeType.Donut
             : ParticleSystemShapeType.Sphere;
         shape.radius = 0.45f;
@@ -565,6 +543,7 @@ public static class SpellAttackVfxAssetGenerator
             return VfxMotionKind.Persistent;
         if (
             cue.Contains("projectile", StringComparison.Ordinal)
+            || cue == "spell/heal/2-action-delivery"
             || cue.Contains("bow/", StringComparison.Ordinal)
             || cue.Contains("sling/", StringComparison.Ordinal)
         )
@@ -573,7 +552,7 @@ public static class SpellAttackVfxAssetGenerator
             return VfxMotionKind.Beam;
         if (
             cue.Contains("bless", StringComparison.Ordinal)
-            || cue.Contains("heal/3-action", StringComparison.Ordinal)
+            || cue == "spell/heal/3-action-emanation"
             || cue.Contains("rotting-aura", StringComparison.Ordinal)
         )
             return VfxMotionKind.Emanation;
@@ -587,6 +566,7 @@ public static class SpellAttackVfxAssetGenerator
 
     private static float DurationFor(string cue) =>
         cue.Contains("projectile", StringComparison.Ordinal)
+        || cue == "spell/heal/2-action-delivery"
         || cue.EndsWith("/travel", StringComparison.Ordinal)
             ? 0.65f
             : 0.8f;

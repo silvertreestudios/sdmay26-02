@@ -17,9 +17,11 @@ namespace Game.Rules.Unity.Vfx
         private Vector3 origin;
         private Vector3 destination;
         private Transform follow;
+        private Transform lifetimeOwner;
         private Vector3 followLocalOffset = Vector3.up * 0.55f;
         private bool followRotation;
         private bool hadFollow;
+        private bool hadLifetimeOwner;
         private float elapsed;
         private float intensity = 1f;
         private bool persistent;
@@ -70,10 +72,28 @@ namespace Game.Rules.Unity.Vfx
             followRotation = rotateWithOwner;
         }
 
+        /// <summary>
+        /// Binds a transient to the scene object whose active lifetime owns its presentation.
+        /// </summary>
+        internal void BindLifetime(Transform owner)
+        {
+            lifetimeOwner = owner;
+            hadLifetimeOwner = owner != null;
+        }
+
         private void Update()
         {
             if (!begun)
                 return;
+            if (
+                !persistent
+                && hadLifetimeOwner
+                && (lifetimeOwner == null || !lifetimeOwner.gameObject.activeInHierarchy)
+            )
+            {
+                Destroy(gameObject);
+                return;
+            }
             if (persistent && hadFollow && (follow == null || !follow.gameObject.activeInHierarchy))
             {
                 Destroy(gameObject);
