@@ -12,10 +12,11 @@ deterministic committed fixture. **Pause** and **Slow Motion** affect the whole 
 **Close View** moves the normal Game camera nearer to contact while **Wide View** restores the full
 combat framing. **Copy ID** copies the exact manifest ID and shows confirmation in the scene.
 
-The manifest currently contains exactly 69 reviewable entries, including all twelve undead Heal
-action-count/save-degree combinations. Each entry displays its stable ID, variant, committed outcome,
-production reachability, gameplay trigger, declared cue, actual target count, and the production cues
-emitted by the latest timeline.
+The manifest currently contains exactly 80 reviewable entries with unique stable IDs. Those entries
+reference 69 distinct production cues, each backed by its matching Resources prefab, and include all
+twelve undead Heal action-count/save-degree combinations. Each entry displays its stable ID, variant,
+committed outcome, production reachability, gameplay trigger, declared cue, actual target count, and
+the production cues emitted by the latest timeline.
 Longsword is intentionally fixture-only. The manifest at
 `Assets/Resources/Vfx/vfx-coverage-manifest.json` is the source of truth for supported entries and
 explicit exclusions.
@@ -34,21 +35,22 @@ after regeneration. Do not hand-edit the generated Unity YAML.
 
 ## Performance verification
 
-The final Windows/D3D12 verification used Unity 6000.2.1f1 in batch mode. Thirty idle gallery frames
-took 6.95 ms total, while ten accelerated production-fixture replays took 23.44 ms total. Unity's
-coarse total-allocated-memory counter increased by 3,797,379 bytes across those replays, including
-fixture construction, Resources loading, prefab instantiation, and test-runner allocations. Peak
-resources were two overlapping VFX roots, two particle systems, 22 renderers (the Rotting Aura
-boundary), one point light, and one distinct shared material; every replay reset returned to zero VFX
-roots. A separate
-20-cycle replacement stress measured 13.18 ms, a 1,117,836-byte coarse allocation delta, three peak
-roots, and zero final roots.
+The latest retained Windows/D3D12 verification used Unity 6000.2.1f1 in batch mode. Thirty idle
+gallery frames took 7.29 ms total, while ten accelerated replays across five representative
+production fixtures took 30.39 ms total. Unity's coarse total-allocated-memory counter increased by
+5,026,132 bytes across those replays. Observed peaks were three overlapping VFX roots, three particle
+systems, 27 renderers, one point light, and two distinct shared materials; every replay reset returned
+to zero VFX roots. A separate 20-cycle persistent-replacement stress run took 13.38 ms after a
+2.84 ms 30-frame idle sample, recorded a 1,149,132-byte coarse allocation delta, reached three VFX
+roots, and returned to zero.
 
-The visible production encounter capture also measured cold action-to-terminal-presentation time:
-Mace critical Strike 1,250.02 ms with a 15,628,201-byte coarse allocation delta, followed by Divine
-Lance critical at 3,177.70 ms and 2,285,261 bytes. These timings deliberately include authored
-timeline duration; the first measurement also includes cold Resources and encounter setup costs.
-They are regression observations for this machine, not frame-time or universal FPS claims.
+These are local Unity Test Framework regression observations, not shipping-build benchmarks. The
+production-fixture test shortens review holds to 0.02 seconds, sets `Time.captureDeltaTime` to 0.1,
+and samples five representative entries rather than all 80. Stopwatch totals include coroutine and
+test-runner work and are not per-frame CPU/GPU timings or FPS claims. The process-wide allocated-memory
+snapshots include fixture construction, Resources loading, prefab instantiation, test-runner work,
+and unrelated runtime noise; they are not managed-allocation profiles. Object and renderer counts are
+once-per-frame samples, so they document this run rather than a universal maximum.
 
 Materials are shared prefab assets rather than instantiated in `Update`. The per-frame motion path
 uses value-type interpolation and does not construct managed collections. Allocations are expected at
@@ -56,7 +58,7 @@ the bounded spawn/despawn and deterministic-fixture boundaries. Point lights exi
 instances and are destroyed with their exact effect owner.
 
 The inspected 1920x1080 Game View evidence shows effects confined to a target, weapon path, or bounded
-area rather than full-screen transparent layers. The largest case is Rotting Aura's 12 separated
-boundary markers plus its central ring; the automated peak of 22 renderers bounds that geometry.
-For later content changes, repeat the Unity Profiler and Frame Debugger inspection at shipping Game
-resolution during idle, windup, peak impact, and reset, and reject stacked full-screen overdraw.
+area rather than full-screen transparent layers. The representative automated run observed a peak of
+27 renderers; it does not establish a bound for every gallery entry or future content. For later
+content changes, repeat the Unity Profiler and Frame Debugger inspection at shipping Game resolution
+during idle, windup, peak impact, and reset, and reject stacked full-screen overdraw.
