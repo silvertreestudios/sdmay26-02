@@ -7,10 +7,32 @@ using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
 using Game.Rules.Unity.Spells;
+using Game.Rules.Unity.Vfx;
 using GridPrivate;
 
 namespace Game.Combat.Spells
 {
+    /// <summary>Selects lasting spell visuals from authoritative active-effect state.</summary>
+    public static class SpellPersistentVfxSelector
+    {
+        /// <summary>Returns the production cue for a supported lasting spell effect.</summary>
+        public static PersistentVfxSelection? Select(ActiveEffectInstance effect)
+        {
+            if (effect.State is not SpellEffectState state)
+                return null;
+            if (
+                effect.DefinitionId != SpellFeatureRules.ShieldEffect
+                && effect.DefinitionId != SpellFeatureRules.GuidanceEffect
+                && effect.DefinitionId != SpellFeatureRules.BlessEffect
+                && effect.DefinitionId != SpellFeatureRules.InfuseVitalityEffect
+            )
+                return null;
+            return SpellVfxCueSelector.TryGetPersistent(state.Spell.Spell, out VfxCueId cue)
+                ? new PersistentVfxSelection(state.Target, cue)
+                : null;
+        }
+    }
+
     /// <summary>Owns generic spellcasting rules, presentation, and action installation composition.</summary>
     internal sealed class UnitySpellcastingEncounterModule
         : IUnityEncounterDispatcherModule,
@@ -24,13 +46,15 @@ namespace Game.Combat.Spells
         private readonly UnitySpellAttackContext attackContext;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly bool installUnityAuthority;
+        private readonly UnityVfxPlayback vfx;
 
         internal UnitySpellcastingEncounterModule(
             UnityCombatRulesBridge owner,
             ISpellActionCatalog catalog,
             UnitySpellAttackContext attackContext,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            bool installUnityAuthority
+            bool installUnityAuthority,
+            UnityVfxPlayback vfx
         )
         {
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
@@ -39,6 +63,7 @@ namespace Game.Combat.Spells
                 attackContext ?? throw new ArgumentNullException(nameof(attackContext));
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.installUnityAuthority = installUnityAuthority;
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
         }
 
         /// <inheritdoc/>
@@ -55,7 +80,7 @@ namespace Game.Combat.Spells
                 return;
             registry.Register<CastSpellActionOp, CastSpellOutcome>(
                 CastSpellActionDefinition.DefinitionId,
-                new UnitySpellActionPresenter(creatures, catalog)
+                new UnitySpellActionPresenter(creatures, catalog, vfx)
             );
         }
 
@@ -112,7 +137,20 @@ namespace Game.Combat.Spells
             if (lifetime == null)
                 throw new ArgumentNullException(nameof(lifetime));
             if (installUnityAuthority)
+            {
                 lifetime.Add(new RegistrationToken(ProjectSpellSlots));
+                UnityPersistentVfxObserver persistent = new(
+                    vfx,
+                    creatures,
+                    SpellPersistentVfxSelector.Select
+                );
+                lifetime.Add(persistent);
+                lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(persistent));
+                lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(persistent));
+                lifetime.Add(
+                    dispatcher.RegisterFactObserver<EncounterOutcomeCommittedFact>(persistent)
+                );
+            }
         }
 
         private void ProjectSpellSlots()

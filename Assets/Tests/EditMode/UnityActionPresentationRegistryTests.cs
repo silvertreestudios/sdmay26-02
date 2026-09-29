@@ -97,6 +97,36 @@ public sealed class UnityActionPresentationRegistryTests
         Assert.That(calls, Is.EqualTo(new[] { "begin", "resolved", "reaction" }));
     }
 
+    [Test]
+    public void DrainsImpactThenHitReactionThenTerminalDefeat()
+    {
+        UnityActionPresentationCoordinator coordinator = new();
+        object action = new();
+        OpId rootId = new(43);
+        List<string> calls = new();
+        coordinator.Begin(action, rootId);
+        coordinator.Enqueue(action, () => RecordPresentation(() => calls.Add("windup")));
+        Assert.That(
+            coordinator.TryEnqueueReaction(
+                rootId,
+                () => RecordPresentation(() => calls.Add("hit"))
+            ),
+            Is.True
+        );
+        Assert.That(
+            coordinator.TryEnqueueAfterAction(
+                rootId,
+                () => RecordPresentation(() => calls.Add("defeat"))
+            ),
+            Is.True
+        );
+        coordinator.Enqueue(action, () => RecordPresentation(() => calls.Add("impact")));
+
+        Drain(coordinator.Drain(action));
+
+        Assert.That(calls, Is.EqualTo(new[] { "windup", "impact", "hit", "defeat" }));
+    }
+
     private static RuleDispatcher CreateDispatcher() =>
         new RuleDispatcherBuilder(new InMemoryRulesStore())
             .RegisterHandler<TestActionOp, TestOutcome>(new TestActionHandler())

@@ -188,6 +188,8 @@ namespace Game.Rules.Unity
     /// </summary>
     internal sealed class UnityActionPresentationCoordinator : IDisposable
     {
+        internal static object ReactionBarrier { get; } = new();
+
         private readonly Dictionary<object, Sequence> byAction = new(ReferenceComparer.Instance);
         private readonly Dictionary<OpId, Sequence> byRoot = new();
 
@@ -243,6 +245,16 @@ namespace Game.Rules.Unity
             return true;
         }
 
+        internal bool TryEnqueueReaction(OpId rootId, Func<IEnumerator> step)
+        {
+            if (step == null)
+                throw new ArgumentNullException(nameof(step));
+            if (!byRoot.TryGetValue(rootId, out Sequence sequence))
+                return false;
+            sequence.ReactionSteps.Enqueue(step);
+            return true;
+        }
+
         internal IEnumerator Drain(object action)
         {
             if (action == null)
@@ -252,15 +264,47 @@ namespace Game.Rules.Unity
 
             try
             {
-                while (sequence.Steps.Count > 0 || sequence.AfterActionSteps.Count > 0)
+                while (
+                    sequence.Steps.Count > 0
+                    || sequence.ReactionSteps.Count > 0
+                    || sequence.AfterActionSteps.Count > 0
+                )
                 {
                     Queue<Func<IEnumerator>> steps =
-                        sequence.Steps.Count > 0 ? sequence.Steps : sequence.AfterActionSteps;
+                        sequence.Steps.Count > 0 ? sequence.Steps
+                        : sequence.ReactionSteps.Count > 0 ? sequence.ReactionSteps
+                        : sequence.AfterActionSteps;
                     Func<IEnumerator> createStep = steps.Dequeue();
                     IEnumerator step = null;
                     Exception failure;
                     while (TryMoveNext(createStep, ref step, out object current, out failure))
+                    {
+                        if (ReferenceEquals(current, ReactionBarrier))
+                        {
+                            while (sequence.ReactionSteps.Count > 0)
+                            {
+                                Func<IEnumerator> createReaction = sequence.ReactionSteps.Dequeue();
+                                IEnumerator reaction = null;
+                                Exception reactionFailure;
+                                while (
+                                    TryMoveNext(
+                                        createReaction,
+                                        ref reaction,
+                                        out object reactionCurrent,
+                                        out reactionFailure
+                                    )
+                                )
+                                    yield return reactionCurrent;
+                                if (reactionFailure != null)
+                                {
+                                    Debug.LogException(reactionFailure);
+                                    yield break;
+                                }
+                            }
+                            continue;
+                        }
                         yield return current;
+                    }
                     if (failure != null)
                     {
                         Debug.LogException(failure);
@@ -325,6 +369,7 @@ namespace Game.Rules.Unity
             internal object Action { get; }
             internal OpId RootId { get; }
             internal Queue<Func<IEnumerator>> Steps { get; } = new();
+            internal Queue<Func<IEnumerator>> ReactionSteps { get; } = new();
             internal Queue<Func<IEnumerator>> AfterActionSteps { get; } = new();
         }
 

@@ -5,10 +5,21 @@ using Game.Creature;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Attack;
+using Game.Rules.Unity.Vfx;
 using UnityEngine;
 
 namespace Game.Rules.Unity.Strike
 {
+    /// <summary>Supplies immutable Strike presentation data without exposing rules resolution.</summary>
+    public interface IStrikePresentationCatalog
+    {
+        /// <summary>Gets the committed Strike item selected by an operation.</summary>
+        StrikeItemDefinition GetStrikeItem(ItemId item);
+
+        /// <summary>Gets the optional Unity weapon used only to choose an animation.</summary>
+        bool TryGetWeapon(ItemId item, out EquipmentWeapon weapon);
+    }
+
     /// <summary>
     /// Projects a committed resolved Strike action into Unity animation, events, and logs.
     /// </summary>
@@ -21,9 +32,10 @@ namespace Game.Rules.Unity.Strike
     public sealed class UnityStrikeActionPresenter
         : IUnityActionPresenter<StrikeActionOp, StrikeResolution>
     {
-        private readonly IReadOnlyDictionary<CreatureId, ActionController> controllers;
+        private readonly Func<CreatureId, GameObject> getAttacker;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
-        private readonly UnityStrikeContext strikeContext;
+        private readonly IStrikePresentationCatalog strikeContext;
+        private readonly UnityVfxPlayback vfx;
 
         /// <summary>Creates a presenter over explicit encounter identity mappings.</summary>
         /// <param name="controllers">Rules-to-Unity attacker mappings.</param>
@@ -32,13 +44,38 @@ namespace Game.Rules.Unity.Strike
         public UnityStrikeActionPresenter(
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            UnityStrikeContext strikeContext
+            UnityStrikeContext strikeContext,
+            UnityVfxPlayback vfx
+        )
+            : this(CreateLiveAttackerResolver(controllers), creatures, strikeContext, vfx) { }
+
+        /// <summary>
+        /// Creates a presenter over explicit visual actors and immutable item presentation data.
+        /// </summary>
+        /// <remarks>
+        /// Deterministic review fixtures use this boundary to exercise the production presenter
+        /// without constructing a second rules authority or a live encounter controller.
+        /// </remarks>
+        public UnityStrikeActionPresenter(
+            IReadOnlyDictionary<CreatureId, GameObject> attackers,
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+            IStrikePresentationCatalog strikeContext,
+            UnityVfxPlayback vfx
+        )
+            : this(CreateAttackerResolver(attackers), creatures, strikeContext, vfx) { }
+
+        private UnityStrikeActionPresenter(
+            Func<CreatureId, GameObject> getAttacker,
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+            IStrikePresentationCatalog strikeContext,
+            UnityVfxPlayback vfx
         )
         {
-            this.controllers = controllers ?? throw new ArgumentNullException(nameof(controllers));
+            this.getAttacker = getAttacker ?? throw new ArgumentNullException(nameof(getAttacker));
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.strikeContext =
                 strikeContext ?? throw new ArgumentNullException(nameof(strikeContext));
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
         }
 
         /// <inheritdoc/>
@@ -89,6 +126,39 @@ namespace Game.Rules.Unity.Strike
 
             StrikeItemDefinition item = strikeContext.GetStrikeItem(operation.Item);
 
+            IEnumerator travel = vfx.PlayTransient(
+                StrikeVfxCueSelector.GetTravel(item.Label),
+                attacker.transform.position + Vector3.up * 0.6f,
+                target.transform.position + Vector3.up * 0.6f
+            );
+            while (travel.MoveNext())
+                yield return travel.Current;
+
+            if (StrikeVfxCueSelector.TryGetImpact(item.Label, result.Degree, out VfxCueId impact))
+            {
+                float intensity =
+                    result.Degree == Game.Rules.Runtime.DegreeOfSuccess.CriticalSuccess ? 1.5f : 1f;
+                IEnumerator impactPlayback = vfx.PlayTransient(
+                    impact,
+                    target.transform.position + Vector3.up * 0.6f,
+                    target.transform.position + Vector3.up * 0.6f,
+                    intensity
+                );
+                while (impactPlayback.MoveNext())
+                    yield return impactPlayback.Current;
+                foreach (VfxCueId accent in StrikeVfxCueSelector.GetContributionAccents(result))
+                {
+                    IEnumerator accentPlayback = vfx.PlayTransient(
+                        accent,
+                        target.transform.position + Vector3.up * 0.6f,
+                        target.transform.position + Vector3.up * 0.6f
+                    );
+                    while (accentPlayback.MoveNext())
+                        yield return accentPlayback.Current;
+                }
+            }
+
+            yield return UnityActionPresentationCoordinator.ReactionBarrier;
             UnityAttackResultPresentation.Present(
                 attacker,
                 target,
@@ -105,7 +175,6 @@ namespace Game.Rules.Unity.Strike
                     result.CoverBonus
                 )
             );
-            yield break;
         }
 
         private bool TryGetPresentation(
@@ -116,14 +185,10 @@ namespace Game.Rules.Unity.Strike
             out CreatureComponent defender
         )
         {
-            if (
-                controllers.TryGetValue(actor, out ActionController attacker)
-                && attacker != null
-                && creatures.TryGetValue(target, out defender)
-                && defender != null
-            )
+            GameObject attacker = getAttacker(actor);
+            if (attacker != null && creatures.TryGetValue(target, out defender) && defender != null)
             {
-                attackerObject = attacker.gameObject;
+                attackerObject = attacker;
                 targetObject = defender.gameObject;
                 return true;
             }
@@ -148,6 +213,28 @@ namespace Game.Rules.Unity.Strike
             if (strikeContext.TryGetWeapon(item.Item, out EquipmentWeapon weapon))
                 return presentation.PlayAttack(weapon, target.transform.position);
             return presentation.PlayAttack(AnimationStyle.Unarmed, target.transform.position);
+        }
+
+        private static Func<CreatureId, GameObject> CreateLiveAttackerResolver(
+            IReadOnlyDictionary<CreatureId, ActionController> controllers
+        )
+        {
+            if (controllers == null)
+                throw new ArgumentNullException(nameof(controllers));
+            return actor =>
+                controllers.TryGetValue(actor, out ActionController controller)
+                && controller != null
+                    ? controller.gameObject
+                    : null;
+        }
+
+        private static Func<CreatureId, GameObject> CreateAttackerResolver(
+            IReadOnlyDictionary<CreatureId, GameObject> attackers
+        )
+        {
+            if (attackers == null)
+                throw new ArgumentNullException(nameof(attackers));
+            return actor => attackers.TryGetValue(actor, out GameObject attacker) ? attacker : null;
         }
 
         private static IEnumerable<UnityAttackDamagePart> ToDamage(StrikeResolution resolution)

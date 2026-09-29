@@ -5,6 +5,7 @@ using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Vfx;
 using GridPrivate;
 using NUnit.Framework;
 using UnityEngine;
@@ -54,13 +55,18 @@ public sealed class RulesRottingAuraUnityTests
             Tile[,] tiles = CreateTiles(4);
             Place(tiles, sourceObject, 0);
             Place(tiles, targetObject, 2);
+            using UnityVfxPlayback playback = new(
+                new ResourcesVfxPrefabCatalog(),
+                "Rotting Aura Test VFX"
+            );
             UnityRottingAuraModule context = new(
                 new Dictionary<CreatureId, CreatureComponent>
                 {
                     [Source] = source,
                     [Target] = target,
                 },
-                tiles
+                tiles,
+                playback
             );
 
             RottingAuraTurnData data = context.Capture(Snapshot(), Encounter, Target);
@@ -105,7 +111,11 @@ public sealed class RulesRottingAuraUnityTests
             Tile[,] outOfRange = CreateTiles(4);
             Place(outOfRange, sourceObject, 0);
             Place(outOfRange, targetObject, 3);
-            UnityRottingAuraModule context = new(creatures, outOfRange);
+            using UnityVfxPlayback playback = new(
+                new ResourcesVfxPrefabCatalog(),
+                "Rotting Aura Test VFX"
+            );
+            UnityRottingAuraModule context = new(creatures, outOfRange, playback);
 
             Assert.That(context.Capture(Snapshot(), Encounter, Target).Sources, Is.Empty);
 

@@ -8,6 +8,7 @@ using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Attack;
 using Game.Rules.Unity.Composition;
+using Game.Rules.Unity.Vfx;
 using UnityEngine;
 
 namespace Game.Combat.Spells
@@ -238,17 +239,20 @@ namespace Game.Combat.Spells
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly ISpellDefinitionCatalog catalog;
+        private readonly UnityVfxPlayback vfx;
 
         /// <summary>Creates the shared presenter for all resolved spell casts.</summary>
         /// <param name="creatures">Live Unity creatures keyed by encounter rules ID.</param>
         /// <param name="catalog">Definitions used for player-facing spell names.</param>
         public UnitySpellActionPresenter(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            ISpellDefinitionCatalog catalog
+            ISpellDefinitionCatalog catalog,
+            UnityVfxPlayback vfx
         )
         {
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
         }
 
         /// <inheritdoc/>
@@ -290,6 +294,13 @@ namespace Game.Combat.Spells
                 && animation.IsActionPlaying
             )
                 yield return null;
+            IEnumerator castVfx = vfx.PlayTransient(
+                SpellVfxCueSelector.GetCast(operation.Spell.Spell),
+                actor.transform.position + Vector3.up * 0.6f,
+                actor.transform.position + Vector3.up * 0.6f
+            );
+            while (castVfx.MoveNext())
+                yield return castVfx.Current;
         }
 
         /// <inheritdoc/>
@@ -311,8 +322,108 @@ namespace Game.Combat.Spells
             if (!catalog.TryGetSpell(operation.Spell, out var definition))
                 yield break;
             foreach (SpellAttackResolution attack in result.AttackResolutions)
+            {
+                if (
+                    !creatures.TryGetValue(attack.Target, out CreatureComponent attackTarget)
+                    || attackTarget == null
+                )
+                    continue;
+                IEnumerator projectile = vfx.PlayTransient(
+                    SpellVfxCueSelector.GetResult(operation.Spell.Spell, operation.Variant.Actions),
+                    creature.transform.position + Vector3.up * 0.6f,
+                    attackTarget.transform.position + Vector3.up * 0.6f
+                );
+                while (projectile.MoveNext())
+                    yield return projectile.Current;
+                if (attack.Hit)
+                {
+                    IEnumerator impact = vfx.PlayTransient(
+                        SpellVfxCueSelector.GetAttackImpact(operation.Spell.Spell, attack.Degree),
+                        attackTarget.transform.position + Vector3.up * 0.6f,
+                        attackTarget.transform.position + Vector3.up * 0.6f,
+                        attack.Degree == Game.Rules.Runtime.DegreeOfSuccess.CriticalSuccess
+                            ? 1.5f
+                            : 1f
+                    );
+                    while (impact.MoveNext())
+                        yield return impact.Current;
+                }
+                yield return UnityActionPresentationCoordinator.ReactionBarrier;
                 PresentAttack(definition, creature, attack);
-            yield break;
+            }
+
+            foreach (SpellTargetResolution targetResult in result.TargetResolutions)
+            {
+                if (
+                    !creatures.TryGetValue(targetResult.Target, out CreatureComponent target)
+                    || target == null
+                )
+                    continue;
+                bool living =
+                    target.traits == null
+                    || !target.traits.Any(trait =>
+                        string.Equals(trait, "undead", StringComparison.OrdinalIgnoreCase)
+                    );
+                IEnumerator resultVfx = vfx.PlayTransient(
+                    SpellVfxCueSelector.GetResult(
+                        operation.Spell.Spell,
+                        operation.Variant.Actions,
+                        targetResult.Degree,
+                        living
+                    ),
+                    creature.transform.position + Vector3.up * 0.6f,
+                    target.transform.position + Vector3.up * 0.6f
+                );
+                while (resultVfx.MoveNext())
+                    yield return resultVfx.Current;
+            }
+
+            if (result.AttackResolutions.Count == 0 && result.TargetResolutions.Count == 0)
+            {
+                IReadOnlyList<CreatureId> selected = operation.Selection.Creatures;
+                if (selected.Count == 0)
+                {
+                    IEnumerator selfResult = vfx.PlayTransient(
+                        SpellVfxCueSelector.GetResult(
+                            operation.Spell.Spell,
+                            operation.Variant.Actions
+                        ),
+                        creature.transform.position + Vector3.up * 0.6f,
+                        creature.transform.position + Vector3.up * 0.6f
+                    );
+                    while (selfResult.MoveNext())
+                        yield return selfResult.Current;
+                }
+                List<IEnumerator> selectedTimelines = new();
+                foreach (CreatureId selectedTarget in selected)
+                {
+                    if (
+                        !creatures.TryGetValue(selectedTarget, out CreatureComponent target)
+                        || target == null
+                    )
+                        continue;
+                    selectedTimelines.Add(
+                        vfx.PlayTransient(
+                            SpellVfxCueSelector.GetResult(
+                                operation.Spell.Spell,
+                                operation.Variant.Actions
+                            ),
+                            creature.transform.position + Vector3.up * 0.6f,
+                            target.transform.position + Vector3.up * 0.6f
+                        )
+                    );
+                }
+                while (selectedTimelines.Count > 0)
+                {
+                    for (int index = selectedTimelines.Count - 1; index >= 0; index--)
+                    {
+                        if (!selectedTimelines[index].MoveNext())
+                            selectedTimelines.RemoveAt(index);
+                    }
+                    if (selectedTimelines.Count > 0)
+                        yield return null;
+                }
+            }
         }
 
         private void PresentAttack(

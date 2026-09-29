@@ -131,7 +131,8 @@ namespace Game.Rules.Runtime
         /// <summary>Gets the exact result committed by the shared health workflow.</summary>
         public DamageOutcome Outcome { get; }
 
-        internal RottingAuraResolvedFact(
+        /// <summary>Creates the immutable committed occurrence projected by presentation observers.</summary>
+        public RottingAuraResolvedFact(
             CreatureId source,
             CreatureId target,
             RollResult roll,

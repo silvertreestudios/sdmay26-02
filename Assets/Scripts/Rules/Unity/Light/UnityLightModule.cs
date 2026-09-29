@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Composition;
+using Game.Rules.Unity.Vfx;
 using UnityEngine;
 
 namespace Game.Rules.Unity.Light
@@ -12,21 +13,24 @@ namespace Game.Rules.Unity.Light
     {
         private readonly ISpellDefinitionCatalog catalog;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
+        private readonly UnityVfxPlayback vfx;
 
         internal UnityLightModule(
             ISpellDefinitionCatalog catalog,
-            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+            UnityVfxPlayback vfx
         )
         {
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
         }
 
         /// <inheritdoc/>
         public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
         {
             UnityLightEffectPresentationObserver presentation =
-                UnityLightEffectPresentationObserver.Create(catalog, creatures);
+                UnityLightEffectPresentationObserver.Create(catalog, creatures, vfx);
             lifetime.Add(presentation);
             lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(presentation));
             lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(presentation));
@@ -48,6 +52,7 @@ namespace Game.Rules.Unity.Light
         private readonly RuleDefinitionId presentedDefinition;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly Dictionary<ActiveEffectId, GameObject> visuals = new();
+        private readonly UnityVfxPlayback vfx;
 
         /// <summary>Creates the Light presenter from the generic data-backed spell catalog.</summary>
         /// <param name="catalog">The catalog that owns Light's rules effect definition.</param>
@@ -55,7 +60,8 @@ namespace Game.Rules.Unity.Light
         /// <returns>An encounter-owned presenter that recognizes Light's generic effect facts.</returns>
         public static UnityLightEffectPresentationObserver Create(
             ISpellDefinitionCatalog catalog,
-            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+            UnityVfxPlayback vfx
         )
         {
             if (catalog == null)
@@ -70,14 +76,16 @@ namespace Game.Rules.Unity.Light
                 );
             return new UnityLightEffectPresentationObserver(
                 definition.Effects[0].DefinitionId,
-                creatures
+                creatures,
+                vfx
             );
         }
 
         /// <summary>Creates an encounter-owned presenter for one data-derived effect definition.</summary>
         public UnityLightEffectPresentationObserver(
             RuleDefinitionId presentedDefinition,
-            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+            UnityVfxPlayback vfx
         )
         {
             if (presentedDefinition.IsEmpty)
@@ -87,6 +95,7 @@ namespace Game.Rules.Unity.Light
                 );
             this.presentedDefinition = presentedDefinition;
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
         }
 
         /// <inheritdoc/>
@@ -124,9 +133,16 @@ namespace Game.Rules.Unity.Light
                 light.color = new Color(1f, 0.95f, 0.8f);
                 light.shadows = LightShadows.Soft;
                 visuals.Add(effect.Id, visual);
+                vfx.SetPersistent(
+                    effect.Id.Value + ":orb",
+                    new VfxCueId("spell/light/persistent"),
+                    owner.transform
+                );
             }
             catch
             {
+                visuals.Remove(effect.Id);
+                vfx.RemovePersistent(effect.Id.Value + ":orb");
                 Destroy(visual);
                 throw;
             }
@@ -157,9 +173,8 @@ namespace Game.Rules.Unity.Light
         /// <summary>Removes every remaining encounter-owned presentation object.</summary>
         public void Dispose()
         {
-            foreach (GameObject visual in visuals.Values)
-                Destroy(visual);
-            visuals.Clear();
+            foreach (ActiveEffectId effect in new List<ActiveEffectId>(visuals.Keys))
+                Remove(effect);
         }
 
         private void Remove(ActiveEffectId effect)
@@ -168,6 +183,7 @@ namespace Game.Rules.Unity.Light
                 return;
             visuals.Remove(effect);
             Destroy(visual);
+            vfx.RemovePersistent(effect.Value + ":orb");
         }
 
         private static void Destroy(GameObject value)

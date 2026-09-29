@@ -21,6 +21,7 @@ namespace Game.Rules.Unity.Strike
         : IStrikeActionCatalog,
             IStrikeTargetingProvider,
             IStrikeResolutionDataProvider,
+            IStrikePresentationCatalog,
             IFactObserver<AmmunitionSpentFact>,
             IFactObserver<StrikeItemLoadedChangedFact>
     {

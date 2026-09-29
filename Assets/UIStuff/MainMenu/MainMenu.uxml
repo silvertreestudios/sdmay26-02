@@ -14,6 +14,7 @@
             <ui:Label text="" name="MenuStatusLabel" class="menu-status" />
             <ui:VisualElement class="menu-divider" />
             <ui:Button text="Settings" name="OptionsButton" />
+            <ui:Button text="VFX Gallery" name="VfxGalleryButton" />
             <ui:Button text="Exit" name="ExitButton" />
         </ui:GroupBox>
         <ui:VisualElement name="OverwriteConfirmationOverlay" class="modal-overlay">

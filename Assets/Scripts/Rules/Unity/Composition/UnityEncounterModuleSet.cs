@@ -9,6 +9,7 @@ using Game.Rules.Runtime;
 using Game.Rules.Unity.Light;
 using Game.Rules.Unity.Spells;
 using Game.Rules.Unity.Strike;
+using Game.Rules.Unity.Vfx;
 using GridPrivate;
 
 namespace Game.Rules.Unity.Composition
@@ -56,7 +57,8 @@ namespace Game.Rules.Unity.Composition
                 );
             UnityStrikeContext strikeContext = new(creatures, tiles, friendshipProvider);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles, friendshipProvider);
-            UnityRottingAuraModule rottingAura = new(creatures, tiles);
+            UnityVfxPlayback vfx = new(new ResourcesVfxPrefabCatalog(), "Encounter VFX");
+            UnityRottingAuraModule rottingAura = new(creatures, tiles, vfx);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
             UnitySpellCreatureDataProvider spellCreatureData = new(creatures);
             RageActionDefinition rageDefinition = new(new UnityRageActorStateProvider(creatures));
@@ -89,6 +91,7 @@ namespace Game.Rules.Unity.Composition
             UnityActionPresentationRegistry actionPresentation = new(actionPresentationCoordinator);
             List<IUnityEncounterModule> modules = new()
             {
+                new UnityVfxEncounterLifetimeModule(vfx),
                 rottingAura,
                 new DungeonRulesEffectPersistenceModule(
                     owner,
@@ -96,24 +99,26 @@ namespace Game.Rules.Unity.Composition
                 ),
                 new ConditionEncounterModule(owner),
                 new UnitySlowedModule(),
-                new UnityRageModule(rageDefinition),
+                new UnityRageModule(rageDefinition, creatures, vfx),
                 new UnityStrikeEncounterModule(
                     strikeContext,
                     controllers,
                     creatures,
-                    installUnityAuthority
+                    installUnityAuthority,
+                    vfx
                 ),
                 new UnitySpellcastingEncounterModule(
                     owner,
                     actionCatalog,
                     spellAttackContext,
                     creatures,
-                    installUnityAuthority
+                    installUnityAuthority,
+                    vfx
                 ),
             };
             modules.AddRange(extensions.Select(extension => extension.Module));
             modules.Add(new UnityActionPresentationModule(actionPresentation));
-            modules.Add(new UnityLightModule(spellCatalog, creatures));
+            modules.Add(new UnityLightModule(spellCatalog, creatures, vfx));
             modules.Add(
                 new UnityHealthProjectionModule(
                     creatures,

@@ -61,7 +61,7 @@ namespace Game.Rules.Unity.Composition
                 bool presentHit = fact is DamageAppliedFact && health.Current > 0;
                 if (!presentHit)
                     return;
-                if (!actionPresentation.TryEnqueue(rootId, () => PresentHit(creature)))
+                if (!actionPresentation.TryEnqueueReaction(rootId, () => PresentHit(creature)))
                     creature.PresentCommittedHit();
             }
 

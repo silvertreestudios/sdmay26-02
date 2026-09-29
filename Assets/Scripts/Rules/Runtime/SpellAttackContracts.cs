@@ -159,7 +159,8 @@ namespace Game.Rules.Runtime
     {
         private readonly IReadOnlyList<TypedDamagePart> damage;
 
-        internal SpellAttackResolution(
+        /// <summary>Creates an immutable resolved spell-attack record for committed presentation.</summary>
+        public SpellAttackResolution(
             SpellReference spell,
             CreatureId actor,
             CreatureId target,
