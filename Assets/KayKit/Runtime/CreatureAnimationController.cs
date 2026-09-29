@@ -196,6 +196,10 @@ namespace Game.KayKit
             return true;
         }
 
+        /// <summary>
+        /// Stops the current attack, hit, or death playback and cancels its pending completion
+        /// callback. An active animator returns to its locomotion state immediately.
+        /// </summary>
         public void StopAction()
         {
             playbackVersion++;
@@ -206,10 +210,17 @@ namespace Game.KayKit
             deathPlaying = false;
             CurrentClipId = null;
 
-            if (animator == null)
+            if (
+                animator == null
+                || !animator.isInitialized
+                || animator.runtimeAnimatorController == null
+            )
                 return;
             animator.ResetTrigger(ActionTrigger);
+            animator.ResetTrigger(DeathTrigger);
             animator.SetBool(ActionLoopParameter, false);
+            if (!animator.isActiveAndEnabled)
+                return;
             string state = moving ? "Base Layer.Walk" : "Base Layer.Idle";
             animator.CrossFade(state, 0.05f);
         }

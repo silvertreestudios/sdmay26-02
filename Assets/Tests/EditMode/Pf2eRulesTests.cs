@@ -5,6 +5,7 @@ using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Strike;
+using Game.Rules.Unity.Vfx;
 using GridPublic;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -642,6 +643,13 @@ public class Pf2eRulesTests
         Assert.That(offGuardContext.DamageDice.Last().numberOfDice, Is.EqualTo(1));
         Assert.That(offGuardContext.DamageDice.Last().sidesPerDie, Is.EqualTo(6));
         Assert.That(offGuardContext.DamageDice.Last().damageType, Is.EqualTo("slashing"));
+        Assert.That(offGuardContext.DamageSources, Is.EqualTo(new[] { "sneak-attack" }));
+        Assert.That(
+            StrikeVfxCueSelector
+                .GetContributionAccents(offGuardContext.DamageSources, hit: true)
+                .Select(cue => cue.Value),
+            Is.EqualTo(new[] { "auxiliary/sneak-attack" })
+        );
 
         TestStrikeProfile ineligibleWeapon = new(
             new List<Dice> { new Dice(1, 6, "slashing") },
@@ -876,6 +884,7 @@ public class Pf2eRulesTests
                     ))
                 )
                 .ToList(),
+            DamageSources = result.DamageDice.Select(value => value.Source).ToList(),
         };
     }
 
@@ -883,6 +892,7 @@ public class Pf2eRulesTests
     {
         internal List<DamageValue> FlatDamages;
         internal List<Dice> DamageDice;
+        internal List<string> DamageSources;
     }
 
     private sealed class TestStrikeProfile

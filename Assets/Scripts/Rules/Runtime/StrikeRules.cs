@@ -376,7 +376,8 @@ namespace Game.Rules.Runtime
     /// <summary>Contains the deterministic attack and damage result for one resolved Strike.</summary>
     public sealed class StrikeResolution
     {
-        internal StrikeResolution(
+        /// <summary>Creates an immutable resolved Strike record for committed presentation.</summary>
+        public StrikeResolution(
             RollResult attackRoll,
             int attackModifier,
             int multipleAttackPenalty,

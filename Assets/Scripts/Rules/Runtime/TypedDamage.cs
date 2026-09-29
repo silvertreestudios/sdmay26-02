@@ -91,7 +91,11 @@ namespace Game.Rules.Runtime
     {
         private readonly IReadOnlyList<string> sources;
 
-        internal TypedDamagePart(string damageType, int amount, IEnumerable<string> sources)
+        /// <summary>Creates an immutable committed typed-damage component.</summary>
+        /// <param name="damageType">The rules damage type.</param>
+        /// <param name="amount">The final non-negative amount after defenses.</param>
+        /// <param name="sources">Stable contribution labels retained by resolution.</param>
+        public TypedDamagePart(string damageType, int amount, IEnumerable<string> sources)
         {
             DamageType = damageType;
             Amount = amount;

@@ -8,6 +8,7 @@ using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Attack;
 using Game.Rules.Unity.Composition;
+using Game.Rules.Unity.Vfx;
 using UnityEngine;
 
 namespace Game.Combat.Spells
@@ -238,17 +239,20 @@ namespace Game.Combat.Spells
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly ISpellDefinitionCatalog catalog;
+        private readonly UnityVfxPlayback vfx;
 
         /// <summary>Creates the shared presenter for all resolved spell casts.</summary>
         /// <param name="creatures">Live Unity creatures keyed by encounter rules ID.</param>
         /// <param name="catalog">Definitions used for player-facing spell names.</param>
         public UnitySpellActionPresenter(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            ISpellDefinitionCatalog catalog
+            ISpellDefinitionCatalog catalog,
+            UnityVfxPlayback vfx
         )
         {
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
         }
 
         /// <inheritdoc/>
@@ -290,6 +294,17 @@ namespace Game.Combat.Spells
                 && animation.IsActionPlaying
             )
                 yield return null;
+            IEnumerator castVfx = vfx.PlayTransient(
+                SpellVfxCueSelector.GetCast(operation.Spell.Spell),
+                actor.transform.position + Vector3.up * 0.6f,
+                actor.transform.position + Vector3.up * 0.6f,
+                lifetimeOwner: actor.transform
+            );
+            using (castVfx as IDisposable)
+            {
+                while (castVfx.MoveNext())
+                    yield return castVfx.Current;
+            }
         }
 
         /// <inheritdoc/>
@@ -311,8 +326,227 @@ namespace Game.Combat.Spells
             if (!catalog.TryGetSpell(operation.Spell, out var definition))
                 yield break;
             foreach (SpellAttackResolution attack in result.AttackResolutions)
+            {
+                if (
+                    !creatures.TryGetValue(attack.Target, out CreatureComponent attackTarget)
+                    || attackTarget == null
+                )
+                    continue;
+                Vector3 projectileOrigin = creature.transform.position + Vector3.up * 0.6f;
+                Vector3 intendedDestination = attackTarget.transform.position + Vector3.up * 0.6f;
+                Vector3 projectileDestination = attack.Hit
+                    ? intendedDestination
+                    : VfxTrajectory.ResolveMissDestination(projectileOrigin, intendedDestination);
+                IEnumerator projectile = vfx.PlayTransient(
+                    SpellVfxCueSelector.GetResult(operation.Spell.Spell, operation.Variant.Actions),
+                    projectileOrigin,
+                    projectileDestination,
+                    lifetimeOwner: creature.transform
+                );
+                using (projectile as IDisposable)
+                {
+                    while (projectile.MoveNext())
+                        yield return projectile.Current;
+                }
+                if (attack.Hit)
+                {
+                    IEnumerator impact = vfx.PlayTransient(
+                        SpellVfxCueSelector.GetAttackImpact(operation.Spell.Spell, attack.Degree),
+                        attackTarget.transform.position + Vector3.up * 0.6f,
+                        attackTarget.transform.position + Vector3.up * 0.6f,
+                        attack.Degree == Game.Rules.Runtime.DegreeOfSuccess.CriticalSuccess
+                            ? 1.5f
+                            : 1f,
+                        attackTarget.transform
+                    );
+                    using (impact as IDisposable)
+                    {
+                        while (impact.MoveNext())
+                            yield return impact.Current;
+                    }
+                }
+                yield return UnityActionPresentationCoordinator.ReactionBarrier;
                 PresentAttack(definition, creature, attack);
-            yield break;
+            }
+
+            bool areaHeal = operation.Spell.Spell.Value == "heal" && operation.Variant.Actions == 3;
+            if (
+                areaHeal
+                && result.TargetResolutions.Count > 0
+                && SpellVfxCueSelector.TryGetHealDelivery(
+                    operation.Variant.Actions,
+                    out VfxCueId areaWave
+                )
+            )
+            {
+                Vector3 casterPosition = creature.transform.position + Vector3.up * 0.6f;
+                IEnumerator wave = vfx.PlayTransient(
+                    areaWave,
+                    casterPosition,
+                    casterPosition,
+                    lifetimeOwner: creature.transform
+                );
+                using (wave as IDisposable)
+                {
+                    while (wave.MoveNext())
+                        yield return wave.Current;
+                }
+            }
+
+            List<IEnumerator> simultaneousTargetResults = new();
+            foreach (SpellTargetResolution targetResult in result.TargetResolutions)
+            {
+                if (
+                    !creatures.TryGetValue(targetResult.Target, out CreatureComponent target)
+                    || target == null
+                )
+                    continue;
+                bool living =
+                    operation.Spell.Spell.Value != "heal"
+                    || (targetResult.Degree is null && targetResult.Damage.Count == 0);
+                Vector3 targetPosition = target.transform.position + Vector3.up * 0.6f;
+                if (
+                    operation.Spell.Spell.Value == "heal"
+                    && operation.Variant.Actions == 2
+                    && SpellVfxCueSelector.TryGetHealDelivery(
+                        operation.Variant.Actions,
+                        out VfxCueId rangedDelivery
+                    )
+                )
+                {
+                    IEnumerator delivery = vfx.PlayTransient(
+                        rangedDelivery,
+                        creature.transform.position + Vector3.up * 0.6f,
+                        targetPosition,
+                        lifetimeOwner: creature.transform
+                    );
+                    using (delivery as IDisposable)
+                    {
+                        while (delivery.MoveNext())
+                            yield return delivery.Current;
+                    }
+                }
+                IEnumerator resultVfx = vfx.PlayTransient(
+                    SpellVfxCueSelector.GetResult(
+                        operation.Spell.Spell,
+                        operation.Variant.Actions,
+                        targetResult.Degree,
+                        living
+                    ),
+                    targetPosition,
+                    targetPosition,
+                    lifetimeOwner: target.transform
+                );
+                if (areaHeal)
+                    simultaneousTargetResults.Add(resultVfx);
+                else
+                {
+                    using (resultVfx as IDisposable)
+                    {
+                        while (resultVfx.MoveNext())
+                            yield return resultVfx.Current;
+                    }
+                }
+            }
+            if (simultaneousTargetResults.Count > 0)
+            {
+                IEnumerator simultaneous = PlaySimultaneously(simultaneousTargetResults);
+                using (simultaneous as IDisposable)
+                {
+                    while (simultaneous.MoveNext())
+                        yield return simultaneous.Current;
+                }
+            }
+
+            // Effects-only spells have no attack or target resolutions. Empty area casts can also
+            // resolve that way, so committed effect identities distinguish real buff presentation
+            // from a fabricated result for an area that affected nobody.
+            if (
+                result.CreatedEffects.Count > 0
+                && result.AttackResolutions.Count == 0
+                && result.TargetResolutions.Count == 0
+            )
+            {
+                IReadOnlyList<CreatureId> selected = operation.Selection.Creatures;
+                if (selected.Count == 0)
+                {
+                    IEnumerator selfResult = vfx.PlayTransient(
+                        SpellVfxCueSelector.GetResult(
+                            operation.Spell.Spell,
+                            operation.Variant.Actions
+                        ),
+                        creature.transform.position + Vector3.up * 0.6f,
+                        creature.transform.position + Vector3.up * 0.6f,
+                        lifetimeOwner: creature.transform
+                    );
+                    using (selfResult as IDisposable)
+                    {
+                        while (selfResult.MoveNext())
+                            yield return selfResult.Current;
+                    }
+                }
+                List<IEnumerator> selectedTimelines = new();
+                foreach (CreatureId selectedTarget in selected)
+                {
+                    if (
+                        !creatures.TryGetValue(selectedTarget, out CreatureComponent target)
+                        || target == null
+                    )
+                        continue;
+                    VfxCueId resultCue = SpellVfxCueSelector.GetResult(
+                        operation.Spell.Spell,
+                        operation.Variant.Actions
+                    );
+                    Vector3 targetPosition = target.transform.position + Vector3.up * 0.6f;
+                    bool travelsToTarget = operation.Spell.Spell.Value == "infuse-vitality";
+                    Vector3 resultOrigin = travelsToTarget
+                        ? creature.transform.position + Vector3.up * 0.6f
+                        : targetPosition;
+                    selectedTimelines.Add(
+                        vfx.PlayTransient(
+                            resultCue,
+                            resultOrigin,
+                            targetPosition,
+                            lifetimeOwner: travelsToTarget ? creature.transform : target.transform
+                        )
+                    );
+                }
+                IEnumerator simultaneous = PlaySimultaneously(selectedTimelines);
+                using (simultaneous as IDisposable)
+                {
+                    while (simultaneous.MoveNext())
+                        yield return simultaneous.Current;
+                }
+            }
+        }
+
+        private static IEnumerator PlaySimultaneously(List<IEnumerator> timelines)
+        {
+            try
+            {
+                while (timelines.Count > 0)
+                {
+                    for (int index = 0; index < timelines.Count; )
+                    {
+                        IEnumerator timeline = timelines[index];
+                        if (timeline.MoveNext())
+                        {
+                            index++;
+                            continue;
+                        }
+                        (timeline as IDisposable)?.Dispose();
+                        timelines.RemoveAt(index);
+                    }
+                    if (timelines.Count > 0)
+                        yield return null;
+                }
+            }
+            finally
+            {
+                foreach (IEnumerator timeline in timelines)
+                    (timeline as IDisposable)?.Dispose();
+                timelines.Clear();
+            }
         }
 
         private void PresentAttack(

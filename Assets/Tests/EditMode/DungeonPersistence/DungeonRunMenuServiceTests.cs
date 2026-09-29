@@ -159,6 +159,7 @@ public sealed class DungeonRunMenuServiceTests
                     "Assets/Scenes/CharacterCreationScene.unity",
                     "Assets/Scenes/ProceduralDungeon.unity",
                     "Assets/Scenes/UnitTestingScene.unity",
+                    "Assets/Scenes/VfxGallery.unity",
                 }
             )
         );

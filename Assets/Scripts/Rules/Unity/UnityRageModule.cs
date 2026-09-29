@@ -6,23 +6,73 @@ using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Composition;
+using Game.Rules.Unity.Vfx;
 using UnityEngine;
 
 namespace Game.Rules.Unity
 {
+    /// <summary>Selects Rage visuals from committed typed effect state.</summary>
+    public static class RagePersistentVfxSelector
+    {
+        /// <summary>Returns the normal or Quick-Tempered production cue.</summary>
+        public static PersistentVfxSelection? Select(ActiveEffectInstance effect)
+        {
+            if (effect.State is not RageEffectState rage)
+                return null;
+            return new PersistentVfxSelection(
+                effect.SourceCreature,
+                new VfxCueId(
+                    rage.StartedByQuickTempered ? "auxiliary/rage-quick-tempered" : "auxiliary/rage"
+                )
+            );
+        }
+    }
+
     /// <summary>Owns Rage's dispatcher and combatant-state composition.</summary>
     internal sealed class UnityRageModule
         : IUnityEncounterDispatcherModule,
+            IUnityEncounterRuntimeModule,
             IUnityCombatantEnrollmentModule
     {
         private readonly RageActionDefinition definition;
+        private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
+        private readonly UnityVfxPlayback vfx;
+        private readonly UnityActionPresentationCoordinator actionPresentation;
 
-        internal UnityRageModule(RageActionDefinition definition) =>
+        internal UnityRageModule(
+            RageActionDefinition definition,
+            IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
+            UnityVfxPlayback vfx,
+            UnityActionPresentationCoordinator actionPresentation
+        )
+        {
             this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
+            this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
+            this.actionPresentation =
+                actionPresentation ?? throw new ArgumentNullException(nameof(actionPresentation));
+        }
 
         /// <inheritdoc/>
         public void ConfigureDispatcher(RuleDispatcherBuilder builder) =>
             builder.UseRageRules(definition);
+
+        /// <inheritdoc/>
+        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
+        {
+            UnityPersistentVfxObserver persistent = new(
+                vfx,
+                creatures,
+                RagePersistentVfxSelector.Select,
+                actionPresentation
+            );
+            lifetime.Add(persistent);
+            lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(persistent));
+            lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectRemovedFact>(persistent));
+            lifetime.Add(
+                dispatcher.RegisterFactObserver<EncounterOutcomeCommittedFact>(persistent)
+            );
+        }
 
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder)

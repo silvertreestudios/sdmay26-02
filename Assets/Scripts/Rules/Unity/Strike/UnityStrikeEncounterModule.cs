@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Composition;
+using Game.Rules.Unity.Vfx;
 using Game.Strikes;
 using GridPrivate;
 
@@ -20,18 +21,21 @@ namespace Game.Rules.Unity.Strike
         private readonly IReadOnlyDictionary<CreatureId, ActionController> controllers;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly bool installUnityAuthority;
+        private readonly UnityVfxPlayback vfx;
 
         internal UnityStrikeEncounterModule(
             UnityStrikeContext context,
             IReadOnlyDictionary<CreatureId, ActionController> controllers,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            bool installUnityAuthority
+            bool installUnityAuthority,
+            UnityVfxPlayback vfx
         )
         {
             this.context = context ?? throw new ArgumentNullException(nameof(context));
             this.controllers = controllers ?? throw new ArgumentNullException(nameof(controllers));
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.installUnityAuthority = installUnityAuthority;
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
         }
 
         /// <inheritdoc/>
@@ -52,7 +56,7 @@ namespace Game.Rules.Unity.Strike
                 return;
             registry.Register<StrikeActionOp, StrikeResolution>(
                 StrikeActionDefinition.DefinitionId,
-                new UnityStrikeActionPresenter(controllers, creatures, context)
+                new UnityStrikeActionPresenter(controllers, creatures, context, vfx)
             );
         }
 

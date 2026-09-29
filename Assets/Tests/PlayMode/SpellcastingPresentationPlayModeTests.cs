@@ -12,6 +12,7 @@ using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Light;
+using Game.Rules.Unity.Vfx;
 using Game.Strikes;
 using GridPrivate;
 using GridPublic;
@@ -23,6 +24,7 @@ using Object = UnityEngine.Object;
 
 public sealed class SpellcastingPresentationPlayModeTests
 {
+    private const int PresentationTimeoutFrames = 240;
     private readonly List<GameObject> created = new();
     private int gameplayCommitCount;
     private int actionCompleteCount;
@@ -32,6 +34,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     [UnitySetUp]
     public IEnumerator SetUp()
     {
+        Time.captureDeltaTime = 0.1f;
         if (!CombatManagerInterface.TryGetInstance(out _))
         {
             GameObject manager = new("Spellcasting PlayMode Combat Manager");
@@ -44,6 +47,7 @@ public sealed class SpellcastingPresentationPlayModeTests
     [UnityTearDown]
     public IEnumerator TearDown()
     {
+        Time.captureDeltaTime = 0f;
         OnGameplayStateCommitted.RemoveListener(CountGameplayCommit);
         OnActionComplete.RemoveListener(CountActionComplete);
         OnDamageDealt.RemoveListener(CountDamageEvent);
@@ -550,7 +554,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         grid.Target = cleric.gameObject;
         controller.IsTakingAction = true;
         firstHeal.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+        for (int frame = 0; frame < PresentationTimeoutFrames && controller.IsTakingAction; frame++)
             yield return null;
 
         Assert.That(controller.IsTakingAction, Is.False);
@@ -586,7 +590,7 @@ public sealed class SpellcastingPresentationPlayModeTests
 
         controller.IsTakingAction = true;
         secondHeal.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+        for (int frame = 0; frame < PresentationTimeoutFrames && controller.IsTakingAction; frame++)
             yield return null;
 
         Assert.That(controller.IsTakingAction, Is.False);
@@ -620,7 +624,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         bridge.BeginTurn(actor, 3);
         controller.IsTakingAction = true;
         shield.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && actionCompleteCount == 0; frame++)
+        for (int frame = 0; frame < PresentationTimeoutFrames && actionCompleteCount == 0; frame++)
             yield return null;
 
         Assert.That(actionCompleteCount, Is.EqualTo(1));
@@ -660,7 +664,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         controller.IsTakingAction = true;
 
         guidance.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+        for (int frame = 0; frame < PresentationTimeoutFrames && controller.IsTakingAction; frame++)
             yield return null;
 
         Assert.That(grid.LastStrikeRequest, Is.Not.Null);
@@ -893,7 +897,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         bridge.SpendEncounterActions(actor, 2);
         controller.IsTakingAction = true;
         light.Invoke(cleric.gameObject);
-        yield return null;
+        for (int frame = 0; frame < PresentationTimeoutFrames && controller.IsTakingAction; frame++)
+            yield return null;
 
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
         Assert.That(controller.IsTakingAction, Is.False);
@@ -904,7 +909,8 @@ public sealed class SpellcastingPresentationPlayModeTests
         OnGameplayStateCommitted.AddListener(CountGameplayCommit);
         controller.IsTakingAction = true;
         light.Invoke(cleric.gameObject);
-        yield return null;
+        for (int frame = 0; frame < PresentationTimeoutFrames && controller.IsTakingAction; frame++)
+            yield return null;
 
         Assert.That(controller.ActionPoints, Is.EqualTo(1));
         Assert.That(controller.IsTakingAction, Is.False);
@@ -1117,7 +1123,11 @@ public sealed class SpellcastingPresentationPlayModeTests
         clericController.IsTakingAction = true;
 
         action.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && clericController.IsTakingAction; frame++)
+        for (
+            int frame = 0;
+            frame < PresentationTimeoutFrames && clericController.IsTakingAction;
+            frame++
+        )
             yield return null;
 
         Assert.That(clericController.IsTakingAction, Is.False);
@@ -1175,7 +1185,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         );
 
         action.Invoke(cleric.gameObject);
-        for (int frame = 0; frame < 10 && gameplayCommitCount == 0; frame++)
+        for (int frame = 0; frame < PresentationTimeoutFrames && gameplayCommitCount == 0; frame++)
             yield return null;
 
         Assert.That(gameplayCommitCount, Is.EqualTo(1), "Coroutine wrapper did not complete.");
@@ -1204,7 +1214,11 @@ public sealed class SpellcastingPresentationPlayModeTests
             new RulesStateSeed().SeedActiveEffect(effect)
         ).Snapshot;
         Dictionary<CreatureId, CreatureComponent> creatures = new() { [ownerId] = owner };
-        UnityLightEffectPresentationObserver observer = new(lightDefinition, creatures);
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Light Observer Test VFX"
+        );
+        UnityLightEffectPresentationObserver observer = new(lightDefinition, creatures, playback);
 
         observer.OnFactCommitted(
             new ActiveEffectCreatedFact(effect, new BindingId("binding-light")),
@@ -1300,7 +1314,7 @@ public sealed class SpellcastingPresentationPlayModeTests
         bridge.BeginTurn(actor, 3);
         controller.IsTakingAction = true;
         action.Invoke(caster);
-        for (int frame = 0; frame < 10 && controller.IsTakingAction; frame++)
+        for (int frame = 0; frame < PresentationTimeoutFrames && controller.IsTakingAction; frame++)
             yield return null;
         Assert.That(controller.IsTakingAction, Is.False, action.ActionName);
     }

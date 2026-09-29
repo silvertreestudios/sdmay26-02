@@ -261,6 +261,7 @@ namespace Game.Creature.Rules
     {
         public string Selector;
         public string Category;
+        public string Source;
         public int DiceNumber;
         public int DieSize;
         public JToken Predicate;

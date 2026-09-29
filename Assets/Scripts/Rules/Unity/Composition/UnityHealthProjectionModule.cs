@@ -36,7 +36,7 @@ namespace Game.Rules.Unity.Composition
             lifetime.Add(dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(observer));
         }
 
-        private sealed class HealthProjectionObserver
+        internal sealed class HealthProjectionObserver
             : IFactObserver<HealthFact>,
                 IFactObserver<CreatureDefeatCommittedFact>
         {
@@ -61,7 +61,7 @@ namespace Game.Rules.Unity.Composition
                 bool presentHit = fact is DamageAppliedFact && health.Current > 0;
                 if (!presentHit)
                     return;
-                if (!actionPresentation.TryEnqueue(rootId, () => PresentHit(creature)))
+                if (!actionPresentation.TryEnqueueReaction(rootId, () => PresentHit(creature)))
                     creature.PresentCommittedHit();
             }
 

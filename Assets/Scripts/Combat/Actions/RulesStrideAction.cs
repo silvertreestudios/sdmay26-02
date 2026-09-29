@@ -173,6 +173,17 @@ public sealed class RulesStrideAction : EntityAction, ISelectionDrivenEntityActi
         }
         finally
         {
+            if (startedInExploration)
+            {
+                try
+                {
+                    bridge.ReleaseOwnership();
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception, target);
+                }
+            }
             presentation?.SetMoving(false, 0.0f);
             controller.IsTakingAction = false;
             OnActionComplete.Invoke();

@@ -5,6 +5,7 @@ using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Attack;
 using Game.Rules.Unity.Composition;
+using Game.Rules.Unity.Vfx;
 using GridPrivate;
 using UnityEngine;
 
@@ -20,18 +21,22 @@ namespace Game.Creature.Rules
             IUnityEncounterTopologyModule,
             IUnityCombatantEnrollmentModule,
             IRottingAuraDataProvider,
+            IFactObserver<DamageAppliedFact>,
             IFactObserver<RottingAuraResolvedFact>
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private Tile[,] tiles;
+        private readonly UnityVfxPlayback vfx;
 
         internal UnityRottingAuraModule(
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            Tile[,] tiles
+            Tile[,] tiles,
+            UnityVfxPlayback vfx
         )
         {
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.tiles = tiles ?? throw new ArgumentNullException(nameof(tiles));
+            this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
         }
 
         /// <inheritdoc/>
@@ -39,12 +44,37 @@ namespace Game.Creature.Rules
             builder.UseRottingAuraRules();
 
         /// <inheritdoc/>
-        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime) =>
+        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
+        {
+            lifetime.Add(dispatcher.RegisterFactObserver<DamageAppliedFact>(this));
             lifetime.Add(dispatcher.RegisterFactObserver<RottingAuraResolvedFact>(this));
+        }
 
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) =>
+            PrepareCombatantState(builder);
+
+        private void PrepareCombatantState(UnityCombatantEnrollmentBuilder builder)
+        {
             builder.AddRuleBindings(new[] { RottingAuraRules.CreateBinding(builder.CreatureId) });
+            if (HasRottingAura(builder.Creature))
+                builder.AddInstallation(
+                    new RottingAuraPresentationInstallation(
+                        vfx,
+                        builder.CreatureId,
+                        builder.Creature
+                    )
+                );
+        }
+
+        /// <summary>Creates the persistent production area for a deterministic enrolled source.</summary>
+        internal void PresentActive(CreatureId source)
+        {
+            CreatureComponent creature = RequireCreature(source);
+            if (!HasRottingAura(creature))
+                throw new InvalidOperationException("The presented creature has no Rotting Aura.");
+            PresentActive(vfx, source, creature);
+        }
 
         /// <inheritdoc/>
         public RottingAuraTurnData Capture(
@@ -106,14 +136,52 @@ namespace Game.Creature.Rules
 
         /// <inheritdoc/>
         public void OnFactCommitted(
+            DamageAppliedFact fact,
+            OpId observationRootId,
+            RulesSnapshot currentSnapshot
+        )
+        {
+            if (
+                fact == null
+                || !fact.Origin.Value.StartsWith(
+                    RottingAuraRules.Slug + "-",
+                    StringComparison.Ordinal
+                )
+            )
+                return;
+            PlayTick(fact.Creature, fact.Applied);
+        }
+
+        /// <inheritdoc/>
+        public void OnFactCommitted(
             RottingAuraResolvedFact fact,
             OpId observationRootId,
             RulesSnapshot currentSnapshot
         )
         {
             if (!Application.isPlaying || !CombatLog.TryGetInstance(out CombatLogInterface log))
+            {
+                if (fact.Outcome.Applied == 0)
+                    PlayTick(fact.Target, 0);
                 return;
+            }
             log.LogEntry(BuildLogEntry(fact));
+            if (fact.Outcome.Applied == 0)
+                PlayTick(fact.Target, 0);
+        }
+
+        private void PlayTick(CreatureId targetId, int applied)
+        {
+            if (!creatures.TryGetValue(targetId, out CreatureComponent target) || target == null)
+                return;
+            Vector3 position = target.transform.position + Vector3.up * 0.6f;
+            vfx.RunTransient(
+                new VfxCueId(
+                    applied == 0 ? "auxiliary/rotting-aura-resisted" : "auxiliary/rotting-aura-tick"
+                ),
+                position,
+                position
+            );
         }
 
         internal CombatLogEntry BuildLogEntry(RottingAuraResolvedFact fact)
@@ -167,6 +235,63 @@ namespace Game.Creature.Rules
             );
             if (adjustment != null)
                 entry.Details.Add(new CombatLogDetail(label, sign + adjustment.Amount + " void"));
+        }
+
+        private static bool HasRottingAura(CreatureComponent creature) =>
+            (creature.auras ?? new List<CreatureAura>()).Any(aura =>
+                aura != null
+                && aura.radiusFeet > 0
+                && string.Equals(
+                    aura.slug,
+                    RottingAuraRules.Slug,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            );
+
+        private static void PresentActive(
+            UnityVfxPlayback playback,
+            CreatureId source,
+            CreatureComponent creature
+        )
+        {
+            int radius = creature
+                .auras.Where(aura =>
+                    aura != null
+                    && string.Equals(
+                        aura.slug,
+                        RottingAuraRules.Slug,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                .Max(aura => aura.radiusFeet);
+            playback.SetPersistent(
+                "rotting-aura:" + source.Value,
+                new VfxCueId("auxiliary/rotting-aura-active"),
+                creature.transform,
+                Mathf.Clamp(radius / 15f, 0.75f, 2f)
+            );
+        }
+
+        private sealed class RottingAuraPresentationInstallation
+            : IUnityCombatantInstallationContribution
+        {
+            private readonly UnityVfxPlayback playback;
+            private readonly CreatureId source;
+            private readonly CreatureComponent creature;
+
+            internal RottingAuraPresentationInstallation(
+                UnityVfxPlayback playback,
+                CreatureId source,
+                CreatureComponent creature
+            )
+            {
+                this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
+                this.source = source;
+                this.creature = creature ?? throw new ArgumentNullException(nameof(creature));
+            }
+
+            /// <inheritdoc/>
+            public void Apply() => PresentActive(playback, source, creature);
         }
 
         private CreatureComponent RequireCreature(CreatureId creature)

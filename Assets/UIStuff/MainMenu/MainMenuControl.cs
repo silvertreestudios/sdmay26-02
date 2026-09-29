@@ -1,6 +1,7 @@
 using System;
 using Game.DungeonPersistence;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 
 /// <summary>
@@ -18,6 +19,7 @@ public class MainMenuControl : MonoBehaviour
     private Button continueButton;
     private Button optionsButton;
     private Button exitButton;
+    private Button vfxGalleryButton;
     private Button confirmOverwriteButton;
     private Button cancelOverwriteButton;
     private Label statusLabel;
@@ -47,6 +49,7 @@ public class MainMenuControl : MonoBehaviour
         continueButton = ui.Q<Button>("ContinueButton");
         optionsButton = ui.Q<Button>("OptionsButton");
         exitButton = ui.Q<Button>("ExitButton");
+        vfxGalleryButton = ui.Q<Button>("VfxGalleryButton");
         confirmOverwriteButton = ui.Q<Button>("ConfirmOverwriteButton");
         cancelOverwriteButton = ui.Q<Button>("CancelOverwriteButton");
         statusLabel = ui.Q<Label>("MenuStatusLabel");
@@ -56,6 +59,7 @@ public class MainMenuControl : MonoBehaviour
         continueButton.clicked += ContinueRun;
         optionsButton.clicked += Options;
         exitButton.clicked += Exit;
+        vfxGalleryButton.clicked += OpenVfxGallery;
         confirmOverwriteButton.clicked += ConfirmNewRun;
         cancelOverwriteButton.clicked += CancelNewRun;
 
@@ -73,6 +77,8 @@ public class MainMenuControl : MonoBehaviour
             optionsButton.clicked -= Options;
         if (exitButton != null)
             exitButton.clicked -= Exit;
+        if (vfxGalleryButton != null)
+            vfxGalleryButton.clicked -= OpenVfxGallery;
         if (confirmOverwriteButton != null)
             confirmOverwriteButton.clicked -= ConfirmNewRun;
         if (cancelOverwriteButton != null)
@@ -152,6 +158,9 @@ public class MainMenuControl : MonoBehaviour
         Application.Quit();
         Debug.Log("Clicked Exit button");
     }
+
+    /// <summary>Opens the production spell and Strike VFX review gallery.</summary>
+    public void OpenVfxGallery() => SceneManager.LoadScene("VfxGallery");
 
     internal void ConfigureForTests(
         DungeonRunMenuService replacementService,

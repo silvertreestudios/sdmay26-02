@@ -6,6 +6,7 @@ using Game.Creature.Rules;
 using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Vfx;
 using GridPrivate;
 using NUnit.Framework;
 using UnityEditor;
@@ -16,6 +17,32 @@ namespace TestsState
 {
     public class RottingAuraLogPlayModeTests
     {
+        [UnityTest]
+        public IEnumerator ProductionTickVfxCoversNonlethalLethalAndResistedCommittedPaths()
+        {
+            yield return VerifyProductionTickVfx(
+                currentHitPoints: 8,
+                resistance: 0,
+                expectedApplied: 6,
+                expectedCue: "auxiliary/rotting-aura-tick",
+                expectsDefeat: false
+            );
+            yield return VerifyProductionTickVfx(
+                currentHitPoints: 6,
+                resistance: 0,
+                expectedApplied: 6,
+                expectedCue: "auxiliary/rotting-aura-tick",
+                expectsDefeat: true
+            );
+            yield return VerifyProductionTickVfx(
+                currentHitPoints: 8,
+                resistance: 20,
+                expectedApplied: 0,
+                expectedCue: "auxiliary/rotting-aura-resisted",
+                expectsDefeat: false
+            );
+        }
+
         [TestCase(1, 5)]
         [TestCase(20, 0)]
         public void CommittedTickLogsDamageAndFullyResistedResults(
@@ -107,6 +134,73 @@ namespace TestsState
             public override void StartTurn() { }
 
             public override void EndTurn() { }
+        }
+
+        private static IEnumerator VerifyProductionTickVfx(
+            int currentHitPoints,
+            int resistance,
+            int expectedApplied,
+            string expectedCue,
+            bool expectsDefeat
+        )
+        {
+            GameObject sourceObject = new("Production aura VFX source");
+            GameObject targetObject = new("Production aura VFX target");
+            UnityCombatRulesBridge bridge = null;
+            try
+            {
+                CreatureComponent source = sourceObject.AddComponent<CreatureComponent>();
+                source.InitializeHealthBeforeEncounter(10, 10);
+                source.level = 0;
+                source.auras = new List<CreatureAura>
+                {
+                    new() { slug = RottingAuraRules.Slug, radiusFeet = 10 },
+                };
+                sourceObject.AddComponent<Team>().Name = "Enemies";
+                LogTestController sourceController = sourceObject.AddComponent<LogTestController>();
+                CreatureComponent target = targetObject.AddComponent<CreatureComponent>();
+                target.InitializeHealthBeforeEncounter(currentHitPoints, 10);
+                target.traits = new List<string>();
+                target.weaknesses = new List<DamageValue> { new("void", 2) };
+                target.resistances = new List<DamageValue> { new("void", resistance) };
+                targetObject.AddComponent<Team>().Name = "Players";
+                LogTestController targetController = targetObject.AddComponent<LogTestController>();
+                targetObject.transform.position = Vector3.right;
+                Tile[,] tiles =
+                {
+                    { new Tile() },
+                    { new Tile() },
+                };
+                tiles[0, 0].Occupants.Add(sourceObject);
+                tiles[1, 0].Occupants.Add(targetObject);
+                bridge = UnityCombatRulesBridge.Create(
+                    new ActionController[] { sourceController, targetController },
+                    tiles,
+                    new ScriptedRollService(1, 20, 4),
+                    "Players"
+                );
+
+                bridge.AdvanceEncounter();
+
+                Assert.That(target.hp, Is.EqualTo(currentHitPoints - expectedApplied));
+                Assert.That(target.IsDefeated, Is.EqualTo(expectsDefeat));
+                Assert.That(targetObject.activeSelf, Is.EqualTo(!expectsDefeat));
+                UnityVfxInstance tick = Object
+                    .FindObjectsByType<UnityVfxInstance>(
+                        FindObjectsInactive.Include,
+                        FindObjectsSortMode.None
+                    )
+                    .Single(instance => instance.name == "VFX " + expectedCue);
+                Assert.That(tick.gameObject.activeInHierarchy, Is.True);
+                Assert.That(tick.transform.parent.name, Is.EqualTo("Encounter VFX"));
+            }
+            finally
+            {
+                bridge?.ReleaseOwnership();
+                Object.Destroy(sourceObject);
+                Object.Destroy(targetObject);
+            }
+            yield return null;
         }
 
         private sealed class RecordingLog : CombatLogInterface
