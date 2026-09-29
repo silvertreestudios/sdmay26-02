@@ -40,8 +40,20 @@ public static class SpellAttackVfxEvidenceCapture
             Register();
     }
 
-    /// <summary>Opens the gallery and starts the deterministic evidence capture sequence.</summary>
+    /// <summary>
+    /// Opens the gallery and starts the deterministic evidence capture sequence after protecting
+    /// modified scenes in interactive Editor sessions. Batchmode capture remains non-interactive.
+    /// </summary>
     public static void Begin()
+    {
+        SpellAttackVfxEditorEntrySafety.TryRun(
+            Application.isBatchMode,
+            EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo,
+            BeginCapture
+        );
+    }
+
+    private static void BeginCapture()
     {
         SessionState.SetBool(ActiveKey, true);
         index = 0;

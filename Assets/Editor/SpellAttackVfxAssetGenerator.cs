@@ -19,9 +19,21 @@ public static class SpellAttackVfxAssetGenerator
     private const string SoftParticlePath = "Assets/Textures/Vfx/soft-particle.png";
     private static Texture2D softParticle;
 
-    /// <summary>Regenerates all serialized VFX content through Unity's asset APIs.</summary>
+    /// <summary>
+    /// Regenerates all serialized VFX content through Unity's asset APIs after protecting modified
+    /// scenes in interactive Editor sessions. Batchmode generation remains non-interactive.
+    /// </summary>
     [MenuItem("Tools/VFX/Regenerate Production Gallery")]
     public static void Generate()
+    {
+        SpellAttackVfxEditorEntrySafety.TryRun(
+            Application.isBatchMode,
+            EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo,
+            GenerateAssetsAndScene
+        );
+    }
+
+    private static void GenerateAssetsAndScene()
     {
         Directory.CreateDirectory(MaterialRoot);
         Directory.CreateDirectory(PrefabRoot);
@@ -643,6 +655,22 @@ public static class SpellAttackVfxAssetGenerator
         )
             return new Color(0.75f, 0.12f, 0.18f, 0.76f);
         return new Color(0.95f, 0.82f, 0.62f, 0.78f);
+    }
+}
+
+internal static class SpellAttackVfxEditorEntrySafety
+{
+    internal static bool TryRun(
+        bool isBatchMode,
+        Func<bool> saveCurrentModifiedScenesIfUserWantsTo,
+        Action sceneReplacingWork
+    )
+    {
+        if (!isBatchMode && !saveCurrentModifiedScenesIfUserWantsTo())
+            return false;
+
+        sceneReplacingWork();
+        return true;
     }
 }
 #endif

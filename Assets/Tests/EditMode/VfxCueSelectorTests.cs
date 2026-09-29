@@ -411,3 +411,100 @@ public sealed class VfxCoverageManifestTests
         );
     }
 }
+
+public sealed class SpellAttackVfxEditorEntrySafetyTests
+{
+    [Test]
+    public void CancellationStopsBeforeAssetOrSceneMutation()
+    {
+        List<string> trace = new();
+
+        bool proceeded = InvokeEntrySafety(
+            isBatchMode: false,
+            () =>
+            {
+                trace.Add("prompt");
+                return false;
+            },
+            () =>
+            {
+                trace.Add("asset-write");
+                trace.Add("scene-replacement");
+            }
+        );
+
+        Assert.That(proceeded, Is.False);
+        Assert.That(trace, Is.EqualTo(new[] { "prompt" }));
+    }
+
+    [Test]
+    public void AcceptancePrecedesAssetAndSceneMutation()
+    {
+        List<string> trace = new();
+
+        bool proceeded = InvokeEntrySafety(
+            isBatchMode: false,
+            () =>
+            {
+                trace.Add("prompt");
+                return true;
+            },
+            () =>
+            {
+                trace.Add("asset-write");
+                trace.Add("scene-replacement");
+            }
+        );
+
+        Assert.That(proceeded, Is.True);
+        Assert.That(trace, Is.EqualTo(new[] { "prompt", "asset-write", "scene-replacement" }));
+    }
+
+    [Test]
+    public void BatchmodeProceedsWithoutOpeningInteractivePrompt()
+    {
+        List<string> trace = new();
+
+        bool proceeded = InvokeEntrySafety(
+            isBatchMode: true,
+            () =>
+            {
+                trace.Add("prompt");
+                return false;
+            },
+            () => trace.Add("batch-work")
+        );
+
+        Assert.That(proceeded, Is.True);
+        Assert.That(trace, Is.EqualTo(new[] { "batch-work" }));
+    }
+
+    private static bool InvokeEntrySafety(
+        bool isBatchMode,
+        Func<bool> saveCurrentModifiedScenesIfUserWantsTo,
+        Action sceneReplacingWork
+    )
+    {
+        Type safetyType = AppDomain
+            .CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType("SpellAttackVfxEditorEntrySafety"))
+            .Single(type => type != null);
+        System.Reflection.MethodInfo method = safetyType.GetMethod(
+            "TryRun",
+            System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic
+        );
+        Assert.That(method, Is.Not.Null);
+        return (bool)
+            method.Invoke(
+                null,
+                new object[]
+                {
+                    isBatchMode,
+                    saveCurrentModifiedScenesIfUserWantsTo,
+                    sceneReplacingWork,
+                }
+            );
+    }
+}

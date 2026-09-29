@@ -31,8 +31,20 @@ public static class SpellAttackVfxGameplayEvidenceCapture
             Register();
     }
 
-    /// <summary>Opens the real gameplay scene and captures one committed Strike and spell.</summary>
+    /// <summary>
+    /// Opens the real gameplay scene and captures one committed Strike and spell after protecting
+    /// modified scenes in interactive Editor sessions. Batchmode capture remains non-interactive.
+    /// </summary>
     public static void Begin()
+    {
+        SpellAttackVfxEditorEntrySafety.TryRun(
+            Application.isBatchMode,
+            EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo,
+            BeginCapture
+        );
+    }
+
+    private static void BeginCapture()
     {
         SessionState.SetBool(ActiveKey, true);
         Register();
