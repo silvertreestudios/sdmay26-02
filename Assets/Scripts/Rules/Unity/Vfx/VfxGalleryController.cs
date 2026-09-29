@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Rules.Runtime;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -58,6 +59,12 @@ namespace Game.Rules.Unity.Vfx
 
         /// <summary>Gets whether the primary target remains active after the latest fixture.</summary>
         public bool IsPrimaryTargetActive => fixture.IsPrimaryTargetActive;
+
+        internal IReadOnlyList<CreatureId> LatestSelection => fixture.LatestSelection;
+
+        internal IReadOnlyList<CreatureId> CurrentEffectOwners => fixture.CurrentEffectOwners;
+
+        internal int DefeatPresentationCount => fixture.DefeatPresentationCount;
 
         /// <summary>Gets whether a selected or play-all timeline is currently owned by the gallery.</summary>
         public bool IsPlaybackActive => selectedPlayback != null || playAll != null;

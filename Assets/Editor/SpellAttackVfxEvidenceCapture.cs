@@ -24,6 +24,7 @@ public static class SpellAttackVfxEvidenceCapture
         ("healing-area-mixed-results", "spell/heal/3-action/living", 1.85),
         ("heal-undead", "spell/heal/3-action/undead-critical-failure", 1.85),
         ("hymn-deafened", "spell/haunting-hymn/2-action/critical-failure", 1.05),
+        ("infuse-three-target", "spell/infuse-vitality/3-action/create", 1.8),
         ("persistent", "auxiliary/rotting-aura/active", 0.45),
     };
 

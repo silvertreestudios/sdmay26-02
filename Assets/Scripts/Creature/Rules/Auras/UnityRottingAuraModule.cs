@@ -21,6 +21,7 @@ namespace Game.Creature.Rules
             IUnityEncounterTopologyModule,
             IUnityCombatantEnrollmentModule,
             IRottingAuraDataProvider,
+            IFactObserver<DamageAppliedFact>,
             IFactObserver<RottingAuraResolvedFact>
     {
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
@@ -43,8 +44,11 @@ namespace Game.Creature.Rules
             builder.UseRottingAuraRules();
 
         /// <inheritdoc/>
-        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime) =>
+        public void RegisterRuntime(RuleDispatcher dispatcher, CompositeLifetime lifetime)
+        {
+            lifetime.Add(dispatcher.RegisterFactObserver<DamageAppliedFact>(this));
             lifetime.Add(dispatcher.RegisterFactObserver<RottingAuraResolvedFact>(this));
+        }
 
         /// <inheritdoc/>
         public void PrepareCombatant(UnityCombatantEnrollmentBuilder builder) =>
@@ -132,6 +136,24 @@ namespace Game.Creature.Rules
 
         /// <inheritdoc/>
         public void OnFactCommitted(
+            DamageAppliedFact fact,
+            OpId observationRootId,
+            RulesSnapshot currentSnapshot
+        )
+        {
+            if (
+                fact == null
+                || !fact.Origin.Value.StartsWith(
+                    RottingAuraRules.Slug + "-",
+                    StringComparison.Ordinal
+                )
+            )
+                return;
+            PlayTick(fact.Creature, fact.Applied);
+        }
+
+        /// <inheritdoc/>
+        public void OnFactCommitted(
             RottingAuraResolvedFact fact,
             OpId observationRootId,
             RulesSnapshot currentSnapshot
@@ -139,29 +161,26 @@ namespace Game.Creature.Rules
         {
             if (!Application.isPlaying || !CombatLog.TryGetInstance(out CombatLogInterface log))
             {
-                PlayTick(fact);
+                if (fact.Outcome.Applied == 0)
+                    PlayTick(fact.Target, 0);
                 return;
             }
             log.LogEntry(BuildLogEntry(fact));
-            PlayTick(fact);
+            if (fact.Outcome.Applied == 0)
+                PlayTick(fact.Target, 0);
         }
 
-        private void PlayTick(RottingAuraResolvedFact fact)
+        private void PlayTick(CreatureId targetId, int applied)
         {
-            if (!creatures.TryGetValue(fact.Target, out CreatureComponent target) || target == null)
+            if (!creatures.TryGetValue(targetId, out CreatureComponent target) || target == null)
                 return;
-            VfxCoroutineHost.Run(
-                target,
-                vfx.PlayTransient(
-                    new VfxCueId(
-                        fact.Outcome.Applied == 0
-                            ? "auxiliary/rotting-aura-resisted"
-                            : "auxiliary/rotting-aura-tick"
-                    ),
-                    target.transform.position + Vector3.up * 0.6f,
-                    target.transform.position + Vector3.up * 0.6f,
-                    lifetimeOwner: target.transform
-                )
+            Vector3 position = target.transform.position + Vector3.up * 0.6f;
+            vfx.RunTransient(
+                new VfxCueId(
+                    applied == 0 ? "auxiliary/rotting-aura-resisted" : "auxiliary/rotting-aura-tick"
+                ),
+                position,
+                position
             );
         }
 

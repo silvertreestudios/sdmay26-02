@@ -229,8 +229,17 @@ public sealed class VfxGalleryPlayModeTests
         Assert.That(gallery.EntryCount, Is.EqualTo(VfxCoverageManifest.Load().entries.Count));
         gallery.ConfigureTestTiming(0.01f);
         Time.captureDeltaTime = 0.1f;
+        int defeatCountBefore = gallery.DefeatPresentationCount;
+        int expectedDefeats = VfxCoverageManifest
+            .Load()
+            .entries.Count(entry => entry.category == "strike" && entry.outcome == "critical");
 
         yield return gallery.PlayAllEntries();
+        Assert.That(
+            gallery.DefeatPresentationCount - defeatCountBefore,
+            Is.EqualTo(expectedDefeats),
+            "Play All must replay terminal presentation for every critical Strike fixture."
+        );
         gallery.ResetGallery();
         yield return null;
         yield return null;
@@ -277,6 +286,29 @@ public sealed class VfxGalleryPlayModeTests
                     Is.EqualTo(expectedTargets),
                     entry.id + " must emit one simultaneous production beam per selected target."
                 );
+                Assert.That(
+                    gallery.CurrentEffectOwners.Count,
+                    Is.EqualTo(expectedTargets),
+                    entry.id + " must create one production coating effect per selected target."
+                );
+                Assert.That(
+                    gallery.CurrentEffectOwners.Distinct().Count(),
+                    Is.EqualTo(expectedTargets),
+                    entry.id + " must coat distinct selected targets."
+                );
+                Assert.That(
+                    gallery.LiveVfxObjectCount,
+                    Is.EqualTo(expectedTargets),
+                    entry.id + " must leave every selected coating visibly active."
+                );
+            }
+            if (entry.id.StartsWith("spell/bless/"))
+            {
+                Assert.That(
+                    gallery.LatestSelection.Select(creature => creature.Value),
+                    Is.EqualTo(new[] { "vfx-gallery-source" }),
+                    "Bless's emanation fixture must include its caster like production targeting."
+                );
             }
             if (entry.id.StartsWith("spell/heal/2-action/"))
             {
@@ -321,9 +353,14 @@ public sealed class VfxGalleryPlayModeTests
                     or "active";
             if (entry.category == "lifecycle" || entry.variant.Contains("persistent"))
             {
+                int expectedPersistentInstances =
+                    shouldRemainActive && entry.id.StartsWith("spell/infuse-vitality/")
+                        ? expectedTargets
+                    : shouldRemainActive ? 1
+                    : 0;
                 Assert.That(
                     gallery.LiveVfxObjectCount,
-                    Is.EqualTo(shouldRemainActive ? 1 : 0),
+                    Is.EqualTo(expectedPersistentInstances),
                     entry.id + " has an incorrect authoritative persistent lifetime."
                 );
             }
@@ -445,6 +482,7 @@ public sealed class VfxGalleryPlayModeTests
         Assert.That(gallery.IsPrimaryTargetActive, Is.True);
 
         gallery.Select("strike/mace/critical");
+        int defeatCountBefore = gallery.DefeatPresentationCount;
         yield return gallery.PlaySelectedForTests();
         Assert.That(gallery.PrimaryTargetHitPoints, Is.Zero);
         Assert.That(
@@ -452,6 +490,16 @@ public sealed class VfxGalleryPlayModeTests
             Is.False,
             "Critical fixture must drain terminal defeat after its impact presentation."
         );
+        Assert.That(gallery.DefeatPresentationCount, Is.EqualTo(defeatCountBefore + 1));
+
+        yield return gallery.PlaySelectedForTests();
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.Zero);
+        Assert.That(
+            gallery.IsPrimaryTargetActive,
+            Is.False,
+            "Replay must re-arm and drain terminal defeat presentation again."
+        );
+        Assert.That(gallery.DefeatPresentationCount, Is.EqualTo(defeatCountBefore + 2));
 
         Time.captureDeltaTime = 0f;
         Scene cleanup = SceneManager.CreateScene("VFX Gallery Reactions Cleanup");

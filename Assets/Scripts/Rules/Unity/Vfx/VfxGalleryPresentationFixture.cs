@@ -46,10 +46,14 @@ namespace Game.Rules.Unity.Vfx
         private readonly List<(string Cue, Vector3 Origin, Vector3 Destination)> transientStarts =
             new();
         private float persistentHoldSeconds = 0.8f;
-        private ActiveEffectInstance currentEffect;
-        private ActiveRuleBinding currentBinding;
+        private readonly List<(
+            ActiveEffectInstance Effect,
+            ActiveRuleBinding Binding
+        )> currentEffects = new();
+        private CreatureId[] latestSelection = Array.Empty<CreatureId>();
         private int effectSequence;
         private long presentationSequence;
+        private int defeatPresentationCount;
         private bool disposed;
 
         /// <summary>Creates one isolated gallery fixture around scene-owned review actors.</summary>
@@ -132,6 +136,13 @@ namespace Game.Rules.Unity.Vfx
         /// <summary>Gets whether the primary review target remains active after presentation.</summary>
         public bool IsPrimaryTargetActive => creatures[TargetIds[0]].gameObject.activeSelf;
 
+        internal IReadOnlyList<CreatureId> LatestSelection => latestSelection;
+
+        internal IReadOnlyList<CreatureId> CurrentEffectOwners =>
+            currentEffects.Select(value => value.Binding.Owner).ToArray();
+
+        internal int DefeatPresentationCount => defeatPresentationCount;
+
         /// <summary>Shortens only review holds and prefab durations for automated verification.</summary>
         public void ConfigureTestTiming(float persistentHoldSeconds)
         {
@@ -172,8 +183,8 @@ namespace Game.Rules.Unity.Vfx
             rageEffects.Dispose();
             lightEffects.Dispose();
             actionPresentation.Dispose();
-            currentEffect = null;
-            currentBinding = null;
+            currentEffects.Clear();
+            latestSelection = Array.Empty<CreatureId>();
             TargetCount = 0;
             trace.Clear();
             transientStarts.Clear();
@@ -196,6 +207,9 @@ namespace Game.Rules.Unity.Vfx
             SpellReference spell = new(new SpellId(parts[1]), 1);
             int actions = ParseActions(entry.variant);
             CreatureId[] selected = TargetIds.Take(TargetCount).ToArray();
+            if (spell.Spell.Value == "bless")
+                selected = new[] { SourceId };
+            latestSelection = selected;
             CastSpellActionOp operation = new(
                 SourceId,
                 spell,
@@ -269,18 +283,12 @@ namespace Game.Rules.Unity.Vfx
                 }
             }
 
-            CastSpellOutcome outcome = new(
-                SourceId,
-                spell,
-                Array.Empty<ActiveEffectId>(),
-                attacks,
-                results
-            );
             OpId rootId = BeginPresentation(
                 operation,
                 () => spellPresenter.PresentBeginning(operation, snapshot)
             );
 
+            List<ActiveEffectId> activeEffects = new();
             if (
                 spell.Spell.Value
                 is "light"
@@ -290,11 +298,14 @@ namespace Game.Rules.Unity.Vfx
                     or "infuse-vitality"
             )
             {
-                CreatureId owner = selected.FirstOrDefault();
-                if (owner.IsEmpty)
-                    owner = SourceId;
-                CreatePersistentSpell(spell, owner, rootId);
+                CreatureId[] owners =
+                    spell.Spell.Value == "infuse-vitality"
+                        ? selected
+                        : new[] { selected.FirstOrDefault().IsEmpty ? SourceId : selected[0] };
+                foreach (CreatureId owner in owners)
+                    activeEffects.Add(CreatePersistentSpell(spell, owner, rootId));
             }
+            CastSpellOutcome outcome = new(SourceId, spell, activeEffects, attacks, results);
             actionPresentation.Enqueue(
                 operation,
                 () => spellPresenter.PresentResolved(operation, outcome, snapshot)
@@ -350,6 +361,7 @@ namespace Game.Rules.Unity.Vfx
             if (hit)
             {
                 bool defeated = degree == RulesDegreeOfSuccess.CriticalSuccess;
+                bool wasDefeated = creatures[TargetIds[0]].IsDefeated;
                 RulesSnapshot healthSnapshot = new RulesState(
                     new RulesStateSeed().SeedHealth(
                         TargetIds[0],
@@ -373,6 +385,11 @@ namespace Game.Rules.Unity.Vfx
                         rootId,
                         healthSnapshot
                     );
+                if (defeated)
+                    actionPresentation.TryEnqueueAfterAction(
+                        rootId,
+                        () => RecordDefeatPresentation(wasDefeated)
+                    );
             }
             actionPresentation.Enqueue(
                 operation,
@@ -381,7 +398,11 @@ namespace Game.Rules.Unity.Vfx
             yield return Drain(actionPresentation.Drain(operation));
         }
 
-        private void CreatePersistentSpell(SpellReference spell, CreatureId owner, OpId rootId)
+        private ActiveEffectId CreatePersistentSpell(
+            SpellReference spell,
+            CreatureId owner,
+            OpId rootId
+        )
         {
             RuleDefinitionId definition = spell.Spell.Value switch
             {
@@ -394,16 +415,18 @@ namespace Game.Rules.Unity.Vfx
             ActiveEffectInstance effect = CreateEffect(
                 definition,
                 new SpellEffectState(spell, owner),
-                owner
+                owner,
+                out ActiveRuleBinding binding
             );
             RulesSnapshot effectSnapshot = new RulesState(
                 new RulesStateSeed().SeedActiveEffect(effect)
             ).Snapshot;
-            ActiveEffectCreatedFact fact = new(effect, currentBinding.Id);
+            ActiveEffectCreatedFact fact = new(effect, binding.Id);
             if (spell.Spell.Value == "light")
                 lightEffects.OnFactCommitted(fact, rootId, effectSnapshot);
             else
                 spellEffects.OnFactCommitted(fact, rootId, effectSnapshot);
+            return effect.Id;
         }
 
         private IEnumerator PlayPersistentLifecycle(VfxCoverageEntry entry)
@@ -414,13 +437,14 @@ namespace Game.Rules.Unity.Vfx
                 ActiveEffectInstance effect = CreateEffect(
                     RageActionDefinition.EffectDefinitionId,
                     new RageEffectState(quick),
-                    SourceId
+                    SourceId,
+                    out ActiveRuleBinding binding
                 );
                 RulesSnapshot effectSnapshot = new RulesState(
                     new RulesStateSeed().SeedActiveEffect(effect)
                 ).Snapshot;
                 rageEffects.OnFactCommitted(
-                    new ActiveEffectCreatedFact(effect, currentBinding.Id),
+                    new ActiveEffectCreatedFact(effect, binding.Id),
                     new OpId(effectSequence),
                     effectSnapshot
                 );
@@ -483,6 +507,18 @@ namespace Game.Rules.Unity.Vfx
                 Array.Empty<TypedDefenseAdjustment>(),
                 new DamageOutcome(6, 0, applied)
             );
+            if (applied > 0)
+                rottingAura.OnFactCommitted(
+                    new DamageAppliedFact(
+                        TargetIds[0],
+                        new HealthChangeOriginId(RottingAuraRules.Slug + "-gallery"),
+                        applied,
+                        0,
+                        applied
+                    ),
+                    new OpId(1),
+                    snapshot
+                );
             rottingAura.OnFactCommitted(fact, new OpId(1), snapshot);
             while (playback.LiveObjectCount > 0)
                 yield return null;
@@ -491,13 +527,14 @@ namespace Game.Rules.Unity.Vfx
         private ActiveEffectInstance CreateEffect(
             RuleDefinitionId definition,
             IEffectState state,
-            CreatureId owner
+            CreatureId owner,
+            out ActiveRuleBinding binding
         )
         {
             effectSequence++;
             ActiveEffectId id = new("vfx-gallery-effect-" + effectSequence);
             RuleSource sourceRule = RuleSource.FromSlug("vfx-gallery-committed-fixture");
-            currentEffect = new ActiveEffectInstance(
+            ActiveEffectInstance effect = new(
                 id,
                 definition,
                 owner,
@@ -505,7 +542,7 @@ namespace Game.Rules.Unity.Vfx
                 EffectDuration.Indefinite,
                 state
             );
-            currentBinding = new ActiveRuleBinding(
+            binding = new ActiveRuleBinding(
                 new BindingId("vfx-gallery-binding-" + effectSequence),
                 definition,
                 owner,
@@ -513,19 +550,22 @@ namespace Game.Rules.Unity.Vfx
                 sourceRule,
                 effectSequence
             );
-            return currentEffect;
+            currentEffects.Add((effect, binding));
+            return effect;
         }
 
         private void RemoveCurrent(ActiveEffectRemovalReason reason)
         {
-            if (currentEffect == null || currentBinding == null)
+            if (currentEffects.Count == 0)
                 return;
-            ActiveEffectRemovedFact removed = new(currentEffect, currentBinding, reason);
-            spellEffects.OnFactCommitted(removed, new OpId(effectSequence), snapshot);
-            lightEffects.OnFactCommitted(removed, new OpId(effectSequence), snapshot);
-            rageEffects.OnFactCommitted(removed, new OpId(effectSequence), snapshot);
-            currentEffect = null;
-            currentBinding = null;
+            foreach ((ActiveEffectInstance effect, ActiveRuleBinding binding) in currentEffects)
+            {
+                ActiveEffectRemovedFact removed = new(effect, binding, reason);
+                spellEffects.OnFactCommitted(removed, new OpId(effectSequence), snapshot);
+                lightEffects.OnFactCommitted(removed, new OpId(effectSequence), snapshot);
+                rageEffects.OnFactCommitted(removed, new OpId(effectSequence), snapshot);
+            }
+            currentEffects.Clear();
         }
 
         private void Stage(VfxCoverageEntry entry)
@@ -538,6 +578,7 @@ namespace Game.Rules.Unity.Vfx
             float firstX = melee ? -0.25f : 2.6f;
             for (int index = 0; index < targets.Length; index++)
             {
+                creatures[TargetIds[index]].ResetDefeatPresentationForFixture();
                 targets[index].gameObject.SetActive(index < TargetCount);
                 targets[index].position = new Vector3(
                     firstX + index * 1.25f,
@@ -639,6 +680,13 @@ namespace Game.Rules.Unity.Vfx
 
         private void RecordTransient(VfxCueId cue, Vector3 origin, Vector3 destination) =>
             transientStarts.Add((cue.Value, origin, destination));
+
+        private IEnumerator RecordDefeatPresentation(bool wasDefeated)
+        {
+            if (!wasDefeated && creatures[TargetIds[0]].IsDefeated)
+                defeatPresentationCount++;
+            yield break;
+        }
 
         private OpId BeginPresentation(object action, Func<IEnumerator> beginning)
         {

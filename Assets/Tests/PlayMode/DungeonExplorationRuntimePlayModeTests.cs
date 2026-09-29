@@ -938,6 +938,39 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         AssertPartyCells(fixture, new DungeonCell(2, 1), new DungeonCell(2, 2));
     }
 
+    /// <summary>Verifies each temporary exploration composition releases its VFX lifetime.</summary>
+    [UnityTest]
+    public IEnumerator RepeatedRulesBackedExplorationStridesDoNotLeakVfxHosts()
+    {
+        RuntimeFixture fixture = CreateRuntimeFixture(
+            new[] { new Vector3Int(2, 0, 2), new Vector3Int(2, 0, 1) }
+        );
+        Track(new GameObject("Repeated Rules Stride Coroutine Runner"))
+            .AddComponent<CoroutineRunner>();
+        Combatant leader = fixture.Party[0];
+        RulesStrideAction stride = new();
+        leader.Controller.AddAction(stride);
+        int baselineHosts = CountEncounterVfxHosts();
+
+        foreach (
+            DungeonCell destination in new[]
+            {
+                new DungeonCell(3, 2),
+                new DungeonCell(4, 2),
+                new DungeonCell(5, 2),
+            }
+        )
+        {
+            yield return ExecuteRulesStride(leader, stride, destination);
+            yield return null;
+            Assert.That(
+                CountEncounterVfxHosts(),
+                Is.EqualTo(baselineHosts),
+                "A completed exploration Stride retained its temporary Encounter VFX root."
+            );
+        }
+    }
+
     /// <summary>Verifies destination travel crosses an ally in a one-cell-wide hallway.</summary>
     [UnityTest]
     public IEnumerator DestinationTravelCrossesAllyInNarrowHallway()
@@ -2222,6 +2255,13 @@ public sealed class DungeonExplorationRuntimePlayModeTests
         DungeonCell expected = destinations[^1];
         Assert.That(CellOf(leader.GameObject), Is.EqualTo(expected));
     }
+
+    private static int CountEncounterVfxHosts() =>
+        Resources
+            .FindObjectsOfTypeAll<GameObject>()
+            .Count(candidate =>
+                candidate != null && candidate.scene.IsValid() && candidate.name == "Encounter VFX"
+            );
 
     private void RunToCompletion(IEnumerator root)
     {

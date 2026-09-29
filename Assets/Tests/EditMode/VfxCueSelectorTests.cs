@@ -1,12 +1,16 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using Game.Combat.Spells;
+using Game.Creature;
+using Game.Creature.Rules;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Vfx;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using DegreeOfSuccess = Game.Rules.Runtime.DegreeOfSuccess;
 
 public sealed class VfxCoverageManifestTests
 {
@@ -284,6 +288,69 @@ public sealed class VfxCoverageManifestTests
 
         Assert.That(yieldedFrames, Is.Zero);
         Assert.That(playback.LiveObjectCount, Is.Zero);
+    }
+
+    [Test]
+    public void RottingAuraAppliedTickStartsFromCommittedDamageBeforeFollowingProjection()
+    {
+        CreatureId sourceId = new("vfx-aura-source");
+        CreatureId targetId = new("vfx-aura-target");
+        GameObject sourceObject = new("VFX aura source");
+        GameObject targetObject = new("VFX aura target");
+        using UnityVfxPlayback playback = new(new ResourcesVfxPrefabCatalog(), "Aura ordering VFX");
+        try
+        {
+            CreatureComponent source = sourceObject.AddComponent<CreatureComponent>();
+            CreatureComponent target = targetObject.AddComponent<CreatureComponent>();
+            Dictionary<CreatureId, CreatureComponent> creatures = new()
+            {
+                [sourceId] = source,
+                [targetId] = target,
+            };
+            UnityRottingAuraModule module = new(creatures, new GridPrivate.Tile[1, 1], playback);
+            List<string> trace = new();
+            playback.CueStarted += cue => trace.Add(cue.Value);
+            RulesSnapshot snapshot = new RulesState(
+                new RulesStateSeed().SeedHealth(targetId, new HealthState(4, 10))
+            ).Snapshot;
+
+            module.OnFactCommitted(
+                new DamageAppliedFact(
+                    targetId,
+                    new HealthChangeOriginId("rotting-aura-42"),
+                    4,
+                    0,
+                    4
+                ),
+                new OpId(42),
+                snapshot
+            );
+            trace.Add("health-reaction");
+            module.OnFactCommitted(
+                new RottingAuraResolvedFact(
+                    sourceId,
+                    targetId,
+                    new RollResult(new DiceExpression(1, 6), new[] { 4 }),
+                    new[] { new TypedDamagePart("void", 4, new[] { RottingAuraRules.Slug }) },
+                    Array.Empty<TypedDefenseAdjustment>(),
+                    Array.Empty<TypedDefenseAdjustment>(),
+                    new DamageOutcome(4, 0, 4)
+                ),
+                new OpId(42),
+                snapshot
+            );
+
+            Assert.That(
+                trace,
+                Is.EqualTo(new[] { "auxiliary/rotting-aura-tick", "health-reaction" })
+            );
+            Assert.That(playback.LiveObjectCount, Is.Zero);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(sourceObject);
+            UnityEngine.Object.DestroyImmediate(targetObject);
+        }
     }
 
     [Test]

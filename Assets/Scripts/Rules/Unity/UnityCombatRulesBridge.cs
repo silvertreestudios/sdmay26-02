@@ -141,6 +141,10 @@ namespace Game.Rules.Unity
                     .UseStrideRules(strideDefinition);
                 composition.ConfigureDispatcher(dispatcherBuilder);
                 dispatcher = dispatcherBuilder.Build();
+                // Runtime module cleanup can project state back through the Unity registration
+                // maps. Own the provisional enrollment first so those maps remain available until
+                // every module has released its runtime resources.
+                enrollment.TransferTo(encounterLifetime);
                 composition.RegisterRuntime(dispatcher, encounterLifetime);
                 if (attachControllers)
                 {
@@ -158,7 +162,6 @@ namespace Game.Rules.Unity
                     enrollment.Commit();
                 }
                 enrollment.AttachAndInstall();
-                enrollment.TransferTo(encounterLifetime);
             }
             catch (Exception constructionFailure)
             {

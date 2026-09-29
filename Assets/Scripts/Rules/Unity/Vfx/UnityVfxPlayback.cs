@@ -5,6 +5,8 @@ using UnityEngine;
 
 namespace Game.Rules.Unity.Vfx
 {
+    internal sealed class UnityVfxCoroutineRunner : MonoBehaviour { }
+
     /// <summary>Runs fire-and-forget committed Fact presentation on a live component owner.</summary>
     public static class VfxCoroutineHost
     {
@@ -85,6 +87,7 @@ namespace Game.Rules.Unity.Vfx
     {
         private readonly IVfxPrefabCatalog catalog;
         private readonly GameObject host;
+        private readonly UnityVfxCoroutineRunner coroutineRunner;
         private readonly Dictionary<string, GameObject> persistent = new(StringComparer.Ordinal);
         private bool disposed;
         private float timelineDurationScale = 1f;
@@ -102,6 +105,7 @@ namespace Game.Rules.Unity.Vfx
                     nameof(ownerName)
                 );
             host = new GameObject(ownerName.Trim());
+            coroutineRunner = host.AddComponent<UnityVfxCoroutineRunner>();
         }
 
         /// <summary>Gets the number of live objects owned by this playback session.</summary>
@@ -170,6 +174,25 @@ namespace Game.Rules.Unity.Vfx
             {
                 Destroy(instance);
             }
+        }
+
+        /// <summary>
+        /// Starts a bounded transient on the playback lifetime rather than a possibly defeated
+        /// creature, while retaining optional scene-owner cancellation.
+        /// </summary>
+        internal void RunTransient(
+            VfxCueId cue,
+            Vector3 origin,
+            Vector3 destination,
+            float intensity = 1f,
+            Transform lifetimeOwner = null
+        )
+        {
+            ThrowIfDisposed();
+            VfxCoroutineHost.Run(
+                coroutineRunner,
+                PlayTransient(cue, origin, destination, intensity, lifetimeOwner)
+            );
         }
 
         /// <summary>Creates or replaces one persistent object under an authoritative stable key.</summary>
