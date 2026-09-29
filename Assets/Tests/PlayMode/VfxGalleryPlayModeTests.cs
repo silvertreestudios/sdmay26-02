@@ -333,15 +333,127 @@ public sealed class VfxPersistentPresentationPlayModeTests
             Has.Length.EqualTo(1),
             "Restoration outside an action must recreate the exact Light immediately."
         );
-        observer.Dispose();
+        ownerObject.SetActive(false);
+        yield return null;
         yield return null;
         Assert.That(playback.LiveObjectCount, Is.Zero);
         Assert.That(
             owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
-            Is.Empty
+            Is.Empty,
+            "Disabling the owner must destroy both halves of the Light presentation."
+        );
+
+        ownerObject.SetActive(true);
+        yield return null;
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Is.Empty,
+            "Re-enabling the owner must not resurrect the stale child point light."
+        );
+        observer.OnFactCommitted(
+            new ActiveEffectCreatedFact(effect, binding.Id),
+            new OpId(25),
+            snapshot
+        );
+        Assert.That(playback.LiveObjectCount, Is.EqualTo(1));
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Has.Length.EqualTo(1),
+            "An explicit restoration Fact must recreate the Light after owner reuse."
+        );
+
+        Object.Destroy(ownerObject);
+        yield return null;
+        yield return null;
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+        Assert.That(
+            Object
+                .FindObjectsByType<UnityEngine.Light>(FindObjectsSortMode.None)
+                .Where(light => light.gameObject.name == "Spell Effect Light"),
+            Is.Empty,
+            "Destroying the owner must not orphan the authoritative point light."
         );
 
         Time.captureDeltaTime = 0f;
+    }
+
+    [UnityTest]
+    public IEnumerator LightDisposeCleansAVisualWhoseQueuedRemovalWasAborted()
+    {
+        GameObject ownerObject = new("Aborted Light removal owner");
+        CreatureComponent owner = ownerObject.AddComponent<CreatureComponent>();
+        CreatureId ownerId = new("aborted-light-removal-owner");
+        SpellReference lightSpell = new(new SpellId("light"), 1);
+        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+        Assert.That(catalog.TryGetSpell(lightSpell, out SpellDefinition definition), Is.True);
+        ActiveEffectInstance effect = new(
+            new ActiveEffectId("aborted-light-removal-effect"),
+            definition.Effects.Single().DefinitionId,
+            ownerId,
+            RuleSource.FromSlug("aborted-light-removal-test"),
+            EffectDuration.Indefinite,
+            new SpellEffectState(lightSpell, ownerId)
+        );
+        ActiveRuleBinding binding = new(
+            new BindingId("aborted-light-removal-binding"),
+            effect.DefinitionId,
+            ownerId,
+            effect.Id,
+            effect.Source,
+            1
+        );
+        RulesSnapshot snapshot = new InMemoryRulesStore(
+            new RulesStateSeed().SeedActiveEffect(effect)
+        ).Snapshot;
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Aborted Light removal playback"
+        );
+        using UnityActionPresentationCoordinator coordinator = new();
+        using UnityLightEffectPresentationObserver observer =
+            UnityLightEffectPresentationObserver.Create(
+                catalog,
+                new Dictionary<CreatureId, CreatureComponent> { [ownerId] = owner },
+                playback,
+                coordinator
+            );
+
+        observer.OnFactCommitted(
+            new ActiveEffectCreatedFact(effect, binding.Id),
+            new OpId(30),
+            snapshot
+        );
+        Assert.That(playback.LiveObjectCount, Is.EqualTo(1));
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Has.Length.EqualTo(1)
+        );
+
+        object action = new();
+        OpId removalRoot = new(31);
+        coordinator.Begin(action, removalRoot);
+        observer.OnFactCommitted(
+            new ActiveEffectRemovedFact(effect, binding, ActiveEffectRemovalReason.Expired),
+            removalRoot,
+            snapshot
+        );
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Has.Length.EqualTo(1),
+            "The point light remains until the queued removal drains or ownership is disposed."
+        );
+
+        observer.Dispose();
+        coordinator.Dispose();
+        yield return null;
+        yield return null;
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Is.Empty,
+            "Observer disposal must clean instantiated visuals even after ownership was removed."
+        );
+
         Object.Destroy(ownerObject);
         yield return null;
     }
@@ -791,8 +903,94 @@ public sealed class VfxGalleryPlayModeTests
         );
         Assert.That(gallery.DefeatPresentationCount, Is.EqualTo(defeatCountBefore + 2));
 
+        gallery.ResetGallery();
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
+        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
+        gallery.Select("strike/mace/miss");
+        yield return gallery.PlaySelectedForTests();
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
+        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
+
         Time.captureDeltaTime = 0f;
         Scene cleanup = SceneManager.CreateScene("VFX Gallery Reactions Cleanup");
+        SceneManager.SetActiveScene(cleanup);
+        yield return SceneManager.UnloadSceneAsync("VfxGallery");
+    }
+
+    [UnityTest]
+    public IEnumerator SpellFixturesProjectCommittedDamageHealingAndDefeatFacts()
+    {
+        yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
+        VfxGalleryController gallery = Object.FindFirstObjectByType<VfxGalleryController>();
+        gallery.ConfigureTestTiming(0.01f);
+        Time.captureDeltaTime = 0.1f;
+        var damageCases = new[]
+        {
+            (Id: "spell/divine-lance/2-action/hit", HitPoints: 2, Active: true, Facts: 1),
+            (Id: "spell/divine-lance/2-action/miss", HitPoints: 10, Active: true, Facts: 0),
+            (Id: "spell/divine-lance/2-action/critical", HitPoints: 0, Active: false, Facts: 1),
+            (
+                Id: "spell/haunting-hymn/2-action/critical-success",
+                HitPoints: 10,
+                Active: true,
+                Facts: 0
+            ),
+            (Id: "spell/haunting-hymn/2-action/success", HitPoints: 6, Active: true, Facts: 1),
+            (Id: "spell/haunting-hymn/2-action/failure", HitPoints: 2, Active: true, Facts: 1),
+            (
+                Id: "spell/haunting-hymn/2-action/critical-failure",
+                HitPoints: 0,
+                Active: false,
+                Facts: 1
+            ),
+            (
+                Id: "spell/heal/1-action/undead-critical-success",
+                HitPoints: 10,
+                Active: true,
+                Facts: 0
+            ),
+            (Id: "spell/heal/1-action/undead-success", HitPoints: 6, Active: true, Facts: 1),
+            (Id: "spell/heal/1-action/undead-failure", HitPoints: 2, Active: true, Facts: 1),
+            (
+                Id: "spell/heal/1-action/undead-critical-failure",
+                HitPoints: 0,
+                Active: false,
+                Facts: 1
+            ),
+        };
+
+        foreach (var value in damageCases)
+        {
+            gallery.Select(value.Id);
+            yield return gallery.PlaySelectedForTests();
+            Assert.That(gallery.DamageFactCount, Is.EqualTo(value.Facts), value.Id);
+            Assert.That(gallery.HealingFactCount, Is.Zero, value.Id);
+            Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(value.HitPoints), value.Id);
+            Assert.That(gallery.IsPrimaryTargetActive, Is.EqualTo(value.Active), value.Id);
+        }
+
+        gallery.Select("spell/heal/2-action/living");
+        yield return gallery.PlaySelectedForTests();
+        Assert.That(gallery.DamageFactCount, Is.Zero);
+        Assert.That(gallery.HealingFactCount, Is.EqualTo(1));
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
+        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
+
+        gallery.Select("spell/heal/3-action/area-wave");
+        yield return gallery.PlaySelectedForTests();
+        Assert.That(gallery.DamageFactCount, Is.EqualTo(2));
+        Assert.That(gallery.HealingFactCount, Is.EqualTo(1));
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
+        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
+
+        gallery.ResetGallery();
+        Assert.That(gallery.DamageFactCount, Is.Zero);
+        Assert.That(gallery.HealingFactCount, Is.Zero);
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
+        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
+
+        Time.captureDeltaTime = 0f;
+        Scene cleanup = SceneManager.CreateScene("VFX Gallery Spell Health Cleanup");
         SceneManager.SetActiveScene(cleanup);
         yield return SceneManager.UnloadSceneAsync("VfxGallery");
     }

@@ -66,6 +66,10 @@ namespace Game.Rules.Unity.Vfx
 
         internal int DefeatPresentationCount => fixture.DefeatPresentationCount;
 
+        internal int DamageFactCount => fixture.DamageFactCount;
+
+        internal int HealingFactCount => fixture.HealingFactCount;
+
         /// <summary>Gets whether a selected or play-all timeline is currently owned by the gallery.</summary>
         public bool IsPlaybackActive => selectedPlayback != null || playAll != null;
 

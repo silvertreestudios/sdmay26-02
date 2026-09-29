@@ -25,7 +25,10 @@ The gallery does not mutate a live encounter. It builds immutable deterministic 
 then sends them through the same `UnitySpellActionPresenter`, `UnityStrikeActionPresenter`, Light,
 Rage, spell-effect, and Rotting Aura observers used by production encounters. Prefabs are loaded from
 the same Resources catalog. Reset stops gallery-owned selected and Play All routines, disposes active
-effect observers, and removes every playback-owned object.
+effect observers, removes every playback-owned object, and restores every fixture actor to its active
+10/10-health baseline before reset, replay, or navigation stages another entry. Spell damage and
+healing fixtures submit their deterministic committed amounts through the production health
+projection observer, including hit reactions and terminal defeat.
 
 ## Regenerating assets
 
@@ -55,7 +58,9 @@ once-per-frame samples, so they document this run rather than a universal maximu
 Materials are shared prefab assets rather than instantiated in `Update`. The per-frame motion path
 uses value-type interpolation and does not construct managed collections. Allocations are expected at
 the bounded spawn/despawn and deterministic-fixture boundaries. Point lights exist only on Light
-instances and are destroyed with their exact effect owner.
+instances. The point light and paired persistent orb are removed when their exact owner is disabled
+or destroyed and do not reappear if that owner is later reused; a new committed restoration Fact is
+required to recreate them.
 
 The inspected 1920x1080 Game View evidence shows effects confined to a target, weapon path, or bounded
 area rather than full-screen transparent layers. The representative automated run observed a peak of

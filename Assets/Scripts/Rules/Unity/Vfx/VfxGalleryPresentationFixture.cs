@@ -20,6 +20,7 @@ namespace Game.Rules.Unity.Vfx
     /// </summary>
     public sealed class VfxGalleryPresentationFixture : IDisposable
     {
+        private const int FixtureMaximumHitPoints = 10;
         private static readonly CreatureId SourceId = new("vfx-gallery-source");
         private static readonly CreatureId[] TargetIds =
         {
@@ -54,6 +55,8 @@ namespace Game.Rules.Unity.Vfx
         private int effectSequence;
         private long presentationSequence;
         private int defeatPresentationCount;
+        private int damageFactCount;
+        private int healingFactCount;
         private bool disposed;
 
         /// <summary>Creates one isolated gallery fixture around scene-owned review actors.</summary>
@@ -80,6 +83,7 @@ namespace Game.Rules.Unity.Vfx
             creatures.Add(SourceId, sourceCreature);
             for (int index = 0; index < TargetIds.Length; index++)
                 creatures.Add(TargetIds[index], RequireCreature(this.targets[index].gameObject));
+            RestoreActorState();
 
             spellCatalog = UnitySpellDefinitionCatalog.Load();
             spellPresenter = new UnitySpellActionPresenter(creatures, spellCatalog, playback);
@@ -143,6 +147,10 @@ namespace Game.Rules.Unity.Vfx
 
         internal int DefeatPresentationCount => defeatPresentationCount;
 
+        internal int DamageFactCount => damageFactCount;
+
+        internal int HealingFactCount => healingFactCount;
+
         /// <summary>Shortens only review holds and prefab durations for automated verification.</summary>
         public void ConfigureTestTiming(float persistentHoldSeconds)
         {
@@ -159,6 +167,8 @@ namespace Game.Rules.Unity.Vfx
             ThrowIfDisposed();
             trace.Clear();
             transientStarts.Clear();
+            damageFactCount = 0;
+            healingFactCount = 0;
             TargetCount = DetermineTargetCount(entry);
             Stage(entry);
 
@@ -188,6 +198,9 @@ namespace Game.Rules.Unity.Vfx
             TargetCount = 0;
             trace.Clear();
             transientStarts.Clear();
+            damageFactCount = 0;
+            healingFactCount = 0;
+            RestoreActorState();
         }
 
         /// <inheritdoc/>
@@ -226,6 +239,10 @@ namespace Game.Rules.Unity.Vfx
                     "miss" => RulesDegreeOfSuccess.Failure,
                     _ => RulesDegreeOfSuccess.Success,
                 };
+                int damage =
+                    degree == RulesDegreeOfSuccess.Failure ? 0
+                    : degree == RulesDegreeOfSuccess.CriticalSuccess ? 16
+                    : 8;
                 attacks.Add(
                     new SpellAttackResolution(
                         spell,
@@ -239,21 +256,30 @@ namespace Game.Rules.Unity.Vfx
                         18,
                         degree,
                         0,
-                        degree == RulesDegreeOfSuccess.Failure
+                        damage == 0
                             ? Array.Empty<TypedDamagePart>()
-                            : new[] { new TypedDamagePart("spirit", 8, new[] { "divine-lance" }) }
+                            : new[]
+                            {
+                                new TypedDamagePart("spirit", damage, new[] { "divine-lance" }),
+                            }
                     )
                 );
             }
             else if (spell.Spell.Value is "heal" or "haunting-hymn")
             {
                 RulesDegreeOfSuccess? degree = ParseDegree(entry.outcome);
-                bool living = !entry.outcome.Contains("undead", StringComparison.Ordinal);
+                bool heal = spell.Spell.Value == "heal";
+                bool livingHeal =
+                    heal
+                    && (
+                        entry.id == "spell/heal/3-action/area-wave"
+                        || !entry.outcome.Contains("undead", StringComparison.Ordinal)
+                    );
                 for (int index = 0; index < selected.Length; index++)
                 {
-                    bool targetLiving = living;
+                    bool targetLiving = !heal || livingHeal;
                     RulesDegreeOfSuccess? targetDegree = degree;
-                    if (spell.Spell.Value == "heal" && selected.Length == 3 && living)
+                    if (heal && selected.Length == 3 && livingHeal)
                     {
                         targetLiving = index == 0;
                         targetDegree = index switch
@@ -266,17 +292,26 @@ namespace Game.Rules.Unity.Vfx
                     creatures[selected[index]].traits = targetLiving
                         ? new List<string>()
                         : new List<string> { "undead" };
+                    int damage = targetLiving
+                        ? heal
+                            ? 0
+                            : ResolveBasicSaveDamage(targetDegree, 8)
+                        : ResolveBasicSaveDamage(targetDegree, 8);
                     results.Add(
                         new SpellTargetResolution(
                             selected[index],
                             targetDegree,
-                            targetLiving
+                            damage == 0 && heal && targetLiving
                                 ? Array.Empty<TypedDamagePart>()
                                 : new[]
                                 {
-                                    new TypedDamagePart("vitality", 8, new[] { spell.Spell.Value }),
+                                    new TypedDamagePart(
+                                        heal ? "vitality" : "sonic",
+                                        damage,
+                                        new[] { spell.Spell.Value }
+                                    ),
                                 },
-                            targetLiving ? 8 : 0,
+                            heal && targetLiving ? 8 : 0,
                             targetDegree == RulesDegreeOfSuccess.CriticalFailure
                         )
                     );
@@ -306,6 +341,7 @@ namespace Game.Rules.Unity.Vfx
                     activeEffects.Add(CreatePersistentSpell(spell, owner, rootId));
             }
             CastSpellOutcome outcome = new(SourceId, spell, activeEffects, attacks, results);
+            PresentSpellHealth(outcome, rootId);
             actionPresentation.Enqueue(
                 operation,
                 () => spellPresenter.PresentResolved(operation, outcome, snapshot)
@@ -570,6 +606,7 @@ namespace Game.Rules.Unity.Vfx
 
         private void Stage(VfxCoverageEntry entry)
         {
+            RestoreActorState();
             bool melee =
                 entry.id.StartsWith("strike/", StringComparison.Ordinal)
                 && !entry.id.Contains("shortbow", StringComparison.Ordinal)
@@ -578,7 +615,6 @@ namespace Game.Rules.Unity.Vfx
             float firstX = melee ? -0.25f : 2.6f;
             for (int index = 0; index < targets.Length; index++)
             {
-                creatures[TargetIds[index]].ResetDefeatPresentationForFixture();
                 targets[index].gameObject.SetActive(index < TargetCount);
                 targets[index].position = new Vector3(
                     firstX + index * 1.25f,
@@ -592,6 +628,114 @@ namespace Game.Rules.Unity.Vfx
                 targets[0].rotation = Quaternion.LookRotation(
                     source.position - targets[0].position
                 );
+            }
+        }
+
+        private void PresentSpellHealth(CastSpellOutcome outcome, OpId rootId)
+        {
+            int sequence = 0;
+            foreach (SpellAttackResolution attack in outcome.AttackResolutions)
+            {
+                PresentDamage(
+                    attack.Target,
+                    attack.FinalDamage,
+                    rootId,
+                    new HealthChangeOriginId($"vfx-gallery-spell-{rootId.Value}-{sequence++}")
+                );
+            }
+            foreach (SpellTargetResolution target in outcome.TargetResolutions)
+            {
+                int damage = target.Damage.Sum(part => part.Amount);
+                if (damage > 0)
+                {
+                    PresentDamage(
+                        target.Target,
+                        damage,
+                        rootId,
+                        new HealthChangeOriginId($"vfx-gallery-spell-{rootId.Value}-{sequence++}")
+                    );
+                }
+                if (target.Healing > 0)
+                {
+                    PresentHealing(
+                        target.Target,
+                        target.Healing,
+                        rootId,
+                        new HealthChangeOriginId($"vfx-gallery-spell-{rootId.Value}-{sequence++}")
+                    );
+                }
+            }
+        }
+
+        private void PresentDamage(
+            CreatureId target,
+            int requested,
+            OpId rootId,
+            HealthChangeOriginId origin
+        )
+        {
+            if (requested <= 0)
+                return;
+            CreatureComponent creature = creatures[target];
+            HealthState previous = creature.Health;
+            int applied = Math.Min(previous.Current, requested);
+            int current = previous.Current - applied;
+            HealthState committed = new(current, previous.Maximum);
+            RulesSnapshot healthSnapshot = new RulesState(
+                new RulesStateSeed().SeedHealth(target, committed)
+            ).Snapshot;
+            healthPresentation.OnFactCommitted(
+                new DamageAppliedFact(target, origin, requested, 0, applied),
+                rootId,
+                healthSnapshot
+            );
+            damageFactCount++;
+            if (current == 0)
+                healthPresentation.OnFactCommitted(
+                    new CreatureDefeatCommittedFact(target),
+                    rootId,
+                    healthSnapshot
+                );
+        }
+
+        private void PresentHealing(
+            CreatureId target,
+            int applied,
+            OpId rootId,
+            HealthChangeOriginId origin
+        )
+        {
+            CreatureComponent creature = creatures[target];
+            int previous = Math.Max(0, FixtureMaximumHitPoints - applied);
+            creature.InitializeHealthBeforeEncounter(previous, FixtureMaximumHitPoints);
+            RulesSnapshot healthSnapshot = new RulesState(
+                new RulesStateSeed().SeedHealth(
+                    target,
+                    new HealthState(previous + applied, FixtureMaximumHitPoints)
+                )
+            ).Snapshot;
+            healthPresentation.OnFactCommitted(
+                new HealingAppliedFact(target, origin, applied, applied),
+                rootId,
+                healthSnapshot
+            );
+            healingFactCount++;
+        }
+
+        private void RestoreActorState()
+        {
+            foreach ((CreatureId id, CreatureComponent creature) in creatures)
+            {
+                if (creature == null)
+                    continue;
+                creature.InitializeHealthBeforeEncounter(
+                    FixtureMaximumHitPoints,
+                    FixtureMaximumHitPoints
+                );
+                creature.ResetDefeatPresentationForFixture();
+                creature.gameObject.SetActive(true);
+                if (id != SourceId)
+                    creature.traits = new List<string>();
             }
         }
 
@@ -631,6 +775,16 @@ namespace Game.Rules.Unity.Vfx
                 return RulesDegreeOfSuccess.Success;
             return null;
         }
+
+        private static int ResolveBasicSaveDamage(RulesDegreeOfSuccess? degree, int rolled) =>
+            degree switch
+            {
+                RulesDegreeOfSuccess.CriticalSuccess => 0,
+                RulesDegreeOfSuccess.Success => rolled / 2,
+                RulesDegreeOfSuccess.Failure => rolled,
+                RulesDegreeOfSuccess.CriticalFailure => checked(rolled * 2),
+                _ => 0,
+            };
 
         private RuleDefinitionId RequireLightDefinition()
         {

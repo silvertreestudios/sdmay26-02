@@ -165,7 +165,7 @@ namespace Game.Rules.Unity.Light
 
         private void PresentNow(ActiveEffectId effect, CreatureComponent owner)
         {
-            if (!owned.Contains(effect) || owner == null)
+            if (!owned.Contains(effect) || owner == null || !owner.gameObject.activeInHierarchy)
                 return;
 
             GameObject visual = new("Spell Effect Light");
@@ -173,6 +173,7 @@ namespace Game.Rules.Unity.Light
             {
                 visual.transform.SetParent(owner.transform, false);
                 visual.transform.localPosition = Vector3.up;
+                visual.AddComponent<UnityLightOwnerLifetime>().Bind(() => Remove(effect));
                 UnityEngine.Light light = visual.AddComponent<UnityEngine.Light>();
                 light.type = LightType.Point;
                 light.range = 4f;
@@ -214,17 +215,14 @@ namespace Game.Rules.Unity.Light
             EncounterOutcomeCommittedFact fact,
             OpId rootId,
             RulesSnapshot currentSnapshot
-        )
-        {
-            List<ActiveEffectId> effects = new(owned);
-            foreach (ActiveEffectId effect in effects)
-                Remove(effect);
-        }
+        ) => Dispose();
 
         /// <summary>Removes every remaining encounter-owned presentation object.</summary>
         public void Dispose()
         {
-            foreach (ActiveEffectId effect in new List<ActiveEffectId>(owned))
+            HashSet<ActiveEffectId> effects = new(owned);
+            effects.UnionWith(visuals.Keys);
+            foreach (ActiveEffectId effect in effects)
                 Remove(effect);
         }
 
@@ -234,6 +232,8 @@ namespace Game.Rules.Unity.Light
             if (visuals.TryGetValue(effect, out GameObject visual))
             {
                 visuals.Remove(effect);
+                if (visual != null)
+                    visual.GetComponent<UnityLightOwnerLifetime>()?.Release();
                 Destroy(visual);
             }
             vfx.RemovePersistent(effect.Value + ":orb");
@@ -253,6 +253,31 @@ namespace Game.Rules.Unity.Light
                 UnityEngine.Object.Destroy(value);
             else
                 UnityEngine.Object.DestroyImmediate(value);
+        }
+    }
+
+    /// <summary>
+    /// Ends one child point-light presentation when Unity disables or destroys its creature owner.
+    /// </summary>
+    /// <remarks>
+    /// Unity invokes <see cref="OnDisable"/> on child components while deactivating a parent, so
+    /// this relay prevents a disabled owner's plain light object from surviving to a later reuse.
+    /// The observer releases the callback before intentional removal to keep cleanup idempotent.
+    /// </remarks>
+    internal sealed class UnityLightOwnerLifetime : MonoBehaviour
+    {
+        private Action ownerEnded = delegate { };
+
+        internal void Bind(Action callback) =>
+            ownerEnded = callback ?? throw new ArgumentNullException(nameof(callback));
+
+        internal void Release() => ownerEnded = delegate { };
+
+        private void OnDisable()
+        {
+            Action callback = ownerEnded;
+            Release();
+            callback();
         }
     }
 }
