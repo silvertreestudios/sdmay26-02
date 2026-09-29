@@ -378,6 +378,127 @@ public sealed class VfxPersistentPresentationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator EmptyAreaCastsKeepCastCueWithoutFabricatingAResult()
+    {
+        Time.captureDeltaTime = 0.1f;
+        GameObject casterObject = new("Empty area caster");
+        GameObject allyObject = new("Buff target");
+        CreatureComponent caster = casterObject.AddComponent<CreatureComponent>();
+        CreatureComponent ally = allyObject.AddComponent<CreatureComponent>();
+        CreatureId casterId = new("empty-area-caster");
+        CreatureId allyId = new("buff-target");
+        Dictionary<CreatureId, CreatureComponent> creatures = new()
+        {
+            [casterId] = caster,
+            [allyId] = ally,
+        };
+        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Empty area spell playback"
+        );
+        playback.ConfigureTestTiming(0.01f);
+        UnitySpellActionPresenter presenter = new(creatures, catalog, playback);
+        List<string> trace = new();
+        playback.CueStarted += cue => trace.Add(cue.Value);
+        RulesSnapshot snapshot = new InMemoryRulesStore(new RulesStateSeed()).Snapshot;
+
+        SpellReference hymn = new(new SpellId("haunting-hymn"), 1);
+        CastSpellActionOp emptyHymn = new(
+            casterId,
+            hymn,
+            new SpellActionVariant(2),
+            new SpellCastSelection(System.Array.Empty<CreatureId>(), SpellAreaDirection.East)
+        );
+        CastSpellOutcome emptyHymnOutcome = new(
+            casterId,
+            hymn,
+            System.Array.Empty<ActiveEffectId>(),
+            System.Array.Empty<SpellAttackResolution>()
+        );
+        SpellReference emptyHealSpell = new(new SpellId("heal"), 1);
+        CastSpellActionOp emptyHeal = new(
+            casterId,
+            emptyHealSpell,
+            new SpellActionVariant(3),
+            SpellCastSelection.Empty
+        );
+        CastSpellOutcome emptyHealOutcome = new(
+            casterId,
+            emptyHealSpell,
+            System.Array.Empty<ActiveEffectId>(),
+            System.Array.Empty<SpellAttackResolution>()
+        );
+        SpellReference shield = new(new SpellId("shield"), 1);
+        CastSpellActionOp selfEffect = new(
+            casterId,
+            shield,
+            new SpellActionVariant(1),
+            SpellCastSelection.Empty
+        );
+        CastSpellOutcome selfEffectOutcome = new(
+            casterId,
+            shield,
+            new[] { new ActiveEffectId("shield-effect") },
+            System.Array.Empty<SpellAttackResolution>()
+        );
+        SpellReference guidance = new(new SpellId("guidance"), 1);
+        CastSpellActionOp selectedBuff = new(
+            casterId,
+            guidance,
+            new SpellActionVariant(1),
+            new SpellCastSelection(new[] { allyId })
+        );
+        CastSpellOutcome selectedBuffOutcome = new(
+            casterId,
+            guidance,
+            new[] { new ActiveEffectId("guidance-effect") },
+            System.Array.Empty<SpellAttackResolution>()
+        );
+
+        IEnumerator[] timelines =
+        {
+            presenter.PresentBeginning(emptyHymn, snapshot),
+            presenter.PresentResolved(emptyHymn, emptyHymnOutcome, snapshot),
+            presenter.PresentBeginning(emptyHeal, snapshot),
+            presenter.PresentResolved(emptyHeal, emptyHealOutcome, snapshot),
+            presenter.PresentBeginning(selfEffect, snapshot),
+            presenter.PresentResolved(selfEffect, selfEffectOutcome, snapshot),
+            presenter.PresentBeginning(selectedBuff, snapshot),
+            presenter.PresentResolved(selectedBuff, selectedBuffOutcome, snapshot),
+        };
+        foreach (IEnumerator timeline in timelines)
+        {
+            using (timeline as System.IDisposable)
+            {
+                while (timeline.MoveNext())
+                    yield return timeline.Current;
+            }
+        }
+
+        Assert.That(
+            trace,
+            Is.EqualTo(
+                new[]
+                {
+                    "spell/haunting-hymn/cast",
+                    "spell/heal/cast",
+                    "spell/shield/cast",
+                    "spell/shield/persistent",
+                    "spell/guidance/cast",
+                    "spell/guidance/persistent",
+                }
+            )
+        );
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+
+        Object.Destroy(casterObject);
+        Object.Destroy(allyObject);
+        yield return null;
+        Time.captureDeltaTime = 0f;
+    }
+
+    [UnityTest]
     public IEnumerator LightDisposeCleansAVisualWhoseQueuedRemovalWasAborted()
     {
         GameObject ownerObject = new("Aborted Light removal owner");

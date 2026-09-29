@@ -455,7 +455,14 @@ namespace Game.Combat.Spells
                 }
             }
 
-            if (result.AttackResolutions.Count == 0 && result.TargetResolutions.Count == 0)
+            // Effects-only spells have no attack or target resolutions. Empty area casts can also
+            // resolve that way, so committed effect identities distinguish real buff presentation
+            // from a fabricated result for an area that affected nobody.
+            if (
+                result.CreatedEffects.Count > 0
+                && result.AttackResolutions.Count == 0
+                && result.TargetResolutions.Count == 0
+            )
             {
                 IReadOnlyList<CreatureId> selected = operation.Selection.Creatures;
                 if (selected.Count == 0)
