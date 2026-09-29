@@ -70,6 +70,12 @@ namespace Game.Rules.Unity.Vfx
 
         internal int HealingFactCount => fixture.HealingFactCount;
 
+        internal int TotalStrikeDamageFactCount => fixture.TotalStrikeDamageFactCount;
+
+        internal DamageOutcome LatestStrikeDamageOutcome => fixture.LatestStrikeDamageOutcome;
+
+        internal bool LatestStrikeDefeatCommitted => fixture.LatestStrikeDefeatCommitted;
+
         /// <summary>Gets whether a selected or play-all timeline is currently owned by the gallery.</summary>
         public bool IsPlaybackActive => selectedPlayback != null || playAll != null;
 

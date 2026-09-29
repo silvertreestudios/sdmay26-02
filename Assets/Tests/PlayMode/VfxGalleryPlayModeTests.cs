@@ -502,6 +502,109 @@ public sealed class VfxPersistentPresentationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator HealResultCuesUseCommittedMixedAreaOutcomesAfterTraitsChange()
+    {
+        Time.captureDeltaTime = 0.1f;
+        GameObject casterObject = new("Committed Heal caster");
+        GameObject livingTargetObject = new("Committed living Heal target");
+        GameObject undeadTargetObject = new("Committed undead Heal target");
+        CreatureComponent caster = casterObject.AddComponent<CreatureComponent>();
+        CreatureComponent livingTarget = livingTargetObject.AddComponent<CreatureComponent>();
+        CreatureComponent undeadTarget = undeadTargetObject.AddComponent<CreatureComponent>();
+        CreatureId casterId = new("committed-heal-caster");
+        CreatureId livingTargetId = new("committed-heal-living-target");
+        CreatureId undeadTargetId = new("committed-heal-undead-target");
+        Dictionary<CreatureId, CreatureComponent> creatures = new()
+        {
+            [casterId] = caster,
+            [livingTargetId] = livingTarget,
+            [undeadTargetId] = undeadTarget,
+        };
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Committed Heal outcome playback"
+        );
+        playback.ConfigureTestTiming(0.01f);
+        UnitySpellActionPresenter presenter = new(
+            creatures,
+            UnitySpellDefinitionCatalog.Load(),
+            playback
+        );
+        List<string> trace = new();
+        playback.CueStarted += cue => trace.Add(cue.Value);
+        SpellReference spell = new(new SpellId("heal"), 1);
+        CastSpellActionOp action = new(
+            casterId,
+            spell,
+            new SpellActionVariant(3),
+            new SpellCastSelection(new[] { casterId, livingTargetId, undeadTargetId })
+        );
+        CastSpellOutcome outcome = new(
+            casterId,
+            spell,
+            System.Array.Empty<ActiveEffectId>(),
+            System.Array.Empty<SpellAttackResolution>(),
+            new[]
+            {
+                new SpellTargetResolution(
+                    casterId,
+                    null,
+                    System.Array.Empty<TypedDamagePart>(),
+                    0,
+                    false
+                ),
+                new SpellTargetResolution(
+                    livingTargetId,
+                    null,
+                    System.Array.Empty<TypedDamagePart>(),
+                    0,
+                    false
+                ),
+                new SpellTargetResolution(
+                    undeadTargetId,
+                    Game.Rules.Runtime.DegreeOfSuccess.CriticalSuccess,
+                    new[] { new TypedDamagePart("vitality", 0, new[] { "heal" }) },
+                    0,
+                    false
+                ),
+            }
+        );
+
+        livingTarget.traits = new List<string> { "undead" };
+        undeadTarget.traits = new List<string>();
+        IEnumerator timeline = presenter.PresentResolved(
+            action,
+            outcome,
+            new InMemoryRulesStore(new RulesStateSeed()).Snapshot
+        );
+        using (timeline as System.IDisposable)
+        {
+            while (timeline.MoveNext())
+                yield return timeline.Current;
+        }
+
+        Assert.That(
+            trace,
+            Is.EqualTo(
+                new[]
+                {
+                    "spell/heal/3-action-emanation",
+                    "spell/heal/3-action-living",
+                    "spell/heal/3-action-living",
+                    "spell/heal/3-action-undead-critical-success",
+                }
+            ),
+            "Zero healing and fully resisted undead damage must retain their committed classifications."
+        );
+
+        Object.Destroy(casterObject);
+        Object.Destroy(livingTargetObject);
+        Object.Destroy(undeadTargetObject);
+        Time.captureDeltaTime = 0f;
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator LightDisposeCleansAVisualWhoseQueuedRemovalWasAborted()
     {
         GameObject ownerObject = new("Aborted Light removal owner");
@@ -977,12 +1080,29 @@ public sealed class VfxGalleryPlayModeTests
         int expectedDefeats = VfxCoverageManifest
             .Load()
             .entries.Count(entry => entry.category == "strike" && entry.outcome == "critical");
+        int strikeDamageFactsBefore = gallery.TotalStrikeDamageFactCount;
+        int expectedStrikeDamageFacts = VfxCoverageManifest
+            .Load()
+            .entries.Count(entry =>
+                (
+                    entry.id.StartsWith("strike/", System.StringComparison.Ordinal)
+                    && entry.outcome is "hit" or "critical"
+                )
+                || entry.id
+                    is "auxiliary/sneak-attack/hit"
+                        or "auxiliary/infuse-vitality-strike/hit"
+            );
 
         yield return gallery.PlayAllEntries();
         Assert.That(
             gallery.DefeatPresentationCount - defeatCountBefore,
             Is.EqualTo(expectedDefeats),
             "Play All must replay terminal presentation for every critical Strike fixture."
+        );
+        Assert.That(
+            gallery.TotalStrikeDamageFactCount - strikeDamageFactsBefore,
+            Is.EqualTo(expectedStrikeDamageFacts),
+            "Play All must emit damage Facts only for Strikes with applied damage."
         );
         gallery.ResetGallery();
         yield return null;
@@ -1386,22 +1506,91 @@ public sealed class VfxGalleryPlayModeTests
         gallery.ConfigureTestTiming(0.01f);
         Time.captureDeltaTime = 0.1f;
 
-        gallery.Select("strike/mace/hit");
+        int defeatCountBefore = gallery.DefeatPresentationCount;
+        var cases = new[]
+        {
+            (
+                Id: "strike/mace/hit",
+                Requested: 8,
+                Applied: 8,
+                Facts: 1,
+                HitPoints: 2,
+                Active: true,
+                Defeats: 0
+            ),
+            (
+                Id: "strike/shortbow/zero-damage-contact",
+                Requested: 0,
+                Applied: 0,
+                Facts: 0,
+                HitPoints: 10,
+                Active: true,
+                Defeats: 0
+            ),
+            (
+                Id: "strike/mace/critical",
+                Requested: 16,
+                Applied: 10,
+                Facts: 1,
+                HitPoints: 0,
+                Active: false,
+                Defeats: 1
+            ),
+            (
+                Id: "strike/mace/miss",
+                Requested: 0,
+                Applied: 0,
+                Facts: 0,
+                HitPoints: 10,
+                Active: true,
+                Defeats: 0
+            ),
+        };
+        int expectedDefeats = 0;
+        foreach (var value in cases)
+        {
+            gallery.Select(value.Id);
+            yield return gallery.PlaySelectedForTests();
+            expectedDefeats += value.Defeats;
+            Assert.That(
+                gallery.LatestStrikeDamageOutcome.Requested,
+                Is.EqualTo(value.Requested),
+                value.Id
+            );
+            Assert.That(
+                gallery.LatestStrikeDamageOutcome.Applied,
+                Is.EqualTo(value.Applied),
+                value.Id
+            );
+            Assert.That(gallery.DamageFactCount, Is.EqualTo(value.Facts), value.Id);
+            Assert.That(
+                gallery.LatestStrikeDefeatCommitted,
+                Is.EqualTo(value.Defeats == 1),
+                value.Id
+            );
+            Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(value.HitPoints), value.Id);
+            Assert.That(gallery.IsPrimaryTargetActive, Is.EqualTo(value.Active), value.Id);
+            Assert.That(
+                gallery.DefeatPresentationCount,
+                Is.EqualTo(defeatCountBefore + expectedDefeats),
+                value.Id
+            );
+        }
+        Assert.That(
+            gallery.LastTrace,
+            Does.Not.Contain("strike/bludgeoning/hit"),
+            "A miss must not emit a contact cue."
+        );
+
+        gallery.Select("strike/shortbow/zero-damage-contact");
         yield return gallery.PlaySelectedForTests();
-        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(2));
-        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
+        Assert.That(
+            gallery.LastTrace,
+            Does.Contain("strike/bow/hit"),
+            "Zero applied damage remains a committed contact, not a miss."
+        );
 
         gallery.Select("strike/mace/critical");
-        int defeatCountBefore = gallery.DefeatPresentationCount;
-        yield return gallery.PlaySelectedForTests();
-        Assert.That(gallery.PrimaryTargetHitPoints, Is.Zero);
-        Assert.That(
-            gallery.IsPrimaryTargetActive,
-            Is.False,
-            "Critical fixture must drain terminal defeat after its impact presentation."
-        );
-        Assert.That(gallery.DefeatPresentationCount, Is.EqualTo(defeatCountBefore + 1));
-
         yield return gallery.PlaySelectedForTests();
         Assert.That(gallery.PrimaryTargetHitPoints, Is.Zero);
         Assert.That(
@@ -1409,13 +1598,16 @@ public sealed class VfxGalleryPlayModeTests
             Is.False,
             "Replay must re-arm and drain terminal defeat presentation again."
         );
-        Assert.That(gallery.DefeatPresentationCount, Is.EqualTo(defeatCountBefore + 2));
+        Assert.That(
+            gallery.DefeatPresentationCount,
+            Is.EqualTo(defeatCountBefore + expectedDefeats + 1)
+        );
 
         gallery.ResetGallery();
-        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
-        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
-        gallery.Select("strike/mace/miss");
-        yield return gallery.PlaySelectedForTests();
+        Assert.That(gallery.LatestStrikeDamageOutcome.Requested, Is.Zero);
+        Assert.That(gallery.LatestStrikeDamageOutcome.Applied, Is.Zero);
+        Assert.That(gallery.DamageFactCount, Is.Zero);
+        Assert.That(gallery.LatestStrikeDefeatCommitted, Is.False);
         Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
         Assert.That(gallery.IsPrimaryTargetActive, Is.True);
 

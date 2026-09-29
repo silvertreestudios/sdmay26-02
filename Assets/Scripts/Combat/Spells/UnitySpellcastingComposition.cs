@@ -402,10 +402,8 @@ namespace Game.Combat.Spells
                 )
                     continue;
                 bool living =
-                    target.traits == null
-                    || !target.traits.Any(trait =>
-                        string.Equals(trait, "undead", StringComparison.OrdinalIgnoreCase)
-                    );
+                    operation.Spell.Spell.Value != "heal"
+                    || (targetResult.Degree is null && targetResult.Damage.Count == 0);
                 Vector3 targetPosition = target.transform.position + Vector3.up * 0.6f;
                 if (
                     operation.Spell.Spell.Value == "heal"

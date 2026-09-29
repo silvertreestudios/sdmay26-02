@@ -57,6 +57,9 @@ namespace Game.Rules.Unity.Vfx
         private int defeatPresentationCount;
         private int damageFactCount;
         private int healingFactCount;
+        private int totalStrikeDamageFactCount;
+        private DamageOutcome latestStrikeDamageOutcome;
+        private bool latestStrikeDefeatCommitted;
         private bool disposed;
 
         /// <summary>Creates one isolated gallery fixture around scene-owned review actors.</summary>
@@ -151,6 +154,12 @@ namespace Game.Rules.Unity.Vfx
 
         internal int HealingFactCount => healingFactCount;
 
+        internal int TotalStrikeDamageFactCount => totalStrikeDamageFactCount;
+
+        internal DamageOutcome LatestStrikeDamageOutcome => latestStrikeDamageOutcome;
+
+        internal bool LatestStrikeDefeatCommitted => latestStrikeDefeatCommitted;
+
         /// <summary>Shortens only review holds and prefab durations for automated verification.</summary>
         public void ConfigureTestTiming(float persistentHoldSeconds)
         {
@@ -200,6 +209,8 @@ namespace Game.Rules.Unity.Vfx
             transientStarts.Clear();
             damageFactCount = 0;
             healingFactCount = 0;
+            latestStrikeDamageOutcome = default;
+            latestStrikeDefeatCommitted = false;
             RestoreActorState();
         }
 
@@ -373,6 +384,7 @@ namespace Game.Rules.Unity.Vfx
                 degree is RulesDegreeOfSuccess.Success or RulesDegreeOfSuccess.CriticalSuccess;
             int damage =
                 entry.outcome == "zero damage contact" ? 0
+                : degree == RulesDegreeOfSuccess.CriticalSuccess ? 16
                 : hit ? 8
                 : 0;
             IReadOnlyList<TypedDamagePart> parts = hit
@@ -394,39 +406,21 @@ namespace Game.Rules.Unity.Vfx
                 operation,
                 () => strikePresenter.PresentBeginning(operation, snapshot)
             );
-            if (hit)
-            {
-                bool defeated = degree == RulesDegreeOfSuccess.CriticalSuccess;
-                bool wasDefeated = creatures[TargetIds[0]].IsDefeated;
-                RulesSnapshot healthSnapshot = new RulesState(
-                    new RulesStateSeed().SeedHealth(
-                        TargetIds[0],
-                        new HealthState(defeated ? 0 : 2, 10)
-                    )
-                ).Snapshot;
-                healthPresentation.OnFactCommitted(
-                    new DamageAppliedFact(
-                        TargetIds[0],
-                        new HealthChangeOriginId("vfx-gallery-strike"),
-                        damage,
-                        0,
-                        damage
-                    ),
+            bool wasDefeated = creatures[TargetIds[0]].IsDefeated;
+            latestStrikeDamageOutcome = PresentDamage(
+                TargetIds[0],
+                resolution.FinalDamage,
+                rootId,
+                new HealthChangeOriginId("vfx-gallery-strike"),
+                out latestStrikeDefeatCommitted
+            );
+            if (latestStrikeDamageOutcome.Applied > 0)
+                totalStrikeDamageFactCount++;
+            if (latestStrikeDefeatCommitted)
+                actionPresentation.TryEnqueueAfterAction(
                     rootId,
-                    healthSnapshot
+                    () => RecordDefeatPresentation(wasDefeated)
                 );
-                if (defeated)
-                    healthPresentation.OnFactCommitted(
-                        new CreatureDefeatCommittedFact(TargetIds[0]),
-                        rootId,
-                        healthSnapshot
-                    );
-                if (defeated)
-                    actionPresentation.TryEnqueueAfterAction(
-                        rootId,
-                        () => RecordDefeatPresentation(wasDefeated)
-                    );
-            }
             actionPresentation.Enqueue(
                 operation,
                 () => strikePresenter.PresentResolved(operation, resolution, snapshot)
@@ -640,7 +634,8 @@ namespace Game.Rules.Unity.Vfx
                     attack.Target,
                     attack.FinalDamage,
                     rootId,
-                    new HealthChangeOriginId($"vfx-gallery-spell-{rootId.Value}-{sequence++}")
+                    new HealthChangeOriginId($"vfx-gallery-spell-{rootId.Value}-{sequence++}"),
+                    out _
                 );
             }
             foreach (SpellTargetResolution target in outcome.TargetResolutions)
@@ -652,7 +647,8 @@ namespace Game.Rules.Unity.Vfx
                         target.Target,
                         damage,
                         rootId,
-                        new HealthChangeOriginId($"vfx-gallery-spell-{rootId.Value}-{sequence++}")
+                        new HealthChangeOriginId($"vfx-gallery-spell-{rootId.Value}-{sequence++}"),
+                        out _
                     );
                 }
                 if (target.Healing > 0)
@@ -667,35 +663,57 @@ namespace Game.Rules.Unity.Vfx
             }
         }
 
-        private void PresentDamage(
+        private DamageOutcome PresentDamage(
             CreatureId target,
             int requested,
             OpId rootId,
-            HealthChangeOriginId origin
+            HealthChangeOriginId origin,
+            out bool defeatCommitted
         )
         {
-            if (requested <= 0)
-                return;
             CreatureComponent creature = creatures[target];
             HealthState previous = creature.Health;
-            int applied = Math.Min(previous.Current, requested);
-            int current = previous.Current - applied;
-            HealthState committed = new(current, previous.Maximum);
+            int appliedToTemporary = Math.Min(previous.Temporary, requested);
+            int remaining = requested - appliedToTemporary;
+            int appliedToCurrent = Math.Min(previous.Current, remaining);
+            DamageOutcome outcome = new(requested, appliedToTemporary, appliedToCurrent);
+            defeatCommitted = false;
+            if (outcome.Applied == 0)
+                return outcome;
+
+            int current = previous.Current - outcome.AppliedToCurrent;
+            int temporary = previous.Temporary - outcome.AppliedToTemporary;
+            RuleSource temporarySource = temporary == 0 ? default : previous.TemporarySource;
+            HealthState committed = new(
+                current,
+                previous.Maximum,
+                temporary,
+                temporarySource,
+                previous.TemporaryHitPointImmunities
+            );
+            defeatCommitted = previous.Current > 0 && current == 0;
             RulesSnapshot healthSnapshot = new RulesState(
                 new RulesStateSeed().SeedHealth(target, committed)
             ).Snapshot;
             healthPresentation.OnFactCommitted(
-                new DamageAppliedFact(target, origin, requested, 0, applied),
+                new DamageAppliedFact(
+                    target,
+                    origin,
+                    outcome.Requested,
+                    outcome.AppliedToTemporary,
+                    outcome.AppliedToCurrent
+                ),
                 rootId,
                 healthSnapshot
             );
             damageFactCount++;
-            if (current == 0)
+            if (defeatCommitted)
                 healthPresentation.OnFactCommitted(
                     new CreatureDefeatCommittedFact(target),
                     rootId,
                     healthSnapshot
                 );
+            return outcome;
         }
 
         private void PresentHealing(
