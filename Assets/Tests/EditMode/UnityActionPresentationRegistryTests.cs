@@ -70,6 +70,14 @@ public sealed class UnityActionPresentationRegistryTests
             Is.False,
             "The failed sequence must release its root mapping."
         );
+        Assert.That(
+            coordinator.TryEnqueueAfterResult(
+                rootId,
+                () => RecordPresentation(() => remainingCalls++)
+            ),
+            Is.False,
+            "The failed sequence must release post-result correlation."
+        );
         IEnumerator secondDrain = coordinator.Drain(action);
         Assert.That(secondDrain.MoveNext(), Is.False, "The failed sequence must be released.");
     }
@@ -125,6 +133,43 @@ public sealed class UnityActionPresentationRegistryTests
         Drain(coordinator.Drain(action));
 
         Assert.That(calls, Is.EqualTo(new[] { "windup", "impact", "hit", "defeat" }));
+    }
+
+    [Test]
+    public void DrainsPostResultProjectionAfterReactionsAndBeforeTerminalDefeat()
+    {
+        UnityActionPresentationCoordinator coordinator = new();
+        object action = new();
+        OpId rootId = new(44);
+        List<string> calls = new();
+        coordinator.Begin(action, rootId);
+        coordinator.Enqueue(action, () => RecordPresentation(() => calls.Add("windup")));
+        Assert.That(
+            coordinator.TryEnqueueAfterResult(
+                rootId,
+                () => RecordPresentation(() => calls.Add("persistent"))
+            ),
+            Is.True
+        );
+        Assert.That(
+            coordinator.TryEnqueueReaction(
+                rootId,
+                () => RecordPresentation(() => calls.Add("hit"))
+            ),
+            Is.True
+        );
+        Assert.That(
+            coordinator.TryEnqueueAfterAction(
+                rootId,
+                () => RecordPresentation(() => calls.Add("defeat"))
+            ),
+            Is.True
+        );
+        coordinator.Enqueue(action, () => RecordPresentation(() => calls.Add("impact")));
+
+        Drain(coordinator.Drain(action));
+
+        Assert.That(calls, Is.EqualTo(new[] { "windup", "impact", "hit", "persistent", "defeat" }));
     }
 
     private static RuleDispatcher CreateDispatcher() =>

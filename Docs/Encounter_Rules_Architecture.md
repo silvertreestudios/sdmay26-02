@@ -406,13 +406,15 @@ constructs the shared Rage definition and installs the feature module in explici
 `UnityActionPresentationRegistry` is the generic Unity routing boundary. Feature modules explicitly
 register typed presenters by stable `ActionDefinitionId`; the registry verifies the concrete
 action/outcome pair. Its observer opens one encounter-owned sequence for the exact action at begin,
-then appends feature presentation and committed hit reactions in Fact order. Terminal defeat uses
-one post-action queue so it runs after resolved action presentation. Strike and spell callers drain
-that exact sequence after synchronous dispatch before unlocking. The coordinator has one top-level
-execution catch: the first failure is logged, remaining steps are abandoned, and exact-action/root
-mappings are released. There is no retry or recovery state. Stride uses the same synchronous
-observer boundary to queue committed movement steps, then drains its root-scoped Unity projection
-before deciding whether an exploration route may continue.
+then appends feature presentation and committed hit reactions. Active-effect creation observed
+during the action uses a generic post-result phase: it waits for resolved presentation and reactions
+but runs before terminal post-action defeat. Creation observed without an active action sequence,
+including dungeon restoration, projects immediately. Terminal defeat uses one post-action queue so
+it runs last. Strike and spell callers drain that exact sequence after synchronous dispatch before
+unlocking. The coordinator has one top-level execution catch: the first failure is logged, remaining
+steps are abandoned, and exact-action/root mappings are released. There is no retry or recovery
+state. Stride uses the same synchronous observer boundary to queue committed movement steps, then
+drains its root-scoped Unity projection before deciding whether an exploration route may continue.
 
 Strike and spell presenters own attacker animation and their action result presentation. They do
 not reselect targets or recalculate outcomes. Every committed health Fact immediately projects its

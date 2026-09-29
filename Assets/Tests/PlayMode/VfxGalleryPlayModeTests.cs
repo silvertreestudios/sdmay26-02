@@ -96,6 +96,115 @@ public sealed class VfxPersistentPresentationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator ActionCreationWaitsForResultAndSurvivesThroughTerminalPresentation()
+    {
+        GameObject ownerObject = new("Post-result persistent owner");
+        CreatureComponent owner = ownerObject.AddComponent<CreatureComponent>();
+        CreatureId ownerId = new("post-result-persistent-owner");
+        ActiveEffectInstance effect = new(
+            new ActiveEffectId("post-result-persistent-effect"),
+            SpellFeatureRules.ShieldEffect,
+            ownerId,
+            RuleSource.FromSlug("post-result-persistent-test"),
+            EffectDuration.Indefinite,
+            new SpellEffectState(new SpellReference(new SpellId("shield"), 1), ownerId)
+        );
+        ActiveRuleBinding binding = new(
+            new BindingId("post-result-persistent-binding"),
+            effect.DefinitionId,
+            ownerId,
+            effect.Id,
+            effect.Source,
+            1
+        );
+        RulesSnapshot snapshot = new InMemoryRulesStore(
+            new RulesStateSeed().SeedActiveEffect(effect)
+        ).Snapshot;
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Post-result persistent playback"
+        );
+        using UnityActionPresentationCoordinator coordinator = new();
+        using UnityPersistentVfxObserver observer = new(
+            playback,
+            new Dictionary<CreatureId, CreatureComponent> { [ownerId] = owner },
+            SpellPersistentVfxSelector.Select,
+            coordinator
+        );
+        List<string> trace = new();
+        playback.CueStarted += cue => trace.Add(cue.Value);
+        object action = new();
+        OpId rootId = new(7);
+        coordinator.Begin(action, rootId);
+        coordinator.Enqueue(action, () => Record(() => trace.Add("windup")));
+        observer.OnFactCommitted(new ActiveEffectCreatedFact(effect, binding.Id), rootId, snapshot);
+        Assert.That(
+            playback.LiveObjectCount,
+            Is.Zero,
+            "Committed creation must wait for the action's resolved presentation."
+        );
+        Assert.That(
+            coordinator.TryEnqueueReaction(rootId, () => Record(() => trace.Add("reaction"))),
+            Is.True
+        );
+        Assert.That(
+            coordinator.TryEnqueueAfterAction(
+                rootId,
+                () => RecordDefeat(ownerObject, playback, trace)
+            ),
+            Is.True
+        );
+        coordinator.Enqueue(action, () => Record(() => trace.Add("result")));
+
+        IEnumerator drain = coordinator.Drain(action);
+        while (drain.MoveNext())
+            yield return drain.Current;
+
+        Assert.That(
+            trace,
+            Is.EqualTo(
+                new[] { "windup", "result", "reaction", "spell/shield/persistent", "defeat" }
+            )
+        );
+        Assert.That(ownerObject.activeSelf, Is.False);
+        yield return null;
+        Assert.That(
+            playback.LiveObjectCount,
+            Is.Zero,
+            "Terminal owner loss must end the newly created persistent visual."
+        );
+
+        observer.OnFactCommitted(
+            new ActiveEffectRemovedFact(effect, binding, ActiveEffectRemovalReason.Expired),
+            new OpId(8),
+            snapshot
+        );
+        ownerObject.SetActive(true);
+        observer.OnFactCommitted(
+            new ActiveEffectCreatedFact(effect, binding.Id),
+            new OpId(9),
+            snapshot
+        );
+        Assert.That(
+            playback.LiveObjectCount,
+            Is.EqualTo(1),
+            "Restoration outside an action must project immediately."
+        );
+        observer.OnFactCommitted(
+            new EncounterOutcomeCommittedFact(
+                new EncounterId("post-result-persistent-encounter"),
+                EncounterOutcome.PlayerVictory
+            ),
+            new OpId(10),
+            snapshot
+        );
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+
+        Object.Destroy(ownerObject);
+        yield return null;
+    }
+
+    [UnityTest]
     public IEnumerator GuidanceConsumptionPlaysTransientPulseAndLeavesNoPersistentObject()
     {
         Time.captureDeltaTime = 0.1f;
@@ -216,6 +325,33 @@ public sealed class VfxPersistentPresentationPlayModeTests
         Object.Destroy(ownerObject);
         yield return null;
     }
+
+    private static IEnumerator Record(System.Action record)
+    {
+        record();
+        yield break;
+    }
+
+    private static IEnumerator RecordDefeat(
+        GameObject owner,
+        UnityVfxPlayback playback,
+        ICollection<string> trace
+    )
+    {
+        Assert.That(
+            owner.activeSelf,
+            Is.True,
+            "Post-result creation must run before terminal defeat presentation."
+        );
+        Assert.That(
+            playback.LiveObjectCount,
+            Is.EqualTo(1),
+            "The post-result persistent visual must exist before terminal defeat."
+        );
+        trace.Add("defeat");
+        owner.SetActive(false);
+        yield break;
+    }
 }
 
 public sealed class VfxGalleryPlayModeTests
@@ -281,6 +417,18 @@ public sealed class VfxGalleryPlayModeTests
             Assert.That(gallery.CurrentTargetCount, Is.EqualTo(expectedTargets), entry.id);
             if (entry.id.StartsWith("spell/infuse-vitality/"))
             {
+                string beamCue = SpellVfxCueSelector
+                    .GetResult(new SpellId("infuse-vitality"), expectedTargets)
+                    .Value;
+                string[] expectedTrace = new[] { "spell/infuse-vitality/cast" }
+                    .Concat(Enumerable.Repeat(beamCue, expectedTargets))
+                    .Concat(Enumerable.Repeat("spell/infuse-vitality/persistent", expectedTargets))
+                    .ToArray();
+                Assert.That(
+                    gallery.LastTrace,
+                    Is.EqualTo(expectedTrace),
+                    entry.id + " must complete every delivery beam before creating coatings."
+                );
                 Assert.That(
                     gallery.LastTrace.Count(cue => cue == entry.cue),
                     Is.EqualTo(expectedTargets),

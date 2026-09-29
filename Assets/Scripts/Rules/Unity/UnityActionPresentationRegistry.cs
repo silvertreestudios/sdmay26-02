@@ -182,9 +182,9 @@ namespace Game.Rules.Unity
 
     /// <summary>
     /// Retains encounter-scoped Unity coroutine steps until the exact action caller drains them.
-    /// Normal steps retain enqueue order; post-action reactions run after them. The first
-    /// execution failure is logged once, abandons the remaining steps, and releases both action
-    /// and root correlation.
+    /// Normal steps retain enqueue order. Reactions then settle before post-result projections,
+    /// while terminal post-action presentation remains last. The first execution failure is
+    /// logged once, abandons the remaining steps, and releases both action and root correlation.
     /// </summary>
     internal sealed class UnityActionPresentationCoordinator : IDisposable
     {
@@ -245,6 +245,20 @@ namespace Game.Rules.Unity
             return true;
         }
 
+        /// <summary>
+        /// Enqueues committed projection that must wait for resolved feature presentation but
+        /// remain visible before terminal post-action presentation disables its owner.
+        /// </summary>
+        internal bool TryEnqueueAfterResult(OpId rootId, Func<IEnumerator> step)
+        {
+            if (step == null)
+                throw new ArgumentNullException(nameof(step));
+            if (!byRoot.TryGetValue(rootId, out Sequence sequence))
+                return false;
+            sequence.AfterResultSteps.Enqueue(step);
+            return true;
+        }
+
         internal bool TryEnqueueReaction(OpId rootId, Func<IEnumerator> step)
         {
             if (step == null)
@@ -267,12 +281,14 @@ namespace Game.Rules.Unity
                 while (
                     sequence.Steps.Count > 0
                     || sequence.ReactionSteps.Count > 0
+                    || sequence.AfterResultSteps.Count > 0
                     || sequence.AfterActionSteps.Count > 0
                 )
                 {
                     Queue<Func<IEnumerator>> steps =
                         sequence.Steps.Count > 0 ? sequence.Steps
                         : sequence.ReactionSteps.Count > 0 ? sequence.ReactionSteps
+                        : sequence.AfterResultSteps.Count > 0 ? sequence.AfterResultSteps
                         : sequence.AfterActionSteps;
                     Func<IEnumerator> createStep = steps.Dequeue();
                     IEnumerator step = null;
@@ -385,6 +401,7 @@ namespace Game.Rules.Unity
             internal OpId RootId { get; }
             internal Queue<Func<IEnumerator>> Steps { get; } = new();
             internal Queue<Func<IEnumerator>> ReactionSteps { get; } = new();
+            internal Queue<Func<IEnumerator>> AfterResultSteps { get; } = new();
             internal Queue<Func<IEnumerator>> AfterActionSteps { get; } = new();
         }
 

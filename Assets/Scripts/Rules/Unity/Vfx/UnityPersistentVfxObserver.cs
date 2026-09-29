@@ -149,7 +149,7 @@ namespace Game.Rules.Unity.Vfx
             owned.Add(effect.Id);
             PersistentVfxAnchor anchor = selection.Value.ResolveAnchor(owner);
             if (
-                !coordinator.TryEnqueue(
+                !coordinator.TryEnqueueAfterResult(
                     rootId,
                     () => SetPersistent(effect.Id, selection.Value.Cue, anchor)
                 )
