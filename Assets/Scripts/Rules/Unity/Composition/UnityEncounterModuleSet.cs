@@ -41,7 +41,8 @@ namespace Game.Rules.Unity.Composition
             StrideActionDefinition strideDefinition,
             ICombatantFriendshipProvider friendshipProvider,
             bool installUnityAuthority,
-            IReadOnlyList<UnityEncounterExtension> extensions
+            IReadOnlyList<UnityEncounterExtension> extensions,
+            CompositeLifetime encounterLifetime
         )
         {
             if (owner == null)
@@ -55,9 +56,13 @@ namespace Game.Rules.Unity.Composition
                     "Encounter extensions cannot contain null.",
                     nameof(extensions)
                 );
+            if (encounterLifetime == null)
+                throw new ArgumentNullException(nameof(encounterLifetime));
             UnityStrikeContext strikeContext = new(creatures, tiles, friendshipProvider);
             UnitySpellAttackContext spellAttackContext = new(creatures, tiles, friendshipProvider);
-            UnityVfxPlayback vfx = new(new ResourcesVfxPrefabCatalog(), "Encounter VFX");
+            UnityVfxPlayback vfx = encounterLifetime.Add(
+                new UnityVfxPlayback(new ResourcesVfxPrefabCatalog(), "Encounter VFX")
+            );
             UnityRottingAuraModule rottingAura = new(creatures, tiles, vfx);
             UnitySpellDefinitionCatalog spellCatalog = UnitySpellDefinitionCatalog.Load();
             UnitySpellCreatureDataProvider spellCreatureData = new(creatures);
@@ -91,7 +96,6 @@ namespace Game.Rules.Unity.Composition
             UnityActionPresentationRegistry actionPresentation = new(actionPresentationCoordinator);
             List<IUnityEncounterModule> modules = new()
             {
-                new UnityVfxEncounterLifetimeModule(vfx),
                 rottingAura,
                 new DungeonRulesEffectPersistenceModule(
                     owner,
@@ -99,7 +103,7 @@ namespace Game.Rules.Unity.Composition
                 ),
                 new ConditionEncounterModule(owner),
                 new UnitySlowedModule(),
-                new UnityRageModule(rageDefinition, creatures, vfx),
+                new UnityRageModule(rageDefinition, creatures, vfx, actionPresentationCoordinator),
                 new UnityStrikeEncounterModule(
                     strikeContext,
                     controllers,
@@ -113,12 +117,15 @@ namespace Game.Rules.Unity.Composition
                     spellAttackContext,
                     creatures,
                     installUnityAuthority,
-                    vfx
+                    vfx,
+                    actionPresentationCoordinator
                 ),
             };
             modules.AddRange(extensions.Select(extension => extension.Module));
             modules.Add(new UnityActionPresentationModule(actionPresentation));
-            modules.Add(new UnityLightModule(spellCatalog, creatures, vfx));
+            modules.Add(
+                new UnityLightModule(spellCatalog, creatures, vfx, actionPresentationCoordinator)
+            );
             modules.Add(
                 new UnityHealthProjectionModule(
                     creatures,

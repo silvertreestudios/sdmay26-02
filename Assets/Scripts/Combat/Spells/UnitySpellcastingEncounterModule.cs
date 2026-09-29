@@ -9,6 +9,7 @@ using Game.Rules.Unity.Composition;
 using Game.Rules.Unity.Spells;
 using Game.Rules.Unity.Vfx;
 using GridPrivate;
+using UnityEngine;
 
 namespace Game.Combat.Spells
 {
@@ -27,9 +28,37 @@ namespace Game.Combat.Spells
                 && effect.DefinitionId != SpellFeatureRules.InfuseVitalityEffect
             )
                 return null;
-            return SpellVfxCueSelector.TryGetPersistent(state.Spell.Spell, out VfxCueId cue)
-                ? new PersistentVfxSelection(state.Target, cue)
-                : null;
+            if (!SpellVfxCueSelector.TryGetPersistent(state.Spell.Spell, out VfxCueId cue))
+                return null;
+            if (effect.DefinitionId == SpellFeatureRules.GuidanceEffect)
+                return new PersistentVfxSelection(
+                    state.Target,
+                    cue,
+                    new VfxCueId("spell/guidance/consume")
+                );
+            return effect.DefinitionId == SpellFeatureRules.InfuseVitalityEffect
+                ? new PersistentVfxSelection(state.Target, cue, ResolveHandOrWeaponAnchor)
+                : new PersistentVfxSelection(state.Target, cue);
+        }
+
+        private static PersistentVfxAnchor ResolveHandOrWeaponAnchor(CreatureComponent owner)
+        {
+            Animator animator = owner.GetComponentInChildren<Animator>();
+            if (animator != null && animator.isHuman)
+            {
+                Transform hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+                if (hand != null)
+                    return new PersistentVfxAnchor(hand, Vector3.zero, true);
+            }
+            Transform namedHand = owner
+                .GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(candidate =>
+                    candidate.name.IndexOf("right", StringComparison.OrdinalIgnoreCase) >= 0
+                    && candidate.name.IndexOf("hand", StringComparison.OrdinalIgnoreCase) >= 0
+                );
+            return namedHand != null
+                ? new PersistentVfxAnchor(namedHand, Vector3.zero, true)
+                : new PersistentVfxAnchor(owner.transform, new Vector3(0.35f, 0.8f, 0.15f), true);
         }
     }
 
@@ -47,6 +76,7 @@ namespace Game.Combat.Spells
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly bool installUnityAuthority;
         private readonly UnityVfxPlayback vfx;
+        private readonly UnityActionPresentationCoordinator actionPresentation;
 
         internal UnitySpellcastingEncounterModule(
             UnityCombatRulesBridge owner,
@@ -54,7 +84,8 @@ namespace Game.Combat.Spells
             UnitySpellAttackContext attackContext,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
             bool installUnityAuthority,
-            UnityVfxPlayback vfx
+            UnityVfxPlayback vfx,
+            UnityActionPresentationCoordinator actionPresentation
         )
         {
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
@@ -64,6 +95,8 @@ namespace Game.Combat.Spells
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.installUnityAuthority = installUnityAuthority;
             this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
+            this.actionPresentation =
+                actionPresentation ?? throw new ArgumentNullException(nameof(actionPresentation));
         }
 
         /// <inheritdoc/>
@@ -142,7 +175,8 @@ namespace Game.Combat.Spells
                 UnityPersistentVfxObserver persistent = new(
                     vfx,
                     creatures,
-                    SpellPersistentVfxSelector.Select
+                    SpellPersistentVfxSelector.Select,
+                    actionPresentation
                 );
                 lifetime.Add(persistent);
                 lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(persistent));

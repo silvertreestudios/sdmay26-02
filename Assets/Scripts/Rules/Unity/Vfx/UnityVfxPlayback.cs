@@ -151,6 +151,19 @@ namespace Game.Rules.Unity.Vfx
         /// <summary>Creates or replaces one persistent object under an authoritative stable key.</summary>
         public void SetPersistent(string key, VfxCueId cue, Transform owner, float intensity = 1f)
         {
+            SetPersistent(key, cue, owner, Vector3.up * 0.55f, false, intensity);
+        }
+
+        /// <summary>Creates or replaces a persistent object at an explicit owner-relative anchor.</summary>
+        public void SetPersistent(
+            string key,
+            VfxCueId cue,
+            Transform owner,
+            Vector3 localOffset,
+            bool followRotation,
+            float intensity = 1f
+        )
+        {
             ThrowIfDisposed();
             if (string.IsNullOrWhiteSpace(key))
                 throw new ArgumentException("A persistent VFX key is required.", nameof(key));
@@ -173,7 +186,7 @@ namespace Game.Rules.Unity.Vfx
                     $"VFX prefab '{cue}' is missing {nameof(UnityVfxInstance)}."
                 );
             }
-            behavior.Follow(owner);
+            behavior.Follow(owner, localOffset, followRotation);
             behavior.Begin(
                 owner.position,
                 owner.position,

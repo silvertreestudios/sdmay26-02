@@ -12,8 +12,10 @@ deterministic committed fixture. **Pause** and **Slow Motion** affect the whole 
 **Close View** moves the normal Game camera nearer to contact while **Wide View** restores the full
 combat framing. **Copy ID** copies the exact manifest ID and shows confirmation in the scene.
 
-Each entry displays its stable ID, variant, committed outcome, production reachability, gameplay
-trigger, declared cue, actual target count, and the production cues emitted by the latest timeline.
+The manifest currently contains exactly 69 reviewable entries, including all twelve undead Heal
+action-count/save-degree combinations. Each entry displays its stable ID, variant, committed outcome,
+production reachability, gameplay trigger, declared cue, actual target count, and the production cues
+emitted by the latest timeline.
 Longsword is intentionally fixture-only. The manifest at
 `Assets/Resources/Vfx/vfx-coverage-manifest.json` is the source of truth for supported entries and
 explicit exclusions.
@@ -33,17 +35,18 @@ after regeneration. Do not hand-edit the generated Unity YAML.
 ## Performance verification
 
 The final Windows/D3D12 verification used Unity 6000.2.1f1 in batch mode. Thirty idle gallery frames
-took 3.23 ms total, while ten accelerated production-fixture replays took 19.01 ms total. Unity's
-coarse total-allocated-memory counter increased by 4,038,034 bytes across those replays, including
+took 6.95 ms total, while ten accelerated production-fixture replays took 23.44 ms total. Unity's
+coarse total-allocated-memory counter increased by 3,797,379 bytes across those replays, including
 fixture construction, Resources loading, prefab instantiation, and test-runner allocations. Peak
-resources were one VFX root, one particle system, 22 renderers (the Rotting Aura boundary), one point
-light, and one distinct shared material; every replay reset returned to zero VFX roots. A separate
-20-cycle replacement stress measured 13.13 ms, a 1,499,583-byte coarse allocation delta, three peak
+resources were two overlapping VFX roots, two particle systems, 22 renderers (the Rotting Aura
+boundary), one point light, and one distinct shared material; every replay reset returned to zero VFX
+roots. A separate
+20-cycle replacement stress measured 13.18 ms, a 1,117,836-byte coarse allocation delta, three peak
 roots, and zero final roots.
 
 The visible production encounter capture also measured cold action-to-terminal-presentation time:
-Mace critical Strike 1,254.72 ms with a 15,577,690-byte coarse allocation delta, followed by Divine
-Lance critical at 3,174.95 ms and 2,012,126 bytes. These timings deliberately include authored
+Mace critical Strike 1,250.02 ms with a 15,628,201-byte coarse allocation delta, followed by Divine
+Lance critical at 3,177.70 ms and 2,285,261 bytes. These timings deliberately include authored
 timeline duration; the first measurement also includes cold Resources and encounter setup costs.
 They are regression observations for this machine, not frame-time or universal FPS claims.
 

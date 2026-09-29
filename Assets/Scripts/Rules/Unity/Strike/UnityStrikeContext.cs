@@ -468,6 +468,7 @@ namespace Game.Rules.Unity.Strike
                 prepared.DamageDice.Select(value => new PreparedStrikeDice(
                     value.Selector,
                     value.Category ?? "precision",
+                    value.Source,
                     value.DiceNumber,
                     value.DieSize,
                     Pf2ePredicate.Compile(value.Predicate, prepared)

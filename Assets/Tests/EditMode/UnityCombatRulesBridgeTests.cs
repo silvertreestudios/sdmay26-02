@@ -739,6 +739,9 @@ public sealed class UnityCombatRulesBridgeTests
     [Test]
     public void FailedInstallationPreflightLeavesEveryCandidateDetachedAndAllowsRetry()
     {
+        int vfxHostsBefore = Object
+            .FindObjectsByType<GameObject>(FindObjectsSortMode.None)
+            .Count(value => value.name == "Encounter VFX");
         GameObject firstObject = new GameObject("installation-first");
         GameObject throwerObject = new GameObject("installation-thrower");
         try
@@ -774,6 +777,13 @@ public sealed class UnityCombatRulesBridgeTests
             Assert.That(thrower.HasTurnAuthority, Is.False);
             Assert.That(firstCreature.Health, Is.EqualTo(new HealthState(10, 10)));
             Assert.That(throwerCreature.Health, Is.EqualTo(new HealthState(8, 8)));
+            Assert.That(
+                Object
+                    .FindObjectsByType<GameObject>(FindObjectsSortMode.None)
+                    .Count(value => value.name == "Encounter VFX"),
+                Is.EqualTo(vfxHostsBefore),
+                "A failed enrollment preflight must release its constructor-created VFX host."
+            );
 
             thrower.GetActionsEvent.RemoveAllListeners();
             UnityCombatRulesBridge retry = UnityCombatRulesBridge.Create(

@@ -6,6 +6,7 @@ using Game.Combat.Spells;
 using Game.Creature;
 using Game.Creature.Rules;
 using Game.Rules.Runtime;
+using Game.Rules.Unity.Composition;
 using Game.Rules.Unity.Light;
 using Game.Rules.Unity.Strike;
 using UnityEngine;
@@ -39,11 +40,14 @@ namespace Game.Rules.Unity.Vfx
         private readonly UnityPersistentVfxObserver rageEffects;
         private readonly UnityLightEffectPresentationObserver lightEffects;
         private readonly UnityRottingAuraModule rottingAura;
+        private readonly UnityActionPresentationCoordinator actionPresentation = new();
+        private readonly UnityHealthProjectionModule.HealthProjectionObserver healthPresentation;
         private readonly List<string> trace = new();
         private float persistentHoldSeconds = 0.8f;
         private ActiveEffectInstance currentEffect;
         private ActiveRuleBinding currentBinding;
         private int effectSequence;
+        private long presentationSequence;
         private bool disposed;
 
         /// <summary>Creates one isolated gallery fixture around scene-owned review actors.</summary>
@@ -83,17 +87,24 @@ namespace Game.Rules.Unity.Vfx
             spellEffects = new UnityPersistentVfxObserver(
                 playback,
                 creatures,
-                SpellPersistentVfxSelector.Select
+                SpellPersistentVfxSelector.Select,
+                actionPresentation
             );
             rageEffects = new UnityPersistentVfxObserver(
                 playback,
                 creatures,
-                RagePersistentVfxSelector.Select
+                RagePersistentVfxSelector.Select,
+                actionPresentation
             );
             lightEffects = UnityLightEffectPresentationObserver.Create(
                 spellCatalog,
                 creatures,
-                playback
+                playback,
+                actionPresentation
+            );
+            healthPresentation = new UnityHealthProjectionModule.HealthProjectionObserver(
+                creatures,
+                actionPresentation
             );
             rottingAura = new UnityRottingAuraModule(
                 creatures,
@@ -108,6 +119,12 @@ namespace Game.Rules.Unity.Vfx
 
         /// <summary>Gets the number of targets staged by the latest fixture timeline.</summary>
         public int TargetCount { get; private set; }
+
+        /// <summary>Gets the health most recently projected through the production health observer.</summary>
+        public int PrimaryTargetHitPoints => creatures[TargetIds[0]].Health.Current;
+
+        /// <summary>Gets whether the primary review target remains active after presentation.</summary>
+        public bool IsPrimaryTargetActive => creatures[TargetIds[0]].gameObject.activeSelf;
 
         /// <summary>Shortens only review holds and prefab durations for automated verification.</summary>
         public void ConfigureTestTiming(float persistentHoldSeconds)
@@ -147,6 +164,7 @@ namespace Game.Rules.Unity.Vfx
             spellEffects.Dispose();
             rageEffects.Dispose();
             lightEffects.Dispose();
+            actionPresentation.Dispose();
             currentEffect = null;
             currentBinding = null;
             TargetCount = 0;
@@ -234,8 +252,10 @@ namespace Game.Rules.Unity.Vfx
                 attacks,
                 results
             );
-            yield return Drain(spellPresenter.PresentBeginning(operation, snapshot));
-            yield return Drain(spellPresenter.PresentResolved(operation, outcome, snapshot));
+            OpId rootId = BeginPresentation(
+                operation,
+                () => spellPresenter.PresentBeginning(operation, snapshot)
+            );
 
             if (
                 spell.Spell.Value
@@ -249,8 +269,22 @@ namespace Game.Rules.Unity.Vfx
                 CreatureId owner = selected.FirstOrDefault();
                 if (owner.IsEmpty)
                     owner = SourceId;
-                yield return CreatePersistentSpell(spell, owner);
+                CreatePersistentSpell(spell, owner, rootId);
             }
+            actionPresentation.Enqueue(
+                operation,
+                () => spellPresenter.PresentResolved(operation, outcome, snapshot)
+            );
+            yield return Drain(actionPresentation.Drain(operation));
+            if (
+                spell.Spell.Value
+                is "light"
+                    or "shield"
+                    or "guidance"
+                    or "bless"
+                    or "infuse-vitality"
+            )
+                yield return new WaitForSeconds(persistentHoldSeconds);
         }
 
         private IEnumerator PlayStrike(VfxCoverageEntry entry, IReadOnlyList<string> sources)
@@ -285,11 +319,45 @@ namespace Game.Rules.Unity.Vfx
                 parts,
                 damage
             );
-            yield return Drain(strikePresenter.PresentBeginning(operation, snapshot));
-            yield return Drain(strikePresenter.PresentResolved(operation, resolution, snapshot));
+            OpId rootId = BeginPresentation(
+                operation,
+                () => strikePresenter.PresentBeginning(operation, snapshot)
+            );
+            if (hit)
+            {
+                bool defeated = degree == RulesDegreeOfSuccess.CriticalSuccess;
+                RulesSnapshot healthSnapshot = new RulesState(
+                    new RulesStateSeed().SeedHealth(
+                        TargetIds[0],
+                        new HealthState(defeated ? 0 : 2, 10)
+                    )
+                ).Snapshot;
+                healthPresentation.OnFactCommitted(
+                    new DamageAppliedFact(
+                        TargetIds[0],
+                        new HealthChangeOriginId("vfx-gallery-strike"),
+                        damage,
+                        0,
+                        damage
+                    ),
+                    rootId,
+                    healthSnapshot
+                );
+                if (defeated)
+                    healthPresentation.OnFactCommitted(
+                        new CreatureDefeatCommittedFact(TargetIds[0]),
+                        rootId,
+                        healthSnapshot
+                    );
+            }
+            actionPresentation.Enqueue(
+                operation,
+                () => strikePresenter.PresentResolved(operation, resolution, snapshot)
+            );
+            yield return Drain(actionPresentation.Drain(operation));
         }
 
-        private IEnumerator CreatePersistentSpell(SpellReference spell, CreatureId owner)
+        private void CreatePersistentSpell(SpellReference spell, CreatureId owner, OpId rootId)
         {
             RuleDefinitionId definition = spell.Spell.Value switch
             {
@@ -309,10 +377,9 @@ namespace Game.Rules.Unity.Vfx
             ).Snapshot;
             ActiveEffectCreatedFact fact = new(effect, currentBinding.Id);
             if (spell.Spell.Value == "light")
-                lightEffects.OnFactCommitted(fact, new OpId(effectSequence), effectSnapshot);
+                lightEffects.OnFactCommitted(fact, rootId, effectSnapshot);
             else
-                spellEffects.OnFactCommitted(fact, new OpId(effectSequence), effectSnapshot);
-            yield return new WaitForSeconds(persistentHoldSeconds);
+                spellEffects.OnFactCommitted(fact, rootId, effectSnapshot);
         }
 
         private IEnumerator PlayPersistentLifecycle(VfxCoverageEntry entry)
@@ -345,11 +412,13 @@ namespace Game.Rules.Unity.Vfx
                 ),
                 1
             );
-            yield return CreatePersistentSpell(spell, SourceId);
+            CreatePersistentSpell(spell, SourceId, new OpId(++presentationSequence));
+            yield return new WaitForSeconds(persistentHoldSeconds);
             if (entry.outcome == "refresh active")
             {
                 RemoveCurrent(ActiveEffectRemovalReason.Ended);
-                yield return CreatePersistentSpell(spell, SourceId);
+                CreatePersistentSpell(spell, SourceId, new OpId(++presentationSequence));
+                yield return new WaitForSeconds(persistentHoldSeconds);
             }
             else if (entry.outcome is "remove" or "consume" or "expire")
             {
@@ -358,6 +427,8 @@ namespace Game.Rules.Unity.Vfx
                         ? ActiveEffectRemovalReason.Expired
                         : ActiveEffectRemovalReason.Ended
                 );
+                while (playback.LiveObjectCount > 0)
+                    yield return null;
             }
         }
 
@@ -528,6 +599,14 @@ namespace Game.Rules.Unity.Vfx
         }
 
         private void RecordCue(VfxCueId cue) => trace.Add(cue.Value);
+
+        private OpId BeginPresentation(object action, Func<IEnumerator> beginning)
+        {
+            OpId rootId = new(++presentationSequence);
+            actionPresentation.Begin(action, rootId);
+            actionPresentation.Enqueue(action, beginning);
+            return rootId;
+        }
 
         private void ThrowIfDisposed()
         {

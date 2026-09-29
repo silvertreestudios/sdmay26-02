@@ -37,16 +37,20 @@ namespace Game.Rules.Unity
         private readonly RageActionDefinition definition;
         private readonly IReadOnlyDictionary<CreatureId, CreatureComponent> creatures;
         private readonly UnityVfxPlayback vfx;
+        private readonly UnityActionPresentationCoordinator actionPresentation;
 
         internal UnityRageModule(
             RageActionDefinition definition,
             IReadOnlyDictionary<CreatureId, CreatureComponent> creatures,
-            UnityVfxPlayback vfx
+            UnityVfxPlayback vfx,
+            UnityActionPresentationCoordinator actionPresentation
         )
         {
             this.definition = definition ?? throw new ArgumentNullException(nameof(definition));
             this.creatures = creatures ?? throw new ArgumentNullException(nameof(creatures));
             this.vfx = vfx ?? throw new ArgumentNullException(nameof(vfx));
+            this.actionPresentation =
+                actionPresentation ?? throw new ArgumentNullException(nameof(actionPresentation));
         }
 
         /// <inheritdoc/>
@@ -59,7 +63,8 @@ namespace Game.Rules.Unity
             UnityPersistentVfxObserver persistent = new(
                 vfx,
                 creatures,
-                RagePersistentVfxSelector.Select
+                RagePersistentVfxSelector.Select,
+                actionPresentation
             );
             lifetime.Add(persistent);
             lifetime.Add(dispatcher.RegisterFactObserver<ActiveEffectCreatedFact>(persistent));

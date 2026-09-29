@@ -36,7 +36,7 @@ namespace Game.Rules.Unity.Composition
             lifetime.Add(dispatcher.RegisterFactObserver<CreatureDefeatCommittedFact>(observer));
         }
 
-        private sealed class HealthProjectionObserver
+        internal sealed class HealthProjectionObserver
             : IFactObserver<HealthFact>,
                 IFactObserver<CreatureDefeatCommittedFact>
         {

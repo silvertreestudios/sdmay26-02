@@ -18,6 +18,8 @@ public static class SpellAttackVfxEvidenceCapture
         ("ranged", "strike/shortbow/critical", 0.82),
         ("offensive-spell", "spell/divine-lance/2-action/critical", 1.68),
         ("healing-area", "spell/heal/3-action/living", 1.05),
+        ("heal-undead", "spell/heal/3-action/undead-critical-failure", 1.05),
+        ("hymn-deafened", "spell/haunting-hymn/2-action/critical-failure", 1.05),
         ("persistent", "auxiliary/rotting-aura/active", 0.45),
     };
 

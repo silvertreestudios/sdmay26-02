@@ -91,9 +91,26 @@ namespace Game.Rules.Runtime
             int sides,
             PreparedPredicate predicate
         )
+            : this(selector, category, "Prepared damage dice", count, sides, predicate) { }
+
+        /// <summary>Copies dice data and its stable content source.</summary>
+        public PreparedStrikeDice(
+            string selector,
+            string category,
+            string source,
+            int count,
+            int sides,
+            PreparedPredicate predicate
+        )
         {
+            if (string.IsNullOrWhiteSpace(source))
+                throw new ArgumentException(
+                    "A prepared damage source is required.",
+                    nameof(source)
+                );
             Selector = selector;
             Category = category;
+            Source = source.Trim();
             Count = count;
             Sides = sides;
             Predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
@@ -104,6 +121,9 @@ namespace Game.Rules.Runtime
 
         /// <summary>Gets the content category, such as precision, independently of the Strike's damage type.</summary>
         public string Category { get; }
+
+        /// <summary>Gets the stable rule source retained into committed typed damage.</summary>
+        public string Source { get; }
 
         /// <summary>Gets the number of additional dice.</summary>
         public int Count { get; }
@@ -414,7 +434,7 @@ namespace Game.Rules.Runtime
                 .Select(value => new TypedDamageDice(
                     new DiceExpression(value.Count, value.Sides),
                     primaryType,
-                    "Prepared damage dice"
+                    value.Source
                 ))
                 .ToList();
             return new PreparedStrikeContributions(dice, flat);

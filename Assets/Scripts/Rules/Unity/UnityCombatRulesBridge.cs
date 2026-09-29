@@ -81,27 +81,44 @@ namespace Game.Rules.Unity
                 combatantFriendshipProvider
             );
             activeEffectIdentities = ActiveEffectIdentityScope.CreateUnique();
-            UnityEncounterModuleSet modules = UnityEncounterModuleSet.Create(
-                this,
-                actionPresentationCoordinator,
-                creatures,
-                controllers,
-                tiles,
-                strideDefinition,
-                combatantFriendshipProvider,
-                attachControllers,
-                extensions
-            );
-            composition = modules.Composition;
-            enrollmentPipeline = new UnityCombatantEnrollmentPipeline(
-                this,
-                composition,
-                attachControllers
-            );
-            UnityCombatantEnrollmentPlan enrollment = enrollmentPipeline.Prepare(
-                encounterControllers,
-                nameof(encounterControllers)
-            );
+            UnityEncounterModuleSet modules;
+            try
+            {
+                modules = UnityEncounterModuleSet.Create(
+                    this,
+                    actionPresentationCoordinator,
+                    creatures,
+                    controllers,
+                    tiles,
+                    strideDefinition,
+                    combatantFriendshipProvider,
+                    attachControllers,
+                    extensions,
+                    encounterLifetime
+                );
+                composition = modules.Composition;
+                enrollmentPipeline = new UnityCombatantEnrollmentPipeline(
+                    this,
+                    composition,
+                    attachControllers
+                );
+            }
+            catch (Exception constructionFailure)
+            {
+                throw CreateConstructionFailure(constructionFailure);
+            }
+            UnityCombatantEnrollmentPlan enrollment;
+            try
+            {
+                enrollment = enrollmentPipeline.Prepare(
+                    encounterControllers,
+                    nameof(encounterControllers)
+                );
+            }
+            catch (Exception constructionFailure)
+            {
+                throw CreateConstructionFailure(constructionFailure);
+            }
             try
             {
                 RulesStateSeed seed = new RulesStateSeed();
@@ -1104,6 +1121,23 @@ namespace Game.Rules.Unity
                 "Encounter construction and its ownership cleanup both failed.",
                 failures
             );
+        }
+
+        private Exception CreateConstructionFailure(Exception constructionFailure)
+        {
+            try
+            {
+                encounterLifetime.Dispose();
+                return constructionFailure;
+            }
+            catch (Exception cleanupFailure)
+            {
+                return new AggregateException(
+                    "Encounter construction and its ownership cleanup both failed.",
+                    constructionFailure,
+                    cleanupFailure
+                );
+            }
         }
 
         private static void ValidateTiles(Tile[,] tiles)

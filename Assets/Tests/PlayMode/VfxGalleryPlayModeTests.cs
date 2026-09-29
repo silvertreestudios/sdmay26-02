@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using Game.Combat.Spells;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity.Vfx;
@@ -92,6 +93,128 @@ public sealed class VfxPersistentPresentationPlayModeTests
         Object.Destroy(ownerObject);
         yield return null;
     }
+
+    [UnityTest]
+    public IEnumerator GuidanceConsumptionPlaysTransientPulseAndLeavesNoPersistentObject()
+    {
+        Time.captureDeltaTime = 0.1f;
+        GameObject ownerObject = new("Guidance pulse owner");
+        CreatureComponent owner = ownerObject.AddComponent<CreatureComponent>();
+        CreatureId ownerId = new("guidance-pulse-owner");
+        ActiveEffectInstance effect = new(
+            new ActiveEffectId("guidance-pulse-effect"),
+            SpellFeatureRules.GuidanceEffect,
+            ownerId,
+            RuleSource.FromSlug("guidance-pulse-test"),
+            EffectDuration.Indefinite,
+            new SpellEffectState(new SpellReference(new SpellId("guidance"), 1), ownerId)
+        );
+        ActiveRuleBinding binding = new(
+            new BindingId("guidance-pulse-binding"),
+            effect.DefinitionId,
+            ownerId,
+            effect.Id,
+            effect.Source,
+            1
+        );
+        RulesSnapshot snapshot = new InMemoryRulesStore(
+            new RulesStateSeed().SeedActiveEffect(effect)
+        ).Snapshot;
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Guidance pulse playback"
+        );
+        playback.ConfigureTestTiming(0.01f);
+        List<string> trace = new();
+        playback.CueStarted += cue => trace.Add(cue.Value);
+        using UnityPersistentVfxObserver observer = new(
+            playback,
+            new Dictionary<CreatureId, CreatureComponent> { [ownerId] = owner },
+            SpellPersistentVfxSelector.Select
+        );
+
+        observer.OnFactCommitted(
+            new ActiveEffectCreatedFact(effect, binding.Id),
+            new OpId(11),
+            snapshot
+        );
+        observer.OnFactCommitted(
+            new ActiveEffectRemovedFact(effect, binding, ActiveEffectRemovalReason.Ended),
+            new OpId(12),
+            snapshot
+        );
+        for (int frame = 0; frame < 30 && playback.LiveObjectCount > 0; frame++)
+            yield return null;
+
+        Assert.That(
+            trace,
+            Is.EqualTo(new[] { "spell/guidance/persistent", "spell/guidance/consume" })
+        );
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+        Time.captureDeltaTime = 0f;
+        Object.Destroy(ownerObject);
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator InfuseVitalityPersistentVisualFollowsTheSelectedHandAnchor()
+    {
+        GameObject ownerObject = new("Infuse anchor owner");
+        CreatureComponent owner = ownerObject.AddComponent<CreatureComponent>();
+        Transform hand = new GameObject("Right Hand Presentation Anchor").transform;
+        hand.SetParent(ownerObject.transform, false);
+        hand.localPosition = new Vector3(0.45f, 1.1f, 0.2f);
+        CreatureId ownerId = new("infuse-anchor-owner");
+        ActiveEffectInstance effect = new(
+            new ActiveEffectId("infuse-anchor-effect"),
+            SpellFeatureRules.InfuseVitalityEffect,
+            ownerId,
+            RuleSource.FromSlug("infuse-anchor-test"),
+            EffectDuration.Indefinite,
+            new SpellEffectState(new SpellReference(new SpellId("infuse-vitality"), 1), ownerId)
+        );
+        RulesSnapshot snapshot = new InMemoryRulesStore(
+            new RulesStateSeed().SeedActiveEffect(effect)
+        ).Snapshot;
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Infuse anchor playback"
+        );
+        using UnityPersistentVfxObserver observer = new(
+            playback,
+            new Dictionary<CreatureId, CreatureComponent> { [ownerId] = owner },
+            SpellPersistentVfxSelector.Select
+        );
+
+        observer.OnFactCommitted(
+            new ActiveEffectCreatedFact(effect, new BindingId("infuse-anchor-binding")),
+            new OpId(21),
+            snapshot
+        );
+        yield return null;
+        UnityVfxInstance instance = Object
+            .FindObjectsByType<UnityVfxInstance>(FindObjectsSortMode.None)
+            .Single(value => value.name == "Persistent VFX " + effect.Id.Value);
+
+        Assert.That(
+            Vector3.Distance(instance.transform.position, hand.position),
+            Is.LessThan(0.01f)
+        );
+        hand.position += Vector3.right;
+        hand.rotation = Quaternion.Euler(0f, 65f, 0f);
+        yield return null;
+        Assert.That(
+            Vector3.Distance(instance.transform.position, hand.position),
+            Is.LessThan(0.01f)
+        );
+        Assert.That(
+            Quaternion.Angle(instance.transform.rotation, hand.rotation),
+            Is.LessThan(0.1f)
+        );
+
+        Object.Destroy(ownerObject);
+        yield return null;
+    }
 }
 
 public sealed class VfxGalleryPlayModeTests
@@ -102,7 +225,7 @@ public sealed class VfxGalleryPlayModeTests
         yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
         VfxGalleryController gallery = Object.FindFirstObjectByType<VfxGalleryController>();
         Assert.That(gallery, Is.Not.Null);
-        Assert.That(gallery.EntryCount, Is.GreaterThanOrEqualTo(50));
+        Assert.That(gallery.EntryCount, Is.EqualTo(69));
         gallery.ConfigureTestTiming(0.01f);
         Time.captureDeltaTime = 0.1f;
 
@@ -150,6 +273,17 @@ public sealed class VfxGalleryPlayModeTests
                     entry.id + " must emit one simultaneous production beam per selected target."
                 );
             }
+            if (
+                entry.id.StartsWith("spell/", System.StringComparison.Ordinal)
+                && entry.outcome == "create active"
+            )
+            {
+                Assert.That(
+                    gallery.LastTrace[0],
+                    Is.EqualTo("spell/" + entry.id.Split('/')[1] + "/cast"),
+                    entry.id + " must present windup before its persistent result."
+                );
+            }
             if (entry.outcome == "miss")
             {
                 Assert.That(
@@ -186,6 +320,34 @@ public sealed class VfxGalleryPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator StrikeGalleryUsesCommittedHealthReactionAndTerminalDefeatPath()
+    {
+        yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
+        VfxGalleryController gallery = Object.FindFirstObjectByType<VfxGalleryController>();
+        gallery.ConfigureTestTiming(0.01f);
+        Time.captureDeltaTime = 0.1f;
+
+        gallery.Select("strike/mace/hit");
+        yield return gallery.PlaySelectedForTests();
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(2));
+        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
+
+        gallery.Select("strike/mace/critical");
+        yield return gallery.PlaySelectedForTests();
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.Zero);
+        Assert.That(
+            gallery.IsPrimaryTargetActive,
+            Is.False,
+            "Critical fixture must drain terminal defeat after its impact presentation."
+        );
+
+        Time.captureDeltaTime = 0f;
+        Scene cleanup = SceneManager.CreateScene("VFX Gallery Reactions Cleanup");
+        SceneManager.SetActiveScene(cleanup);
+        yield return SceneManager.UnloadSceneAsync("VfxGallery");
+    }
+
+    [UnityTest]
     public IEnumerator ResetCancelsSelectedAndPlayAllTimelinesWithoutOrphans()
     {
         yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
@@ -210,6 +372,42 @@ public sealed class VfxGalleryPlayModeTests
         Assert.That(gallery.LiveVfxObjectCount, Is.Zero);
 
         Scene cleanup = SceneManager.CreateScene("VFX Gallery Cancellation Cleanup");
+        SceneManager.SetActiveScene(cleanup);
+        yield return SceneManager.UnloadSceneAsync("VfxGallery");
+    }
+
+    [UnityTest]
+    public IEnumerator SelectedAndPlayAllControlsOwnPlaybackExclusively()
+    {
+        yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
+        VfxGalleryController gallery = Object.FindFirstObjectByType<VfxGalleryController>();
+        gallery.ConfigureTestTiming(0.01f);
+        Time.captureDeltaTime = 0.1f;
+        gallery.BeginPlayAllForTests();
+        yield return null;
+        Assert.That(gallery.IsPlayAllActive, Is.True);
+
+        gallery.Select("spell/divine-lance/2-action/critical");
+        gallery.BeginSelectedForTests();
+        Assert.That(gallery.IsPlayAllActive, Is.False);
+        Assert.That(gallery.IsSelectedPlaybackActive, Is.True);
+        for (int frame = 0; frame < 60 && gallery.IsPlaybackActive; frame++)
+            yield return null;
+        Assert.That(gallery.IsPlaybackActive, Is.False);
+
+        gallery.Select("spell/light/2-action/create");
+        gallery.BeginSelectedForTests();
+        yield return null;
+        Assert.That(gallery.IsSelectedPlaybackActive, Is.True);
+        gallery.BeginPlayAllForTests();
+        Assert.That(gallery.IsSelectedPlaybackActive, Is.False);
+        Assert.That(gallery.IsPlayAllActive, Is.True);
+        gallery.ResetGallery();
+        yield return null;
+        Assert.That(gallery.LiveVfxObjectCount, Is.Zero);
+
+        Time.captureDeltaTime = 0f;
+        Scene cleanup = SceneManager.CreateScene("VFX Gallery Exclusive Playback Cleanup");
         SceneManager.SetActiveScene(cleanup);
         yield return SceneManager.UnloadSceneAsync("VfxGallery");
     }
@@ -347,7 +545,9 @@ public sealed class VfxGalleryPlayModeTests
                 peakRenderers = Mathf.Max(peakRenderers, renderers.Length);
                 peakLights = Mathf.Max(
                     peakLights,
-                    instances.Sum(instance => instance.GetComponentsInChildren<Light>(true).Length)
+                    Object
+                        .FindObjectsByType<Light>(FindObjectsSortMode.None)
+                        .Count(light => light.name == "Spell Effect Light")
                 );
                 peakSharedMaterials = Mathf.Max(
                     peakSharedMaterials,

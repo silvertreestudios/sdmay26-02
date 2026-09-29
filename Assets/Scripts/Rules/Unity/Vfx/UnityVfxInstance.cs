@@ -17,6 +17,8 @@ namespace Game.Rules.Unity.Vfx
         private Vector3 origin;
         private Vector3 destination;
         private Transform follow;
+        private Vector3 followLocalOffset = Vector3.up * 0.55f;
+        private bool followRotation;
         private bool hadFollow;
         private float elapsed;
         private float intensity = 1f;
@@ -56,8 +58,16 @@ namespace Game.Rules.Unity.Vfx
         /// <summary>Attaches a persistent visual to a live scene owner without reparenting it.</summary>
         public void Follow(Transform owner)
         {
+            Follow(owner, Vector3.up * 0.55f, false);
+        }
+
+        /// <summary>Attaches a persistent visual with an explicit local offset and rotation policy.</summary>
+        public void Follow(Transform owner, Vector3 localOffset, bool rotateWithOwner)
+        {
             follow = owner;
             hadFollow = owner != null;
+            followLocalOffset = localOffset;
+            followRotation = rotateWithOwner;
         }
 
         private void Update()
@@ -71,12 +81,14 @@ namespace Game.Rules.Unity.Vfx
             }
             if (follow != null)
             {
-                origin = follow.position;
+                origin = follow.TransformPoint(followLocalOffset);
                 destination = origin;
+                if (followRotation)
+                    transform.rotation = follow.rotation;
             }
             if (persistent)
             {
-                transform.position = origin + Vector3.up * 0.55f;
+                transform.position = origin;
                 float pulse = 0.94f + Mathf.Sin(Time.time * 3f) * 0.06f;
                 transform.localScale = Vector3.one * baseScale * intensity * pulse;
                 return;

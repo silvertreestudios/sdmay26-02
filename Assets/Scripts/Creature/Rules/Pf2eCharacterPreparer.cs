@@ -335,6 +335,7 @@ namespace Game.Creature.Rules
                         {
                             Selector = rule.Value<string>("selector"),
                             Category = rule.Value<string>("category"),
+                            Source = rule.Value<string>("slug") ?? source.Slug,
                             DiceNumber = ResolveRuleInt(rule["diceNumber"], prepared),
                             DieSize = ResolveDieSize(rule["dieSize"], prepared),
                             Predicate = rule["predicate"]?.DeepClone(),

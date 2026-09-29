@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Game.KayKit;
 using Game.Rules.Unity.Vfx;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -102,24 +103,12 @@ public static class SpellAttackVfxAssetGenerator
             SerializedObject serialized = new(behavior);
             serialized.FindProperty("motion").enumValueIndex = (int)MotionFor(cue);
             serialized.FindProperty("duration").floatValue = DurationFor(cue);
-            serialized.FindProperty("baseScale").floatValue =
-                cue.Contains("critical", StringComparison.Ordinal) ? 1.35f
-                : cue == "auxiliary/rotting-aura-active" ? 2.2f
-                : 1f;
+            serialized.FindProperty("baseScale").floatValue = BaseScaleFor(cue);
             serialized.ApplyModifiedPropertiesWithoutUndo();
 
             AddAuthoredGeometry(root.transform, cue, material);
             AddParticles(root, cue, color, material);
             AddTrail(root, cue, color, material);
-            if (cue == "spell/light/persistent")
-            {
-                Light point = root.AddComponent<Light>();
-                point.type = LightType.Point;
-                point.color = new Color(1f, 0.78f, 0.35f);
-                point.range = 5f;
-                point.intensity = 2.2f;
-                point.shadows = LightShadows.Soft;
-            }
             PrefabUtility.SaveAsPrefabAsset(root, assetPath);
         }
         finally
@@ -220,7 +209,12 @@ public static class SpellAttackVfxAssetGenerator
         }
         if (cue.Contains("haunting-hymn", StringComparison.Ordinal))
         {
-            for (int index = 0; index < 3; index++)
+            int waveCount =
+                cue.EndsWith("/critical-success", StringComparison.Ordinal) ? 1
+                : cue.EndsWith("/success", StringComparison.Ordinal) ? 2
+                : cue.EndsWith("/critical-failure", StringComparison.Ordinal) ? 4
+                : 3;
+            for (int index = 0; index < waveCount; index++)
             {
                 GameObject wave = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 wave.name = "Sound Wave " + index;
@@ -228,17 +222,58 @@ public static class SpellAttackVfxAssetGenerator
                 wave.transform.localPosition = new Vector3(0f, 0.05f, 0.28f + index * 0.34f);
                 wave.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
                 wave.transform.localScale = Vector3.one * (0.45f + index * 0.35f);
+                UnityEngine.Object.DestroyImmediate(wave.GetComponent<Collider>());
                 wave.GetComponent<Renderer>().sharedMaterial = material;
+            }
+            if (cue.EndsWith("/critical-failure", StringComparison.Ordinal))
+            {
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    GameObject deafened = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                    deafened.name = side < 0 ? "Deafened Left Ear" : "Deafened Right Ear";
+                    deafened.transform.SetParent(parent, false);
+                    deafened.transform.localPosition = new Vector3(side * 0.42f, 0.62f, 0f);
+                    deafened.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
+                    deafened.transform.localScale = Vector3.one * 0.22f;
+                    UnityEngine.Object.DestroyImmediate(deafened.GetComponent<Collider>());
+                    deafened.GetComponent<Renderer>().sharedMaterial = material;
+                }
             }
         }
         if (cue.Contains("heal", StringComparison.Ordinal))
         {
-            GameObject pillar = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            pillar.name = "Restoration Pillar";
-            pillar.transform.SetParent(parent, false);
-            pillar.transform.localScale = new Vector3(0.16f, 0.9f, 0.16f);
-            UnityEngine.Object.DestroyImmediate(pillar.GetComponent<Collider>());
-            pillar.GetComponent<Renderer>().sharedMaterial = material;
+            if (cue.Contains("-living", StringComparison.Ordinal))
+            {
+                GameObject pillar = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                pillar.name = "Living Restoration Pillar";
+                pillar.transform.SetParent(parent, false);
+                pillar.transform.localScale = new Vector3(0.16f, 0.9f, 0.16f);
+                UnityEngine.Object.DestroyImmediate(pillar.GetComponent<Collider>());
+                pillar.GetComponent<Renderer>().sharedMaterial = material;
+            }
+            else if (cue.Contains("-undead-", StringComparison.Ordinal))
+            {
+                for (int index = 0; index < 6; index++)
+                {
+                    float angle = index * Mathf.PI / 3f;
+                    GameObject spike = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    spike.name = "Undead Vitality Break " + index;
+                    spike.transform.SetParent(parent, false);
+                    spike.transform.localPosition = new Vector3(
+                        Mathf.Cos(angle) * 0.46f,
+                        0.12f,
+                        Mathf.Sin(angle) * 0.46f
+                    );
+                    spike.transform.localRotation = Quaternion.Euler(
+                        25f,
+                        -angle * Mathf.Rad2Deg,
+                        35f
+                    );
+                    spike.transform.localScale = new Vector3(0.08f, 0.08f, 0.58f);
+                    UnityEngine.Object.DestroyImmediate(spike.GetComponent<Collider>());
+                    spike.GetComponent<Renderer>().sharedMaterial = material;
+                }
+            }
         }
         if (cue == "auxiliary/rotting-aura-active")
         {
@@ -333,7 +368,7 @@ public static class SpellAttackVfxAssetGenerator
 
     private static Material RequireMaterial(string cue, Color color)
     {
-        string family = cue.Split('/')[0] + "-" + cue.Split('/')[1];
+        string family = MaterialFamilyFor(cue);
         string path = MaterialRoot + "/" + family + ".mat";
         Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
         if (material == null)
@@ -409,12 +444,12 @@ public static class SpellAttackVfxAssetGenerator
         CreateModel(
             "Gallery Source",
             new Vector3(-2.2f, 1f, 0f),
-            "Assets/Models/Tokens/Creatures/cleric.fbx"
+            "Assets/KayKit/Prefabs/Animated/MageStaffAnimated.prefab"
         );
         CreateModel(
             "Gallery Target",
             new Vector3(2.2f, 1f, 0f),
-            "Assets/Models/Tokens/Creatures/Goblin.fbx"
+            "Assets/KayKit/Prefabs/Animated/BarbarianAnimated.prefab"
         );
         GameObject cameraObject = new("Main Camera");
         Camera camera = cameraObject.AddComponent<Camera>();
@@ -464,6 +499,14 @@ public static class SpellAttackVfxAssetGenerator
             name.Contains("Source") ? 90f : -90f,
             0f
         );
+        CreatureAnimationController animation =
+            visual.GetComponentInChildren<CreatureAnimationController>();
+        if (animation == null)
+            throw new InvalidOperationException(
+                $"Gallery model '{modelPath}' requires production animation presentation."
+            );
+        CreaturePresentation presentation = model.AddComponent<CreaturePresentation>();
+        presentation.Bind(animation, visual.GetComponentInChildren<CreatureEquipmentVisuals>());
         GameObject baseRing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         baseRing.name = name + " Grid Base";
         baseRing.transform.SetParent(model.transform, false);
@@ -548,17 +591,57 @@ public static class SpellAttackVfxAssetGenerator
             ? 0.65f
             : 0.8f;
 
+    private static float BaseScaleFor(string cue)
+    {
+        if (cue == "auxiliary/rotting-aura-active")
+            return 2.2f;
+        if (cue.EndsWith("/critical-failure", StringComparison.Ordinal))
+            return 1.35f;
+        if (cue.EndsWith("/failure", StringComparison.Ordinal))
+            return 1.12f;
+        if (cue.EndsWith("/critical-success", StringComparison.Ordinal))
+            return 0.72f;
+        if (cue.EndsWith("/success", StringComparison.Ordinal))
+            return 0.9f;
+        return cue.Contains("critical", StringComparison.Ordinal) ? 1.35f : 1f;
+    }
+
+    private static string MaterialFamilyFor(string cue)
+    {
+        if (cue.Contains("heal/", StringComparison.Ordinal))
+            return cue.Contains("-undead-", StringComparison.Ordinal)
+                ? "spell-heal-undead"
+                : "spell-heal";
+        if (
+            cue.StartsWith("spell/haunting-hymn/", StringComparison.Ordinal)
+            && !cue.EndsWith("/cast", StringComparison.Ordinal)
+        )
+            return "spell-haunting-hymn-" + cue.Split('/').Last();
+        return cue.Split('/')[0] + "-" + cue.Split('/')[1];
+    }
+
     private static Color ColorFor(string cue)
     {
+        if (cue.Contains("heal/", StringComparison.Ordinal))
+            return cue.Contains("-undead-", StringComparison.Ordinal)
+                ? new Color(0.32f, 0.92f, 1f, 0.82f)
+                : new Color(0.5f, 1f, 0.56f, 0.78f);
+        if (cue.StartsWith("spell/haunting-hymn/", StringComparison.Ordinal))
+        {
+            if (cue.EndsWith("/critical-success", StringComparison.Ordinal))
+                return new Color(0.46f, 0.42f, 0.58f, 0.58f);
+            if (cue.EndsWith("/success", StringComparison.Ordinal))
+                return new Color(0.55f, 0.42f, 0.78f, 0.68f);
+            if (cue.EndsWith("/critical-failure", StringComparison.Ordinal))
+                return new Color(0.95f, 0.18f, 0.72f, 0.9f);
+            return new Color(0.68f, 0.26f, 0.94f, 0.8f);
+        }
         if (
             cue.Contains("haunting-hymn", StringComparison.Ordinal)
             || cue.Contains("sneak-attack", StringComparison.Ordinal)
         )
             return new Color(0.58f, 0.25f, 0.95f, 0.78f);
-        if (
-            cue.Contains("heal", StringComparison.Ordinal)
-            || cue.Contains("infuse-vitality", StringComparison.Ordinal)
-        )
+        if (cue.Contains("infuse-vitality", StringComparison.Ordinal))
             return new Color(0.5f, 1f, 0.56f, 0.78f);
         if (
             cue.Contains("light", StringComparison.Ordinal)

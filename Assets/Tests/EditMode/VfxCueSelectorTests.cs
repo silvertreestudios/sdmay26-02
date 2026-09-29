@@ -88,6 +88,7 @@ public sealed class VfxCoverageManifestTests
     public void CoverageManifestReconcilesRequiredVariantsProfilesAndExclusions()
     {
         VfxCoverageManifest manifest = VfxCoverageManifest.Load();
+        Assert.That(manifest.entries, Has.Count.EqualTo(69));
         int spellVariants = manifest
             .entries.Where(entry => entry.category == "spell")
             .Select(entry => string.Join("/", entry.id.Split('/').Take(3)))
@@ -118,6 +119,21 @@ public sealed class VfxCoverageManifestTests
             Is.EqualTo(manifest.entries.Count),
             "Gallery IDs must be unique and copyable."
         );
+
+        string[] degrees = { "critical-success", "success", "failure", "critical-failure" };
+        for (int actions = 1; actions <= 3; actions++)
+        {
+            foreach (string degree in degrees)
+            {
+                string id = $"spell/heal/{actions}-action/undead-{degree}";
+                VfxCoverageEntry entry = manifest.entries.Single(candidate => candidate.id == id);
+                Assert.That(
+                    entry.cue,
+                    Is.EqualTo($"spell/heal/{actions}-action-undead-{degree}"),
+                    id
+                );
+            }
+        }
     }
 
     [Test]
@@ -128,7 +144,60 @@ public sealed class VfxCoverageManifestTests
         {
             GameObject prefab = catalog.Require(new VfxCueId(entry.cue));
             Assert.That(prefab.GetComponent<UnityVfxInstance>(), Is.Not.Null, entry.id);
+            Assert.That(
+                prefab.GetComponentsInChildren<Collider>(true),
+                Is.Empty,
+                entry.id + " VFX must not participate in targeting or line-of-sight physics."
+            );
         }
+    }
+
+    [Test]
+    public void HealAndHymnOutcomesHaveDistinctAuthoredPresentation()
+    {
+        ResourcesVfxPrefabCatalog catalog = new();
+        GameObject living = catalog.Require(new VfxCueId("spell/heal/2-action-living"));
+        GameObject undead = catalog.Require(new VfxCueId("spell/heal/2-action-undead-success"));
+        Assert.That(
+            living.GetComponentsInChildren<Transform>(true).Select(value => value.name),
+            Does.Contain("Living Restoration Pillar")
+        );
+        Assert.That(
+            undead.GetComponentsInChildren<Transform>(true).Select(value => value.name),
+            Does.Contain("Undead Vitality Break 0")
+        );
+        Assert.That(
+            living.GetComponentInChildren<Renderer>(true).sharedMaterial,
+            Is.Not.SameAs(undead.GetComponentInChildren<Renderer>(true).sharedMaterial)
+        );
+
+        string[] degrees = { "critical-success", "success", "failure", "critical-failure" };
+        string[] materials = degrees
+            .Select(degree =>
+                catalog
+                    .Require(new VfxCueId("spell/haunting-hymn/" + degree))
+                    .GetComponentInChildren<Renderer>(true)
+                    .sharedMaterial.name
+            )
+            .ToArray();
+        Assert.That(materials, Is.Unique);
+        Assert.That(
+            catalog
+                .Require(new VfxCueId("spell/haunting-hymn/critical-failure"))
+                .GetComponentsInChildren<Transform>(true)
+                .Select(value => value.name),
+            Does.Contain("Deafened Left Ear")
+        );
+    }
+
+    [Test]
+    public void LightPrefabLeavesTheSingleRealPointLightToTheProductionObserver()
+    {
+        GameObject prefab = new ResourcesVfxPrefabCatalog().Require(
+            new VfxCueId("spell/light/persistent")
+        );
+
+        Assert.That(prefab.GetComponentsInChildren<Light>(true), Is.Empty);
     }
 
     [Test]
@@ -166,5 +235,24 @@ public sealed class VfxCoverageManifestTests
         );
 
         Assert.That(SpellPersistentVfxSelector.Select(immunity), Is.Null);
+    }
+
+    [Test]
+    public void GuidanceEffectSelectsItsCommittedConsumptionPulse()
+    {
+        CreatureId owner = new("guidance-owner");
+        ActiveEffectInstance guidance = new(
+            new ActiveEffectId("guidance-effect"),
+            SpellFeatureRules.GuidanceEffect,
+            owner,
+            RuleSource.FromSlug("guidance-test"),
+            EffectDuration.Indefinite,
+            new SpellEffectState(new SpellReference(new SpellId("guidance"), 1), owner)
+        );
+
+        PersistentVfxSelection selection = SpellPersistentVfxSelector.Select(guidance).Value;
+
+        Assert.That(selection.Cue.Value, Is.EqualTo("spell/guidance/persistent"));
+        Assert.That(selection.RemovalCue.Value, Is.EqualTo("spell/guidance/consume"));
     }
 }

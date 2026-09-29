@@ -45,8 +45,20 @@ namespace Game.Rules.Unity.Vfx
         /// <summary>Gets the exact target count staged for the current fixture.</summary>
         public int CurrentTargetCount => fixture.TargetCount;
 
+        /// <summary>Gets the health projected for the primary target by the latest fixture.</summary>
+        public int PrimaryTargetHitPoints => fixture.PrimaryTargetHitPoints;
+
+        /// <summary>Gets whether the primary target remains active after the latest fixture.</summary>
+        public bool IsPrimaryTargetActive => fixture.IsPrimaryTargetActive;
+
         /// <summary>Gets whether a selected or play-all timeline is currently owned by the gallery.</summary>
         public bool IsPlaybackActive => selectedPlayback != null || playAll != null;
+
+        /// <summary>Gets whether the tracked Play All control owns the active timeline.</summary>
+        public bool IsPlayAllActive => playAll != null;
+
+        /// <summary>Gets whether the tracked selected-entry control owns the active timeline.</summary>
+        public bool IsSelectedPlaybackActive => selectedPlayback != null;
 
         /// <summary>Selects an exact stable entry for deterministic tests and evidence capture.</summary>
         public void Select(string id)
@@ -259,6 +271,11 @@ namespace Game.Rules.Unity.Vfx
         {
             if (entry != null)
             {
+                if (playAll != null)
+                {
+                    StopCoroutine(playAll);
+                    playAll = null;
+                }
                 if (selectedPlayback != null)
                     StopCoroutine(selectedPlayback);
                 selectedPlayback = StartCoroutine(PlayTracked(entry));
@@ -290,6 +307,11 @@ namespace Game.Rules.Unity.Vfx
                 StopCoroutine(playAll);
                 playAll = null;
                 return;
+            }
+            if (selectedPlayback != null)
+            {
+                StopCoroutine(selectedPlayback);
+                selectedPlayback = null;
             }
             playAll = StartCoroutine(PlayAllEntries());
         }
