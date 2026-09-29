@@ -153,7 +153,7 @@ namespace Game.Rules.Unity.Light
                 return;
 
             owned.Add(effect.Id);
-            if (!actionPresentation.TryEnqueue(rootId, () => Present(effect.Id, owner)))
+            if (!actionPresentation.TryEnqueueAfterResult(rootId, () => Present(effect.Id, owner)))
                 PresentNow(effect.Id, owner);
         }
 

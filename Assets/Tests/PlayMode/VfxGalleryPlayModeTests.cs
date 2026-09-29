@@ -6,6 +6,7 @@ using Game.Combat.Spells;
 using Game.Creature;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
+using Game.Rules.Unity.Light;
 using Game.Rules.Unity.Vfx;
 using NUnit.Framework;
 using UnityEngine;
@@ -167,7 +168,8 @@ public sealed class VfxPersistentPresentationPlayModeTests
             )
         );
         Assert.That(ownerObject.activeSelf, Is.False);
-        yield return null;
+        for (int frame = 0; frame < 30 && playback.LiveObjectCount > 0; frame++)
+            yield return null;
         Assert.That(
             playback.LiveObjectCount,
             Is.Zero,
@@ -200,6 +202,146 @@ public sealed class VfxPersistentPresentationPlayModeTests
         );
         Assert.That(playback.LiveObjectCount, Is.Zero);
 
+        Object.Destroy(ownerObject);
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator LightCreationFollowsActualResultTimelineWithoutTransientOverlap()
+    {
+        Time.captureDeltaTime = 0.1f;
+        GameObject ownerObject = new("Post-result Light owner");
+        CreatureComponent owner = ownerObject.AddComponent<CreatureComponent>();
+        CreatureId ownerId = new("post-result-light-owner");
+        SpellReference lightSpell = new(new SpellId("light"), 1);
+        UnitySpellDefinitionCatalog catalog = UnitySpellDefinitionCatalog.Load();
+        Assert.That(catalog.TryGetSpell(lightSpell, out SpellDefinition definition), Is.True);
+        RuleDefinitionId lightDefinition = definition.Effects.Single().DefinitionId;
+        ActiveEffectInstance effect = new(
+            new ActiveEffectId("post-result-light-effect"),
+            lightDefinition,
+            ownerId,
+            RuleSource.FromSlug("post-result-light-test"),
+            EffectDuration.Indefinite,
+            new SpellEffectState(lightSpell, ownerId)
+        );
+        ActiveRuleBinding binding = new(
+            new BindingId("post-result-light-binding"),
+            effect.DefinitionId,
+            ownerId,
+            effect.Id,
+            effect.Source,
+            1
+        );
+        RulesSnapshot snapshot = new InMemoryRulesStore(
+            new RulesStateSeed().SeedActiveEffect(effect)
+        ).Snapshot;
+        Dictionary<CreatureId, CreatureComponent> creatures = new() { [ownerId] = owner };
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Post-result Light playback"
+        );
+        playback.ConfigureTestTiming(0.01f);
+        using UnityActionPresentationCoordinator coordinator = new();
+        using UnityLightEffectPresentationObserver observer =
+            UnityLightEffectPresentationObserver.Create(catalog, creatures, playback, coordinator);
+        UnitySpellActionPresenter presenter = new(creatures, catalog, playback);
+        List<string> trace = new();
+        List<int> lightCountsAtPersistentCue = new();
+        playback.CueStarted += cue =>
+        {
+            trace.Add(cue.Value);
+            if (cue.Value == "spell/light/persistent")
+            {
+                lightCountsAtPersistentCue.Add(
+                    owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true).Length
+                );
+            }
+        };
+        CastSpellActionOp action = new(
+            ownerId,
+            lightSpell,
+            new SpellActionVariant(2),
+            SpellCastSelection.Empty
+        );
+        CastSpellOutcome outcome = new(
+            ownerId,
+            lightSpell,
+            new[] { effect.Id },
+            System.Array.Empty<SpellAttackResolution>()
+        );
+        OpId rootId = new(22);
+        coordinator.Begin(action, rootId);
+        coordinator.Enqueue(action, () => presenter.PresentBeginning(action, snapshot));
+        observer.OnFactCommitted(new ActiveEffectCreatedFact(effect, binding.Id), rootId, snapshot);
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Is.Empty,
+            "The authoritative Light must wait for resolved presentation."
+        );
+        coordinator.Enqueue(action, () => presenter.PresentResolved(action, outcome, snapshot));
+
+        int peakLiveVfx = 0;
+        IEnumerator drain = coordinator.Drain(action);
+        while (drain.MoveNext())
+        {
+            peakLiveVfx = Mathf.Max(peakLiveVfx, playback.LiveObjectCount);
+            yield return drain.Current;
+        }
+        peakLiveVfx = Mathf.Max(peakLiveVfx, playback.LiveObjectCount);
+
+        Assert.That(
+            trace,
+            Is.EqualTo(
+                new[] { "spell/light/cast", "spell/light/persistent", "spell/light/persistent" }
+            )
+        );
+        Assert.That(
+            lightCountsAtPersistentCue,
+            Is.EqualTo(new[] { 0, 1 }),
+            "The transient result must finish before the authoritative point light is created."
+        );
+        Assert.That(
+            peakLiveVfx,
+            Is.EqualTo(1),
+            "The transient and persistent Light VFX must never overlap."
+        );
+        Assert.That(playback.LiveObjectCount, Is.EqualTo(1));
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Has.Length.EqualTo(1)
+        );
+
+        ActiveEffectRemovedFact removed = new(effect, binding, ActiveEffectRemovalReason.Expired);
+        observer.OnFactCommitted(removed, new OpId(23), snapshot);
+        yield return null;
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Is.Empty
+        );
+
+        observer.OnFactCommitted(
+            new ActiveEffectCreatedFact(effect, binding.Id),
+            new OpId(24),
+            snapshot
+        );
+        Assert.That(playback.LiveObjectCount, Is.EqualTo(1));
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Has.Length.EqualTo(1),
+            "Restoration outside an action must recreate the exact Light immediately."
+        );
+        observer.Dispose();
+        yield return null;
+        Assert.That(playback.LiveObjectCount, Is.Zero);
+        Assert.That(
+            owner.GetComponentsInChildren<UnityEngine.Light>(includeInactive: true),
+            Is.Empty
+        );
+
+        Time.captureDeltaTime = 0f;
         Object.Destroy(ownerObject);
         yield return null;
     }
