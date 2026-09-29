@@ -1100,8 +1100,9 @@ namespace Game.Creature
         }
 
         /// <summary>
-        /// Re-arms only the Unity defeat-presentation latch for deterministic gallery replay.
-        /// Authoritative health and gameplay interaction state are intentionally unchanged.
+        /// Cancels pending actor animation callbacks and re-arms the Unity defeat-presentation
+        /// latch for deterministic gallery replay. Authoritative health and gameplay interaction
+        /// state are intentionally unchanged.
         /// </summary>
         internal void ResetDefeatPresentationForFixture()
         {
@@ -1109,6 +1110,7 @@ namespace Game.Creature
                 throw new InvalidOperationException(
                     "An attached encounter creature cannot reset defeat presentation."
                 );
+            GetComponent<CreaturePresentation>()?.AnimationController?.StopAction();
             defeated = false;
         }
 

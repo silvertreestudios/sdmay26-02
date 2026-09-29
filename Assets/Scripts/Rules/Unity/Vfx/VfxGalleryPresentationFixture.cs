@@ -811,11 +811,11 @@ namespace Game.Rules.Unity.Vfx
             {
                 if (creature == null)
                     continue;
+                creature.ResetDefeatPresentationForFixture();
                 creature.InitializeHealthBeforeEncounter(
                     FixtureMaximumHitPoints,
                     FixtureMaximumHitPoints
                 );
-                creature.ResetDefeatPresentationForFixture();
                 creature.gameObject.SetActive(true);
                 if (id != SourceId)
                     creature.traits = new List<string>();

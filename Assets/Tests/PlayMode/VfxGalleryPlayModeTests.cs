@@ -1865,6 +1865,67 @@ public sealed class VfxGalleryPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator ResetCancelsPendingDeathBeforeRestoringActorForNextEntry()
+    {
+        yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
+        VfxGalleryController gallery = Object.FindFirstObjectByType<VfxGalleryController>();
+        gallery.ConfigureTestTiming(0.01f);
+        Time.captureDeltaTime = 0.1f;
+
+        GameObject target = GameObject.Find("Gallery Target");
+        CreaturePresentation presentation = target.GetComponent<CreaturePresentation>();
+        CreatureAnimationController animation =
+            target.GetComponentInChildren<CreatureAnimationController>();
+        Assert.That(animation, Is.Not.Null);
+        presentation.Bind(animation, target.GetComponentInChildren<CreatureEquipmentVisuals>());
+        Assert.That(animation.HasDeathClip, Is.True);
+
+        gallery.Select("strike/mace/critical");
+        gallery.BeginSelectedForTests();
+        for (int frame = 0; frame < 120 && !animation.IsDeathPlaying; frame++)
+            yield return null;
+
+        Assert.That(animation.IsDeathPlaying, Is.True, "The real death playback never started.");
+        Assert.That(target.activeSelf, Is.True, "Reset must interrupt death before its callback.");
+        Assert.That(
+            animation.AnimationLibrary.TryGet(
+                animation.CurrentClipId,
+                out KayKitAnimationEntry deathEntry
+            ),
+            Is.True
+        );
+        Assert.That(deathEntry.Duration, Is.GreaterThan(0f));
+        float oldCompletionDelay = Mathf.Min(deathEntry.Duration + 0.25f, 5f);
+
+        gallery.ResetGallery();
+        Assert.That(animation.IsDeathPlaying, Is.False);
+        Assert.That(animation.CurrentClipId, Is.Null);
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
+        Assert.That(gallery.IsPrimaryTargetActive, Is.True);
+
+        gallery.Select("strike/mace/miss");
+        yield return gallery.PlaySelectedForTests();
+        float deadline = Time.time + oldCompletionDelay + 0.5f;
+        while (Time.time < deadline)
+            yield return null;
+
+        Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
+        Assert.That(
+            gallery.IsPrimaryTargetActive,
+            Is.True,
+            "The cancelled death callback must not deactivate the restored actor."
+        );
+        Assert.That(animation.IsDeathPlaying, Is.False);
+        Assert.That(gallery.DamageFactCount, Is.Zero);
+        Assert.That(gallery.LiveVfxObjectCount, Is.Zero);
+
+        Time.captureDeltaTime = 0f;
+        Scene cleanup = SceneManager.CreateScene("VFX Gallery Death Cancellation Cleanup");
+        SceneManager.SetActiveScene(cleanup);
+        yield return SceneManager.UnloadSceneAsync("VfxGallery");
+    }
+
+    [UnityTest]
     public IEnumerator SelectedAndPlayAllControlsOwnPlaybackExclusively()
     {
         yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
