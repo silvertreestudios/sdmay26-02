@@ -139,6 +139,18 @@ public sealed class VfxCoverageManifestTests
                 );
             }
         }
+        Assert.That(
+            manifest
+                .entries.Single(entry => entry.id == "auxiliary/rotting-aura/tick")
+                .gameplayTrigger,
+            Is.EqualTo("DamageAppliedFact with Rotting Aura origin")
+        );
+        Assert.That(
+            manifest
+                .entries.Single(entry => entry.id == "auxiliary/rotting-aura/resisted")
+                .gameplayTrigger,
+            Is.EqualTo("RottingAuraResolvedFact with Outcome.Applied zero")
+        );
     }
 
     [Test]

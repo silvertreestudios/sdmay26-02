@@ -62,6 +62,13 @@ namespace Game.Rules.Unity.Vfx
 
         internal IReadOnlyList<CreatureId> LatestSelection => fixture.LatestSelection;
 
+        internal SpellCastSelection LatestSpellSelection => fixture.LatestSpellSelection;
+
+        internal SpellSelectionProfile LatestSpellProfile => fixture.LatestSpellProfile;
+
+        internal ActionValidationResult LatestSpellSelectionValidation =>
+            fixture.LatestSpellSelectionValidation;
+
         internal IReadOnlyList<CreatureId> CurrentEffectOwners => fixture.CurrentEffectOwners;
 
         internal int DefeatPresentationCount => fixture.DefeatPresentationCount;

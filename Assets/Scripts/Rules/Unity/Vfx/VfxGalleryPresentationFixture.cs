@@ -21,7 +21,9 @@ namespace Game.Rules.Unity.Vfx
     public sealed class VfxGalleryPresentationFixture : IDisposable
     {
         private const int FixtureMaximumHitPoints = 10;
+        private const float FeetPerGridUnit = 5f;
         private static readonly CreatureId SourceId = new("vfx-gallery-source");
+        private static readonly PlayerId FixtureParty = new("vfx-gallery-party");
         private static readonly CreatureId[] TargetIds =
         {
             new("vfx-gallery-target-1"),
@@ -33,8 +35,10 @@ namespace Game.Rules.Unity.Vfx
         private readonly Transform source;
         private readonly Transform[] targets;
         private readonly Dictionary<CreatureId, CreatureComponent> creatures = new();
-        private readonly RulesSnapshot snapshot = new RulesState(new RulesStateSeed()).Snapshot;
+        private readonly RulesSnapshot snapshot;
         private readonly UnitySpellDefinitionCatalog spellCatalog;
+        private readonly IReadOnlyDictionary<SpellId, ISpellCastRule> spellRules;
+        private readonly GalleryFriendshipProvider friendshipProvider = new();
         private readonly UnitySpellActionPresenter spellPresenter;
         private readonly UnityStrikeActionPresenter strikePresenter;
         private readonly UnityPersistentVfxObserver spellEffects;
@@ -52,6 +56,10 @@ namespace Game.Rules.Unity.Vfx
             ActiveRuleBinding Binding
         )> currentEffects = new();
         private CreatureId[] latestSelection = Array.Empty<CreatureId>();
+        private SpellCastSelection latestSpellSelection = SpellCastSelection.Empty;
+        private SpellSelectionProfile latestSpellProfile = SpellSelectionProfile.None;
+        private ActionValidationResult latestSpellSelectionValidation =
+            ActionValidationResult.Valid;
         private int effectSequence;
         private long presentationSequence;
         private int defeatPresentationCount;
@@ -88,7 +96,22 @@ namespace Game.Rules.Unity.Vfx
                 creatures.Add(TargetIds[index], RequireCreature(this.targets[index].gameObject));
             RestoreActorState();
 
+            RulesStateSeed seed = new();
+            foreach (CreatureId creature in creatures.Keys)
+            {
+                seed.SeedCreature(new CreatureState(creature, FixtureParty));
+                seed.SeedHealth(
+                    creature,
+                    new HealthState(FixtureMaximumHitPoints, FixtureMaximumHitPoints)
+                );
+            }
+            snapshot = new RulesState(seed).Snapshot;
+
             spellCatalog = UnitySpellDefinitionCatalog.Load();
+            spellRules = SpellFeatureRules.CreateCatalog(
+                new UnitySpellCreatureDataProvider(creatures),
+                friendshipProvider
+            );
             spellPresenter = new UnitySpellActionPresenter(creatures, spellCatalog, playback);
             Dictionary<CreatureId, GameObject> attackers = new() { [SourceId] = source.gameObject };
             strikePresenter = new UnityStrikeActionPresenter(
@@ -144,6 +167,13 @@ namespace Game.Rules.Unity.Vfx
         public bool IsPrimaryTargetActive => creatures[TargetIds[0]].gameObject.activeSelf;
 
         internal IReadOnlyList<CreatureId> LatestSelection => latestSelection;
+
+        internal SpellCastSelection LatestSpellSelection => latestSpellSelection;
+
+        internal SpellSelectionProfile LatestSpellProfile => latestSpellProfile;
+
+        internal ActionValidationResult LatestSpellSelectionValidation =>
+            latestSpellSelectionValidation;
 
         internal IReadOnlyList<CreatureId> CurrentEffectOwners =>
             currentEffects.Select(value => value.Binding.Owner).ToArray();
@@ -204,6 +234,9 @@ namespace Game.Rules.Unity.Vfx
             actionPresentation.Dispose();
             currentEffects.Clear();
             latestSelection = Array.Empty<CreatureId>();
+            latestSpellSelection = SpellCastSelection.Empty;
+            latestSpellProfile = SpellSelectionProfile.None;
+            latestSpellSelectionValidation = ActionValidationResult.Valid;
             TargetCount = 0;
             trace.Clear();
             transientStarts.Clear();
@@ -231,15 +264,28 @@ namespace Game.Rules.Unity.Vfx
             SpellReference spell = new(new SpellId(parts[1]), 1);
             int actions = ParseActions(entry.variant);
             CreatureId[] selected = TargetIds.Take(TargetCount).ToArray();
-            if (spell.Spell.Value == "bless")
-                selected = new[] { SourceId };
-            latestSelection = selected;
-            CastSpellActionOp operation = new(
+            SpellActionVariant variant = new(actions);
+            SpellSelectionProfile profile = GetSelectionProfile(spell, variant);
+            SpellCastSelection selection = CreateSelection(profile, selected);
+            latestSpellSelection = selection;
+            latestSpellProfile = profile;
+            latestSelection = selection.Creatures.ToArray();
+            latestSpellSelectionValidation = SpellTargetingRules.ValidateSelection(
+                snapshot,
                 SourceId,
-                spell,
-                new SpellActionVariant(actions),
-                selected.Length == 0 ? SpellCastSelection.Empty : new SpellCastSelection(selected)
+                profile,
+                selection,
+                selection.Creatures,
+                friendshipProvider
             );
+            if (
+                latestSpellSelectionValidation
+                is not ActionValidationResult.ValidActionValidationResult
+            )
+                throw new InvalidOperationException(
+                    $"Gallery selection for '{entry.id}' does not satisfy its production profile."
+                );
+            CastSpellActionOp operation = new(SourceId, spell, variant, selection);
             List<SpellAttackResolution> attacks = new();
             List<SpellTargetResolution> results = new();
             if (spell.Spell.Value == "divine-lance")
@@ -286,21 +332,26 @@ namespace Game.Rules.Unity.Vfx
                         entry.id == "spell/heal/3-action/area-wave"
                         || !entry.outcome.Contains("undead", StringComparison.Ordinal)
                     );
-                for (int index = 0; index < selected.Length; index++)
+                for (int index = 0; index < selection.Creatures.Count; index++)
                 {
-                    bool targetLiving = !heal || livingHeal;
+                    CreatureId target = selection.Creatures[index];
+                    bool isCaster = target == SourceId;
+                    int stagedTargetIndex = Array.IndexOf(TargetIds, target);
+                    bool targetLiving = !heal || isCaster || livingHeal;
                     RulesDegreeOfSuccess? targetDegree = degree;
-                    if (heal && selected.Length == 3 && livingHeal)
+                    if (heal && actions == 3 && livingHeal)
                     {
-                        targetLiving = index == 0;
-                        targetDegree = index switch
+                        targetLiving = isCaster || stagedTargetIndex == 0;
+                        targetDegree = stagedTargetIndex switch
                         {
                             1 => RulesDegreeOfSuccess.Success,
                             2 => RulesDegreeOfSuccess.CriticalFailure,
                             _ => null,
                         };
                     }
-                    creatures[selected[index]].traits = targetLiving
+                    if (heal && targetLiving)
+                        targetDegree = null;
+                    creatures[target].traits = targetLiving
                         ? new List<string>()
                         : new List<string> { "undead" };
                     int damage = targetLiving
@@ -310,7 +361,7 @@ namespace Game.Rules.Unity.Vfx
                         : ResolveBasicSaveDamage(targetDegree, 8);
                     results.Add(
                         new SpellTargetResolution(
-                            selected[index],
+                            target,
                             targetDegree,
                             damage == 0 && heal && targetLiving
                                 ? Array.Empty<TypedDamagePart>()
@@ -346,8 +397,13 @@ namespace Game.Rules.Unity.Vfx
             {
                 CreatureId[] owners =
                     spell.Spell.Value == "infuse-vitality"
-                        ? selected
-                        : new[] { selected.FirstOrDefault().IsEmpty ? SourceId : selected[0] };
+                        ? selection.Creatures.ToArray()
+                        : new[]
+                        {
+                            selection.Creatures.FirstOrDefault().IsEmpty
+                                ? SourceId
+                                : selection.Creatures[0],
+                        };
                 foreach (CreatureId owner in owners)
                     activeEffects.Add(CreatePersistentSpell(spell, owner, rootId));
             }
@@ -606,7 +662,16 @@ namespace Game.Rules.Unity.Vfx
                 && !entry.id.Contains("shortbow", StringComparison.Ordinal)
                 && !entry.id.Contains("sling", StringComparison.Ordinal);
             source.position = new Vector3(-1.8f, 1f, 0f);
-            float firstX = melee ? -0.25f : 2.6f;
+            bool touchHeal = entry.id.StartsWith("spell/heal/1-action/", StringComparison.Ordinal);
+            bool compactSpellFormation =
+                entry.id.StartsWith("spell/haunting-hymn/", StringComparison.Ordinal)
+                || entry.id.StartsWith("spell/heal/3-action/", StringComparison.Ordinal)
+                || entry.id.StartsWith("spell/infuse-vitality/2-action/", StringComparison.Ordinal)
+                || entry.id.StartsWith("spell/infuse-vitality/3-action/", StringComparison.Ordinal);
+            float firstX =
+                melee || touchHeal ? source.position.x + (5f / FeetPerGridUnit)
+                : compactSpellFormation ? source.position.x + (10f / FeetPerGridUnit)
+                : 2.6f;
             for (int index = 0; index < targets.Length; index++)
             {
                 targets[index].gameObject.SetActive(index < TargetCount);
@@ -817,6 +882,48 @@ namespace Game.Rules.Unity.Vfx
             return definition.Effects[0].DefinitionId;
         }
 
+        private SpellSelectionProfile GetSelectionProfile(
+            SpellReference spell,
+            SpellActionVariant variant
+        )
+        {
+            if (spellRules.TryGetValue(spell.Spell, out ISpellCastRule feature))
+                return feature.GetSelection(variant);
+            if (!spellCatalog.TryGetSpell(spell, out SpellDefinition definition))
+                throw new InvalidOperationException(
+                    $"Gallery spell '{spell.Spell.Value}' has no production definition."
+                );
+            if (definition.Attacks.Count == 0)
+                return SpellSelectionProfile.None;
+            if (
+                definition.Attacks.Count == 1
+                && definition.Attacks[0].Target is OneCreatureSpellAttackTarget oneCreature
+            )
+                return new SpellSelectionProfile(
+                    SpellSelectionKind.SingleCreature,
+                    rangeFeet: oneCreature.RangeFeet,
+                    exactCreatureCount: 1
+                );
+            throw new InvalidOperationException(
+                $"Gallery spell '{spell.Spell.Value}' has an unsupported production target profile."
+            );
+        }
+
+        private static SpellCastSelection CreateSelection(
+            SpellSelectionProfile profile,
+            IEnumerable<CreatureId> stagedTargets
+        )
+        {
+            List<CreatureId> selected = stagedTargets.Distinct().ToList();
+            if (profile.IncludeCaster && !selected.Contains(SourceId))
+                selected.Insert(0, SourceId);
+            if (profile.Kind == SpellSelectionKind.Cone)
+                return new SpellCastSelection(selected, SpellAreaDirection.East);
+            return selected.Count == 0
+                ? SpellCastSelection.Empty
+                : new SpellCastSelection(selected);
+        }
+
         private static string ProfileLabel(string slug) =>
             slug switch
             {
@@ -908,6 +1015,11 @@ namespace Game.Rules.Unity.Vfx
                     0,
                     StrikeAmmunitionRequirement.None
                 );
+        }
+
+        private sealed class GalleryFriendshipProvider : ICombatantFriendshipProvider
+        {
+            public bool IsFriendly(PlayerId source, PlayerId target) => source == target;
         }
     }
 }

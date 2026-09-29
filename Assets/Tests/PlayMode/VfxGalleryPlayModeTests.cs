@@ -1123,6 +1123,16 @@ public sealed class VfxGalleryPlayModeTests
         VfxCoverageManifest manifest = VfxCoverageManifest.Load();
         gallery.ConfigureTestTiming(0.01f);
         Time.captureDeltaTime = 0.1f;
+        Dictionary<string, Transform> galleryActors = Object
+            .FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+            .Where(actor =>
+                actor.name
+                    is "Gallery Source"
+                        or "Gallery Target"
+                        or "Gallery Target 2"
+                        or "Gallery Target 3"
+            )
+            .ToDictionary(actor => actor.name, System.StringComparer.Ordinal);
 
         foreach (VfxCoverageEntry entry in manifest.entries)
         {
@@ -1143,6 +1153,72 @@ public sealed class VfxGalleryPlayModeTests
                     ? 0
                 : 1;
             Assert.That(gallery.CurrentTargetCount, Is.EqualTo(expectedTargets), entry.id);
+            if (entry.id.StartsWith("spell/", System.StringComparison.Ordinal))
+            {
+                Assert.That(
+                    gallery.LatestSpellSelectionValidation,
+                    Is.TypeOf<ActionValidationResult.ValidActionValidationResult>(),
+                    entry.id + " must pass the real production targeting-profile validator."
+                );
+                Assert.That(
+                    gallery.LatestSelection,
+                    Is.EqualTo(gallery.LatestSpellSelection.Creatures),
+                    entry.id + " must present the same creatures its action selected."
+                );
+                if (
+                    gallery.LatestSpellProfile.Kind
+                    is SpellSelectionKind.SingleCreature
+                        or SpellSelectionKind.ExactCreatureCount
+                )
+                {
+                    int requiredCount =
+                        gallery.LatestSpellProfile.ExactCreatureCount > 0
+                            ? gallery.LatestSpellProfile.ExactCreatureCount
+                            : 1;
+                    Assert.That(
+                        gallery.LatestSpellSelection.Creatures,
+                        Has.Count.EqualTo(requiredCount),
+                        entry.id + " must satisfy its production profile's exact target count."
+                    );
+                }
+                float maximumFeet =
+                    gallery.LatestSpellProfile.RangeFeet > 0
+                        ? gallery.LatestSpellProfile.RangeFeet
+                        : gallery.LatestSpellProfile.AreaFeet;
+                foreach (
+                    CreatureId creature in gallery.LatestSpellSelection.Creatures.Where(creature =>
+                        creature.Value != "vfx-gallery-source"
+                    )
+                )
+                {
+                    string objectName = creature.Value switch
+                    {
+                        "vfx-gallery-target-1" => "Gallery Target",
+                        "vfx-gallery-target-2" => "Gallery Target 2",
+                        "vfx-gallery-target-3" => "Gallery Target 3",
+                        _ => throw new AssertionException(
+                            $"Unknown gallery selection actor '{creature.Value}'."
+                        ),
+                    };
+                    float distanceFeet =
+                        Vector3.Distance(
+                            galleryActors["Gallery Source"].position,
+                            galleryActors[objectName].position
+                        ) * 5f;
+                    Assert.That(
+                        distanceFeet,
+                        Is.LessThanOrEqualTo(maximumFeet + 0.001f),
+                        entry.id
+                            + " must stage every selected creature inside its production profile."
+                    );
+                    if (gallery.LatestSpellProfile.Kind == SpellSelectionKind.Cone)
+                        Assert.That(
+                            galleryActors[objectName].position.x,
+                            Is.GreaterThan(galleryActors["Gallery Source"].position.x),
+                            entry.id + " must stage its target in the selected eastward cone."
+                        );
+                }
+            }
             if (entry.id.StartsWith("spell/infuse-vitality/"))
             {
                 string beamCue = SpellVfxCueSelector
@@ -1186,6 +1262,16 @@ public sealed class VfxGalleryPlayModeTests
                     "Bless's emanation fixture must include its caster like production targeting."
                 );
             }
+            if (entry.id.StartsWith("spell/haunting-hymn/"))
+            {
+                Assert.That(gallery.LatestSpellProfile.Kind, Is.EqualTo(SpellSelectionKind.Cone));
+                Assert.That(gallery.LatestSpellSelection.HasAreaDirection, Is.True, entry.id);
+                Assert.That(
+                    gallery.LatestSpellSelection.AreaDirection,
+                    Is.EqualTo(SpellAreaDirection.East),
+                    entry.id
+                );
+            }
             if (entry.id.StartsWith("spell/heal/2-action/"))
             {
                 Assert.That(
@@ -1196,6 +1282,17 @@ public sealed class VfxGalleryPlayModeTests
             }
             if (entry.id.StartsWith("spell/heal/3-action/"))
             {
+                Assert.That(
+                    gallery.LatestSpellProfile.Kind,
+                    Is.EqualTo(SpellSelectionKind.Emanation),
+                    entry.id
+                );
+                Assert.That(gallery.LatestSpellProfile.IncludeCaster, Is.True, entry.id);
+                Assert.That(
+                    gallery.LatestSelection.Select(creature => creature.Value),
+                    Does.Contain("vfx-gallery-source"),
+                    entry.id + " must include Heal's caster in the emanation selection."
+                );
                 Assert.That(
                     gallery.LastTrace.Count(cue => cue == "spell/heal/3-action-emanation"),
                     Is.EqualTo(1),
@@ -1262,17 +1359,37 @@ public sealed class VfxGalleryPlayModeTests
         Time.captureDeltaTime = 0.1f;
         Transform source = GameObject.Find("Gallery Source").transform;
         Transform firstTarget = GameObject.Find("Gallery Target").transform;
+        const float feetPerGridUnit = 5f;
 
-        gallery.Select("spell/heal/1-action/living");
-        yield return gallery.PlaySelectedForTests();
-        var touch = gallery.LastTransientStarts.Single(value =>
-            value.Cue == "spell/heal/1-action-living"
-        );
-        Assert.That(
-            Vector3.Distance(touch.Origin, firstTarget.position + Vector3.up * 0.6f),
-            Is.LessThan(0.01f)
-        );
-        Assert.That(touch.Destination, Is.EqualTo(touch.Origin));
+        string[] touchEntries =
+        {
+            "spell/heal/1-action/living",
+            "spell/heal/1-action/undead-critical-success",
+            "spell/heal/1-action/undead-success",
+            "spell/heal/1-action/undead-failure",
+            "spell/heal/1-action/undead-critical-failure",
+        };
+        foreach (string entry in touchEntries)
+        {
+            gallery.Select(entry);
+            yield return gallery.PlaySelectedForTests();
+            float distanceFeet =
+                Vector3.Distance(source.position, firstTarget.position) * feetPerGridUnit;
+            Assert.That(
+                distanceFeet,
+                Is.EqualTo(5f).Within(0.001f),
+                entry + " must stage its target in an adjacent contact-range grid cell."
+            );
+            var touch = gallery.LastTransientStarts.Single(value =>
+                value.Cue.StartsWith("spell/heal/1-action-", System.StringComparison.Ordinal)
+            );
+            Assert.That(
+                Vector3.Distance(touch.Origin, firstTarget.position + Vector3.up * 0.6f),
+                Is.LessThan(0.01f),
+                entry
+            );
+            Assert.That(touch.Destination, Is.EqualTo(touch.Origin), entry);
+        }
 
         gallery.Select("spell/heal/2-action/living");
         yield return gallery.PlaySelectedForTests();
@@ -1291,6 +1408,10 @@ public sealed class VfxGalleryPlayModeTests
             Is.LessThan(0.01f)
         );
         Assert.That(rangedResult.Origin, Is.EqualTo(rangedResult.Destination));
+        float rangedDistanceFeet =
+            Vector3.Distance(source.position, firstTarget.position) * feetPerGridUnit;
+        Assert.That(rangedDistanceFeet, Is.GreaterThan(5f));
+        Assert.That(rangedDistanceFeet, Is.LessThanOrEqualTo(30f));
         Assert.That(
             gallery.LastTrace.ToList().IndexOf("spell/heal/2-action-delivery"),
             Is.LessThan(gallery.LastTrace.ToList().IndexOf("spell/heal/2-action-living"))
@@ -1309,10 +1430,25 @@ public sealed class VfxGalleryPlayModeTests
                 {
                     "spell/heal/3-action-emanation",
                     "spell/heal/3-action-living",
+                    "spell/heal/3-action-living",
                     "spell/heal/3-action-undead-success",
                     "spell/heal/3-action-undead-critical-failure",
                 }
             )
+        );
+        Transform[] areaTargets = Object
+            .FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+            .Where(target =>
+                target.name is "Gallery Target" or "Gallery Target 2" or "Gallery Target 3"
+            )
+            .ToArray();
+        Assert.That(areaTargets, Has.Length.EqualTo(3));
+        Assert.That(
+            areaTargets.All(target =>
+                Vector3.Distance(source.position, target.position) * feetPerGridUnit <= 30f
+            ),
+            Is.True,
+            "Every staged 3-action Heal target must remain inside the 30-foot emanation."
         );
         string[] areaResults =
         {
@@ -1679,7 +1815,11 @@ public sealed class VfxGalleryPlayModeTests
         gallery.Select("spell/heal/3-action/area-wave");
         yield return gallery.PlaySelectedForTests();
         Assert.That(gallery.DamageFactCount, Is.EqualTo(2));
-        Assert.That(gallery.HealingFactCount, Is.EqualTo(1));
+        Assert.That(
+            gallery.HealingFactCount,
+            Is.EqualTo(2),
+            "The caster and primary living target must both receive committed area healing."
+        );
         Assert.That(gallery.PrimaryTargetHitPoints, Is.EqualTo(10));
         Assert.That(gallery.IsPrimaryTargetActive, Is.True);
 
@@ -1967,12 +2107,12 @@ public sealed class VfxGalleryPlayModeTests
         productionClock.Stop();
         long productionMemory = Profiler.GetTotalAllocatedMemoryLong();
 
-        Assert.That(peakObjects, Is.InRange(1, 3));
+        Assert.That(peakObjects, Is.InRange(1, 4));
         Assert.That(peakParticles, Is.InRange(1, 12));
         Assert.That(
             peakRenderers,
             Is.InRange(1, 32),
-            "Mixed-target area Heal intentionally presents three bounded target outcomes together."
+            "Mixed-target area Heal intentionally presents four bounded target outcomes together."
         );
         Assert.That(peakLights, Is.EqualTo(1));
         Assert.That(peakSharedMaterials, Is.InRange(1, 8));
