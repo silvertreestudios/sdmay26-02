@@ -332,10 +332,15 @@ namespace Game.Combat.Spells
                     || attackTarget == null
                 )
                     continue;
+                Vector3 projectileOrigin = creature.transform.position + Vector3.up * 0.6f;
+                Vector3 intendedDestination = attackTarget.transform.position + Vector3.up * 0.6f;
+                Vector3 projectileDestination = attack.Hit
+                    ? intendedDestination
+                    : VfxTrajectory.ResolveMissDestination(projectileOrigin, intendedDestination);
                 IEnumerator projectile = vfx.PlayTransient(
                     SpellVfxCueSelector.GetResult(operation.Spell.Spell, operation.Variant.Actions),
-                    creature.transform.position + Vector3.up * 0.6f,
-                    attackTarget.transform.position + Vector3.up * 0.6f,
+                    projectileOrigin,
+                    projectileDestination,
                     lifetimeOwner: creature.transform
                 );
                 using (projectile as IDisposable)
@@ -490,15 +495,21 @@ namespace Game.Combat.Spells
                         || target == null
                     )
                         continue;
+                    VfxCueId resultCue = SpellVfxCueSelector.GetResult(
+                        operation.Spell.Spell,
+                        operation.Variant.Actions
+                    );
+                    Vector3 targetPosition = target.transform.position + Vector3.up * 0.6f;
+                    bool travelsToTarget = operation.Spell.Spell.Value == "infuse-vitality";
+                    Vector3 resultOrigin = travelsToTarget
+                        ? creature.transform.position + Vector3.up * 0.6f
+                        : targetPosition;
                     selectedTimelines.Add(
                         vfx.PlayTransient(
-                            SpellVfxCueSelector.GetResult(
-                                operation.Spell.Spell,
-                                operation.Variant.Actions
-                            ),
-                            creature.transform.position + Vector3.up * 0.6f,
-                            target.transform.position + Vector3.up * 0.6f,
-                            lifetimeOwner: creature.transform
+                            resultCue,
+                            resultOrigin,
+                            targetPosition,
+                            lifetimeOwner: travelsToTarget ? creature.transform : target.transform
                         )
                     );
                 }

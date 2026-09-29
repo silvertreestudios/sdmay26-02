@@ -295,6 +295,27 @@ namespace Game.Rules.Unity.Vfx
         }
     }
 
+    /// <summary>Provides deterministic feature-neutral endpoints for authored travel cues.</summary>
+    internal static class VfxTrajectory
+    {
+        private const float MissOffset = 0.85f;
+
+        /// <summary>
+        /// Returns an endpoint beside the intended target so a missed projectile or beam cannot
+        /// visually contact its model. Coincident or vertical endpoints use a stable world axis.
+        /// </summary>
+        internal static Vector3 ResolveMissDestination(Vector3 origin, Vector3 intendedDestination)
+        {
+            Vector3 horizontalDirection = intendedDestination - origin;
+            horizontalDirection.y = 0f;
+            Vector3 lateral =
+                horizontalDirection.sqrMagnitude > 0.0001f
+                    ? Vector3.Cross(Vector3.up, horizontalDirection.normalized)
+                    : Vector3.right;
+            return intendedDestination + lateral * MissOffset;
+        }
+    }
+
     /// <summary>Describes the motion authored into one generated production prefab.</summary>
     public enum VfxMotionKind
     {

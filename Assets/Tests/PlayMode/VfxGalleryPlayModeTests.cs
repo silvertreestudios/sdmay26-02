@@ -2,11 +2,14 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Game.Combat.Spells;
 using Game.Creature;
+using Game.KayKit;
 using Game.Rules.Runtime;
 using Game.Rules.Unity;
 using Game.Rules.Unity.Light;
+using Game.Rules.Unity.Strike;
 using Game.Rules.Unity.Vfx;
 using NUnit.Framework;
 using UnityEngine;
@@ -580,6 +583,230 @@ public sealed class VfxPersistentPresentationPlayModeTests
     }
 
     [UnityTest]
+    public IEnumerator PersistentObserverDisposeCleansAVisualAfterItsQueuedRemovalIsAborted()
+    {
+        GameObject ownerObject = new("Aborted persistent removal owner");
+        CreatureComponent owner = ownerObject.AddComponent<CreatureComponent>();
+        CreatureId ownerId = new("aborted-persistent-removal-owner");
+        ActiveEffectInstance effect = new(
+            new ActiveEffectId("aborted-persistent-removal-effect"),
+            SpellFeatureRules.GuidanceEffect,
+            ownerId,
+            RuleSource.FromSlug("aborted-persistent-removal-test"),
+            EffectDuration.Indefinite,
+            new SpellEffectState(new SpellReference(new SpellId("guidance"), 1), ownerId)
+        );
+        ActiveRuleBinding binding = new(
+            new BindingId("aborted-persistent-removal-binding"),
+            effect.DefinitionId,
+            ownerId,
+            effect.Id,
+            effect.Source,
+            1
+        );
+        RulesSnapshot snapshot = new InMemoryRulesStore(
+            new RulesStateSeed().SeedActiveEffect(effect)
+        ).Snapshot;
+        UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Shared aborted persistent removal playback"
+        );
+        UnityActionPresentationCoordinator coordinator = new();
+        UnityPersistentVfxObserver observer = new(
+            playback,
+            new Dictionary<CreatureId, CreatureComponent> { [ownerId] = owner },
+            SpellPersistentVfxSelector.Select,
+            coordinator
+        );
+
+        observer.OnFactCommitted(
+            new ActiveEffectCreatedFact(effect, binding.Id),
+            new OpId(40),
+            snapshot
+        );
+        Assert.That(playback.LiveObjectCount, Is.EqualTo(1));
+
+        object action = new();
+        OpId removalRoot = new(41);
+        coordinator.Begin(action, removalRoot);
+        coordinator.Enqueue(action, FailingPresentation);
+        observer.OnFactCommitted(
+            new ActiveEffectRemovedFact(effect, binding, ActiveEffectRemovalReason.Ended),
+            removalRoot,
+            snapshot
+        );
+        LogAssert.Expect(LogType.Exception, new Regex("Synthetic presentation failure\\."));
+
+        IEnumerator drain = coordinator.Drain(action);
+        while (drain.MoveNext())
+            yield return drain.Current;
+
+        Assert.That(
+            playback.LiveObjectCount,
+            Is.EqualTo(1),
+            "The aborted queued callback has not yet removed the authoritative visual."
+        );
+        observer.Dispose();
+        coordinator.Dispose();
+        Assert.That(
+            playback.LiveObjectCount,
+            Is.Zero,
+            "Observer disposal must immediately clean a pending removal after sequence failure."
+        );
+        Assert.That(
+            GameObject.Find("Shared aborted persistent removal playback"),
+            Is.Not.Null,
+            "Cleanup must not require disposal of the shared playback session."
+        );
+
+        playback.Dispose();
+        Object.Destroy(ownerObject);
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator SelectedBuffResultsUseRecipientAnchorsWhileInfuseUsesDeliveryBeams()
+    {
+        Time.captureDeltaTime = 0.1f;
+        GameObject casterObject = new("Selected buff caster");
+        GameObject firstAllyObject = new("Selected buff ally one");
+        GameObject secondAllyObject = new("Selected buff ally two");
+        casterObject.transform.position = new Vector3(-2f, 0f, -1f);
+        firstAllyObject.transform.position = new Vector3(2f, 0f, 1f);
+        secondAllyObject.transform.position = new Vector3(0.5f, 0f, 3f);
+        CreatureComponent caster = casterObject.AddComponent<CreatureComponent>();
+        CreatureComponent firstAlly = firstAllyObject.AddComponent<CreatureComponent>();
+        CreatureComponent secondAlly = secondAllyObject.AddComponent<CreatureComponent>();
+        CreatureId casterId = new("selected-buff-caster");
+        CreatureId firstAllyId = new("selected-buff-ally-one");
+        CreatureId secondAllyId = new("selected-buff-ally-two");
+        Dictionary<CreatureId, CreatureComponent> creatures = new()
+        {
+            [casterId] = caster,
+            [firstAllyId] = firstAlly,
+            [secondAllyId] = secondAlly,
+        };
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Selected buff anchor playback"
+        );
+        playback.ConfigureTestTiming(0.01f);
+        UnitySpellActionPresenter presenter = new(
+            creatures,
+            UnitySpellDefinitionCatalog.Load(),
+            playback
+        );
+        RulesSnapshot snapshot = new InMemoryRulesStore(new RulesStateSeed()).Snapshot;
+        List<(VfxCueId Cue, Vector3 Origin, Vector3 Destination)> starts = new();
+        playback.TransientStarted += (cue, origin, destination) =>
+            starts.Add((cue, origin, destination));
+        var scenarios = new[]
+        {
+            (
+                Name: "Guidance self",
+                Spell: new SpellId("guidance"),
+                Actions: 1,
+                Targets: new[] { casterId },
+                Travels: false
+            ),
+            (
+                Name: "Guidance ally",
+                Spell: new SpellId("guidance"),
+                Actions: 1,
+                Targets: new[] { firstAllyId },
+                Travels: false
+            ),
+            (
+                Name: "Bless multiple recipients",
+                Spell: new SpellId("bless"),
+                Actions: 2,
+                Targets: new[] { casterId, firstAllyId, secondAllyId },
+                Travels: false
+            ),
+            (
+                Name: "Infuse one action",
+                Spell: new SpellId("infuse-vitality"),
+                Actions: 1,
+                Targets: new[] { firstAllyId },
+                Travels: true
+            ),
+            (
+                Name: "Infuse two actions",
+                Spell: new SpellId("infuse-vitality"),
+                Actions: 2,
+                Targets: new[] { firstAllyId, secondAllyId },
+                Travels: true
+            ),
+            (
+                Name: "Infuse three actions including self",
+                Spell: new SpellId("infuse-vitality"),
+                Actions: 3,
+                Targets: new[] { casterId, firstAllyId, secondAllyId },
+                Travels: true
+            ),
+        };
+
+        foreach (var scenario in scenarios)
+        {
+            starts.Clear();
+            SpellReference spell = new(scenario.Spell, 1);
+            CastSpellActionOp operation = new(
+                casterId,
+                spell,
+                new SpellActionVariant(scenario.Actions),
+                new SpellCastSelection(scenario.Targets)
+            );
+            CastSpellOutcome outcome = new(
+                casterId,
+                spell,
+                scenario
+                    .Targets.Select(
+                        (_, index) =>
+                            new ActiveEffectId($"{scenario.Spell.Value}-{scenario.Actions}-{index}")
+                    )
+                    .ToArray(),
+                System.Array.Empty<SpellAttackResolution>()
+            );
+            IEnumerator timeline = presenter.PresentResolved(operation, outcome, snapshot);
+            using (timeline as System.IDisposable)
+            {
+                while (timeline.MoveNext())
+                    yield return timeline.Current;
+            }
+
+            Assert.That(starts, Has.Count.EqualTo(scenario.Targets.Length), scenario.Name);
+            VfxCueId expectedCue = SpellVfxCueSelector.GetResult(scenario.Spell, scenario.Actions);
+            Vector3 casterPosition = caster.transform.position + Vector3.up * 0.6f;
+            for (int index = 0; index < scenario.Targets.Length; index++)
+            {
+                var started = starts[index];
+                Vector3 targetPosition =
+                    creatures[scenario.Targets[index]].transform.position + Vector3.up * 0.6f;
+                Assert.That(started.Cue, Is.EqualTo(expectedCue), scenario.Name);
+                Assert.That(
+                    Vector3.Distance(
+                        started.Origin,
+                        scenario.Travels ? casterPosition : targetPosition
+                    ),
+                    Is.LessThan(0.001f),
+                    scenario.Name + " origin"
+                );
+                Assert.That(
+                    Vector3.Distance(started.Destination, targetPosition),
+                    Is.LessThan(0.001f),
+                    scenario.Name + " destination"
+                );
+            }
+        }
+
+        Object.Destroy(casterObject);
+        Object.Destroy(firstAllyObject);
+        Object.Destroy(secondAllyObject);
+        yield return null;
+        Time.captureDeltaTime = 0f;
+    }
+
+    [UnityTest]
     public IEnumerator GuidanceConsumptionPlaysTransientPulseAndLeavesNoPersistentObject()
     {
         Time.captureDeltaTime = 0.1f;
@@ -705,6 +932,12 @@ public sealed class VfxPersistentPresentationPlayModeTests
     {
         record();
         yield break;
+    }
+
+    private static IEnumerator FailingPresentation()
+    {
+        yield return null;
+        throw new System.InvalidOperationException("Synthetic presentation failure.");
     }
 
     private static IEnumerator RecordDefeat(
@@ -989,6 +1222,160 @@ public sealed class VfxGalleryPlayModeTests
         Scene cleanup = SceneManager.CreateScene("VFX Delivery Anchor Cleanup");
         SceneManager.SetActiveScene(cleanup);
         yield return SceneManager.UnloadSceneAsync("VfxGallery");
+    }
+
+    [UnityTest]
+    public IEnumerator RangedMissTravelUsesOffTargetEndpointsAndHitsRetainContact()
+    {
+        yield return SceneManager.LoadSceneAsync("VfxGallery", LoadSceneMode.Single);
+        VfxGalleryController gallery = Object.FindFirstObjectByType<VfxGalleryController>();
+        gallery.ConfigureTestTiming(0.01f);
+        Time.captureDeltaTime = 0.1f;
+        Transform source = GameObject.Find("Gallery Source").transform;
+        Transform target = GameObject.Find("Gallery Target").transform;
+        var strikeMisses = new[]
+        {
+            (Id: "strike/shortbow/miss", Cue: "strike/bow/travel"),
+            (Id: "strike/sling/miss", Cue: "strike/sling/travel"),
+            (Id: "strike/spear/miss", Cue: "strike/piercing/travel"),
+        };
+
+        foreach (var value in strikeMisses)
+        {
+            gallery.Select(value.Id);
+            yield return gallery.PlaySelectedForTests();
+            var travel = gallery.LastTransientStarts.Single(start => start.Cue == value.Cue);
+            Vector3 targetCenter = target.position + Vector3.up * 0.6f;
+            Assert.That(
+                Vector3.Distance(travel.Destination, targetCenter),
+                Is.EqualTo(0.85f).Within(0.001f),
+                value.Id + " must visibly clear the target center."
+            );
+        }
+
+        gallery.Select("spell/divine-lance/2-action/miss");
+        yield return gallery.PlaySelectedForTests();
+        var spellMiss = gallery.LastTransientStarts.Single(start =>
+            start.Cue == "spell/divine-lance/projectile"
+        );
+        Vector3 spellTargetCenter = target.position + Vector3.up * 0.6f;
+        Assert.That(
+            Vector3.Distance(spellMiss.Destination, spellTargetCenter),
+            Is.EqualTo(0.85f).Within(0.001f)
+        );
+
+        string[] contactEntries =
+        {
+            "strike/shortbow/hit",
+            "strike/shortbow/critical",
+            "spell/divine-lance/2-action/hit",
+            "spell/divine-lance/2-action/critical",
+        };
+        foreach (string entry in contactEntries)
+        {
+            gallery.Select(entry);
+            yield return gallery.PlaySelectedForTests();
+            var travel = gallery.LastTransientStarts.First(start =>
+                start.Cue is "strike/bow/travel" or "spell/divine-lance/projectile"
+            );
+            Vector3 targetCenter = target.position + Vector3.up * 0.6f;
+            Assert.That(
+                Vector3.Distance(travel.Destination, targetCenter),
+                Is.LessThan(0.001f),
+                entry + " must retain its exact contact endpoint."
+            );
+        }
+
+        Vector3 originalTargetPosition = target.position;
+        target.position = source.position;
+        Vector3 coincidentCenter = target.position + Vector3.up * 0.6f;
+        CreatureId sourceId = new("coincident-source");
+        CreatureId targetId = new("coincident-target");
+        using UnityVfxPlayback playback = new(
+            new ResourcesVfxPrefabCatalog(),
+            "Coincident miss playback"
+        );
+        playback.ConfigureTestTiming(0.01f);
+        List<(VfxCueId Cue, Vector3 Origin, Vector3 Destination)> starts = new();
+        playback.TransientStarted += (cue, origin, destination) =>
+            starts.Add((cue, origin, destination));
+        CoincidentStrikeCatalog strikeCatalog = new();
+        UnityStrikeActionPresenter presenter = new(
+            new Dictionary<CreatureId, GameObject> { [sourceId] = source.gameObject },
+            new Dictionary<CreatureId, CreatureComponent>
+            {
+                [targetId] = target.GetComponent<CreatureComponent>(),
+            },
+            strikeCatalog,
+            playback
+        );
+        StrikeActionOp missAction = new(sourceId, strikeCatalog.Item.Item, targetId);
+        StrikeResolution missResolution = new(
+            new RollResult(DiceExpressions.D20, new[] { 3 }),
+            8,
+            0,
+            0,
+            18,
+            0,
+            false,
+            Game.Rules.Runtime.DegreeOfSuccess.Failure,
+            System.Array.Empty<TypedDamagePart>(),
+            0
+        );
+        IEnumerator missTimeline = presenter.PresentResolved(
+            missAction,
+            missResolution,
+            new InMemoryRulesStore(new RulesStateSeed()).Snapshot
+        );
+        using (missTimeline as System.IDisposable)
+        {
+            while (missTimeline.MoveNext())
+                yield return missTimeline.Current;
+        }
+        var coincidentMiss = starts.Single(start => start.Cue.Value == "strike/bow/travel");
+        Assert.That(
+            Vector3.Distance(coincidentMiss.Destination, coincidentCenter + Vector3.right * 0.85f),
+            Is.LessThan(0.001f),
+            "Coincident source and target positions require a deterministic fallback axis."
+        );
+        target.position = originalTargetPosition;
+
+        Time.captureDeltaTime = 0f;
+        Scene cleanup = SceneManager.CreateScene("VFX Miss Trajectory Cleanup");
+        SceneManager.SetActiveScene(cleanup);
+        yield return SceneManager.UnloadSceneAsync("VfxGallery");
+    }
+
+    private sealed class CoincidentStrikeCatalog : IStrikePresentationCatalog
+    {
+        internal CoincidentStrikeCatalog()
+        {
+            Item = new StrikeItemDefinition(
+                new ItemId("coincident-shortbow"),
+                new ItemDefinitionId("coincident-shortbow"),
+                "Shortbow",
+                string.Empty,
+                "test",
+                System.Array.Empty<Trait>(),
+                8,
+                new[] { new TypedDamageDice(new DiceExpression(1, 6), "piercing", "test") },
+                System.Array.Empty<TypedFlatDamage>(),
+                5,
+                60,
+                0,
+                StrikeAmmunitionRequirement.None
+            );
+        }
+
+        internal StrikeItemDefinition Item { get; }
+
+        public StrikeItemDefinition GetStrikeItem(ItemId item) => Item;
+
+        public bool TryGetWeapon(ItemId item, out EquipmentWeapon weapon)
+        {
+            weapon = null;
+            return false;
+        }
     }
 
     [UnityTest]

@@ -125,11 +125,16 @@ namespace Game.Rules.Unity.Strike
                 yield break;
 
             StrikeItemDefinition item = strikeContext.GetStrikeItem(operation.Item);
+            Vector3 travelOrigin = attacker.transform.position + Vector3.up * 0.6f;
+            Vector3 intendedDestination = target.transform.position + Vector3.up * 0.6f;
+            Vector3 travelDestination = result.Hit
+                ? intendedDestination
+                : VfxTrajectory.ResolveMissDestination(travelOrigin, intendedDestination);
 
             IEnumerator travel = vfx.PlayTransient(
                 StrikeVfxCueSelector.GetTravel(item.Label),
-                attacker.transform.position + Vector3.up * 0.6f,
-                target.transform.position + Vector3.up * 0.6f,
+                travelOrigin,
+                travelDestination,
                 lifetimeOwner: attacker.transform
             );
             using (travel as IDisposable)

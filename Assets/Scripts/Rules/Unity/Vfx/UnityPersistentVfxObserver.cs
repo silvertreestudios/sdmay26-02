@@ -102,6 +102,7 @@ namespace Game.Rules.Unity.Vfx
         private readonly Func<ActiveEffectInstance, PersistentVfxSelection?> select;
         private readonly UnityActionPresentationCoordinator coordinator;
         private readonly HashSet<ActiveEffectId> owned = new();
+        private readonly HashSet<ActiveEffectId> pendingRemovals = new();
 
         /// <summary>Creates a feature-configured persistent-effect observer.</summary>
         public UnityPersistentVfxObserver(
@@ -146,6 +147,7 @@ namespace Game.Rules.Unity.Vfx
                 || owner == null
             )
                 return;
+            pendingRemovals.Remove(effect.Id);
             owned.Add(effect.Id);
             PersistentVfxAnchor anchor = selection.Value.ResolveAnchor(owner);
             if (
@@ -164,7 +166,7 @@ namespace Game.Rules.Unity.Vfx
             RulesSnapshot currentSnapshot
         )
         {
-            if (!owned.Remove(fact.EffectId))
+            if (!owned.Contains(fact.EffectId) || !pendingRemovals.Add(fact.EffectId))
                 return;
             PersistentVfxSelection? selection = select(fact.Effect);
             if (
@@ -188,7 +190,7 @@ namespace Game.Rules.Unity.Vfx
                     )
                 )
                     return;
-                playback.RemovePersistent(fact.EffectId.Value);
+                CompleteRemoval(fact.EffectId);
                 VfxCoroutineHost.Run(
                     removalOwner,
                     playback.PlayTransient(
@@ -203,7 +205,7 @@ namespace Game.Rules.Unity.Vfx
 
             if (coordinator.TryEnqueue(rootId, () => RemovePersistent(fact.EffectId)))
                 return;
-            playback.RemovePersistent(fact.EffectId.Value);
+            CompleteRemoval(fact.EffectId);
         }
 
         /// <inheritdoc/>
@@ -216,11 +218,9 @@ namespace Game.Rules.Unity.Vfx
         /// <inheritdoc/>
         public void Dispose()
         {
+            pendingRemovals.Clear();
             foreach (ActiveEffectId effect in new List<ActiveEffectId>(owned))
-            {
-                owned.Remove(effect);
-                playback.RemovePersistent(effect.Value);
-            }
+                CompleteRemoval(effect);
         }
 
         private IEnumerator SetPersistent(
@@ -248,7 +248,8 @@ namespace Game.Rules.Unity.Vfx
 
         private IEnumerator RemovePersistent(ActiveEffectId effect)
         {
-            playback.RemovePersistent(effect.Value);
+            if (pendingRemovals.Contains(effect))
+                CompleteRemoval(effect);
             yield break;
         }
 
@@ -258,7 +259,9 @@ namespace Game.Rules.Unity.Vfx
             PersistentVfxAnchor anchor
         )
         {
-            playback.RemovePersistent(effect.Value);
+            if (!pendingRemovals.Contains(effect))
+                yield break;
+            CompleteRemoval(effect);
             IEnumerator transient = playback.PlayTransient(
                 removalCue,
                 anchor.Transform.TransformPoint(anchor.LocalOffset),
@@ -270,6 +273,13 @@ namespace Game.Rules.Unity.Vfx
                 while (transient.MoveNext())
                     yield return transient.Current;
             }
+        }
+
+        private void CompleteRemoval(ActiveEffectId effect)
+        {
+            pendingRemovals.Remove(effect);
+            owned.Remove(effect);
+            playback.RemovePersistent(effect.Value);
         }
     }
 }
